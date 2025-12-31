@@ -99,6 +99,9 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
+import java.time.DayOfWeek
+import java.time.YearMonth
+import java.time.temporal.TemporalAdjusters
 import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.Executors
@@ -375,7 +378,8 @@ data class Lembrete(
     val kmLimite: String,
     val tipo: TipoManutencao,
     val valor: Double = 0.0,
-    val fotoPath: String? = null
+    val fotoPath: String? = null,
+    val horaAviso: String = "09:00"
 ) : Serializable
 
 data class CarroInfo(
@@ -714,7 +718,26 @@ fun ManutencaoScreen(modifier: Modifier = Modifier, context: Context = LocalCont
     var showAddContatoDialog by remember { mutableStateOf(false) }
     var showRelatorioDialog by remember { mutableStateOf(false) }
     var showTesteNotificacaoDialog by remember { mutableStateOf(false) }
+    var lembreteSelecionado by remember { mutableStateOf<Lembrete?>(null) }
+    var contatoDetalheSelecionado by remember { mutableStateOf<ContatoProfissional?>(null) }
     val lembretesDoCarroAtual = todosLembretes.filter { it.carroId == carroAtual.id }
+    var isCalendarMode by remember { mutableStateOf(false) }
+    var calendarioMes by remember { mutableStateOf(YearMonth.now()) }
+    var diaSelecionado by remember { mutableStateOf<LocalDate?>(null) }
+    val formatterData = remember { DateTimeFormatter.ofPattern("dd/MM/yyyy") }
+    val lembretesPorData = lembretesDoCarroAtual.mapNotNull { lembrete ->
+        runCatching { LocalDate.parse(lembrete.dataLimite, formatterData) }.getOrNull()?.let { it to lembrete }
+    }.groupBy({ it.first }, { it.second })
+
+    LaunchedEffect(isCalendarMode, lembretesPorData, calendarioMes) {
+        if (isCalendarMode) {
+            val dataAtual = diaSelecionado
+            if (dataAtual == null || !lembretesPorData.containsKey(dataAtual)) {
+                diaSelecionado = lembretesPorData.keys.firstOrNull { YearMonth.from(it) == calendarioMes }
+                    ?: lembretesPorData.keys.minOrNull()
+            }
+        }
+    }
 
     if (showEditCarDialog) { EditarCarroDialog(carroAtual = carroAtual, titulo = "Editar Veículo", onDismiss = { showEditCarDialog = false }, onSalvar = { carroEditado -> listaCarros = listaCarros.map { if (it.id == carroAtual.id) carroEditado else it }; showEditCarDialog = false }) }
     if (showAddCarDialog) { EditarCarroDialog(carroAtual = CarroInfo(nome = "", modelo = ""), titulo = "Novo Carro", onDismiss = { showAddCarDialog = false }, onSalvar = { novoCarro -> listaCarros = listaCarros + novoCarro; indiceCarroAtual = listaCarros.lastIndex; showAddCarDialog = false }) }
@@ -732,6 +755,25 @@ fun ManutencaoScreen(modifier: Modifier = Modifier, context: Context = LocalCont
                     "Esse é um disparo rápido de teste."
                 )
                 Toast.makeText(context, "Notificação enviada!", Toast.LENGTH_SHORT).show()
+            }
+        )
+    }
+    lembreteSelecionado?.let { selecionado ->
+        LembreteDetalhesDialog(
+            lembrete = selecionado,
+            contato = contatoDetalheSelecionado,
+            carro = carroAtual,
+            onDismiss = {
+                lembreteSelecionado = null
+                contatoDetalheSelecionado = null
+            },
+            onSalvar = { atualizado ->
+                todosLembretes = todosLembretes.map { if (it.id == atualizado.id) atualizado else it }
+                NotificacaoHelper.cancelarNotificacao(context.applicationContext, atualizado.id)
+                NotificacaoHelper.agendarNotificacao(context.applicationContext, atualizado, atualizado.horaAviso)
+                lembreteSelecionado = atualizado
+                contatoDetalheSelecionado = listaContatos.find { it.id == atualizado.contatoId }
+                Toast.makeText(context, "Aviso atualizado!", Toast.LENGTH_SHORT).show()
             }
         )
     }
@@ -834,8 +876,24 @@ fun ManutencaoScreen(modifier: Modifier = Modifier, context: Context = LocalCont
                 Spacer(Modifier.height(24.dp))
 
                     Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                        Text("Histórico & Agenda", color = Color.White, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                        Text("Agenda", color = Color.White, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(
+                                onClick = { isCalendarMode = false },
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .background(if (!isCalendarMode) Color(0xFF3B82F6) else Color(0xFF1E293B), CircleShape)
+                            ) {
+                                Icon(Icons.Default.ViewList, contentDescription = "Exibir lista", tint = Color.White)
+                            }
+                            IconButton(
+                                onClick = { isCalendarMode = true },
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .background(if (isCalendarMode) Color(0xFF3B82F6) else Color(0xFF1E293B), CircleShape)
+                            ) {
+                                Icon(Icons.Default.CalendarMonth, contentDescription = "Exibir calendário", tint = Color.White)
+                            }
                             IconButton(
                                 onClick = { showTesteNotificacaoDialog = true },
                                 modifier = Modifier.size(40.dp).background(Color(0xFF1E293B), CircleShape)
@@ -854,6 +912,7 @@ fun ManutencaoScreen(modifier: Modifier = Modifier, context: Context = LocalCont
                             }
                         }
                     }
+                    Spacer(Modifier.height(16.dp))
 
                 if (lembretesDoCarroAtual.isEmpty()) {
                     Box(modifier = Modifier.fillMaxWidth().height(150.dp), contentAlignment = Alignment.Center) {
@@ -864,19 +923,44 @@ fun ManutencaoScreen(modifier: Modifier = Modifier, context: Context = LocalCont
                         }
                     }
                 } else {
-                    Column(modifier = Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        val descricaoModeloCompleto = listOf(carroAtual.marca, carroAtual.modelo).filter { it.isNotBlank() }.joinToString(" ").ifBlank { carroAtual.modelo }
-                        lembretesDoCarroAtual.reversed().forEach { lembrete ->
-                            LembreteCard(
-                                lembrete = lembrete,
-                                contato = listaContatos.find { it.id == lembrete.contatoId },
-                                modeloCarro = descricaoModeloCompleto,
-                                onDelete = {
-                                    NotificacaoHelper.cancelarNotificacao(context.applicationContext, lembrete.id)
-                                    todosLembretes = todosLembretes.filter { it.id != lembrete.id }
-                                }
-                            )
+                    if (!isCalendarMode) {
+                        Column(modifier = Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            val descricaoModeloCompleto = listOf(carroAtual.marca, carroAtual.modelo).filter { it.isNotBlank() }.joinToString(" ").ifBlank { carroAtual.modelo }
+                            lembretesDoCarroAtual.reversed().forEach { lembrete ->
+                                LembreteCard(
+                                    lembrete = lembrete,
+                                    contato = listaContatos.find { it.id == lembrete.contatoId },
+                                    modeloCarro = descricaoModeloCompleto,
+                                    onDelete = {
+                                        NotificacaoHelper.cancelarNotificacao(context.applicationContext, lembrete.id)
+                                        todosLembretes = todosLembretes.filter { it.id != lembrete.id }
+                                    },
+                                    onClick = {
+                                        lembreteSelecionado = lembrete
+                                        contatoDetalheSelecionado = listaContatos.find { it.id == lembrete.contatoId }
+                                    }
+                                )
+                            }
                         }
+                    } else {
+                        CalendarLembretesView(
+                            mesAtual = calendarioMes,
+                            onMesAnterior = { calendarioMes = calendarioMes.minusMonths(1) },
+                            onProximoMes = { calendarioMes = calendarioMes.plusMonths(1) },
+                            lembretesPorData = lembretesPorData,
+                            diaSelecionado = diaSelecionado,
+                            onSelecionarDia = { diaSelecionado = it },
+                            onAbrirLembrete = { lembrete ->
+                                lembreteSelecionado = lembrete
+                                contatoDetalheSelecionado = listaContatos.find { it.id == lembrete.contatoId }
+                            },
+                            modeloCarro = listOf(carroAtual.marca, carroAtual.modelo).filter { it.isNotBlank() }.joinToString(" ").ifBlank { carroAtual.modelo },
+                            contatoProvider = { lembrete -> listaContatos.find { it.id == lembrete.contatoId } },
+                            onExcluir = { alvo ->
+                                NotificacaoHelper.cancelarNotificacao(context.applicationContext, alvo.id)
+                                todosLembretes = todosLembretes.filter { it.id != alvo.id }
+                            }
+                        )
                     }
                 }
                 Spacer(Modifier.height(80.dp))
@@ -946,7 +1030,13 @@ fun MonitorIcon(tipo: TipoManutencao, cor: Color, quantidade: Int) {
 }
 
 @Composable
-fun LembreteCard(lembrete: Lembrete, contato: ContatoProfissional?, modeloCarro: String, onDelete: () -> Unit) {
+fun LembreteCard(
+    lembrete: Lembrete,
+    contato: ContatoProfissional?,
+    modeloCarro: String,
+    onDelete: () -> Unit,
+    onClick: () -> Unit
+) {
     val context = LocalContext.current
     var showDeleteDialog by remember { mutableStateOf(false) }
 
@@ -962,7 +1052,9 @@ fun LembreteCard(lembrete: Lembrete, contato: ContatoProfissional?, modeloCarro:
     }
 
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() },
         colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
         shape = RoundedCornerShape(16.dp),
         elevation = CardDefaults.cardElevation(4.dp)
@@ -1096,6 +1188,333 @@ fun NotificacaoRapidaDialog(onDismiss: () -> Unit, onDisparar: () -> Unit) {
                 }
             }
         }
+    }
+}
+
+@Composable
+fun CalendarLembretesView(
+    mesAtual: YearMonth,
+    onMesAnterior: () -> Unit,
+    onProximoMes: () -> Unit,
+    lembretesPorData: Map<LocalDate, List<Lembrete>>,
+    diaSelecionado: LocalDate?,
+    onSelecionarDia: (LocalDate) -> Unit,
+    onAbrirLembrete: (Lembrete) -> Unit,
+    modeloCarro: String,
+    contatoProvider: (Lembrete) -> ContatoProfissional?,
+    onExcluir: (Lembrete) -> Unit
+) {
+    val localeBR = remember { Locale("pt", "BR") }
+    val formatterMes = remember { DateTimeFormatter.ofPattern("MMMM yyyy", localeBR) }
+    val semanaLabels = listOf("D", "S", "T", "Q", "Q", "S", "S")
+    val primeiroDiaMes = mesAtual.atDay(1)
+    val inicioGrade = primeiroDiaMes.with(TemporalAdjusters.previousOrSame(DayOfWeek.SUNDAY))
+    val diasGrade = (0 until 42).map { inicioGrade.plusDays(it.toLong()) }
+
+    Card(
+        modifier = Modifier.padding(horizontal = 16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF111C2E)),
+        shape = RoundedCornerShape(18.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onMesAnterior) { Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Mês anterior", tint = Color.White) }
+            Text(
+                formatterMes.format(mesAtual.atDay(1)).replaceFirstChar { if (it.isLowerCase()) it.titlecase(localeBR) else it.toString() },
+                color = Color.White,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+            IconButton(onClick = onProximoMes) { Icon(Icons.Default.ArrowForwardIos, contentDescription = "Próximo mês", tint = Color.White) }
+        }
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            semanaLabels.forEach { label ->
+                Text(label, color = Color(0xFF94A3B8), modifier = Modifier.weight(1f), textAlign = TextAlign.Center, fontWeight = FontWeight.SemiBold)
+            }
+        }
+        diasGrade.chunked(7).forEach { semana ->
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                semana.forEach { dia ->
+                    val pertenceAoMes = YearMonth.from(dia) == mesAtual
+                    val temAviso = lembretesPorData.containsKey(dia)
+                    val selecionado = diaSelecionado == dia
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .aspectRatio(1f)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(
+                                when {
+                                    selecionado -> Color(0xFF3B82F6)
+                                    pertenceAoMes -> Color(0xFF1E293B)
+                                    else -> Color.Transparent
+                                }
+                            )
+                            .border(
+                                width = if (temAviso && !selecionado) 1.dp else 0.dp,
+                                color = if (temAviso) Color(0xFF3B82F6) else Color.Transparent,
+                                shape = RoundedCornerShape(10.dp)
+                            )
+                            .clickable(enabled = pertenceAoMes) { onSelecionarDia(dia) },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                            Text(
+                                text = dia.dayOfMonth.toString(),
+                                color = when {
+                                    selecionado -> Color.White
+                                    pertenceAoMes -> Color.White
+                                    else -> Color(0xFF475569)
+                                },
+                                fontWeight = FontWeight.Bold
+                            )
+                            if (temAviso) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .clip(CircleShape)
+                                        .background(if (selecionado) Color.White else Color(0xFF3B82F6))
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        val selecionados = diaSelecionado?.let { lembretesPorData[it] } ?: emptyList()
+        if (selecionados.isEmpty()) {
+            Text("Selecione um dia com avisos para ver os detalhes.", color = Color(0xFF94A3B8), modifier = Modifier.padding(top = 8.dp))
+        } else {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                selecionados.forEach { lembrete ->
+                    LembreteCard(
+                        lembrete = lembrete,
+                        contato = contatoProvider(lembrete),
+                        modeloCarro = modeloCarro,
+                        onDelete = { onExcluir(lembrete) },
+                        onClick = { onAbrirLembrete(lembrete) }
+                    )
+                }
+            }
+        }
+        }
+    }
+}
+
+@Composable
+fun LembreteDetalhesDialog(
+    lembrete: Lembrete,
+    contato: ContatoProfissional?,
+    carro: CarroInfo,
+    onDismiss: () -> Unit,
+    onSalvar: (Lembrete) -> Unit
+) {
+    val context = LocalContext.current
+    var isEditando by remember { mutableStateOf(false) }
+    var titulo by remember { mutableStateOf(lembrete.titulo) }
+    var dataAviso by remember { mutableStateOf(lembrete.dataLimite) }
+    var horaAviso by remember { mutableStateOf(lembrete.horaAviso) }
+    var kmLimite by remember { mutableStateOf(lembrete.kmLimite) }
+    var valorTexto by remember { mutableStateOf(if (lembrete.valor > 0) lembrete.valor.toString() else "") }
+
+    LaunchedEffect(lembrete) {
+        titulo = lembrete.titulo
+        dataAviso = lembrete.dataLimite
+        horaAviso = lembrete.horaAviso
+        kmLimite = lembrete.kmLimite
+        valorTexto = if (lembrete.valor > 0) lembrete.valor.toString() else ""
+        isEditando = false
+    }
+
+    fun abrirDatePickerEdit() {
+        val atual = try { LocalDate.parse(dataAviso, DateTimeFormatter.ofPattern("dd/MM/yyyy")) } catch (e: Exception) { LocalDate.now() }
+        DatePickerDialog(
+            context,
+            { _, year, month, dayOfMonth ->
+                dataAviso = "%02d/%02d/%04d".format(dayOfMonth, month + 1, year)
+            },
+            atual.year,
+            atual.monthValue - 1,
+            atual.dayOfMonth
+        ).show()
+    }
+
+    fun abrirTimePickerEdit() {
+        val partes = horaAviso.split(":")
+        val hora = partes.getOrNull(0)?.toIntOrNull() ?: 9
+        val minuto = partes.getOrNull(1)?.toIntOrNull() ?: 0
+        TimePickerDialog(
+            context,
+            { _, hour, minute -> horaAviso = "%02d:%02d".format(hour, minute) },
+            hora,
+            minuto,
+            true
+        ).show()
+    }
+
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.75f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth(0.92f)
+                    .wrapContentHeight()
+                    .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(24.dp)),
+                shape = RoundedCornerShape(24.dp),
+                color = Color(0xFF0B1729)
+            ) {
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(lembrete.tipo.getIcon(), contentDescription = null, tint = Color(0xFF3B82F6))
+                        Spacer(Modifier.width(12.dp))
+                        Column {
+                            Text(lembrete.titulo, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 20.sp)
+                            Text(lembrete.tipo.label, color = Color(0xFF94A3B8), fontSize = 12.sp)
+                        }
+                    }
+                    HorizontalDivider(color = Color(0xFF1F2A44))
+                    if (isEditando) {
+                        OutlinedTextField(
+                            value = titulo,
+                            onValueChange = { titulo = it },
+                            label = { Text("Título do aviso") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+                            OutlinedTextField(
+                                value = dataAviso,
+                                onValueChange = {},
+                                modifier = Modifier.weight(1f).clickable { abrirDatePickerEdit() },
+                                readOnly = true,
+                                label = { Text("Data") },
+                                trailingIcon = {
+                                    IconButton(onClick = { abrirDatePickerEdit() }) {
+                                        Icon(Icons.Default.DateRange, contentDescription = null)
+                                    }
+                                }
+                            )
+                            OutlinedTextField(
+                                value = horaAviso,
+                                onValueChange = {},
+                                modifier = Modifier.weight(1f).clickable { abrirTimePickerEdit() },
+                                readOnly = true,
+                                label = { Text("Hora") },
+                                trailingIcon = {
+                                    IconButton(onClick = { abrirTimePickerEdit() }) {
+                                        Icon(Icons.Default.Schedule, contentDescription = null)
+                                    }
+                                }
+                            )
+                        }
+                        OutlinedTextField(
+                            value = kmLimite,
+                            onValueChange = { if (it.all(Char::isDigit)) kmLimite = it },
+                            label = { Text("KM limite") },
+                            modifier = Modifier.fillMaxWidth(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true
+                        )
+                        OutlinedTextField(
+                            value = valorTexto,
+                            onValueChange = { if (it.all { c -> c.isDigit() || c == '.' || c == ',' }) valorTexto = it.replace(',', '.') },
+                            label = { Text("Valor (R$)") },
+                            modifier = Modifier.fillMaxWidth(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                            singleLine = true
+                        )
+                    } else {
+                        val infoItems = buildList {
+                            add("Veículo" to carro.nome)
+                            add("Data do aviso" to lembrete.dataLimite.ifBlank { "Sem data" })
+                            add("Hora do aviso" to lembrete.horaAviso)
+                            add("KM limite" to lembrete.kmLimite.ifBlank { "Não definido" })
+                            if (lembrete.valor > 0) add("Valor" to formatarMoeda(lembrete.valor))
+                            contato?.let { add("Profissional" to "${it.nome} (${it.tipoServico})") }
+                            lembrete.fotoPath?.let { add("Anexo" to "Foto disponível") }
+                        }
+                        infoItems.chunked(2).forEach { linhaInfos ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(16.dp)
+                            ) {
+                                linhaInfos.forEach { (label, valor) ->
+                                    InfoLinha(label = label, valor = valor, modifier = Modifier.weight(1f))
+                                }
+                                if (linhaInfos.size == 1) {
+                                    Spacer(Modifier.weight(1f))
+                                }
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    if (isEditando) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = {
+                                    titulo = lembrete.titulo
+                                    dataAviso = lembrete.dataLimite
+                                    horaAviso = lembrete.horaAviso
+                                    kmLimite = lembrete.kmLimite
+                                    valorTexto = if (lembrete.valor > 0) lembrete.valor.toString() else ""
+                                    isEditando = false
+                                },
+                                modifier = Modifier.weight(1f)
+                            ) { Text("Cancelar") }
+                            Button(
+                                onClick = {
+                                    val novoValor = valorTexto.toDoubleOrNull() ?: 0.0
+                                    val atualizado = lembrete.copy(
+                                        titulo = titulo.ifBlank { lembrete.titulo },
+                                        dataLimite = dataAviso.ifBlank { lembrete.dataLimite },
+                                        horaAviso = horaAviso.ifBlank { lembrete.horaAviso },
+                                        kmLimite = kmLimite,
+                                        valor = novoValor
+                                    )
+                                    onSalvar(atualizado)
+                                    isEditando = false
+                                },
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6))
+                            ) { Text("Salvar alterações") }
+                        }
+                    } else {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = { isEditando = true },
+                                modifier = Modifier.weight(1f)
+                            ) { Text("Editar") }
+                            Button(
+                                onClick = onDismiss,
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6))
+                            ) { Text("Fechar", color = Color.White, fontWeight = FontWeight.Bold) }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun InfoLinha(label: String, valor: String, modifier: Modifier = Modifier) {
+    Column(modifier = modifier) {
+        Text(label, color = Color(0xFF94A3B8), fontSize = 12.sp)
+        Text(valor, color = Color.White, fontWeight = FontWeight.SemiBold)
     }
 }
 
@@ -1331,7 +1750,8 @@ fun NovoAgendamentoDialog(
                                     valor = item.valor,
                                     carroId = "",
                                     contatoId = contatoSelecionado?.id,
-                                    fotoPath = fotoCaminho
+                                    fotoPath = fotoCaminho,
+                                    horaAviso = horaNotificacao
                                 )
                             }
                         }
@@ -1347,7 +1767,8 @@ fun NovoAgendamentoDialog(
                                 valor = valorInput.toDoubleOrNull() ?: 0.0,
                                 carroId = "",
                                 contatoId = contatoSelecionado?.id,
-                                fotoPath = fotoCaminho
+                                fotoPath = fotoCaminho,
+                                horaAviso = horaNotificacao
                             )
                             NotificacaoHelper.agendarNotificacao(appContext, novoLembrete, horaNotificacao)
                             onConfirm(novoLembrete)
