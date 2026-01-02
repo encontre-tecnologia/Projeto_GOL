@@ -50,6 +50,7 @@ import androidx.compose.material.icons.rounded.Thermostat
 import androidx.compose.material.icons.rounded.WaterDrop
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -92,6 +93,10 @@ import java.time.temporal.TemporalAdjusters
 import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.Executors
+
+private val dialogBorderStroke = BorderStroke(0.2.dp, Color.White.copy(alpha = 0.2f))
+private val dialogCornerShape = RoundedCornerShape(20.dp)
+private val dialogActionButtonShape = RoundedCornerShape(8.dp)
 
 /* ----------------- ESTRUTURAS DE DADOS ----------------- */
 
@@ -474,6 +479,7 @@ fun ManutencaoScreen(modifier: Modifier = Modifier, context: Context = LocalCont
     var showAddContatoDialog by remember { mutableStateOf(false) }
     var showRelatorioDialog by remember { mutableStateOf(false) }
     var showTesteNotificacaoDialog by remember { mutableStateOf(false) }
+    var showConfiguracoes by remember { mutableStateOf(false) }
     var lembreteSelecionado by remember { mutableStateOf<Lembrete?>(null) }
     var contatoDetalheSelecionado by remember { mutableStateOf<ContatoProfissional?>(null) }
     val lembretesDoCarroAtual = todosLembretes.filter { it.carroId == carroAtual.id }
@@ -511,6 +517,15 @@ fun ManutencaoScreen(modifier: Modifier = Modifier, context: Context = LocalCont
                     "Esse é um disparo rápido de teste."
                 )
                 Toast.makeText(context, "Notificação enviada!", Toast.LENGTH_SHORT).show()
+            }
+        )
+    }
+    if (showConfiguracoes) {
+        ConfiguracoesScreen(
+            onDismiss = { showConfiguracoes = false },
+            onTestarNotificacao = {
+                showTesteNotificacaoDialog = true
+                showConfiguracoes = false
             }
         )
     }
@@ -566,8 +581,13 @@ fun ManutencaoScreen(modifier: Modifier = Modifier, context: Context = LocalCont
                         Text("CarLembrete", color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                         Text("Gestão de Frota", color = Color(0xFF94A3B8), style = MaterialTheme.typography.bodySmall)
                     }
-                    IconButton(onClick = { showAddCarDialog = true }, modifier = Modifier.background(Color(0xFF1E293B), CircleShape)) {
-                        Icon(Icons.Rounded.DirectionsCar, "Add Carro", tint = Color(0xFF10B981))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = { showAddCarDialog = true }, modifier = Modifier.background(Color(0xFF1E293B), CircleShape)) {
+                            Icon(Icons.Rounded.DirectionsCar, "Add Carro", tint = Color(0xFF10B981))
+                        }
+                        IconButton(onClick = { showConfiguracoes = true }, modifier = Modifier.background(Color(0xFF1E293B), CircleShape)) {
+                            Icon(Icons.Default.Settings, "Configurações", tint = Color(0xFF94A3B8))
+                        }
                     }
                 }
 
@@ -747,6 +767,113 @@ fun ManutencaoScreen(modifier: Modifier = Modifier, context: Context = LocalCont
 }
 
 @Composable
+fun ConfiguracoesScreen(onDismiss: () -> Unit, onTestarNotificacao: () -> Unit) {
+    var notificacoesAtivas by rememberSaveable { mutableStateOf(true) }
+    var alertasPorKm by rememberSaveable { mutableStateOf(true) }
+    var resumoSemanal by rememberSaveable { mutableStateOf(false) }
+    val scrollState = rememberScrollState()
+
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth(0.92f)
+                .wrapContentHeight()
+                .border(dialogBorderStroke, dialogCornerShape),
+            shape = dialogCornerShape,
+            color = Color(0xFF0F172A)
+        ) {
+            Column(
+                modifier = Modifier
+                    .padding(24.dp)
+                    .verticalScroll(scrollState),
+                verticalArrangement = Arrangement.spacedBy(18.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                    Column {
+                        Text("Configurações", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                        Text("Personalize o jeito de cuidar da frota", color = Color(0xFF94A3B8), fontSize = 14.sp)
+                    }
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(40.dp)) {
+                        Icon(Icons.Default.Close, contentDescription = "Fechar", tint = Color.White)
+                    }
+                }
+                Divider(color = Color.White.copy(alpha = 0.15f))
+
+                Text("Notificações", color = Color.White, fontWeight = FontWeight.SemiBold)
+                ConfigToggleItem(
+                    title = "Alertas automáticos",
+                    description = "Receba lembretes nos horários definidos",
+                    checked = notificacoesAtivas,
+                    onCheckedChange = { notificacoesAtivas = it }
+                )
+                ConfigToggleItem(
+                    title = "Alertas por KM",
+                    description = "Utilize o odômetro como gatilho adicional",
+                    checked = alertasPorKm,
+                    onCheckedChange = { alertasPorKm = it }
+                )
+                ConfigToggleItem(
+                    title = "Resumo semanal",
+                    description = "Receba um boletim dos principais avisos",
+                    checked = resumoSemanal,
+                    onCheckedChange = { resumoSemanal = it }
+                )
+
+                Button(
+                    onClick = onTestarNotificacao,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981))
+                ) {
+                    Icon(Icons.Default.NotificationsActive, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Testar alerta", fontWeight = FontWeight.Bold)
+                }
+
+                Text(
+                    "Versão do app 1.0.0 • dados salvos localmente",
+                    color = Color(0xFF94A3B8),
+                    fontSize = 12.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ConfigToggleItem(
+    title: String,
+    description: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(14.dp))
+            .background(Color(0xFF111C2E))
+            .padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, color = Color.White, fontWeight = FontWeight.SemiBold)
+            Text(description, color = Color(0xFF94A3B8), fontSize = 12.sp)
+        }
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = Color(0xFF3B82F6),
+                checkedTrackColor = Color(0xFF3B82F6)
+            )
+        )
+    }
+}
+
+@Composable
 fun MonitorIcon(tipo: TipoManutencao, cor: Color, quantidade: Int) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         // Box Pai invisível: Não corta o conteúdo
@@ -822,6 +949,8 @@ fun LembreteCard(
     if (showDeleteDialog) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
+            modifier = Modifier.border(dialogBorderStroke, dialogCornerShape),
+            shape = dialogCornerShape,
             title = { Text("Excluir?", color = Color.White) },
             text = { Text("Apagar '${lembrete.titulo}' permanentemente?", color = Color(0xFF94A3B8)) },
             containerColor = Color(0xFF1E293B),
@@ -898,7 +1027,7 @@ fun LembreteCard(
             }
 
             IconButton(onClick = { showDeleteDialog = true }, modifier = Modifier.align(Alignment.TopEnd).padding(4.dp)) {
-                Icon(Icons.Default.MoreVert, null, tint = Color(0xFF64748B))
+                Icon(Icons.Default.Delete, null, tint = Color(0xFFEF4444))
             }
         }
     }
@@ -911,7 +1040,59 @@ fun NovoContatoDialog(onDismiss: () -> Unit, onSalvar: (ContatoProfissional) -> 
     var nome by remember { mutableStateOf("") }
     var telefone by remember { mutableStateOf("") }
     var tipo by remember { mutableStateOf("") }
-    AlertDialog(onDismissRequest = onDismiss, containerColor = Color(0xFF1E293B), title = { Text("Novo Profissional", color = Color.White) }, text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) { OutlinedTextField(value = nome, onValueChange = { nome = it }, label = { Text("Nome") }, colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)); OutlinedTextField(value = tipo, onValueChange = { tipo = it }, label = { Text("Tipo (Ex: Mecânico)") }, colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)); OutlinedTextField(value = telefone, onValueChange = { if (it.all(Char::isDigit)) telefone = it }, label = { Text("WhatsApp") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)) } }, confirmButton = { Button(onClick = { if (nome.isNotBlank()) onSalvar(ContatoProfissional(nome = nome, telefone = telefone, tipoServico = tipo)) }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6))) { Text("Salvar") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } })
+    AlertDialog(
+        modifier = Modifier.border(dialogBorderStroke, dialogCornerShape),
+        shape = dialogCornerShape,
+        onDismissRequest = onDismiss,
+        containerColor = Color(0xFF1E293B),
+        title = { Text("Novo Profissional", color = Color.White) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = nome,
+                    onValueChange = { nome = it },
+                    label = { Text("Nome") },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    )
+                )
+                OutlinedTextField(
+                    value = tipo,
+                    onValueChange = { tipo = it },
+                    label = { Text("Tipo (Ex: Mecânico)") },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    )
+                )
+                OutlinedTextField(
+                    value = telefone,
+                    onValueChange = { if (it.all(Char::isDigit)) telefone = it },
+                    label = { Text("WhatsApp") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    )
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { if (nome.isNotBlank()) onSalvar(ContatoProfissional(nome = nome, telefone = telefone, tipoServico = tipo)) },
+                modifier = Modifier.height(56.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6)),
+                shape = dialogActionButtonShape
+            ) { Text("Salvar", fontSize = 18.sp) }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onDismiss,
+                modifier = Modifier.height(56.dp)
+            ) { Text("Cancelar", fontSize = 18.sp) }
+        }
+    )
 }
 
 @Composable
@@ -920,13 +1101,14 @@ fun NotificacaoRapidaDialog(onDismiss: () -> Unit, onDisparar: () -> Unit) {
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth(0.9f)
-                .wrapContentHeight(),
-            shape = RoundedCornerShape(20.dp),
-            color = Color(0xFF0F172A)
-        ) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth(0.9f)
+                    .wrapContentHeight()
+                    .border(dialogBorderStroke, dialogCornerShape),
+                shape = dialogCornerShape,
+                color = Color(0xFF0F172A)
+            ) {
             Column(
                 modifier = Modifier.padding(24.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -953,13 +1135,15 @@ fun NotificacaoRapidaDialog(onDismiss: () -> Unit, onDisparar: () -> Unit) {
                     onClick = {
                         onDisparar()
                     },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(54.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF97316)),
                     shape = RoundedCornerShape(12.dp)
                 ) {
                     Icon(Icons.Default.Send, contentDescription = null, tint = Color.White)
                     Spacer(Modifier.width(8.dp))
-                    Text("Disparar agora", color = Color.White, fontWeight = FontWeight.Bold)
+                    Text("Disparar agora", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                 }
                 TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
                     Text("Fechar", color = Color(0xFF94A3B8))
@@ -1144,20 +1328,30 @@ fun LembreteDetalhesDialog(
                 modifier = Modifier
                     .fillMaxWidth(0.92f)
                     .wrapContentHeight()
-                    .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(24.dp)),
-                shape = RoundedCornerShape(24.dp),
+                    .border(dialogBorderStroke, dialogCornerShape),
+                shape = dialogCornerShape,
                 color = Color(0xFF0B1729)
             ) {
                 Column(
                     modifier = Modifier.padding(24.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(lembrete.tipo.getIcon(), contentDescription = null, tint = Color(0xFF3B82F6))
-                        Spacer(Modifier.width(12.dp))
-                        Column {
-                            Text(lembrete.titulo, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 20.sp)
-                            Text(lembrete.tipo.label, color = Color(0xFF94A3B8), fontSize = 12.sp)
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(lembrete.tipo.getIcon(), contentDescription = null, tint = Color(0xFF3B82F6))
+                            Spacer(Modifier.width(12.dp))
+                            Column {
+                                Text(lembrete.titulo, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 20.sp)
+                                Text(lembrete.tipo.label, color = Color(0xFF94A3B8), fontSize = 12.sp)
+                            }
+                        }
+                        if (!isEditando) {
+                            IconButton(
+                                onClick = { isEditando = true },
+                                modifier = Modifier.align(Alignment.TopEnd)
+                            ) {
+                                Icon(Icons.Default.Edit, contentDescription = "Editar aviso", tint = Color(0xFF94A3B8))
+                            }
                         }
                     }
                     HorizontalDivider(color = Color(0xFF1F2A44))
@@ -1250,8 +1444,12 @@ fun LembreteDetalhesDialog(
                                     valorTexto = if (lembrete.valor > 0) lembrete.valor.toString() else ""
                                     isEditando = false
                                 },
-                                modifier = Modifier.weight(1f)
-                            ) { Text("Cancelar") }
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(56.dp),
+                                border = BorderStroke(0.2.dp, Color.White.copy(alpha = 0.7f)),
+                                shape = dialogActionButtonShape
+                            ) { Text("Cancelar", fontSize = 18.sp) }
                             Button(
                                 onClick = {
                                     val novoValor = valorTexto.toDoubleOrNull() ?: 0.0
@@ -1265,25 +1463,22 @@ fun LembreteDetalhesDialog(
                                     onSalvar(atualizado)
                                     isEditando = false
                                 },
-                                modifier = Modifier.weight(1f),
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6))
-                            ) { Text("Salvar alterações") }
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(56.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6)),
+                                shape = dialogActionButtonShape
+                            ) { Text("Salvar alterações", fontSize = 18.sp) }
                         }
                     } else {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            OutlinedButton(
-                                onClick = { isEditando = true },
-                                modifier = Modifier.weight(1f)
-                            ) { Text("Editar") }
-                            Button(
-                                onClick = onDismiss,
-                                modifier = Modifier.weight(1f),
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6))
-                            ) { Text("Fechar", color = Color.White, fontWeight = FontWeight.Bold) }
-                        }
+                        Button(
+                            onClick = onDismiss,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(56.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6)),
+                            shape = dialogActionButtonShape
+                        ) { Text("Fechar", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp) }
                     }
                 }
             }
@@ -1374,13 +1569,42 @@ fun NovoAgendamentoDialog(
     }
 
     if (showKmConfirmDialog) {
-        AlertDialog(onDismissRequest = { showKmConfirmDialog = false }, containerColor = Color(0xFF1E293B), title = { Text("Atualizar KM?", color = Color.White) }, text = { Text("Detectamos ${kmDetectadoParaConfirmar} km na nota.\nAtualizar o odômetro do carro?", color = Color(0xFF94A3B8)) }, confirmButton = { Button(onClick = { onUpdateKmCarro(kmDetectadoParaConfirmar); kmBase = kmDetectadoParaConfirmar.toString(); showKmConfirmDialog = false }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981))) { Text("Sim") } }, dismissButton = { TextButton(onClick = { showKmConfirmDialog = false }) { Text("Não") } })
+        AlertDialog(
+            modifier = Modifier.border(dialogBorderStroke, dialogCornerShape),
+            shape = dialogCornerShape,
+            onDismissRequest = { showKmConfirmDialog = false },
+            containerColor = Color(0xFF1E293B),
+            title = { Text("Atualizar KM?", color = Color.White) },
+            text = {
+                Text(
+                    "Detectamos ${kmDetectadoParaConfirmar} km na nota.\nAtualizar o odômetro do carro?",
+                    color = Color(0xFF94A3B8)
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onUpdateKmCarro(kmDetectadoParaConfirmar)
+                        kmBase = kmDetectadoParaConfirmar.toString()
+                        showKmConfirmDialog = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981))
+                ) { Text("Sim") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showKmConfirmDialog = false }) { Text("Não") }
+            }
+        )
     }
-
     AlertDialog(
-        onDismissRequest = onDismiss, containerColor = Color(0xFF1E293B),
+        onDismissRequest = onDismiss,
+        containerColor = Color(0xFF1E293B),
         properties = DialogProperties(usePlatformDefaultWidth = false),
-        modifier = Modifier.fillMaxWidth(0.95f).padding(16.dp),
+        modifier = Modifier
+            .fillMaxWidth(0.95f)
+            .padding(16.dp)
+            .border(dialogBorderStroke, dialogCornerShape),
+        shape = dialogCornerShape,
         title = { Text(if(isModoLista) "Itens da Nota" else "Novo Serviço", color = Color.White, fontWeight = FontWeight.Bold) },
         text = {
             Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -1573,7 +1797,85 @@ fun EditarCarroDialog(carroAtual: CarroInfo, titulo: String, onDismiss: () -> Un
     var kmAtualStr by remember { mutableStateOf(if (carroAtual.kmAtual > 0) carroAtual.kmAtual.toString() else "") }
     var corSelecionada by remember { mutableIntStateOf(carroAtual.corArgb) }
     val coresDisponiveis = listOf(0xFF3B82F6.toInt(), 0xFFEF4444.toInt(), 0xFF10B981.toInt(), 0xFFF59E0B.toInt(), 0xFF94A3B8.toInt(), 0xFFFFFFFF.toInt())
-    AlertDialog(onDismissRequest = onDismiss, containerColor = Color(0xFF1E293B), title = { Text(titulo, color = Color.White) }, text = { Column { OutlinedTextField(value = nome, onValueChange = { nome = it }, label = { Text("Apelido") }, singleLine = true, colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)); Spacer(Modifier.height(8.dp)); OutlinedTextField(value = marca, onValueChange = { marca = it }, label = { Text("Marca") }, singleLine = true, colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)); Spacer(Modifier.height(8.dp)); OutlinedTextField(value = modelo, onValueChange = { modelo = it }, label = { Text("Modelo e Motor") }, singleLine = true, colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)); Spacer(Modifier.height(8.dp)); OutlinedTextField(value = kmAtualStr, onValueChange = { if (it.all(Char::isDigit)) kmAtualStr = it }, label = { Text("KM Atual (Painel)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true, colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)); Spacer(Modifier.height(16.dp)); Text("Cor:", color = Color(0xFF94A3B8), fontSize = 12.sp); Spacer(Modifier.height(8.dp)); Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { coresDisponiveis.forEach { corInt -> Box(modifier = Modifier.size(32.dp).clip(CircleShape).background(Color(corInt)).border(width = if (corSelecionada == corInt) 2.dp else 0.dp, color = if (corSelecionada == corInt) Color.White else Color.Transparent, shape = CircleShape).clickable { corSelecionada = corInt }) } } } }, confirmButton = { Button(onClick = { onSalvar(carroAtual.copy(nome = nome, marca = marca, modelo = modelo, kmAtual = kmAtualStr.toIntOrNull() ?: 0, corArgb = corSelecionada)) }) { Text("Salvar") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } })
+    AlertDialog(
+        modifier = Modifier.border(dialogBorderStroke, dialogCornerShape),
+        shape = dialogCornerShape,
+        onDismissRequest = onDismiss,
+        containerColor = Color(0xFF1E293B),
+        title = { Text(titulo, color = Color.White) },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = nome,
+                    onValueChange = { nome = it },
+                    label = { Text("Apelido") },
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    )
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = marca,
+                    onValueChange = { marca = it },
+                    label = { Text("Marca") },
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    )
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = modelo,
+                    onValueChange = { modelo = it },
+                    label = { Text("Modelo e Motor") },
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    )
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = kmAtualStr,
+                    onValueChange = { if (it.all(Char::isDigit)) kmAtualStr = it },
+                    label = { Text("KM Atual (Painel)") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    )
+                )
+                Spacer(Modifier.height(16.dp))
+                Text("Cor:", color = Color(0xFF94A3B8), fontSize = 12.sp)
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    coresDisponiveis.forEach { corInt ->
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(CircleShape)
+                                .background(Color(corInt))
+                                .border(
+                                    width = if (corSelecionada == corInt) 2.dp else 0.dp,
+                                    color = if (corSelecionada == corInt) Color.White else Color.Transparent,
+                                    shape = CircleShape
+                                )
+                                .clickable { corSelecionada = corInt }
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = { Button(onClick = { onSalvar(carroAtual.copy(nome = nome, marca = marca, modelo = modelo, kmAtual = kmAtualStr.toIntOrNull() ?: 0, corArgb = corSelecionada)) }) { Text("Salvar") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } }
+    )
 }
 
 @OptIn(ExperimentalLayoutApi::class)
