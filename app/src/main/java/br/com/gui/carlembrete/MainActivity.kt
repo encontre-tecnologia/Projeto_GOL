@@ -139,7 +139,7 @@ fun gerarResumoRelatorio(carro: CarroInfo, lembretes: List<Lembrete>): String {
         builder.appendLine()
         builder.appendLine("Detalhes dos próximos serviços:")
         lembretes.sortedBy { it.dataLimite }.forEach { lembrete ->
-            builder.appendLine("* ${lembrete.titulo} • Data: ${lembrete.dataLimite.ifBlank { "Sem data" }} • KM: ${lembrete.kmLimite.ifBlank { "-" }}")
+            builder.appendLine("* ${lembrete.titulo} - Data: ${lembrete.dataLimite.ifBlank { "Sem data" }} - KM: ${lembrete.kmLimite.ifBlank { "-" }}")
         }
     }
     builder.appendLine()
@@ -201,7 +201,7 @@ fun gerarPdfRelatorio(context: Context, carro: CarroInfo, lembretes: List<Lembre
 
         val tituloCarro = buildString {
             append(carro.nome)
-            val detalhes = listOf(carro.marca, carro.modelo).filter { it.isNotBlank() }.joinToString(" · ")
+            val detalhes = listOf(carro.marca, carro.modelo).filter { it.isNotBlank() }.joinToString(" - ")
             if (detalhes.isNotBlank()) {
                 append(" - ")
                 append(detalhes)
@@ -251,9 +251,9 @@ fun gerarPdfRelatorio(context: Context, carro: CarroInfo, lembretes: List<Lembre
                 .sortedBy { it.second }
             proximos.forEach { (lembrete, data) ->
                 ensureSpace(40f)
-                canvas.drawText("• ${lembrete.titulo}", marginX + 10f, y, bodyPaint)
+                canvas.drawText("- ${lembrete.titulo}", marginX + 10f, y, bodyPaint)
                 y += 16f
-                canvas.drawText("  Data: ${lembrete.dataLimite.ifBlank { data.format(formatter) }} | KM: ${lembrete.kmLimite.ifBlank { "–" }}", marginX + 10f, y, bodyPaint)
+                canvas.drawText("  Data: ${lembrete.dataLimite.ifBlank { data.format(formatter) }} | KM: ${lembrete.kmLimite.ifBlank { "-" }}", marginX + 10f, y, bodyPaint)
                 y += 20f
             }
         }

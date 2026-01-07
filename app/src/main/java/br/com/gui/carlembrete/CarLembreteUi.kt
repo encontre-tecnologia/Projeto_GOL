@@ -1,9 +1,11 @@
 package br.com.gui.carlembrete
 
+import android.Manifest
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Matrix
 import android.net.Uri
@@ -54,6 +56,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -93,10 +97,12 @@ import java.time.temporal.TemporalAdjusters
 import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.Executors
+import kotlin.math.roundToInt
 
 private val dialogBorderStroke = BorderStroke(0.2.dp, Color.White.copy(alpha = 0.2f))
 private val dialogCornerShape = RoundedCornerShape(20.dp)
 private val dialogActionButtonShape = RoundedCornerShape(8.dp)
+private const val LER_NOTAS_HABILITADO = false
 
 /* ----------------- ESTRUTURAS DE DADOS ----------------- */
 
@@ -112,7 +118,9 @@ data class ItemDetectado(
 data class ResultadoCaptura(
     val arquivoFoto: File,
     val itensEncontrados: List<ItemDetectado>,
-    val kmDetectado: Int?
+    val kmDetectado: Int?,
+    val sugestoesProduto: List<String> = emptyList(),
+    val linhasReconhecidas: List<String> = emptyList()
 )
 
 data class Lembrete(
@@ -178,6 +186,18 @@ fun CameraCapturaDialog(onDismiss: () -> Unit, onFotoCapturada: (ResultadoCaptur
     var lanternaLigada by remember { mutableStateOf(false) }
     var cameraControl by remember { mutableStateOf<androidx.camera.core.CameraControl?>(null) }
     var isProcessing by remember { mutableStateOf(false) }
+    val hasCameraPermission = ContextCompat.checkSelfPermission(
+        context,
+        Manifest.permission.CAMERA
+    ) == PackageManager.PERMISSION_GRANTED
+
+    LaunchedEffect(hasCameraPermission) {
+        if (!hasCameraPermission) {
+            Toast.makeText(context, "Permita o uso da câmera para escanear o produto", Toast.LENGTH_SHORT).show()
+            onDismiss()
+        }
+    }
+    if (!hasCameraPermission) return
 
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
@@ -197,18 +217,76 @@ fun CameraCapturaDialog(onDismiss: () -> Unit, onFotoCapturada: (ResultadoCaptur
                 previewView
             }, modifier = Modifier.fillMaxSize())
 
-            Column(modifier = Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.SpaceBetween) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(vertical = 120.dp)
+                    .padding(horizontal = 40.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(200.dp)
+                        .border(BorderStroke(2.dp, Color.White.copy(alpha = 0.7f)), RoundedCornerShape(16.dp))
+                )
+            }
+
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.SpaceBetween
+            ) {
                 Row(modifier = Modifier.fillMaxWidth().padding(top = 24.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                     IconButton(onClick = onDismiss, modifier = Modifier.background(Color.Black.copy(0.5f), CircleShape)) { Icon(Icons.Default.Close, "Fechar", tint = Color.White) }
-                    IconButton(onClick = { lanternaLigada = !lanternaLigada; cameraControl?.enableTorch(lanternaLigada) }, modifier = Modifier.background(Color.Black.copy(0.5f), CircleShape)) { Icon(if (lanternaLigada) Icons.Default.FlashOn else Icons.Default.FlashOff, "Flash", tint = if (lanternaLigada) Color(0xFFF59E0B) else Color.White) }
+                    IconButton(
+                        onClick = {
+                            val hasPermission = ContextCompat.checkSelfPermission(
+                                context,
+                                Manifest.permission.CAMERA
+                            ) == PackageManager.PERMISSION_GRANTED
+                            if (hasPermission) {
+                                lanternaLigada = !lanternaLigada
+                                try {
+                                    cameraControl?.enableTorch(lanternaLigada)
+                                } catch (_: SecurityException) {
+                                    lanternaLigada = !lanternaLigada
+                                    Toast.makeText(context, "Não foi possível acessar o flash", Toast.LENGTH_SHORT).show()
+                                }
+                            } else {
+                                Toast.makeText(context, "Permita o uso da câmera para ativar o flash", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        modifier = Modifier.background(Color.Black.copy(0.5f), CircleShape)
+                    ) { Icon(if (lanternaLigada) Icons.Default.FlashOn else Icons.Default.FlashOff, "Flash", tint = if (lanternaLigada) Color(0xFFF59E0B) else Color.White) }
                 }
                 Box(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).background(Color.Black.copy(0.6f), RoundedCornerShape(16.dp)).padding(16.dp), contentAlignment = Alignment.Center) {
-                    if (isProcessing) { Row(verticalAlignment = Alignment.CenterVertically) { CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.White); Spacer(Modifier.width(16.dp)); Text("Processando nota...", color = Color.White) } }
-                    else { Text("Fotografe a nota ou etiqueta.\nCalcularei o vencimento automaticamente.", color = Color.White, fontSize = 14.sp, textAlign = TextAlign.Center) }
+                    if (isProcessing) { Row(verticalAlignment = Alignment.CenterVertically) { CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.White); Spacer(Modifier.width(16.dp)); Text("Processando captura...", color = Color.White) } }
+                    else { Text("Centralize o nome do produto dentro do retângulo para obter o melhor resultado.", color = Color.White, fontSize = 14.sp, textAlign = TextAlign.Center) }
                 }
-                Box(modifier = Modifier.size(80.dp).clip(CircleShape).background(Color.White).clickable(enabled = !isProcessing) {
-                    if (!isProcessing) { isProcessing = true; captureAndExtractItems(context, imageCapture!!) { resultado -> isProcessing = false; onFotoCapturada(resultado) } }
-                }, contentAlignment = Alignment.Center) { Box(modifier = Modifier.size(70.dp).clip(CircleShape).background(Color.White).border(4.dp, Color.Black.copy(0.1f), CircleShape)) }
+                Button(
+                    onClick = {
+                        if (!isProcessing) {
+                            isProcessing = true
+                            captureAndExtractItems(context, imageCapture!!) { resultado ->
+                                isProcessing = false
+                                onFotoCapturada(resultado)
+                            }
+                        }
+                    },
+                    enabled = !isProcessing,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color(0xFF0F172A))
+                ) {
+                    Icon(Icons.Default.CameraAlt, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text(if (isProcessing) "Processando..." else "Escanear Produto", fontWeight = FontWeight.Bold)
+                }
             }
         }
     }
@@ -222,87 +300,278 @@ private fun captureAndExtractItems(context: Context, imageCapture: ImageCapture,
             val rotation = image.imageInfo.rotationDegrees.toFloat()
             val matrix = Matrix().apply { postRotate(rotation) }
             val bitmapRotacionado = Bitmap.createBitmap(bitmapBuffer, 0, 0, bitmapBuffer.width, bitmapBuffer.height, matrix, true)
+            val bitmapFocado = recortarAreaCentral(bitmapRotacionado)
             val arquivo = File(context.filesDir, "servico_scan_${System.currentTimeMillis()}.jpg")
-            FileOutputStream(arquivo).use { out -> bitmapRotacionado.compress(Bitmap.CompressFormat.JPEG, 80, out) }
+            FileOutputStream(arquivo).use { out -> bitmapFocado.compress(Bitmap.CompressFormat.JPEG, 80, out) }
 
-            val inputImage = InputImage.fromBitmap(bitmapRotacionado, 0)
+            val inputImage = InputImage.fromBitmap(bitmapFocado, 0)
             val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
 
             recognizer.process(inputImage).addOnSuccessListener { visionText ->
                 val linhas = visionText.textBlocks.flatMap { it.lines }
-                val itensEncontrados = mutableListOf<ItemDetectado>()
-                var lendoObservacoes = false
-
-                val regexData = Regex("\\b(\\d{2})/(\\d{2})/(\\d{2,4})\\b")
-                var dataServico = LocalDate.now()
-                val matchData = regexData.find(visionText.text)
-                if (matchData != null) {
-                    try {
-                        var ano = matchData.groupValues[3]
-                        if (ano.length == 2) ano = "20$ano"
-                        dataServico = LocalDate.of(ano.toInt(), matchData.groupValues[2].toInt(), matchData.groupValues[1].toInt())
-                    } catch (e: Exception) {}
+                val linhasInfo = linhas.map {
+                    val box = it.boundingBox
+                    val area = if (box != null) box.width().coerceAtLeast(1) * box.height().coerceAtLeast(1) else 0
+                    LinhaOCR(corrigirCaracteresVisuais(it.text), area, box?.height() ?: 0)
                 }
-
+                val sugestoesProduto = sugerirProdutosParaAviso(linhasInfo, visionText.text)
+                val itensEncontrados = mutableListOf<ItemDetectado>()
                 var kmDetectado: Int? = null
-                val regexKm = Regex("(?i)(?:KM|ODOMETRO|HODOMETRO)[\\s:.]*(\\d{1,3}(?:[.,]\\d{3})*)")
-                val matchKm = regexKm.find(visionText.text)
-                if (matchKm != null) kmDetectado = matchKm.groupValues[1].replace(".", "").replace(",", "").toIntOrNull()
 
-                val keywordsServico = listOf("OLEO", "FILTRO", "ALINHAMENTO", "BALANCEAMENTO", "PASTILHA", "DISCO", "FREIO", "BATERIA", "SUSPENSAO", "PNEU", "RODIZIO", "LUBRAX", "HIGIENIZACAO", "REVISAO", "CORREIA", "LAMPADA", "FLUIDO", "ADITIVO", "AR-CONDICIONADO", "ELETRICO", "INJECAO", "VELA")
-                val regexViscosidade = Regex("\\b\\d{1,2}W-?\\d{2}\\b", RegexOption.IGNORE_CASE)
-                val regexPrecoParaRemocao = Regex("(R\\$|\\$)?\\s*\\d{1,4}(?:[.,]\\d{3})*[.,]\\d{2}")
-                val keywordsIgnorar = listOf("PLACA", "VEICULO", "CARRO", "MODELO", "KM", "ODOMETRO", "DATA", "CLIENTE", "CPF", "CNPJ", "TOTAL", "VALOR", "PAGAMENTO", "TELEFONE", "ENDERECO", "ENTRADA", "SAIDA", "NOME", "IE:", "CEP", "NOTA", "TESTE", "TESTADO", "DIAGNOSTICO")
+                if (LER_NOTAS_HABILITADO) {
+                    var lendoObservacoes = false
+                    val regexData = Regex("\\b(\\d{2})/(\\d{2})/(\\d{2,4})\\b")
+                    var dataServico = LocalDate.now()
+                    val matchData = regexData.find(visionText.text)
+                    if (matchData != null) {
+                        try {
+                            var ano = matchData.groupValues[3]
+                            if (ano.length == 2) ano = "20$ano"
+                            dataServico = LocalDate.of(ano.toInt(), matchData.groupValues[2].toInt(), matchData.groupValues[1].toInt())
+                        } catch (e: Exception) {}
+                    }
 
-                for (linhaObj in linhas) {
-                    val linhaRaw = linhaObj.text
-                    val linhaNormalizada = linhaRaw.uppercase().unaccent()
+                    val regexKm = Regex("(?i)(?:KM|ODOMETRO|HODOMETRO)[\\s:.]*(\\d{1,3}(?:[.,]\\d{3})*)")
+                    val matchKm = regexKm.find(visionText.text)
+                    if (matchKm != null) kmDetectado = matchKm.groupValues[1].replace(".", "").replace(",", "").toIntOrNull()
 
-                    if (linhaNormalizada.contains("OBSERVACOES") || linhaNormalizada.contains("OBS:") || linhaNormalizada.contains("CHECK") || linhaNormalizada.contains("RESUMO") || linhaNormalizada.contains("ITENS REVISADOS")) { lendoObservacoes = true; continue }
-                    if (lendoObservacoes) continue
+                    val keywordsServico = listOf("OLEO", "FILTRO", "ALINHAMENTO", "BALANCEAMENTO", "PASTILHA", "DISCO", "FREIO", "BATERIA", "SUSPENSAO", "PNEU", "RODIZIO", "LUBRAX", "HIGIENIZACAO", "REVISAO", "CORREIA", "LAMPADA", "FLUIDO", "ADITIVO", "AR-CONDICIONADO", "ELETRICO", "INJECAO", "VELA")
+                    val regexViscosidade = Regex("\\b\\d{1,2}W-?\\d{2}\\b", RegexOption.IGNORE_CASE)
+                    val regexPrecoParaRemocao = Regex("(R\\$|\\$)?\\s*\\d{1,4}(?:[.,]\\d{3})*[.,]\\d{2}")
+                    val keywordsIgnorar = listOf("PLACA", "VEICULO", "CARRO", "MODELO", "KM", "ODOMETRO", "DATA", "CLIENTE", "CPF", "CNPJ", "TOTAL", "VALOR", "PAGAMENTO", "TELEFONE", "ENDERECO", "ENTRADA", "SAIDA", "NOME", "IE:", "CEP", "NOTA", "TESTE", "TESTADO", "DIAGNOSTICO")
 
-                    val linhaSemPreco = linhaRaw.replace(regexPrecoParaRemocao, "").replace(Regex("\\.{2,}"), " ").trim()
-                    val partesDaLinha = linhaSemPreco.split(Regex("[,+/]"))
+                    for (linhaObj in linhas) {
+                        val linhaRaw = linhaObj.text
+                        val linhaNormalizada = linhaRaw.uppercase().unaccent()
 
-                    for (parte in partesDaLinha) {
-                        val parteUpper = parte.uppercase().trim()
-                        val parteNormalizada = parteUpper.unaccent()
-                        val deveIgnorar = keywordsIgnorar.any { parteNormalizada.contains(it) }
+                        if (linhaNormalizada.contains("OBSERVACOES") || linhaNormalizada.contains("OBS:") || linhaNormalizada.contains("CHECK") || linhaNormalizada.contains("RESUMO") || linhaNormalizada.contains("ITENS REVISADOS")) { lendoObservacoes = true; continue }
+                        if (lendoObservacoes) continue
 
-                        if (!deveIgnorar && parteNormalizada.length > 2) {
-                            val contemServico = keywordsServico.any { parteNormalizada.contains(it) }
-                            val contemViscosidade = regexViscosidade.containsMatchIn(parteUpper)
+                        val linhaSemPreco = linhaRaw.replace(regexPrecoParaRemocao, "").replace(Regex("\\.{2,}"), " ").trim()
+                        val partesDaLinha = linhaSemPreco.split(Regex("[,+/]"))
 
-                            if (contemServico || contemViscosidade) {
-                                var nomeLimpo = parte.replace(Regex("^[\\d-]{1,3}\\s"), "").replace(Regex("[\\[\\(][xX*][\\]\\)]"), "").trim()
-                                val tipo = when {
-                                    parteNormalizada.contains("ALINHAMENTO") || parteNormalizada.contains("BALANCEAMENTO") || parteNormalizada.contains("SUSPENSAO") || parteNormalizada.contains("PNEU") -> TipoManutencao.MECANICA
-                                    parteNormalizada.contains("OLEO") || parteNormalizada.contains("FILTRO") || parteNormalizada.contains("LUBRAX") || contemViscosidade -> TipoManutencao.OLEO
-                                    parteNormalizada.contains("FREIO") || parteNormalizada.contains("PASTILHA") || parteNormalizada.contains("DISCO") -> TipoManutencao.FREIO
-                                    parteNormalizada.contains("BATERIA") || parteNormalizada.contains("ELETRICO") || parteNormalizada.contains("LAMPADA") -> TipoManutencao.BATERIA
-                                    parteNormalizada.contains("AR-CONDICIONADO") || parteNormalizada.contains("HIGIENIZACAO") -> TipoManutencao.OUTROS
-                                    parteNormalizada.contains("CORREIA") || parteNormalizada.contains("VELA") || parteNormalizada.contains("INJECAO") -> TipoManutencao.MECANICA
-                                    else -> TipoManutencao.OUTROS
-                                }
-                                val dataFuturaItem = calcularProximaData(tipo, dataServico)
-                                if (nomeLimpo.isNotBlank() && itensEncontrados.none { it.nome == nomeLimpo }) {
-                                    val quantidadeItem = extrairQuantidadeDaParte(parteUpper) ?: 1
-                                    itensEncontrados.add(ItemDetectado(nome = nomeLimpo, tipo = tipo, quantidade = quantidadeItem, dataFutura = dataFuturaItem))
+                        for (parte in partesDaLinha) {
+                            val parteUpper = parte.uppercase().trim()
+                            val parteNormalizada = parteUpper.unaccent()
+                            val deveIgnorar = keywordsIgnorar.any { parteNormalizada.contains(it) }
+
+                            if (!deveIgnorar && parteNormalizada.length > 2) {
+                                val contemServico = keywordsServico.any { parteNormalizada.contains(it) }
+                                val contemViscosidade = regexViscosidade.containsMatchIn(parteUpper)
+
+                                if (contemServico || contemViscosidade) {
+                                    var nomeLimpo = parte.replace(Regex("^[\\d-]{1,3}\\s"), "").replace(Regex("[\\[\\(][xX*][\\]\\)]"), "").trim()
+                                    val tipo = when {
+                                        parteNormalizada.contains("ALINHAMENTO") || parteNormalizada.contains("BALANCEAMENTO") || parteNormalizada.contains("SUSPENSAO") || parteNormalizada.contains("PNEU") -> TipoManutencao.MECANICA
+                                        parteNormalizada.contains("OLEO") || parteNormalizada.contains("FILTRO") || parteNormalizada.contains("LUBRAX") || contemViscosidade -> TipoManutencao.OLEO
+                                        parteNormalizada.contains("FREIO") || parteNormalizada.contains("PASTILHA") || parteNormalizada.contains("DISCO") -> TipoManutencao.FREIO
+                                        parteNormalizada.contains("BATERIA") || parteNormalizada.contains("ELETRICO") || parteNormalizada.contains("LAMPADA") -> TipoManutencao.BATERIA
+                                        parteNormalizada.contains("AR-CONDICIONADO") || parteNormalizada.contains("HIGIENIZACAO") -> TipoManutencao.OUTROS
+                                        parteNormalizada.contains("CORREIA") || parteNormalizada.contains("VELA") || parteNormalizada.contains("INJECAO") -> TipoManutencao.MECANICA
+                                        else -> TipoManutencao.OUTROS
+                                    }
+                                    val dataFuturaItem = calcularProximaData(tipo, dataServico)
+                                    if (nomeLimpo.isNotBlank() && itensEncontrados.none { it.nome == nomeLimpo }) {
+                                        val quantidadeItem = extrairQuantidadeDaParte(parteUpper) ?: 1
+                                        itensEncontrados.add(ItemDetectado(nome = nomeLimpo, tipo = tipo, quantidade = quantidadeItem, dataFutura = dataFuturaItem))
+                                    }
                                 }
                             }
                         }
                     }
+                    if (itensEncontrados.isEmpty()) {
+                        itensEncontrados.add(ItemDetectado(nome = "Serviço Detectado (Editar)", tipo = TipoManutencao.OUTROS, valor = 0.0, dataFutura = calcularProximaData(TipoManutencao.OUTROS, dataServico)))
+                    }
                 }
-                if (itensEncontrados.isEmpty()) {
-                    itensEncontrados.add(ItemDetectado(nome = "Serviço Detectado (Editar)", tipo = TipoManutencao.OUTROS, valor = 0.0, dataFutura = calcularProximaData(TipoManutencao.OUTROS, dataServico)))
-                }
-                ContextCompat.getMainExecutor(context).execute { onResult(ResultadoCaptura(arquivo, itensEncontrados, kmDetectado)); image.close() }
+
+                val itensParaRetorno = if (LER_NOTAS_HABILITADO) itensEncontrados else emptyList()
+                val kmParaRetorno = if (LER_NOTAS_HABILITADO) kmDetectado else null
+                val linhasReconhecidas = linhasInfo.map { it.texto }
+                ContextCompat.getMainExecutor(context).execute { onResult(ResultadoCaptura(arquivo, itensParaRetorno, kmParaRetorno, sugestoesProduto, linhasReconhecidas)); image.close() }
             }.addOnFailureListener {
-                ContextCompat.getMainExecutor(context).execute { onResult(ResultadoCaptura(arquivo, listOf(ItemDetectado(nome = "Novo Serviço", tipo = TipoManutencao.OUTROS, dataFutura = calcularProximaData(TipoManutencao.OUTROS, LocalDate.now()))), null)); image.close() }
+                val itensFallback = if (LER_NOTAS_HABILITADO) listOf(ItemDetectado(nome = "Novo Serviço", tipo = TipoManutencao.OUTROS, dataFutura = calcularProximaData(TipoManutencao.OUTROS, LocalDate.now()))) else emptyList()
+                ContextCompat.getMainExecutor(context).execute { onResult(ResultadoCaptura(arquivo, itensFallback, null, emptyList(), emptyList())); image.close() }
             }
         }
         override fun onError(exception: ImageCaptureException) {}
     })
+}
+
+private data class CandidatoProduto(
+    val texto: String,
+    val score: Int,
+    val uppercaseRatio: Float,
+    val letras: Int
+)
+
+private data class LinhaOCR(val texto: String, val area: Int, val altura: Int) {
+    fun dividirEmTokens(): List<LinhaOCR> {
+        val tokens = texto.split(Regex("[\\s/\\\\|-]+"))
+            .map { it.trim().replace(Regex("^[^A-Za-z0-9]+|[^A-Za-z0-9]+$"), "") }
+            .filter { it.length >= 3 }
+        return tokens.map { token -> LinhaOCR(token, area, altura) }
+    }
+}
+
+private val termosPromocionaisPadrao = listOf(
+    "MAIOR", "VIDA", "UTIL", "PROTEGE", "PROTECAO", "QUALIDADE", "CONFIANCA",
+    "LIMPO", "MANTEM", "MANTE", "DESEMPENHO", "SEGURANCA", "GARANTIA", "EFICIENCIA",
+    "POTENCIA", "RESISTENTE", "OTIMO", "ULTRA", "NOVA", "NOVO", "MOTOR", "ESSENCIAL", "ESSENCIAL", "ST", "SL"
+)
+
+private val dicionarioProdutosPrincipais = listOf(
+    "LUBRAX", "PETROBRAS", "PIONEIRO", "MBR", "CASTROL", "SHELL", "MOTUL",
+    "PIRELLI", "BOSCH", "DELCO", "ACDELCO", "MOBIL", "TOTAL"
+)
+
+private val padraoUrlOuContato = Regex("(?i)(WWW\\.|HTTP|HTTPS|\\.COM|\\.NET|\\.ORG|\\.BR|@)")
+
+private fun sugerirProdutosParaAviso(linhas: List<LinhaOCR>, textoCompleto: String): List<String> {
+    if (linhas.isEmpty() && textoCompleto.isBlank()) return emptyList()
+    val candidatos = mutableListOf<CandidatoProduto>()
+    val maiorArea = linhas.maxOfOrNull { it.area }?.coerceAtLeast(1) ?: 1
+    val termosIgnorados = listOf(
+        "PLACA", "VEICULO", "CARRO", "KM", "ODOMETRO", "DATA", "TOTAL",
+        "VALOR", "SERVICO", "CLIENTE", "NOTA", "NF", "ENDERECO", "CNPJ",
+        "CPF", "TELEFONE", "GARANTIA", "QUANTIDADE", "CODIGO", "REFERENCIA",
+        "MODELO", "MARCA", "ASSINATURA", "HORA", "PRODUTO"
+    )
+
+    fun avaliarCandidato(textoOriginal: String, bonus: Int = 0, area: Int = 0) {
+        val normalizado = normalizarTextoProduto(textoOriginal)
+        if (normalizado.length < 3) return
+        val upper = normalizado.uppercase(Locale.ROOT)
+        if (termosIgnorados.any { upper.contains(it) }) return
+        if (padraoUrlOuContato.containsMatchIn(upper)) return
+        val textoCanonico = corrigirTokenPorDicionario(upper) ?: upper
+        if (isTextoPromocional(textoCanonico)) return
+        val letras = textoCanonico.count { it.isLetter() }
+        if (letras < 3) return
+        val digitos = textoCanonico.count { it.isDigit() }
+        val palavras = textoCanonico.split(" " ).filter { it.length > 2 }
+        val promocionais = palavras.count { tokenEhPromocional(it) }
+        if (palavras.isNotEmpty() && promocionais.toFloat() / palavras.size > 0.5f) return
+        val maiusculas = textoCanonico.count { it.isUpperCase() }
+        val uppercaseRatio = if (letras > 0) maiusculas.toFloat() / letras else 0f
+        var score = letras * 2 + palavras.size * 3 - digitos * 2 + bonus
+        if (textoCanonico.length > 30) score -= 4
+        if (palavras.size >= 2) score += 5
+        score += (uppercaseRatio * 12).roundToInt()
+        if (uppercaseRatio > 0.9f && digitos == 0 && textoCanonico.length in 4..16) score += 18
+        else if (uppercaseRatio > 0.7f && letras >= 4) score += 8
+        if (area > 0) {
+            val areaRatio = area.toFloat() / maiorArea
+            score += (areaRatio * 20).roundToInt()
+        }
+        if (score > 0) candidatos.add(CandidatoProduto(textoCanonico.trim(), score, uppercaseRatio, letras))
+    }
+
+    val entradas = buildList {
+        addAll(linhas)
+        linhas.forEach { addAll(it.dividirEmTokens()) }
+    }
+
+    entradas.forEach { linha ->
+        val texto = linha.texto.trim()
+        if (contemSequenciaPromocional(texto)) return@forEach
+        if (texto.isNotBlank()) {
+            val letrasNaLinha = texto.count { it.isLetter() }
+            val bonus = if (letrasNaLinha > 0 && texto.count { it.isUpperCase() } >= (letrasNaLinha * 0.6)) 2 else 0
+            avaliarCandidato(texto, bonus, linha.area)
+        }
+    }
+
+    normalizarTextoProduto(textoCompleto)
+        .split(" ")
+        .map(String::trim)
+        .filter { it.length >= 4 }
+        .forEach { token ->
+            if (token.isNotBlank()) {
+                val tokenFormatado = token.lowercase(Locale.getDefault()).replaceFirstChar { ch ->
+                    if (ch.isLowerCase()) ch.titlecase(Locale.getDefault()) else ch.toString()
+                }
+                avaliarCandidato(tokenFormatado, -1)
+            }
+        }
+
+    if (candidatos.isEmpty()) return emptyList()
+
+    val sugestoesOrdenadas = candidatos
+        .sortedWith(
+            compareByDescending<CandidatoProduto> { it.score }
+                .thenByDescending { it.uppercaseRatio }
+                .thenByDescending { it.letras }
+        )
+        .map { it.texto.trim().take(60) }
+        .distinctBy { normalizarTextoProduto(it).uppercase(Locale.ROOT) }
+
+    val melhorDireto = sugestoesOrdenadas.firstOrNull()
+    if (melhorDireto != null) return listOf(melhorDireto)
+
+    val primeiroCodigoLinha = extrairCodigoComEspacos(linhas)
+    if (primeiroCodigoLinha != null) return listOf(primeiroCodigoLinha)
+    if (melhorDireto != null) return listOf(melhorDireto)
+
+    val fallbackCodigos = extrairCodigosLegiveis(textoCompleto)
+    if (fallbackCodigos.isNotEmpty()) return listOf(fallbackCodigos.first())
+
+    val fallbackLinha = linhas
+        .map { it.texto.trim() }
+        .filter { it.length in 4..80 }
+        .maxByOrNull { calcularLegibilidadeLinha(it) }
+
+    return fallbackLinha?.let { listOf(it) } ?: emptyList()
+}
+
+private fun normalizarTextoProduto(texto: String): String =
+    Normalizer.normalize(texto, Normalizer.Form.NFD)
+        .replace("[^\\p{L}\\p{Nd} ]".toRegex(), " ")
+        .replace("\\s+".toRegex(), " ")
+        .trim()
+
+private fun extrairCodigosLegiveis(texto: String): List<String> {
+    val normalizado = normalizarTextoProduto(texto).uppercase(Locale.ROOT)
+    val regexCodigo = Regex("\\b[A-Z0-9]{4,}\\b")
+    return regexCodigo.findAll(normalizado)
+        .map { it.value }
+        .distinct()
+        .toList()
+}
+
+private fun extrairCodigoComEspacos(linhas: List<LinhaOCR>): String? {
+    val regex = Regex("([A-Z0-9]{2,}(?:\\s+[A-Z0-9]{1,}){1,3})")
+    return linhas.map { it.texto.trim() }.firstNotNullOfOrNull { linha ->
+        val match = regex.find(linha.uppercase(Locale.ROOT))
+        match?.value?.takeIf {
+            val semEspaco = it.replace(" ", "")
+            semEspaco.length >= 4
+        }?.trim()
+    }
+}
+
+private fun calcularLegibilidadeLinha(texto: String): Int {
+    val normalizado = normalizarTextoProduto(texto)
+    val letras = normalizado.count { it.isLetter() }
+    val maiusculas = normalizado.count { it.isUpperCase() }
+    val uppercaseRatio = if (letras > 0) maiusculas.toFloat() / letras else 0f
+    val digitos = normalizado.count { it.isDigit() }
+    var score = letras * 2 - digitos
+    score += (uppercaseRatio * 10).roundToInt()
+    if (uppercaseRatio > 0.8f) score += 5
+    if (normalizado.length in 4..20) score += 4
+    return score
+}
+
+private fun detectarTipoPeloTexto(texto: String): TipoManutencao {
+    val normalized = texto.uppercase(Locale.ROOT).unaccent()
+    return when {
+        listOf("OLEO", "LUBRAX", "LUBRIFICANTE", "20W", "15W", "5W").any { normalized.contains(it) } -> TipoManutencao.OLEO
+        listOf("BATERIA", "MBR", "AMP", "12V", "VOLTS").any { normalized.contains(it) } -> TipoManutencao.BATERIA
+        listOf("FREIO", "PASTILHA", "ABS").any { normalized.contains(it) } -> TipoManutencao.FREIO
+        listOf("AR COND", "AR-COND", "CLIMA", "REFRIG").any { normalized.contains(it) } -> TipoManutencao.TEMPERATURA
+        listOf("FILTRO", "CORREIA", "VELA", "INJECAO", "PNEU").any { normalized.contains(it) } -> TipoManutencao.MECANICA
+        else -> TipoManutencao.OUTROS
+    }
 }
 
 fun ImageProxy.toBitmap(): Bitmap {
@@ -476,6 +745,7 @@ fun ManutencaoScreen(modifier: Modifier = Modifier, context: Context = LocalCont
     var showEditCarDialog by remember { mutableStateOf(false) }
     var showAddCarDialog by remember { mutableStateOf(false) }
     var showAddLembreteDialog by remember { mutableStateOf(false) }
+    var iniciarCameraProduto by remember { mutableStateOf(false) }
     var showAddContatoDialog by remember { mutableStateOf(false) }
     var showRelatorioDialog by remember { mutableStateOf(false) }
     var showTesteNotificacaoDialog by remember { mutableStateOf(false) }
@@ -551,10 +821,24 @@ fun ManutencaoScreen(modifier: Modifier = Modifier, context: Context = LocalCont
 
     if (showAddLembreteDialog) {
         NovoAgendamentoDialog(
-            carroAtual = carroAtual, contatosDisponiveis = listaContatos, onDismiss = { showAddLembreteDialog = false },
-            onConfirm = { novo -> todosLembretes = todosLembretes + novo.copy(carroId = carroAtual.id); showAddLembreteDialog = false },
-            onMultiConfirm = { novosItens -> val novosLembretes = novosItens.map { it.copy(carroId = carroAtual.id) }; todosLembretes = todosLembretes + novosLembretes; showAddLembreteDialog = false; Toast.makeText(context, "${novosLembretes.size} itens salvos!", Toast.LENGTH_SHORT).show() },
-            onUpdateKmCarro = { novoKm -> listaCarros = listaCarros.map { if (it.id == carroAtual.id) it.copy(kmAtual = novoKm) else it } }
+            carroAtual = carroAtual,
+            contatosDisponiveis = listaContatos,
+            onDismiss = { showAddLembreteDialog = false; iniciarCameraProduto = false },
+            onConfirm = { novo ->
+                todosLembretes = todosLembretes + novo.copy(carroId = carroAtual.id)
+                showAddLembreteDialog = false
+                iniciarCameraProduto = false
+            },
+            onMultiConfirm = { novosItens ->
+                val novosLembretes = novosItens.map { it.copy(carroId = carroAtual.id) }
+                todosLembretes = todosLembretes + novosLembretes
+                showAddLembreteDialog = false
+                iniciarCameraProduto = false
+                Toast.makeText(context, "${novosLembretes.size} itens salvos!", Toast.LENGTH_SHORT).show()
+            },
+            onUpdateKmCarro = { novoKm -> listaCarros = listaCarros.map { if (it.id == carroAtual.id) it.copy(kmAtual = novoKm) else it } },
+            autoAbrirCamera = iniciarCameraProduto,
+            onAutoCameraConsumida = { iniciarCameraProduto = false }
         )
     }
 
@@ -563,7 +847,10 @@ fun ManutencaoScreen(modifier: Modifier = Modifier, context: Context = LocalCont
         containerColor = Color(0xFF0F172A),
         floatingActionButton = {
             FloatingActionButton(
-                onClick = { showAddLembreteDialog = true },
+                onClick = {
+                    iniciarCameraProduto = false
+                    showAddLembreteDialog = true
+                },
                 containerColor = Color(0xFF3B82F6),
                 contentColor = Color.White,
                 shape = RoundedCornerShape(16.dp),
@@ -591,6 +878,25 @@ fun ManutencaoScreen(modifier: Modifier = Modifier, context: Context = LocalCont
                     }
                 }
 
+                // Botão de identificação por câmera
+                Button(
+                    onClick = {
+                        iniciarCameraProduto = true
+                        showAddLembreteDialog = true
+                    },
+                    modifier = Modifier
+                        .padding(horizontal = 16.dp)
+                        .fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF97316))
+                ) {
+                    Icon(Icons.Default.CameraAlt, contentDescription = "Escanear produto")
+                    Spacer(Modifier.width(8.dp))
+                    Text("Identificar Produto", fontWeight = FontWeight.Bold)
+                }
+
+                Spacer(Modifier.height(16.dp))
+
                 // Card Principal do Carro (Com Gradiente)
                 Box(
                     modifier = Modifier.padding(horizontal = 16.dp).fillMaxWidth().clip(RoundedCornerShape(24.dp))
@@ -607,7 +913,7 @@ fun ManutencaoScreen(modifier: Modifier = Modifier, context: Context = LocalCont
                         }
                         Spacer(Modifier.height(12.dp))
                         Text(carroAtual.nome, style = MaterialTheme.typography.headlineMedium, color = Color.White, fontWeight = FontWeight.ExtraBold)
-                        val descricaoModelo = listOf(carroAtual.marca, carroAtual.modelo).filter { it.isNotBlank() }.joinToString(" · ")
+                        val descricaoModelo = listOf(carroAtual.marca, carroAtual.modelo).filter { it.isNotBlank() }.joinToString(" - ")
                         if (descricaoModelo.isNotBlank()) {
                             Text(descricaoModelo, style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(0.8f))
                         }
@@ -831,7 +1137,7 @@ fun ConfiguracoesScreen(onDismiss: () -> Unit, onTestarNotificacao: () -> Unit) 
                 }
 
                 Text(
-                    "Versão do app 1.0.0 • dados salvos localmente",
+                    "Versão do app 1.0.0 | dados salvos localmente",
                     color = Color(0xFF94A3B8),
                     fontSize = 12.sp,
                     textAlign = TextAlign.Center,
@@ -1494,7 +1800,7 @@ private fun InfoLinha(label: String, valor: String, modifier: Modifier = Modifie
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun NovoAgendamentoDialog(
     carroAtual: CarroInfo,
@@ -1502,7 +1808,9 @@ fun NovoAgendamentoDialog(
     onDismiss: () -> Unit,
     onConfirm: (Lembrete) -> Unit,
     onMultiConfirm: (List<Lembrete>) -> Unit,
-    onUpdateKmCarro: (Int) -> Unit
+    onUpdateKmCarro: (Int) -> Unit,
+    autoAbrirCamera: Boolean = false,
+    onAutoCameraConsumida: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val appContext = context.applicationContext
@@ -1523,7 +1831,22 @@ fun NovoAgendamentoDialog(
     var horaNotificacao by remember { mutableStateOf("09:00") }
     var dataAviso by remember { mutableStateOf(LocalDate.now().format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))) }
     var avisoPersonalizado by remember { mutableStateOf(false) }
+    val descricaoFocusRequester = remember { FocusRequester() }
+    var textosDetectados by remember { mutableStateOf<List<String>>(emptyList()) }
     val dataFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
+
+    LaunchedEffect(autoAbrirCamera) {
+        if (autoAbrirCamera) {
+            showCamera = true
+            onAutoCameraConsumida()
+        }
+    }
+
+    LaunchedEffect(isModoLista) {
+        if (!isModoLista) {
+            descricaoFocusRequester.requestFocus()
+        }
+    }
 
     fun adicionarKm(valor: Int) { val kmBaseInt = kmBase.toIntOrNull() ?: carroAtual.kmAtual; kmBase = (kmBaseInt + valor).toString() }
     LaunchedEffect(data, tipoSelecionado) {
@@ -1562,7 +1885,20 @@ fun NovoAgendamentoDialog(
     if (showCamera) {
         CameraCapturaDialog(onDismiss = { showCamera = false }, onFotoCapturada = { resultado ->
             fotoCaminho = resultado.arquivoFoto.absolutePath
-            if (resultado.itensEncontrados.isNotEmpty()) { listaItensDetectados = resultado.itensEncontrados; isModoLista = true } else { descricao = "Serviço (Foto Anexada)" }
+            textosDetectados = resultado.linhasReconhecidas.filter { it.isNotBlank() && !isTextoPromocional(it) && !padraoUrlOuContato.containsMatchIn(it.uppercase(Locale.ROOT)) }
+            if (resultado.itensEncontrados.isNotEmpty()) {
+                listaItensDetectados = resultado.itensEncontrados
+                isModoLista = true
+            } else {
+                isModoLista = false
+                val principal = resultado.sugestoesProduto.firstOrNull()
+                if (!principal.isNullOrBlank()) {
+                    descricao = principal
+                    tipoSelecionado = detectarTipoPeloTexto(principal)
+                } else {
+                    descricao = "Produto (Foto Anexada)"
+                }
+            }
             if (resultado.kmDetectado != null && resultado.kmDetectado > 0) { kmDetectadoParaConfirmar = resultado.kmDetectado; showKmConfirmDialog = true }
             showCamera = false
         })
@@ -1577,7 +1913,7 @@ fun NovoAgendamentoDialog(
             title = { Text("Atualizar KM?", color = Color.White) },
             text = {
                 Text(
-                    "Detectamos ${kmDetectadoParaConfirmar} km na nota.\nAtualizar o odômetro do carro?",
+                    "Detectamos ${kmDetectadoParaConfirmar} km na captura.\nAtualizar o odômetro do carro?",
                     color = Color(0xFF94A3B8)
                 )
             },
@@ -1605,7 +1941,7 @@ fun NovoAgendamentoDialog(
             .padding(16.dp)
             .border(dialogBorderStroke, dialogCornerShape),
         shape = dialogCornerShape,
-        title = { Text(if(isModoLista) "Itens da Nota" else "Novo Serviço", color = Color.White, fontWeight = FontWeight.Bold) },
+        title = { Text(if(isModoLista) "Itens Detectados" else "Novo Aviso", color = Color.White, fontWeight = FontWeight.Bold) },
         text = {
             Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 // Botão Camera
@@ -1616,7 +1952,7 @@ fun NovoAgendamentoDialog(
                     colors = ButtonDefaults.buttonColors(containerColor = if(fotoCaminho != null) Color(0xFF10B981) else Color(0xFF3B82F6))
                 ) {
                     Icon(if(fotoCaminho != null) Icons.Default.Check else Icons.Default.CameraAlt, null); Spacer(Modifier.width(8.dp))
-                    Text(if(fotoCaminho != null) "Foto Anexada (Refazer)" else "Escanear Nota / Etiqueta")
+                    Text(if(fotoCaminho != null) "Foto Anexada (Refazer)" else "Escanear Produto")
                 }
 
                 if (isModoLista) {
@@ -1628,7 +1964,7 @@ fun NovoAgendamentoDialog(
                                 Icon(item.tipo.getIcon(), null, tint = Color(0xFF3B82F6), modifier = Modifier.size(20.dp)); Spacer(Modifier.width(10.dp))
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(item.nome, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                    Row { Text(item.tipo.label, color = Color(0xFF94A3B8), fontSize = 12.sp); if (kmFuturoCalculado.isNotEmpty()) Text("  • Vence +${getKmAdicionalPorTipo(item.tipo)}km", color = Color(0xFF10B981), fontSize = 12.sp) }
+                                    Row { Text(item.tipo.label, color = Color(0xFF94A3B8), fontSize = 12.sp); if (kmFuturoCalculado.isNotEmpty()) Text("  - Vence +${getKmAdicionalPorTipo(item.tipo)}km", color = Color(0xFF10B981), fontSize = 12.sp) }
                                 }
                                 IconButton(onClick = { listaItensDetectados = listaItensDetectados - item; if(listaItensDetectados.isEmpty()) isModoLista = false }) { Icon(Icons.Default.Delete, "Remover", tint = Color(0xFFEF4444)) }
                             }
@@ -1637,9 +1973,34 @@ fun NovoAgendamentoDialog(
                 } else {
                     // Campos Manuais
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedTextField(value = descricao, onValueChange = { descricao = it }, label = { Text("O que foi feito?") }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(12.dp))
+                        OutlinedTextField(
+                            value = descricao,
+                            onValueChange = { descricao = it },
+                            label = { Text("O que foi feito?") },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .focusRequester(descricaoFocusRequester),
+                            singleLine = true,
+                            shape = RoundedCornerShape(12.dp)
+                        )
                         Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) { listOf(SugestaoRapida("Troca de óleo", TipoManutencao.OLEO), SugestaoRapida("Revisão", TipoManutencao.MECANICA), SugestaoRapida("Pneu", TipoManutencao.MECANICA)).forEach { s -> AssistChip(onClick = { descricao = s.texto; tipoSelecionado = s.tipo }, label = { Text(s.texto) }) } }
                         ExposedDropdownMenuBox(expanded = menuExpanded, onExpandedChange = { menuExpanded = !menuExpanded }) { OutlinedTextField(value = tipoSelecionado.label, onValueChange = {}, readOnly = true, label = { Text("Categoria") }, modifier = Modifier.menuAnchor().fillMaxWidth(), trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = menuExpanded) }, shape = RoundedCornerShape(12.dp)); ExposedDropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) { TipoManutencao.values().forEach { t -> DropdownMenuItem(text = { Text(t.label) }, onClick = { tipoSelecionado = t; menuExpanded = false }) } } }
+                    }
+                }
+
+                if (textosDetectados.isNotEmpty()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(BorderStroke(1.dp, Color(0xFF1E293B)), RoundedCornerShape(12.dp))
+                            .background(Color(0xFF0F172A), RoundedCornerShape(12.dp))
+                            .padding(12.dp)
+                    ) {
+                        Text("Textos capturados", color = Color.White, fontWeight = FontWeight.SemiBold)
+                        Spacer(Modifier.height(8.dp))
+                        textosDetectados.take(6).forEach { texto ->
+                            Text("• $texto", color = Color(0xFF94A3B8), fontSize = 12.sp)
+                        }
                     }
                 }
 
@@ -1965,7 +2326,7 @@ fun RelatorioVeiculoScreen(carroAtual: CarroInfo, lembretes: List<Lembrete>, onD
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Text(carroAtual.nome, color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold)
-                            val infoModelo = listOf(carroAtual.marca, carroAtual.modelo).filter { it.isNotBlank() }.joinToString(" · ")
+                            val infoModelo = listOf(carroAtual.marca, carroAtual.modelo).filter { it.isNotBlank() }.joinToString(" - ")
                             if (infoModelo.isNotBlank()) {
                                 Text(infoModelo, color = Color(0xFFBFDBFE), fontSize = 14.sp)
                             }
@@ -2084,3 +2445,98 @@ fun RelatorioVeiculoScreen(carroAtual: CarroInfo, lembretes: List<Lembrete>, onD
 @Preview(showBackground = true)
 @Composable
 fun PreviewManutencao() { CarLembreteTheme { ManutencaoScreen() } }
+
+private fun contemSequenciaPromocional(texto: String): Boolean {
+    val clean = texto.uppercase(Locale.ROOT).unaccent()
+    val termosBloco = listOf("PROTEGE", "MANTEM", "MANTE", "LIMPO", "MOTOR")
+    val tokens = clean.split(" " ).filter { it.isNotBlank() }
+    if (tokens.size < 2) return false
+    for (i in 0 until tokens.size - 1) {
+        val primeira = tokens[i]
+        val segunda = tokens[i + 1]
+        if ((primeira.startsWith("PROTEGE") && segunda.startsWith("MANT")) ||
+            (primeira.startsWith("MANT") && segunda.contains("LIMP")) ||
+            (primeira.contains("LIMP") && segunda.contains("MOTOR")) ||
+            primeira.contains("MOTOR")
+        ) {
+            return true
+        }
+    }
+    return false
+}
+
+private fun tokenEhPromocional(tokenRaw: String): Boolean {
+    if (tokenRaw.isBlank()) return false
+    val normalizado = tokenRaw.uppercase(Locale.ROOT).unaccent()
+    if (termosPromocionaisPadrao.contains(normalizado)) return true
+    if (normalizado.length > 1 && (normalizado[0] == 'O' || normalizado[0] == 'A' || normalizado[0] == 'E')) {
+        val semPrefixo = normalizado.substring(1)
+        if (termosPromocionaisPadrao.contains(semPrefixo)) return true
+    }
+    return false
+}
+
+private fun corrigirTokenPorDicionario(token: String): String? {
+    val clean = token.uppercase(Locale.ROOT).unaccent()
+    return dicionarioProdutosPrincipais.firstOrNull { distanciaLevenshtein(clean, it) <= 1 }
+}
+
+private fun distanciaLevenshtein(a: String, b: String): Int {
+    if (a == b) return 0
+    if (a.isEmpty()) return b.length
+    if (b.isEmpty()) return a.length
+    val dp = Array(a.length + 1) { IntArray(b.length + 1) }
+    for (i in 0..a.length) dp[i][0] = i
+    for (j in 0..b.length) dp[0][j] = j
+    for (i in 1..a.length) {
+        for (j in 1..b.length) {
+            val cost = if (a[i - 1] == b[j - 1]) 0 else 1
+            dp[i][j] = minOf(
+                dp[i - 1][j] + 1,
+                dp[i][j - 1] + 1,
+                dp[i - 1][j - 1] + cost
+            )
+        }
+    }
+    return dp[a.length][b.length]
+}
+
+private fun isTextoPromocional(texto: String): Boolean {
+    val clean = texto.uppercase(Locale.ROOT).unaccent()
+    val tokens = clean.split(" " ).filter { it.isNotBlank() }
+    if (tokens.isEmpty()) return false
+    val count = tokens.count { tokenEhPromocional(it) }
+    val total = tokens.size
+    if (total == 0) return false
+    val percent = count.toFloat() / total
+    val temBarra = tokens.any { it.contains('/') }
+    return percent > 0.5f || (temBarra && percent > 0.3f)
+}
+
+private fun corrigirCaracteresVisuais(texto: String): String =
+    buildString {
+        texto.forEach { char ->
+            append(
+                when (char) {
+                    '/', '\\' -> 'L'
+                    else -> char
+                }
+            )
+        }
+    }
+
+private fun recortarAreaCentral(bitmap: Bitmap): Bitmap {
+    val largura = bitmap.width
+    val altura = bitmap.height
+    val larguraTarget = (largura * 0.55).toInt().coerceAtLeast(1)
+    val alturaTarget = (altura * 0.25).toInt().coerceAtLeast(1)
+    val inicioX = ((largura - larguraTarget) / 2).coerceAtLeast(0)
+    val inicioY = ((altura - alturaTarget) / 2).coerceAtLeast(0)
+    return Bitmap.createBitmap(
+        bitmap,
+        inicioX,
+        inicioY,
+        larguraTarget.coerceAtMost(largura),
+        alturaTarget.coerceAtMost(altura)
+    )
+}
