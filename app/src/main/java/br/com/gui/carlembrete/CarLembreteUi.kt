@@ -568,7 +568,7 @@ private fun calcularLegibilidadeLinha(texto: String): Int {
     return score
 }
 
-private fun detectarTipoPeloTexto(texto: String): TipoManutencao {
+internal fun detectarTipoPeloTexto(texto: String): TipoManutencao {
     val normalized = texto.uppercase(Locale.ROOT).unaccent()
     return when {
         listOf("OLEO", "LUBRAX", "LUBRIFICANTE", "20W", "15W", "5W").any { normalized.contains(it) } -> TipoManutencao.OLEO

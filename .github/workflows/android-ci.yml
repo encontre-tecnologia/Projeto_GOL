@@ -1,0 +1,32 @@
+name: Testes Automáticos (CarLembrete)
+
+# Quando esse robô deve acordar?
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+
+jobs:
+  testar-app:
+    runs-on: ubuntu-latest # Usa uma máquina Linux virtual
+
+    steps:
+      # 1. Baixa seu código
+      - name: Checkout do Código
+        uses: actions/checkout@v4
+
+      # 2. Instala o Java (Necessário para o Gradle rodar)
+      - name: Configurar Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17' # Gradle do Android Studio novo exige Java 17 pra rodar
+
+      # 3. Dá permissão de execução pro script do Gradle
+      - name: Dar permissão ao Gradle
+        run: chmod +x gradlew
+
+      # 4. Roda exatamente o comando que testamos antes
+      - name: Rodar Testes Unitários
+        run: ./gradlew testDebugUnitTest
