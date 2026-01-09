@@ -30,5 +30,6 @@ A ideia é: você cadastra o veículo, lança lembretes e ainda consegue **capta
 ## ▶️ Como executar
 
 1. Clone o repositório:
+
    ```bash
    git clone https://github.com/encontre-tecnologia/Projeto_GOL/tree/main
