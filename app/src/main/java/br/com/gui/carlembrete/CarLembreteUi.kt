@@ -1,14 +1,22 @@
 package br.com.gui.carlembrete
 
+import android.Manifest
+import android.app.Activity
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
+import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Matrix
 import android.net.Uri
+import android.speech.RecognizerIntent
 import android.util.Log
 import android.widget.Toast
+import java.net.URLEncoder
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
@@ -26,6 +34,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.lazy.LazyColumn
@@ -50,11 +59,16 @@ import androidx.compose.material.icons.rounded.Thermostat
 import androidx.compose.material.icons.rounded.WaterDrop
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -92,6 +106,12 @@ import java.time.temporal.TemporalAdjusters
 import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.Executors
+import kotlin.math.roundToInt
+
+private val dialogBorderStroke = BorderStroke(0.2.dp, Color.White.copy(alpha = 0.2f))
+private val dialogCornerShape = RoundedCornerShape(20.dp)
+private val dialogActionButtonShape = RoundedCornerShape(8.dp)
+private const val LER_NOTAS_HABILITADO = false
 
 /* ----------------- ESTRUTURAS DE DADOS ----------------- */
 
@@ -107,7 +127,9 @@ data class ItemDetectado(
 data class ResultadoCaptura(
     val arquivoFoto: File,
     val itensEncontrados: List<ItemDetectado>,
-    val kmDetectado: Int?
+    val kmDetectado: Int?,
+    val sugestoesProduto: List<String> = emptyList(),
+    val linhasReconhecidas: List<String> = emptyList()
 )
 
 data class Lembrete(
@@ -159,9 +181,6 @@ enum class TipoManutencao(val label: String) {
     }
 }
 
-data class SugestaoRapida(val texto: String, val tipo: TipoManutencao)
-
-
 /* ----------------- CÂMERA INTELIGENTE ----------------- */
 
 @Composable
@@ -173,6 +192,18 @@ fun CameraCapturaDialog(onDismiss: () -> Unit, onFotoCapturada: (ResultadoCaptur
     var lanternaLigada by remember { mutableStateOf(false) }
     var cameraControl by remember { mutableStateOf<androidx.camera.core.CameraControl?>(null) }
     var isProcessing by remember { mutableStateOf(false) }
+    val hasCameraPermission = ContextCompat.checkSelfPermission(
+        context,
+        Manifest.permission.CAMERA
+    ) == PackageManager.PERMISSION_GRANTED
+
+    LaunchedEffect(hasCameraPermission) {
+        if (!hasCameraPermission) {
+            Toast.makeText(context, "Permita o uso da câmera para escanear o produto", Toast.LENGTH_SHORT).show()
+            onDismiss()
+        }
+    }
+    if (!hasCameraPermission) return
 
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
@@ -192,18 +223,76 @@ fun CameraCapturaDialog(onDismiss: () -> Unit, onFotoCapturada: (ResultadoCaptur
                 previewView
             }, modifier = Modifier.fillMaxSize())
 
-            Column(modifier = Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.SpaceBetween) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(vertical = 120.dp)
+                    .padding(horizontal = 40.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(200.dp)
+                        .border(BorderStroke(2.dp, Color.White.copy(alpha = 0.7f)), RoundedCornerShape(16.dp))
+                )
+            }
+
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.SpaceBetween
+            ) {
                 Row(modifier = Modifier.fillMaxWidth().padding(top = 24.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                     IconButton(onClick = onDismiss, modifier = Modifier.background(Color.Black.copy(0.5f), CircleShape)) { Icon(Icons.Default.Close, "Fechar", tint = Color.White) }
-                    IconButton(onClick = { lanternaLigada = !lanternaLigada; cameraControl?.enableTorch(lanternaLigada) }, modifier = Modifier.background(Color.Black.copy(0.5f), CircleShape)) { Icon(if (lanternaLigada) Icons.Default.FlashOn else Icons.Default.FlashOff, "Flash", tint = if (lanternaLigada) Color(0xFFF59E0B) else Color.White) }
+                    IconButton(
+                        onClick = {
+                            val hasPermission = ContextCompat.checkSelfPermission(
+                                context,
+                                Manifest.permission.CAMERA
+                            ) == PackageManager.PERMISSION_GRANTED
+                            if (hasPermission) {
+                                lanternaLigada = !lanternaLigada
+                                try {
+                                    cameraControl?.enableTorch(lanternaLigada)
+                                } catch (_: SecurityException) {
+                                    lanternaLigada = !lanternaLigada
+                                    Toast.makeText(context, "Não foi possível acessar o flash", Toast.LENGTH_SHORT).show()
+                                }
+                            } else {
+                                Toast.makeText(context, "Permita o uso da câmera para ativar o flash", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        modifier = Modifier.background(Color.Black.copy(0.5f), CircleShape)
+                    ) { Icon(if (lanternaLigada) Icons.Default.FlashOn else Icons.Default.FlashOff, "Flash", tint = if (lanternaLigada) Color(0xFFF59E0B) else Color.White) }
                 }
                 Box(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).background(Color.Black.copy(0.6f), RoundedCornerShape(16.dp)).padding(16.dp), contentAlignment = Alignment.Center) {
-                    if (isProcessing) { Row(verticalAlignment = Alignment.CenterVertically) { CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.White); Spacer(Modifier.width(16.dp)); Text("Processando nota...", color = Color.White) } }
-                    else { Text("Fotografe a nota ou etiqueta.\nCalcularei o vencimento automaticamente.", color = Color.White, fontSize = 14.sp, textAlign = TextAlign.Center) }
+                    if (isProcessing) { Row(verticalAlignment = Alignment.CenterVertically) { CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.White); Spacer(Modifier.width(16.dp)); Text("Processando captura...", color = Color.White) } }
+                    else { Text("Centralize o nome do produto dentro do retângulo para obter o melhor resultado.", color = Color.White, fontSize = 14.sp, textAlign = TextAlign.Center) }
                 }
-                Box(modifier = Modifier.size(80.dp).clip(CircleShape).background(Color.White).clickable(enabled = !isProcessing) {
-                    if (!isProcessing) { isProcessing = true; captureAndExtractItems(context, imageCapture!!) { resultado -> isProcessing = false; onFotoCapturada(resultado) } }
-                }, contentAlignment = Alignment.Center) { Box(modifier = Modifier.size(70.dp).clip(CircleShape).background(Color.White).border(4.dp, Color.Black.copy(0.1f), CircleShape)) }
+                Button(
+                    onClick = {
+                        if (!isProcessing) {
+                            isProcessing = true
+                            captureAndExtractItems(context, imageCapture!!) { resultado ->
+                                isProcessing = false
+                                onFotoCapturada(resultado)
+                            }
+                        }
+                    },
+                    enabled = !isProcessing,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color(0xFF0F172A))
+                ) {
+                    Icon(Icons.Default.CameraAlt, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text(if (isProcessing) "Processando..." else "Escanear Produto", fontWeight = FontWeight.Bold)
+                }
             }
         }
     }
@@ -217,87 +306,278 @@ private fun captureAndExtractItems(context: Context, imageCapture: ImageCapture,
             val rotation = image.imageInfo.rotationDegrees.toFloat()
             val matrix = Matrix().apply { postRotate(rotation) }
             val bitmapRotacionado = Bitmap.createBitmap(bitmapBuffer, 0, 0, bitmapBuffer.width, bitmapBuffer.height, matrix, true)
+            val bitmapFocado = recortarAreaCentral(bitmapRotacionado)
             val arquivo = File(context.filesDir, "servico_scan_${System.currentTimeMillis()}.jpg")
-            FileOutputStream(arquivo).use { out -> bitmapRotacionado.compress(Bitmap.CompressFormat.JPEG, 80, out) }
+            FileOutputStream(arquivo).use { out -> bitmapFocado.compress(Bitmap.CompressFormat.JPEG, 80, out) }
 
-            val inputImage = InputImage.fromBitmap(bitmapRotacionado, 0)
+            val inputImage = InputImage.fromBitmap(bitmapFocado, 0)
             val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
 
             recognizer.process(inputImage).addOnSuccessListener { visionText ->
                 val linhas = visionText.textBlocks.flatMap { it.lines }
-                val itensEncontrados = mutableListOf<ItemDetectado>()
-                var lendoObservacoes = false
-
-                val regexData = Regex("\\b(\\d{2})/(\\d{2})/(\\d{2,4})\\b")
-                var dataServico = LocalDate.now()
-                val matchData = regexData.find(visionText.text)
-                if (matchData != null) {
-                    try {
-                        var ano = matchData.groupValues[3]
-                        if (ano.length == 2) ano = "20$ano"
-                        dataServico = LocalDate.of(ano.toInt(), matchData.groupValues[2].toInt(), matchData.groupValues[1].toInt())
-                    } catch (e: Exception) {}
+                val linhasInfo = linhas.map {
+                    val box = it.boundingBox
+                    val area = if (box != null) box.width().coerceAtLeast(1) * box.height().coerceAtLeast(1) else 0
+                    LinhaOCR(corrigirCaracteresVisuais(it.text), area, box?.height() ?: 0)
                 }
-
+                val sugestoesProduto = sugerirProdutosParaAviso(linhasInfo, visionText.text)
+                val itensEncontrados = mutableListOf<ItemDetectado>()
                 var kmDetectado: Int? = null
-                val regexKm = Regex("(?i)(?:KM|ODOMETRO|HODOMETRO)[\\s:.]*(\\d{1,3}(?:[.,]\\d{3})*)")
-                val matchKm = regexKm.find(visionText.text)
-                if (matchKm != null) kmDetectado = matchKm.groupValues[1].replace(".", "").replace(",", "").toIntOrNull()
 
-                val keywordsServico = listOf("OLEO", "FILTRO", "ALINHAMENTO", "BALANCEAMENTO", "PASTILHA", "DISCO", "FREIO", "BATERIA", "SUSPENSAO", "PNEU", "RODIZIO", "LUBRAX", "HIGIENIZACAO", "REVISAO", "CORREIA", "LAMPADA", "FLUIDO", "ADITIVO", "AR-CONDICIONADO", "ELETRICO", "INJECAO", "VELA")
-                val regexViscosidade = Regex("\\b\\d{1,2}W-?\\d{2}\\b", RegexOption.IGNORE_CASE)
-                val regexPrecoParaRemocao = Regex("(R\\$|\\$)?\\s*\\d{1,4}(?:[.,]\\d{3})*[.,]\\d{2}")
-                val keywordsIgnorar = listOf("PLACA", "VEICULO", "CARRO", "MODELO", "KM", "ODOMETRO", "DATA", "CLIENTE", "CPF", "CNPJ", "TOTAL", "VALOR", "PAGAMENTO", "TELEFONE", "ENDERECO", "ENTRADA", "SAIDA", "NOME", "IE:", "CEP", "NOTA", "TESTE", "TESTADO", "DIAGNOSTICO")
+                if (LER_NOTAS_HABILITADO) {
+                    var lendoObservacoes = false
+                    val regexData = Regex("\\b(\\d{2})/(\\d{2})/(\\d{2,4})\\b")
+                    var dataServico = LocalDate.now()
+                    val matchData = regexData.find(visionText.text)
+                    if (matchData != null) {
+                        try {
+                            var ano = matchData.groupValues[3]
+                            if (ano.length == 2) ano = "20$ano"
+                            dataServico = LocalDate.of(ano.toInt(), matchData.groupValues[2].toInt(), matchData.groupValues[1].toInt())
+                        } catch (e: Exception) {}
+                    }
 
-                for (linhaObj in linhas) {
-                    val linhaRaw = linhaObj.text
-                    val linhaNormalizada = linhaRaw.uppercase().unaccent()
+                    val regexKm = Regex("(?i)(?:KM|ODOMETRO|HODOMETRO)[\\s:.]*(\\d{1,3}(?:[.,]\\d{3})*)")
+                    val matchKm = regexKm.find(visionText.text)
+                    if (matchKm != null) kmDetectado = matchKm.groupValues[1].replace(".", "").replace(",", "").toIntOrNull()
 
-                    if (linhaNormalizada.contains("OBSERVACOES") || linhaNormalizada.contains("OBS:") || linhaNormalizada.contains("CHECK") || linhaNormalizada.contains("RESUMO") || linhaNormalizada.contains("ITENS REVISADOS")) { lendoObservacoes = true; continue }
-                    if (lendoObservacoes) continue
+                    val keywordsServico = listOf("OLEO", "FILTRO", "ALINHAMENTO", "BALANCEAMENTO", "PASTILHA", "DISCO", "FREIO", "BATERIA", "SUSPENSAO", "PNEU", "RODIZIO", "LUBRAX", "HIGIENIZACAO", "REVISAO", "CORREIA", "LAMPADA", "FLUIDO", "ADITIVO", "AR-CONDICIONADO", "ELETRICO", "INJECAO", "VELA")
+                    val regexViscosidade = Regex("\\b\\d{1,2}W-?\\d{2}\\b", RegexOption.IGNORE_CASE)
+                    val regexPrecoParaRemocao = Regex("(R\\$|\\$)?\\s*\\d{1,4}(?:[.,]\\d{3})*[.,]\\d{2}")
+                    val keywordsIgnorar = listOf("PLACA", "VEICULO", "CARRO", "MODELO", "KM", "ODOMETRO", "DATA", "CLIENTE", "CPF", "CNPJ", "TOTAL", "VALOR", "PAGAMENTO", "TELEFONE", "ENDERECO", "ENTRADA", "SAIDA", "NOME", "IE:", "CEP", "NOTA", "TESTE", "TESTADO", "DIAGNOSTICO")
 
-                    val linhaSemPreco = linhaRaw.replace(regexPrecoParaRemocao, "").replace(Regex("\\.{2,}"), " ").trim()
-                    val partesDaLinha = linhaSemPreco.split(Regex("[,+/]"))
+                    for (linhaObj in linhas) {
+                        val linhaRaw = linhaObj.text
+                        val linhaNormalizada = linhaRaw.uppercase().unaccent()
 
-                    for (parte in partesDaLinha) {
-                        val parteUpper = parte.uppercase().trim()
-                        val parteNormalizada = parteUpper.unaccent()
-                        val deveIgnorar = keywordsIgnorar.any { parteNormalizada.contains(it) }
+                        if (linhaNormalizada.contains("OBSERVACOES") || linhaNormalizada.contains("OBS:") || linhaNormalizada.contains("CHECK") || linhaNormalizada.contains("RESUMO") || linhaNormalizada.contains("ITENS REVISADOS")) { lendoObservacoes = true; continue }
+                        if (lendoObservacoes) continue
 
-                        if (!deveIgnorar && parteNormalizada.length > 2) {
-                            val contemServico = keywordsServico.any { parteNormalizada.contains(it) }
-                            val contemViscosidade = regexViscosidade.containsMatchIn(parteUpper)
+                        val linhaSemPreco = linhaRaw.replace(regexPrecoParaRemocao, "").replace(Regex("\\.{2,}"), " ").trim()
+                        val partesDaLinha = linhaSemPreco.split(Regex("[,+/]"))
 
-                            if (contemServico || contemViscosidade) {
-                                var nomeLimpo = parte.replace(Regex("^[\\d-]{1,3}\\s"), "").replace(Regex("[\\[\\(][xX*][\\]\\)]"), "").trim()
-                                val tipo = when {
-                                    parteNormalizada.contains("ALINHAMENTO") || parteNormalizada.contains("BALANCEAMENTO") || parteNormalizada.contains("SUSPENSAO") || parteNormalizada.contains("PNEU") -> TipoManutencao.MECANICA
-                                    parteNormalizada.contains("OLEO") || parteNormalizada.contains("FILTRO") || parteNormalizada.contains("LUBRAX") || contemViscosidade -> TipoManutencao.OLEO
-                                    parteNormalizada.contains("FREIO") || parteNormalizada.contains("PASTILHA") || parteNormalizada.contains("DISCO") -> TipoManutencao.FREIO
-                                    parteNormalizada.contains("BATERIA") || parteNormalizada.contains("ELETRICO") || parteNormalizada.contains("LAMPADA") -> TipoManutencao.BATERIA
-                                    parteNormalizada.contains("AR-CONDICIONADO") || parteNormalizada.contains("HIGIENIZACAO") -> TipoManutencao.OUTROS
-                                    parteNormalizada.contains("CORREIA") || parteNormalizada.contains("VELA") || parteNormalizada.contains("INJECAO") -> TipoManutencao.MECANICA
-                                    else -> TipoManutencao.OUTROS
-                                }
-                                val dataFuturaItem = calcularProximaData(tipo, dataServico)
-                                if (nomeLimpo.isNotBlank() && itensEncontrados.none { it.nome == nomeLimpo }) {
-                                    val quantidadeItem = extrairQuantidadeDaParte(parteUpper) ?: 1
-                                    itensEncontrados.add(ItemDetectado(nome = nomeLimpo, tipo = tipo, quantidade = quantidadeItem, dataFutura = dataFuturaItem))
+                        for (parte in partesDaLinha) {
+                            val parteUpper = parte.uppercase().trim()
+                            val parteNormalizada = parteUpper.unaccent()
+                            val deveIgnorar = keywordsIgnorar.any { parteNormalizada.contains(it) }
+
+                            if (!deveIgnorar && parteNormalizada.length > 2) {
+                                val contemServico = keywordsServico.any { parteNormalizada.contains(it) }
+                                val contemViscosidade = regexViscosidade.containsMatchIn(parteUpper)
+
+                                if (contemServico || contemViscosidade) {
+                                    var nomeLimpo = parte.replace(Regex("^[\\d-]{1,3}\\s"), "").replace(Regex("[\\[\\(][xX*][\\]\\)]"), "").trim()
+                                    val tipo = when {
+                                        parteNormalizada.contains("ALINHAMENTO") || parteNormalizada.contains("BALANCEAMENTO") || parteNormalizada.contains("SUSPENSAO") || parteNormalizada.contains("PNEU") -> TipoManutencao.MECANICA
+                                        parteNormalizada.contains("OLEO") || parteNormalizada.contains("FILTRO") || parteNormalizada.contains("LUBRAX") || contemViscosidade -> TipoManutencao.OLEO
+                                        parteNormalizada.contains("FREIO") || parteNormalizada.contains("PASTILHA") || parteNormalizada.contains("DISCO") -> TipoManutencao.FREIO
+                                        parteNormalizada.contains("BATERIA") || parteNormalizada.contains("ELETRICO") || parteNormalizada.contains("LAMPADA") -> TipoManutencao.BATERIA
+                                        parteNormalizada.contains("AR-CONDICIONADO") || parteNormalizada.contains("HIGIENIZACAO") -> TipoManutencao.OUTROS
+                                        parteNormalizada.contains("CORREIA") || parteNormalizada.contains("VELA") || parteNormalizada.contains("INJECAO") -> TipoManutencao.MECANICA
+                                        else -> TipoManutencao.OUTROS
+                                    }
+                                    val dataFuturaItem = calcularProximaData(tipo, dataServico)
+                                    if (nomeLimpo.isNotBlank() && itensEncontrados.none { it.nome == nomeLimpo }) {
+                                        val quantidadeItem = extrairQuantidadeDaParte(parteUpper) ?: 1
+                                        itensEncontrados.add(ItemDetectado(nome = nomeLimpo, tipo = tipo, quantidade = quantidadeItem, dataFutura = dataFuturaItem))
+                                    }
                                 }
                             }
                         }
                     }
+                    if (itensEncontrados.isEmpty()) {
+                        itensEncontrados.add(ItemDetectado(nome = "Serviço Detectado (Editar)", tipo = TipoManutencao.OUTROS, valor = 0.0, dataFutura = calcularProximaData(TipoManutencao.OUTROS, dataServico)))
+                    }
                 }
-                if (itensEncontrados.isEmpty()) {
-                    itensEncontrados.add(ItemDetectado(nome = "Serviço Detectado (Editar)", tipo = TipoManutencao.OUTROS, valor = 0.0, dataFutura = calcularProximaData(TipoManutencao.OUTROS, dataServico)))
-                }
-                ContextCompat.getMainExecutor(context).execute { onResult(ResultadoCaptura(arquivo, itensEncontrados, kmDetectado)); image.close() }
+
+                val itensParaRetorno = if (LER_NOTAS_HABILITADO) itensEncontrados else emptyList()
+                val kmParaRetorno = if (LER_NOTAS_HABILITADO) kmDetectado else null
+                val linhasReconhecidas = linhasInfo.map { it.texto }
+                ContextCompat.getMainExecutor(context).execute { onResult(ResultadoCaptura(arquivo, itensParaRetorno, kmParaRetorno, sugestoesProduto, linhasReconhecidas)); image.close() }
             }.addOnFailureListener {
-                ContextCompat.getMainExecutor(context).execute { onResult(ResultadoCaptura(arquivo, listOf(ItemDetectado(nome = "Novo Serviço", tipo = TipoManutencao.OUTROS, dataFutura = calcularProximaData(TipoManutencao.OUTROS, LocalDate.now()))), null)); image.close() }
+                val itensFallback = if (LER_NOTAS_HABILITADO) listOf(ItemDetectado(nome = "Novo Serviço", tipo = TipoManutencao.OUTROS, dataFutura = calcularProximaData(TipoManutencao.OUTROS, LocalDate.now()))) else emptyList()
+                ContextCompat.getMainExecutor(context).execute { onResult(ResultadoCaptura(arquivo, itensFallback, null, emptyList(), emptyList())); image.close() }
             }
         }
         override fun onError(exception: ImageCaptureException) {}
     })
+}
+
+private data class CandidatoProduto(
+    val texto: String,
+    val score: Int,
+    val uppercaseRatio: Float,
+    val letras: Int
+)
+
+private data class LinhaOCR(val texto: String, val area: Int, val altura: Int) {
+    fun dividirEmTokens(): List<LinhaOCR> {
+        val tokens = texto.split(Regex("[\\s/\\\\|-]+"))
+            .map { it.trim().replace(Regex("^[^A-Za-z0-9]+|[^A-Za-z0-9]+$"), "") }
+            .filter { it.length >= 3 }
+        return tokens.map { token -> LinhaOCR(token, area, altura) }
+    }
+}
+
+private val termosPromocionaisPadrao = listOf(
+    "MAIOR", "VIDA", "UTIL", "PROTEGE", "PROTECAO", "QUALIDADE", "CONFIANCA",
+    "LIMPO", "MANTEM", "MANTE", "DESEMPENHO", "SEGURANCA", "GARANTIA", "EFICIENCIA",
+    "POTENCIA", "RESISTENTE", "OTIMO", "ULTRA", "NOVA", "NOVO", "MOTOR", "ESSENCIAL", "ESSENCIAL", "ST", "SL"
+)
+
+private val dicionarioProdutosPrincipais = listOf(
+    "LUBRAX", "PETROBRAS", "PIONEIRO", "MBR", "CASTROL", "SHELL", "MOTUL",
+    "PIRELLI", "BOSCH", "DELCO", "ACDELCO", "MOBIL", "TOTAL"
+)
+
+private val padraoUrlOuContato = Regex("(?i)(WWW\\.|HTTP|HTTPS|\\.COM|\\.NET|\\.ORG|\\.BR|@)")
+
+private fun sugerirProdutosParaAviso(linhas: List<LinhaOCR>, textoCompleto: String): List<String> {
+    if (linhas.isEmpty() && textoCompleto.isBlank()) return emptyList()
+    val candidatos = mutableListOf<CandidatoProduto>()
+    val maiorArea = linhas.maxOfOrNull { it.area }?.coerceAtLeast(1) ?: 1
+    val termosIgnorados = listOf(
+        "PLACA", "VEICULO", "CARRO", "KM", "ODOMETRO", "DATA", "TOTAL",
+        "VALOR", "SERVICO", "CLIENTE", "NOTA", "NF", "ENDERECO", "CNPJ",
+        "CPF", "TELEFONE", "GARANTIA", "QUANTIDADE", "CODIGO", "REFERENCIA",
+        "MODELO", "MARCA", "ASSINATURA", "HORA", "PRODUTO"
+    )
+
+    fun avaliarCandidato(textoOriginal: String, bonus: Int = 0, area: Int = 0) {
+        val normalizado = normalizarTextoProduto(textoOriginal)
+        if (normalizado.length < 3) return
+        val upper = normalizado.uppercase(Locale.ROOT)
+        if (termosIgnorados.any { upper.contains(it) }) return
+        if (padraoUrlOuContato.containsMatchIn(upper)) return
+        val textoCanonico = corrigirTokenPorDicionario(upper) ?: upper
+        if (isTextoPromocional(textoCanonico)) return
+        val letras = textoCanonico.count { it.isLetter() }
+        if (letras < 3) return
+        val digitos = textoCanonico.count { it.isDigit() }
+        val palavras = textoCanonico.split(" " ).filter { it.length > 2 }
+        val promocionais = palavras.count { tokenEhPromocional(it) }
+        if (palavras.isNotEmpty() && promocionais.toFloat() / palavras.size > 0.5f) return
+        val maiusculas = textoCanonico.count { it.isUpperCase() }
+        val uppercaseRatio = if (letras > 0) maiusculas.toFloat() / letras else 0f
+        var score = letras * 2 + palavras.size * 3 - digitos * 2 + bonus
+        if (textoCanonico.length > 30) score -= 4
+        if (palavras.size >= 2) score += 5
+        score += (uppercaseRatio * 12).roundToInt()
+        if (uppercaseRatio > 0.9f && digitos == 0 && textoCanonico.length in 4..16) score += 18
+        else if (uppercaseRatio > 0.7f && letras >= 4) score += 8
+        if (area > 0) {
+            val areaRatio = area.toFloat() / maiorArea
+            score += (areaRatio * 20).roundToInt()
+        }
+        if (score > 0) candidatos.add(CandidatoProduto(textoCanonico.trim(), score, uppercaseRatio, letras))
+    }
+
+    val entradas = buildList {
+        addAll(linhas)
+        linhas.forEach { addAll(it.dividirEmTokens()) }
+    }
+
+    entradas.forEach { linha ->
+        val texto = linha.texto.trim()
+        if (contemSequenciaPromocional(texto)) return@forEach
+        if (texto.isNotBlank()) {
+            val letrasNaLinha = texto.count { it.isLetter() }
+            val bonus = if (letrasNaLinha > 0 && texto.count { it.isUpperCase() } >= (letrasNaLinha * 0.6)) 2 else 0
+            avaliarCandidato(texto, bonus, linha.area)
+        }
+    }
+
+    normalizarTextoProduto(textoCompleto)
+        .split(" ")
+        .map(String::trim)
+        .filter { it.length >= 4 }
+        .forEach { token ->
+            if (token.isNotBlank()) {
+                val tokenFormatado = token.lowercase(Locale.getDefault()).replaceFirstChar { ch ->
+                    if (ch.isLowerCase()) ch.titlecase(Locale.getDefault()) else ch.toString()
+                }
+                avaliarCandidato(tokenFormatado, -1)
+            }
+        }
+
+    if (candidatos.isEmpty()) return emptyList()
+
+    val sugestoesOrdenadas = candidatos
+        .sortedWith(
+            compareByDescending<CandidatoProduto> { it.score }
+                .thenByDescending { it.uppercaseRatio }
+                .thenByDescending { it.letras }
+        )
+        .map { it.texto.trim().take(60) }
+        .distinctBy { normalizarTextoProduto(it).uppercase(Locale.ROOT) }
+
+    val melhorDireto = sugestoesOrdenadas.firstOrNull()
+    if (melhorDireto != null) return listOf(melhorDireto)
+
+    val primeiroCodigoLinha = extrairCodigoComEspacos(linhas)
+    if (primeiroCodigoLinha != null) return listOf(primeiroCodigoLinha)
+    if (melhorDireto != null) return listOf(melhorDireto)
+
+    val fallbackCodigos = extrairCodigosLegiveis(textoCompleto)
+    if (fallbackCodigos.isNotEmpty()) return listOf(fallbackCodigos.first())
+
+    val fallbackLinha = linhas
+        .map { it.texto.trim() }
+        .filter { it.length in 4..80 }
+        .maxByOrNull { calcularLegibilidadeLinha(it) }
+
+    return fallbackLinha?.let { listOf(it) } ?: emptyList()
+}
+
+private fun normalizarTextoProduto(texto: String): String =
+    Normalizer.normalize(texto, Normalizer.Form.NFD)
+        .replace("[^\\p{L}\\p{Nd} ]".toRegex(), " ")
+        .replace("\\s+".toRegex(), " ")
+        .trim()
+
+private fun extrairCodigosLegiveis(texto: String): List<String> {
+    val normalizado = normalizarTextoProduto(texto).uppercase(Locale.ROOT)
+    val regexCodigo = Regex("\\b[A-Z0-9]{4,}\\b")
+    return regexCodigo.findAll(normalizado)
+        .map { it.value }
+        .distinct()
+        .toList()
+}
+
+private fun extrairCodigoComEspacos(linhas: List<LinhaOCR>): String? {
+    val regex = Regex("([A-Z0-9]{2,}(?:\\s+[A-Z0-9]{1,}){1,3})")
+    return linhas.map { it.texto.trim() }.firstNotNullOfOrNull { linha ->
+        val match = regex.find(linha.uppercase(Locale.ROOT))
+        match?.value?.takeIf {
+            val semEspaco = it.replace(" ", "")
+            semEspaco.length >= 4
+        }?.trim()
+    }
+}
+
+private fun calcularLegibilidadeLinha(texto: String): Int {
+    val normalizado = normalizarTextoProduto(texto)
+    val letras = normalizado.count { it.isLetter() }
+    val maiusculas = normalizado.count { it.isUpperCase() }
+    val uppercaseRatio = if (letras > 0) maiusculas.toFloat() / letras else 0f
+    val digitos = normalizado.count { it.isDigit() }
+    var score = letras * 2 - digitos
+    score += (uppercaseRatio * 10).roundToInt()
+    if (uppercaseRatio > 0.8f) score += 5
+    if (normalizado.length in 4..20) score += 4
+    return score
+}
+
+private fun detectarTipoPeloTexto(texto: String): TipoManutencao {
+    val normalized = texto.uppercase(Locale.ROOT).unaccent()
+    return when {
+        listOf("OLEO", "LUBRAX", "LUBRIFICANTE", "20W", "15W", "5W").any { normalized.contains(it) } -> TipoManutencao.OLEO
+        listOf("BATERIA", "MBR", "AMP", "12V", "VOLTS").any { normalized.contains(it) } -> TipoManutencao.BATERIA
+        listOf("FREIO", "PASTILHA", "ABS").any { normalized.contains(it) } -> TipoManutencao.FREIO
+        listOf("AR COND", "AR-COND", "CLIMA", "REFRIG").any { normalized.contains(it) } -> TipoManutencao.TEMPERATURA
+        listOf("FILTRO", "CORREIA", "VELA", "INJECAO", "PNEU").any { normalized.contains(it) } -> TipoManutencao.MECANICA
+        else -> TipoManutencao.OUTROS
+    }
 }
 
 fun ImageProxy.toBitmap(): Bitmap {
@@ -471,29 +751,15 @@ fun ManutencaoScreen(modifier: Modifier = Modifier, context: Context = LocalCont
     var showEditCarDialog by remember { mutableStateOf(false) }
     var showAddCarDialog by remember { mutableStateOf(false) }
     var showAddLembreteDialog by remember { mutableStateOf(false) }
+    var iniciarCameraProduto by remember { mutableStateOf(false) }
     var showAddContatoDialog by remember { mutableStateOf(false) }
     var showRelatorioDialog by remember { mutableStateOf(false) }
     var showTesteNotificacaoDialog by remember { mutableStateOf(false) }
+    var showConfiguracoes by remember { mutableStateOf(false) }
     var lembreteSelecionado by remember { mutableStateOf<Lembrete?>(null) }
     var contatoDetalheSelecionado by remember { mutableStateOf<ContatoProfissional?>(null) }
     val lembretesDoCarroAtual = todosLembretes.filter { it.carroId == carroAtual.id }
-    var isCalendarMode by remember { mutableStateOf(false) }
-    var calendarioMes by remember { mutableStateOf(YearMonth.now()) }
-    var diaSelecionado by remember { mutableStateOf<LocalDate?>(null) }
     val formatterData = remember { DateTimeFormatter.ofPattern("dd/MM/yyyy") }
-    val lembretesPorData = lembretesDoCarroAtual.mapNotNull { lembrete ->
-        runCatching { LocalDate.parse(lembrete.dataLimite, formatterData) }.getOrNull()?.let { it to lembrete }
-    }.groupBy({ it.first }, { it.second })
-
-    LaunchedEffect(isCalendarMode, lembretesPorData, calendarioMes) {
-        if (isCalendarMode) {
-            val dataAtual = diaSelecionado
-            if (dataAtual == null || !lembretesPorData.containsKey(dataAtual)) {
-                diaSelecionado = lembretesPorData.keys.firstOrNull { YearMonth.from(it) == calendarioMes }
-                    ?: lembretesPorData.keys.minOrNull()
-            }
-        }
-    }
 
     if (showEditCarDialog) { EditarCarroDialog(carroAtual = carroAtual, titulo = "Editar Veículo", onDismiss = { showEditCarDialog = false }, onSalvar = { carroEditado -> listaCarros = listaCarros.map { if (it.id == carroAtual.id) carroEditado else it }; showEditCarDialog = false }) }
     if (showAddCarDialog) { EditarCarroDialog(carroAtual = CarroInfo(nome = "", modelo = ""), titulo = "Novo Carro", onDismiss = { showAddCarDialog = false }, onSalvar = { novoCarro -> listaCarros = listaCarros + novoCarro; indiceCarroAtual = listaCarros.lastIndex; showAddCarDialog = false }) }
@@ -511,6 +777,15 @@ fun ManutencaoScreen(modifier: Modifier = Modifier, context: Context = LocalCont
                     "Esse é um disparo rápido de teste."
                 )
                 Toast.makeText(context, "Notificação enviada!", Toast.LENGTH_SHORT).show()
+            }
+        )
+    }
+    if (showConfiguracoes) {
+        ConfiguracoesScreen(
+            onDismiss = { showConfiguracoes = false },
+            onTestarNotificacao = {
+                showTesteNotificacaoDialog = true
+                showConfiguracoes = false
             }
         )
     }
@@ -536,25 +811,34 @@ fun ManutencaoScreen(modifier: Modifier = Modifier, context: Context = LocalCont
 
     if (showAddLembreteDialog) {
         NovoAgendamentoDialog(
-            carroAtual = carroAtual, contatosDisponiveis = listaContatos, onDismiss = { showAddLembreteDialog = false },
-            onConfirm = { novo -> todosLembretes = todosLembretes + novo.copy(carroId = carroAtual.id); showAddLembreteDialog = false },
-            onMultiConfirm = { novosItens -> val novosLembretes = novosItens.map { it.copy(carroId = carroAtual.id) }; todosLembretes = todosLembretes + novosLembretes; showAddLembreteDialog = false; Toast.makeText(context, "${novosLembretes.size} itens salvos!", Toast.LENGTH_SHORT).show() },
-            onUpdateKmCarro = { novoKm -> listaCarros = listaCarros.map { if (it.id == carroAtual.id) it.copy(kmAtual = novoKm) else it } }
+            carroAtual = carroAtual,
+            contatosDisponiveis = listaContatos,
+            onDismiss = { showAddLembreteDialog = false; iniciarCameraProduto = false },
+            onConfirm = { novo ->
+                todosLembretes = todosLembretes + novo.copy(carroId = carroAtual.id)
+                showAddLembreteDialog = false
+                iniciarCameraProduto = false
+            },
+            onMultiConfirm = { novosItens ->
+                val novosLembretes = novosItens.map { it.copy(carroId = carroAtual.id) }
+                todosLembretes = todosLembretes + novosLembretes
+                showAddLembreteDialog = false
+                iniciarCameraProduto = false
+                Toast.makeText(context, "${novosLembretes.size} itens salvos!", Toast.LENGTH_SHORT).show()
+            },
+            onUpdateKmCarro = { novoKm -> listaCarros = listaCarros.map { if (it.id == carroAtual.id) it.copy(kmAtual = novoKm) else it } },
+            autoAbrirCamera = iniciarCameraProduto,
+            onAutoCameraConsumida = { iniciarCameraProduto = false },
+            onAddContato = { novo ->
+                listaContatos = listaContatos + novo
+            }
         )
     }
 
     Scaffold(
         modifier = modifier,
         containerColor = Color(0xFF0F172A),
-        floatingActionButton = {
-            FloatingActionButton(
-                onClick = { showAddLembreteDialog = true },
-                containerColor = Color(0xFF3B82F6),
-                contentColor = Color.White,
-                shape = RoundedCornerShape(16.dp),
-                elevation = FloatingActionButtonDefaults.elevation(8.dp)
-            ) { Icon(Icons.Rounded.Add, "Novo", modifier = Modifier.size(32.dp)) }
-        }
+        floatingActionButton = {}
     ) { innerPadding ->
         if (isLoading) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Color(0xFF3B82F6)) }
@@ -566,45 +850,89 @@ fun ManutencaoScreen(modifier: Modifier = Modifier, context: Context = LocalCont
                         Text("CarLembrete", color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                         Text("Gestão de Frota", color = Color(0xFF94A3B8), style = MaterialTheme.typography.bodySmall)
                     }
-                    IconButton(onClick = { showAddCarDialog = true }, modifier = Modifier.background(Color(0xFF1E293B), CircleShape)) {
-                        Icon(Icons.Rounded.DirectionsCar, "Add Carro", tint = Color(0xFF10B981))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedButton(
+                            onClick = { showAddCarDialog = true },
+                            border = BorderStroke(1.dp, Color(0xFF1E293B)),
+                            shape = RoundedCornerShape(12.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                        ) {
+                            Icon(Icons.Rounded.DirectionsCar, "Add Carro", tint = Color(0xFF10B981))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Adicionar veículo", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                        IconButton(onClick = { showConfiguracoes = true }, modifier = Modifier.background(Color(0xFF1E293B), CircleShape)) {
+                            Icon(Icons.Default.Settings, "Configurações", tint = Color(0xFF94A3B8))
+                        }
                     }
                 }
 
                 // Card Principal do Carro (Com Gradiente)
+                val corCarroAtual = carroAtual.getCorUI()
+                val textoCardPrimario = if (corCarroAtual.luminance() > 0.55f) Color(0xFF0F172A) else Color.White
+                val textoCardSecundario = textoCardPrimario.copy(alpha = 0.75f)
                 Box(
                     modifier = Modifier.padding(horizontal = 16.dp).fillMaxWidth().clip(RoundedCornerShape(24.dp))
-                        .background(Brush.linearGradient(colors = listOf(Color(0xFF2563EB), Color(0xFF7C3AED)))) // Gradiente Azul -> Roxo
+                        .background(
+                            Brush.linearGradient(
+                                colors = listOf(Color.White, corCarroAtual.copy(alpha = 0.95f)),
+                                start = Offset(0f, 0f),
+                                end = Offset(600f, 300f)
+                            )
+                        )
+                        .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(24.dp))
                         .padding(20.dp)
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                            IconButton(onClick = { if (indiceCarroAtual > 0) indiceCarroAtual-- else indiceCarroAtual = listaCarros.lastIndex }) { Icon(Icons.Default.ArrowBackIosNew, "Anterior", tint = Color.White.copy(0.8f)) }
-                            Box(modifier = Modifier.size(80.dp).background(Color.White.copy(0.2f), CircleShape), contentAlignment = Alignment.Center) {
-                                Icon(Icons.Rounded.DirectionsCar, null, tint = Color.White, modifier = Modifier.size(48.dp))
+                            IconButton(
+                                onClick = { if (indiceCarroAtual > 0) indiceCarroAtual-- else indiceCarroAtual = listaCarros.lastIndex },
+                                modifier = Modifier.background(textoCardPrimario.copy(alpha = 0.08f), CircleShape)
+                            ) { Icon(Icons.Default.ArrowBackIosNew, "Anterior", tint = textoCardPrimario.copy(alpha = 0.8f)) }
+                            Box(modifier = Modifier.size(80.dp).background(textoCardPrimario.copy(alpha = 0.12f), CircleShape), contentAlignment = Alignment.Center) {
+                                Icon(Icons.Rounded.DirectionsCar, null, tint = textoCardPrimario, modifier = Modifier.size(48.dp))
                             }
-                            IconButton(onClick = { if (indiceCarroAtual < listaCarros.lastIndex) indiceCarroAtual++ else indiceCarroAtual = 0 }) { Icon(Icons.Default.ArrowForwardIos, "Próximo", tint = Color.White.copy(0.8f)) }
+                            IconButton(
+                                onClick = { if (indiceCarroAtual < listaCarros.lastIndex) indiceCarroAtual++ else indiceCarroAtual = 0 },
+                                modifier = Modifier.background(textoCardPrimario.copy(alpha = 0.08f), CircleShape)
+                            ) { Icon(Icons.Default.ArrowForwardIos, "Próximo", tint = textoCardPrimario.copy(alpha = 0.8f)) }
                         }
                         Spacer(Modifier.height(12.dp))
-                        Text(carroAtual.nome, style = MaterialTheme.typography.headlineMedium, color = Color.White, fontWeight = FontWeight.ExtraBold)
-                        val descricaoModelo = listOf(carroAtual.marca, carroAtual.modelo).filter { it.isNotBlank() }.joinToString(" · ")
+                        Text(carroAtual.nome, style = MaterialTheme.typography.headlineMedium, color = textoCardPrimario, fontWeight = FontWeight.ExtraBold)
+                        val descricaoModelo = listOf(carroAtual.marca, carroAtual.modelo).filter { it.isNotBlank() }.joinToString(" - ")
                         if (descricaoModelo.isNotBlank()) {
-                            Text(descricaoModelo, style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(0.8f))
+                            Text(descricaoModelo, style = MaterialTheme.typography.bodyMedium, color = textoCardSecundario)
                         }
                         Spacer(Modifier.height(16.dp))
-                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.background(Color.Black.copy(0.2f), RoundedCornerShape(50)).padding(horizontal = 16.dp, vertical = 6.dp)) {
-                            Icon(Icons.Rounded.Speed, null, tint = Color.White, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text("${carroAtual.kmAtual} km", style = MaterialTheme.typography.labelLarge, color = Color.White, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.height(8.dp))
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+                            OutlinedButton(
+                                onClick = { showEditCarDialog = true },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(48.dp),
+                                shape = RoundedCornerShape(14.dp),
+                                border = BorderStroke(2.dp, textoCardPrimario.copy(alpha = 0.7f)),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = textoCardPrimario)
+                            ) {
+                                Icon(Icons.Default.Edit, contentDescription = "Editar veículo", tint = textoCardPrimario, modifier = Modifier.size(20.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text("Editar veículo", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = textoCardPrimario)
+                            }
+                            OutlinedButton(
+                                onClick = { showRelatorioDialog = true },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(48.dp),
+                                shape = RoundedCornerShape(14.dp),
+                                border = BorderStroke(2.dp, textoCardPrimario.copy(alpha = 0.7f)),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = textoCardPrimario)
+                            ) {
+                                Icon(Icons.Default.Description, contentDescription = "Relatório", tint = textoCardPrimario, modifier = Modifier.size(20.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text("Relatório do veículo", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = textoCardPrimario)
+                            }
                         }
-                        Spacer(Modifier.height(20.dp))
-                        // Botão Editar dentro do card
-                        OutlinedButton(
-                            onClick = { showEditCarDialog = true },
-                            modifier = Modifier.height(36.dp),
-                            border = ButtonDefaults.outlinedButtonBorder.copy(width = 1.dp),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
-                        ) { Text("Editar Detalhes", fontSize = 12.sp) }
                     }
                 }
 
@@ -612,9 +940,6 @@ fun ManutencaoScreen(modifier: Modifier = Modifier, context: Context = LocalCont
 
                 // Painel de Status
                 val contagemPorTipo = TipoManutencao.values().associateWith { tipo -> lembretesDoCarroAtual.count { it.tipo == tipo } }
-                Text("Status Geral", color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 16.dp))
-                Spacer(Modifier.height(12.dp))
-
                 val statusBorderColor = Color.White.copy(alpha = 0.25f)
                 Column(
                     modifier = Modifier
@@ -623,8 +948,6 @@ fun ManutencaoScreen(modifier: Modifier = Modifier, context: Context = LocalCont
                         .border(1.dp, statusBorderColor, RoundedCornerShape(24.dp))
                         .padding(16.dp)
                 ) {
-                    Text("Status Geral", color = Color.White, fontWeight = FontWeight.Bold)
-                    Spacer(Modifier.height(12.dp))
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -641,45 +964,25 @@ fun ManutencaoScreen(modifier: Modifier = Modifier, context: Context = LocalCont
                 }
 
                 Spacer(Modifier.height(24.dp))
-
-                Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text("Agenda", color = Color.White, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(
-                            onClick = { isCalendarMode = false },
-                            modifier = Modifier
-                                .size(40.dp)
-                                .background(if (!isCalendarMode) Color(0xFF3B82F6) else Color(0xFF1E293B), CircleShape)
-                        ) {
-                            Icon(Icons.Default.ViewList, contentDescription = "Exibir lista", tint = Color.White)
-                        }
-                        IconButton(
-                            onClick = { isCalendarMode = true },
-                            modifier = Modifier
-                                .size(40.dp)
-                                .background(if (isCalendarMode) Color(0xFF3B82F6) else Color(0xFF1E293B), CircleShape)
-                        ) {
-                            Icon(Icons.Default.CalendarMonth, contentDescription = "Exibir calendário", tint = Color.White)
-                        }
-                        IconButton(
-                            onClick = { showTesteNotificacaoDialog = true },
-                            modifier = Modifier.size(40.dp).background(Color(0xFF1E293B), CircleShape)
-                        ) {
-                            Icon(Icons.Default.NotificationsActive, contentDescription = "Teste de notificação", tint = Color(0xFFF97316))
-                        }
-                        Button(
-                            onClick = { showRelatorioDialog = true },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6)),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                            shape = RoundedCornerShape(6.dp)
-                        ) {
-                            Icon(Icons.Default.Description, contentDescription = "Relatório", tint = Color.White, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text("Relatório", color = Color.White, fontWeight = FontWeight.Bold)
-                        }
-                    }
+                Button(
+                    onClick = {
+                        iniciarCameraProduto = false
+                        showAddLembreteDialog = true
+                    },
+                    modifier = Modifier
+                        .padding(horizontal = 16.dp)
+                        .fillMaxWidth()
+                        .height(56.dp),
+                    shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6))
+                ) {
+                    Icon(Icons.Default.AddCircle, contentDescription = "Novo aviso", modifier = Modifier.size(24.dp))
+                    Spacer(Modifier.width(12.dp))
+                    Text("Criar novo aviso", fontSize = 18.sp, fontWeight = FontWeight.Bold)
                 }
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(8.dp))
+
+                Spacer(Modifier.height(8.dp))
 
                     val lembretesOrdenados = lembretesDoCarroAtual.sortedBy { dataParaOrdenacao(it) }
 
@@ -692,57 +995,142 @@ fun ManutencaoScreen(modifier: Modifier = Modifier, context: Context = LocalCont
                             }
                         }
                     } else {
-                        if (!isCalendarMode) {
-                            Column(modifier = Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                val descricaoModeloCompleto = listOf(carroAtual.marca, carroAtual.modelo)
-                                    .filter { it.isNotBlank() }
-                                    .joinToString(" ")
-                                    .ifBlank { carroAtual.modelo }
-                                lembretesOrdenados.forEach { lembrete ->
-                                    val statusColor = calcularCorStatus(lembretesDoCarroAtual, lembrete.tipo)
-                                    val statusLabel = textoStatusPrazo(lembrete)
-                                    LembreteCard(
-                                        lembrete = lembrete,
-                                        contato = listaContatos.find { it.id == lembrete.contatoId },
-                                        modeloCarro = descricaoModeloCompleto,
-                                        onDelete = {
-                                            NotificacaoHelper.cancelarNotificacao(context.applicationContext, lembrete.id)
-                                            todosLembretes = todosLembretes.filter { it.id != lembrete.id }
-                                        },
-                                        onClick = {
-                                            lembreteSelecionado = lembrete
-                                            contatoDetalheSelecionado = listaContatos.find { it.id == lembrete.contatoId }
-                                        },
-                                        statusLabel = statusLabel,
-                                        statusColor = statusColor
-                                    )
-                                }
+                        Column(modifier = Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            val descricaoModeloCompleto = listOf(carroAtual.marca, carroAtual.modelo)
+                                .filter { it.isNotBlank() }
+                                .joinToString(" ")
+                                .ifBlank { carroAtual.modelo }
+                            lembretesOrdenados.forEach { lembrete ->
+                                val statusColor = calcularCorStatus(lembretesDoCarroAtual, lembrete.tipo)
+                                val statusLabel = textoStatusPrazo(lembrete)
+                                LembreteCard(
+                                    lembrete = lembrete,
+                                    contato = listaContatos.find { it.id == lembrete.contatoId },
+                                    modeloCarro = descricaoModeloCompleto,
+                                    onDelete = {
+                                        NotificacaoHelper.cancelarNotificacao(context.applicationContext, lembrete.id)
+                                        todosLembretes = todosLembretes.filter { it.id != lembrete.id }
+                                    },
+                                    onClick = {
+                                        lembreteSelecionado = lembrete
+                                        contatoDetalheSelecionado = listaContatos.find { it.id == lembrete.contatoId }
+                                    },
+                                    statusLabel = statusLabel,
+                                    statusColor = statusColor
+                                )
                             }
-                        } else {
-                            CalendarLembretesView(
-                                mesAtual = calendarioMes,
-                                onMesAnterior = { calendarioMes = calendarioMes.minusMonths(1) },
-                                onProximoMes = { calendarioMes = calendarioMes.plusMonths(1) },
-                                lembretesPorData = lembretesPorData,
-                                diaSelecionado = diaSelecionado,
-                                onSelecionarDia = { diaSelecionado = it },
-                                onAbrirLembrete = { lembrete ->
-                                    lembreteSelecionado = lembrete
-                                    contatoDetalheSelecionado = listaContatos.find { it.id == lembrete.contatoId }
-                                },
-                                modeloCarro = listOf(carroAtual.marca, carroAtual.modelo).filter { it.isNotBlank() }.joinToString(" ").ifBlank { carroAtual.modelo },
-                                contatoProvider = { lembrete -> listaContatos.find { it.id == lembrete.contatoId } },
-                                onExcluir = { alvo ->
-                                    NotificacaoHelper.cancelarNotificacao(context.applicationContext, alvo.id)
-                                    todosLembretes = todosLembretes.filter { it.id != alvo.id }
-                                },
-                                lembretesBase = lembretesDoCarroAtual
-                            )
                         }
                     }
                     Spacer(Modifier.height(80.dp))
             }
         }
+    }
+}
+
+@Composable
+fun ConfiguracoesScreen(onDismiss: () -> Unit, onTestarNotificacao: () -> Unit) {
+    var notificacoesAtivas by rememberSaveable { mutableStateOf(true) }
+    var alertasPorKm by rememberSaveable { mutableStateOf(true) }
+    var resumoSemanal by rememberSaveable { mutableStateOf(false) }
+    val scrollState = rememberScrollState()
+
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth(0.92f)
+                .wrapContentHeight()
+                .border(dialogBorderStroke, dialogCornerShape),
+            shape = dialogCornerShape,
+            color = Color(0xFF0F172A)
+        ) {
+            Column(
+                modifier = Modifier
+                    .padding(24.dp)
+                    .verticalScroll(scrollState),
+                verticalArrangement = Arrangement.spacedBy(18.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                    Column {
+                        Text("Configurações", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                        Text("Personalize o jeito de cuidar da frota", color = Color(0xFF94A3B8), fontSize = 14.sp)
+                    }
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(40.dp)) {
+                        Icon(Icons.Default.Close, contentDescription = "Fechar", tint = Color.White)
+                    }
+                }
+                Divider(color = Color.White.copy(alpha = 0.15f))
+
+                Text("Notificações", color = Color.White, fontWeight = FontWeight.SemiBold)
+                ConfigToggleItem(
+                    title = "Alertas automáticos",
+                    description = "Receba lembretes nos horários definidos",
+                    checked = notificacoesAtivas,
+                    onCheckedChange = { notificacoesAtivas = it }
+                )
+                ConfigToggleItem(
+                    title = "Alertas por KM",
+                    description = "Utilize o odômetro como gatilho adicional",
+                    checked = alertasPorKm,
+                    onCheckedChange = { alertasPorKm = it }
+                )
+                ConfigToggleItem(
+                    title = "Resumo semanal",
+                    description = "Receba um boletim dos principais avisos",
+                    checked = resumoSemanal,
+                    onCheckedChange = { resumoSemanal = it }
+                )
+
+                Button(
+                    onClick = onTestarNotificacao,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981))
+                ) {
+                    Icon(Icons.Default.NotificationsActive, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Enviar notificação", fontWeight = FontWeight.Bold)
+                }
+
+                Text(
+                    "Versão do app 1.0.0 | dados salvos localmente",
+                    color = Color(0xFF94A3B8),
+                    fontSize = 12.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ConfigToggleItem(
+    title: String,
+    description: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(14.dp))
+            .background(Color(0xFF111C2E))
+            .padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, color = Color.White, fontWeight = FontWeight.SemiBold)
+            Text(description, color = Color(0xFF94A3B8), fontSize = 12.sp)
+        }
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = Color(0xFF3B82F6),
+                checkedTrackColor = Color(0xFF3B82F6)
+            )
+        )
     }
 }
 
@@ -807,6 +1195,14 @@ fun MonitorIcon(tipo: TipoManutencao, cor: Color, quantidade: Int) {
 }
 
 @Composable
+private fun RowScope.VehicleStat(label: String, value: String, modifier: Modifier = Modifier, color: Color = Color.White) {
+    Column(modifier = modifier.weight(1f)) {
+        Text(label, color = color.copy(alpha = 0.7f), fontSize = 11.sp)
+        Text(value, color = color, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+@Composable
 fun LembreteCard(
     lembrete: Lembrete,
     contato: ContatoProfissional?,
@@ -822,6 +1218,8 @@ fun LembreteCard(
     if (showDeleteDialog) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
+            modifier = Modifier.border(dialogBorderStroke, dialogCornerShape),
+            shape = dialogCornerShape,
             title = { Text("Excluir?", color = Color.White) },
             text = { Text("Apagar '${lembrete.titulo}' permanentemente?", color = Color(0xFF94A3B8)) },
             containerColor = Color(0xFF1E293B),
@@ -887,9 +1285,10 @@ fun LembreteCard(
                         Spacer(Modifier.height(12.dp))
                         Button(
                             onClick = { abrirWhatsApp(context, contato.telefone, "Olá ${contato.nome}, preciso de *${lembrete.titulo}* para o *$modeloCarro*.") },
-                            modifier = Modifier.fillMaxWidth().height(36.dp),
+                            modifier = Modifier.fillMaxWidth().height(38.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366)),
-                            contentPadding = PaddingValues(0.dp)
+                            contentPadding = PaddingValues(0.dp),
+                            shape = RoundedCornerShape(6.dp)
                         ) {
                             Text("Agendar c/ ${contato.nome.split(" ")[0]}", fontSize = 12.sp, color = Color.White, fontWeight = FontWeight.Bold)
                         }
@@ -898,7 +1297,7 @@ fun LembreteCard(
             }
 
             IconButton(onClick = { showDeleteDialog = true }, modifier = Modifier.align(Alignment.TopEnd).padding(4.dp)) {
-                Icon(Icons.Default.MoreVert, null, tint = Color(0xFF64748B))
+                Icon(Icons.Default.Delete, null, tint = Color(0xFFEF4444))
             }
         }
     }
@@ -911,7 +1310,59 @@ fun NovoContatoDialog(onDismiss: () -> Unit, onSalvar: (ContatoProfissional) -> 
     var nome by remember { mutableStateOf("") }
     var telefone by remember { mutableStateOf("") }
     var tipo by remember { mutableStateOf("") }
-    AlertDialog(onDismissRequest = onDismiss, containerColor = Color(0xFF1E293B), title = { Text("Novo Profissional", color = Color.White) }, text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) { OutlinedTextField(value = nome, onValueChange = { nome = it }, label = { Text("Nome") }, colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)); OutlinedTextField(value = tipo, onValueChange = { tipo = it }, label = { Text("Tipo (Ex: Mecânico)") }, colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)); OutlinedTextField(value = telefone, onValueChange = { if (it.all(Char::isDigit)) telefone = it }, label = { Text("WhatsApp") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)) } }, confirmButton = { Button(onClick = { if (nome.isNotBlank()) onSalvar(ContatoProfissional(nome = nome, telefone = telefone, tipoServico = tipo)) }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6))) { Text("Salvar") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } })
+    AlertDialog(
+        modifier = Modifier.border(dialogBorderStroke, dialogCornerShape),
+        shape = dialogCornerShape,
+        onDismissRequest = onDismiss,
+        containerColor = Color(0xFF1E293B),
+        title = { Text("Novo Profissional", color = Color.White) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = nome,
+                    onValueChange = { nome = it },
+                    label = { Text("Nome") },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    )
+                )
+                OutlinedTextField(
+                    value = tipo,
+                    onValueChange = { tipo = it },
+                    label = { Text("Tipo (Ex: Mecânico)") },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    )
+                )
+                OutlinedTextField(
+                    value = telefone,
+                    onValueChange = { if (it.all(Char::isDigit)) telefone = it },
+                    label = { Text("WhatsApp") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    )
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { if (nome.isNotBlank()) onSalvar(ContatoProfissional(nome = nome, telefone = telefone, tipoServico = tipo)) },
+                modifier = Modifier.height(56.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6)),
+                shape = dialogActionButtonShape
+            ) { Text("Salvar", fontSize = 18.sp) }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onDismiss,
+                modifier = Modifier.height(56.dp)
+            ) { Text("Cancelar", fontSize = 18.sp) }
+        }
+    )
 }
 
 @Composable
@@ -920,13 +1371,14 @@ fun NotificacaoRapidaDialog(onDismiss: () -> Unit, onDisparar: () -> Unit) {
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth(0.9f)
-                .wrapContentHeight(),
-            shape = RoundedCornerShape(20.dp),
-            color = Color(0xFF0F172A)
-        ) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth(0.9f)
+                    .wrapContentHeight()
+                    .border(dialogBorderStroke, dialogCornerShape),
+                shape = dialogCornerShape,
+                color = Color(0xFF0F172A)
+            ) {
             Column(
                 modifier = Modifier.padding(24.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -953,131 +1405,20 @@ fun NotificacaoRapidaDialog(onDismiss: () -> Unit, onDisparar: () -> Unit) {
                     onClick = {
                         onDisparar()
                     },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(54.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF97316)),
                     shape = RoundedCornerShape(12.dp)
                 ) {
                     Icon(Icons.Default.Send, contentDescription = null, tint = Color.White)
                     Spacer(Modifier.width(8.dp))
-                    Text("Disparar agora", color = Color.White, fontWeight = FontWeight.Bold)
+                    Text("Disparar agora", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                 }
                 TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
                     Text("Fechar", color = Color(0xFF94A3B8))
                 }
             }
-        }
-    }
-}
-
-@Composable
-fun CalendarLembretesView(
-    mesAtual: YearMonth,
-    onMesAnterior: () -> Unit,
-    onProximoMes: () -> Unit,
-    lembretesPorData: Map<LocalDate, List<Lembrete>>,
-    lembretesBase: List<Lembrete>,
-    diaSelecionado: LocalDate?,
-    onSelecionarDia: (LocalDate) -> Unit,
-    onAbrirLembrete: (Lembrete) -> Unit,
-    modeloCarro: String,
-    contatoProvider: (Lembrete) -> ContatoProfissional?,
-    onExcluir: (Lembrete) -> Unit
-) {
-    val localeBR = remember { Locale("pt", "BR") }
-    val formatterMes = remember { DateTimeFormatter.ofPattern("MMMM yyyy", localeBR) }
-    val semanaLabels = listOf("D", "S", "T", "Q", "Q", "S", "S")
-    val primeiroDiaMes = mesAtual.atDay(1)
-    val inicioGrade = primeiroDiaMes.with(TemporalAdjusters.previousOrSame(DayOfWeek.SUNDAY))
-    val diasGrade = (0 until 42).map { inicioGrade.plusDays(it.toLong()) }
-
-    Card(
-        modifier = Modifier.padding(horizontal = 16.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF111C2E)),
-        shape = RoundedCornerShape(18.dp)
-    ) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onMesAnterior) { Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Mês anterior", tint = Color.White) }
-            Text(
-                formatterMes.format(mesAtual.atDay(1)).replaceFirstChar { if (it.isLowerCase()) it.titlecase(localeBR) else it.toString() },
-                color = Color.White,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold
-            )
-            IconButton(onClick = onProximoMes) { Icon(Icons.Default.ArrowForwardIos, contentDescription = "Próximo mês", tint = Color.White) }
-        }
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            semanaLabels.forEach { label ->
-                Text(label, color = Color(0xFF94A3B8), modifier = Modifier.weight(1f), textAlign = TextAlign.Center, fontWeight = FontWeight.SemiBold)
-            }
-        }
-        diasGrade.chunked(7).forEach { semana ->
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                semana.forEach { dia ->
-                    val pertenceAoMes = YearMonth.from(dia) == mesAtual
-                    val temAviso = lembretesPorData.containsKey(dia)
-                    val selecionado = diaSelecionado == dia
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .aspectRatio(1f)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(
-                                when {
-                                    selecionado -> Color(0xFF3B82F6)
-                                    pertenceAoMes -> Color(0xFF1E293B)
-                                    else -> Color.Transparent
-                                }
-                            )
-                            .border(
-                                width = if (temAviso && !selecionado) 1.dp else 0.dp,
-                                color = if (temAviso) Color(0xFF3B82F6) else Color.Transparent,
-                                shape = RoundedCornerShape(10.dp)
-                            )
-                            .clickable(enabled = pertenceAoMes) { onSelecionarDia(dia) },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                            Text(
-                                text = dia.dayOfMonth.toString(),
-                                color = when {
-                                    selecionado -> Color.White
-                                    pertenceAoMes -> Color.White
-                                    else -> Color(0xFF475569)
-                                },
-                                fontWeight = FontWeight.Bold
-                            )
-                            if (temAviso) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(6.dp)
-                                        .clip(CircleShape)
-                                        .background(if (selecionado) Color.White else Color(0xFF3B82F6))
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        val selecionados = diaSelecionado?.let { lembretesPorData[it] } ?: emptyList()
-        if (selecionados.isEmpty()) {
-            Text("Selecione um dia com avisos para ver os detalhes.", color = Color(0xFF94A3B8), modifier = Modifier.padding(top = 8.dp))
-        } else {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                selecionados.forEach { lembrete ->
-                    LembreteCard(
-                        lembrete = lembrete,
-                        contato = contatoProvider(lembrete),
-                        modeloCarro = modeloCarro,
-                        onDelete = { onExcluir(lembrete) },
-                        onClick = { onAbrirLembrete(lembrete) },
-                        statusLabel = textoStatusPrazo(lembrete),
-                        statusColor = calcularCorStatus(lembretesBase, lembrete.tipo)
-                    )
-                }
-            }
-        }
         }
     }
 }
@@ -1144,20 +1485,30 @@ fun LembreteDetalhesDialog(
                 modifier = Modifier
                     .fillMaxWidth(0.92f)
                     .wrapContentHeight()
-                    .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(24.dp)),
-                shape = RoundedCornerShape(24.dp),
+                    .border(dialogBorderStroke, dialogCornerShape),
+                shape = dialogCornerShape,
                 color = Color(0xFF0B1729)
             ) {
                 Column(
                     modifier = Modifier.padding(24.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(lembrete.tipo.getIcon(), contentDescription = null, tint = Color(0xFF3B82F6))
-                        Spacer(Modifier.width(12.dp))
-                        Column {
-                            Text(lembrete.titulo, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 20.sp)
-                            Text(lembrete.tipo.label, color = Color(0xFF94A3B8), fontSize = 12.sp)
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(lembrete.tipo.getIcon(), contentDescription = null, tint = Color(0xFF3B82F6))
+                            Spacer(Modifier.width(12.dp))
+                            Column {
+                                Text(lembrete.titulo, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 20.sp)
+                                Text(lembrete.tipo.label, color = Color(0xFF94A3B8), fontSize = 12.sp)
+                            }
+                        }
+                        if (!isEditando) {
+                            IconButton(
+                                onClick = { isEditando = true },
+                                modifier = Modifier.align(Alignment.TopEnd)
+                            ) {
+                                Icon(Icons.Default.Edit, contentDescription = "Editar aviso", tint = Color(0xFF94A3B8))
+                            }
                         }
                     }
                     HorizontalDivider(color = Color(0xFF1F2A44))
@@ -1250,8 +1601,12 @@ fun LembreteDetalhesDialog(
                                     valorTexto = if (lembrete.valor > 0) lembrete.valor.toString() else ""
                                     isEditando = false
                                 },
-                                modifier = Modifier.weight(1f)
-                            ) { Text("Cancelar") }
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(56.dp),
+                                border = BorderStroke(0.2.dp, Color.White.copy(alpha = 0.7f)),
+                                shape = dialogActionButtonShape
+                            ) { Text("Cancelar", fontSize = 18.sp) }
                             Button(
                                 onClick = {
                                     val novoValor = valorTexto.toDoubleOrNull() ?: 0.0
@@ -1265,25 +1620,22 @@ fun LembreteDetalhesDialog(
                                     onSalvar(atualizado)
                                     isEditando = false
                                 },
-                                modifier = Modifier.weight(1f),
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6))
-                            ) { Text("Salvar alterações") }
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(56.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6)),
+                                shape = dialogActionButtonShape
+                            ) { Text("Salvar alterações", fontSize = 18.sp) }
                         }
                     } else {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            OutlinedButton(
-                                onClick = { isEditando = true },
-                                modifier = Modifier.weight(1f)
-                            ) { Text("Editar") }
-                            Button(
-                                onClick = onDismiss,
-                                modifier = Modifier.weight(1f),
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6))
-                            ) { Text("Fechar", color = Color.White, fontWeight = FontWeight.Bold) }
-                        }
+                        Button(
+                            onClick = onDismiss,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(56.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6)),
+                            shape = dialogActionButtonShape
+                        ) { Text("Fechar", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp) }
                     }
                 }
             }
@@ -1299,7 +1651,7 @@ private fun InfoLinha(label: String, valor: String, modifier: Modifier = Modifie
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun NovoAgendamentoDialog(
     carroAtual: CarroInfo,
@@ -1307,7 +1659,10 @@ fun NovoAgendamentoDialog(
     onDismiss: () -> Unit,
     onConfirm: (Lembrete) -> Unit,
     onMultiConfirm: (List<Lembrete>) -> Unit,
-    onUpdateKmCarro: (Int) -> Unit
+    onUpdateKmCarro: (Int) -> Unit,
+    autoAbrirCamera: Boolean = false,
+    onAutoCameraConsumida: () -> Unit = {},
+    onAddContato: (ContatoProfissional) -> Unit = {}
 ) {
     val context = LocalContext.current
     val appContext = context.applicationContext
@@ -1316,19 +1671,46 @@ fun NovoAgendamentoDialog(
     var kmBase by remember { mutableStateOf(if (carroAtual.kmAtual > 0) carroAtual.kmAtual.toString() else "") }
     var valorInput by remember { mutableStateOf("") }
     var tipoSelecionado by remember { mutableStateOf(TipoManutencao.OLEO) }
+    var contatosLista by remember { mutableStateOf(contatosDisponiveis) }
     var contatoSelecionado by remember { mutableStateOf<ContatoProfissional?>(null) }
     var listaItensDetectados by remember { mutableStateOf<List<ItemDetectado>>(emptyList()) }
     var isModoLista by remember { mutableStateOf(false) }
     var showKmConfirmDialog by remember { mutableStateOf(false) }
     var kmDetectadoParaConfirmar by remember { mutableStateOf(0) }
-    var menuContatosExpanded by remember { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
     var showCamera by remember { mutableStateOf(false) }
     var fotoCaminho by remember { mutableStateOf<String?>(null) }
     var horaNotificacao by remember { mutableStateOf("09:00") }
     var dataAviso by remember { mutableStateOf(LocalDate.now().format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))) }
     var avisoPersonalizado by remember { mutableStateOf(false) }
+    var etapaAtual by remember { mutableStateOf(1) }
+    val descricaoFocusRequester = remember { FocusRequester() }
+    var textosDetectados by remember { mutableStateOf<List<String>>(emptyList()) }
+    var novoContatoNome by remember { mutableStateOf("") }
+    var novoContatoTelefone by remember { mutableStateOf("") }
     val dataFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
+    val speechLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val textoReconhecido = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
+            if (!textoReconhecido.isNullOrBlank()) {
+                descricao = textoReconhecido
+                tipoSelecionado = detectarTipoPeloTexto(textoReconhecido)
+            }
+        }
+    }
+
+    LaunchedEffect(autoAbrirCamera) {
+        if (autoAbrirCamera) {
+            showCamera = true
+            onAutoCameraConsumida()
+        }
+    }
+
+    LaunchedEffect(isModoLista, etapaAtual) {
+        if (!isModoLista && etapaAtual == 1) {
+            descricaoFocusRequester.requestFocus()
+        }
+    }
 
     fun adicionarKm(valor: Int) { val kmBaseInt = kmBase.toIntOrNull() ?: carroAtual.kmAtual; kmBase = (kmBaseInt + valor).toString() }
     LaunchedEffect(data, tipoSelecionado) {
@@ -1364,205 +1746,444 @@ fun NovoAgendamentoDialog(
         ).show()
     }
 
+    fun iniciarCapturaVoz() {
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
+            putExtra(RecognizerIntent.EXTRA_PROMPT, "Descreva o serviço realizado")
+        }
+        try {
+            speechLauncher.launch(intent)
+        } catch (_: ActivityNotFoundException) {
+            Toast.makeText(context, "Recursos de voz indisponíveis", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+fun adicionarContatoManual() {
+        val nome = novoContatoNome.trim()
+        val telefone = novoContatoTelefone.filter(Char::isDigit)
+        if (nome.isBlank() || telefone.isBlank()) {
+            Toast.makeText(context, "Informe nome e telefone", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val novoContato = ContatoProfissional(
+            nome = nome,
+            telefone = telefone,
+            tipoServico = "Contato manual"
+        )
+        contatosLista = contatosLista + novoContato
+        onAddContato(novoContato)
+        contatoSelecionado = novoContato
+        novoContatoNome = ""
+        novoContatoTelefone = ""
+        Toast.makeText(context, "Profissional adicionado", Toast.LENGTH_SHORT).show()
+    }
+
+    fun enviarMensagemWhatsapp(contato: ContatoProfissional) {
+        val telefone = contato.telefone.filter(Char::isDigit)
+        if (telefone.isBlank()) {
+            Toast.makeText(context, "Telefone inválido", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val kmInfo = kmBase.ifBlank { "não informado" }
+        val mensagem = "Olá ${contato.nome}, a última manutenção foi registrada em $data com $kmInfo km. Podemos agendar a próxima?"
+        val uri = Uri.parse("https://wa.me/$telefone?text=${URLEncoder.encode(mensagem, "UTF-8")}")
+        val intent = Intent(Intent.ACTION_VIEW, uri)
+        try {
+            context.startActivity(intent)
+        } catch (_: Exception) {
+            Toast.makeText(context, "Não foi possível abrir o WhatsApp", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun salvarAvisos() {
+        val kmAtualBase = kmBase.toIntOrNull() ?: 0
+        if (kmAtualBase > carroAtual.kmAtual) onUpdateKmCarro(kmAtualBase)
+        val dataAvisoStr = dataAviso
+        if (isModoLista) {
+            val novosLembretes = listaItensDetectados.flatMap { item ->
+                val rep = maxOf(1, item.quantidade)
+                val kmFuturo = (kmAtualBase + getKmAdicionalPorTipo(item.tipo)).toString()
+                (1..rep).map { indice ->
+                    val tituloFormatado = if (rep > 1) "${item.nome} (${indice}/$rep)" else item.nome
+                    Lembrete(
+                        titulo = tituloFormatado,
+                        dataLimite = dataAvisoStr,
+                        kmLimite = kmFuturo,
+                        tipo = item.tipo,
+                        valor = item.valor,
+                        carroId = "",
+                        contatoId = contatoSelecionado?.id,
+                        fotoPath = fotoCaminho,
+                        horaAviso = horaNotificacao
+                    )
+                }
+            }
+            novosLembretes.forEach { NotificacaoHelper.agendarNotificacao(appContext, it, horaNotificacao) }
+            onMultiConfirm(novosLembretes)
+        } else if (descricao.isNotBlank()) {
+            val novoLembrete = Lembrete(
+                titulo = descricao,
+                dataLimite = dataAvisoStr,
+                kmLimite = (kmAtualBase + getKmAdicionalPorTipo(tipoSelecionado)).toString(),
+                tipo = tipoSelecionado,
+                valor = valorInput.toDoubleOrNull() ?: 0.0,
+                carroId = "",
+                contatoId = contatoSelecionado?.id,
+                fotoPath = fotoCaminho,
+                horaAviso = horaNotificacao
+            )
+            NotificacaoHelper.agendarNotificacao(appContext, novoLembrete, horaNotificacao)
+            onConfirm(novoLembrete)
+        }
+    }
+
     if (showCamera) {
         CameraCapturaDialog(onDismiss = { showCamera = false }, onFotoCapturada = { resultado ->
             fotoCaminho = resultado.arquivoFoto.absolutePath
-            if (resultado.itensEncontrados.isNotEmpty()) { listaItensDetectados = resultado.itensEncontrados; isModoLista = true } else { descricao = "Serviço (Foto Anexada)" }
+            textosDetectados = resultado.linhasReconhecidas.filter { it.isNotBlank() && !isTextoPromocional(it) && !padraoUrlOuContato.containsMatchIn(it.uppercase(Locale.ROOT)) }
+            if (resultado.itensEncontrados.isNotEmpty()) {
+                listaItensDetectados = resultado.itensEncontrados
+                isModoLista = true
+            } else {
+                isModoLista = false
+                val principal = resultado.sugestoesProduto.firstOrNull()
+                if (!principal.isNullOrBlank()) {
+                    descricao = principal
+                    tipoSelecionado = detectarTipoPeloTexto(principal)
+                } else {
+                    descricao = "Produto (Foto Anexada)"
+                }
+            }
             if (resultado.kmDetectado != null && resultado.kmDetectado > 0) { kmDetectadoParaConfirmar = resultado.kmDetectado; showKmConfirmDialog = true }
             showCamera = false
         })
     }
 
     if (showKmConfirmDialog) {
-        AlertDialog(onDismissRequest = { showKmConfirmDialog = false }, containerColor = Color(0xFF1E293B), title = { Text("Atualizar KM?", color = Color.White) }, text = { Text("Detectamos ${kmDetectadoParaConfirmar} km na nota.\nAtualizar o odômetro do carro?", color = Color(0xFF94A3B8)) }, confirmButton = { Button(onClick = { onUpdateKmCarro(kmDetectadoParaConfirmar); kmBase = kmDetectadoParaConfirmar.toString(); showKmConfirmDialog = false }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981))) { Text("Sim") } }, dismissButton = { TextButton(onClick = { showKmConfirmDialog = false }) { Text("Não") } })
-    }
-
-    AlertDialog(
-        onDismissRequest = onDismiss, containerColor = Color(0xFF1E293B),
-        properties = DialogProperties(usePlatformDefaultWidth = false),
-        modifier = Modifier.fillMaxWidth(0.95f).padding(16.dp),
-        title = { Text(if(isModoLista) "Itens da Nota" else "Novo Serviço", color = Color.White, fontWeight = FontWeight.Bold) },
-        text = {
-            Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                // Botão Camera
+        AlertDialog(
+            modifier = Modifier.border(dialogBorderStroke, dialogCornerShape),
+            shape = dialogCornerShape,
+            onDismissRequest = { showKmConfirmDialog = false },
+            containerColor = Color(0xFF1E293B),
+            title = { Text("Atualizar KM?", color = Color.White) },
+            text = {
+                Text(
+                    "Detectamos ${kmDetectadoParaConfirmar} km na captura.\nAtualizar o odômetro do carro?",
+                    color = Color(0xFF94A3B8)
+                )
+            },
+            confirmButton = {
                 Button(
-                    onClick = { showCamera = true },
-                    modifier = Modifier.fillMaxWidth().height(48.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = if(fotoCaminho != null) Color(0xFF10B981) else Color(0xFF3B82F6))
-                ) {
-                    Icon(if(fotoCaminho != null) Icons.Default.Check else Icons.Default.CameraAlt, null); Spacer(Modifier.width(8.dp))
-                    Text(if(fotoCaminho != null) "Foto Anexada (Refazer)" else "Escanear Nota / Etiqueta")
-                }
+                    onClick = {
+                        onUpdateKmCarro(kmDetectadoParaConfirmar)
+                        kmBase = kmDetectadoParaConfirmar.toString()
+                        showKmConfirmDialog = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981))
+                ) { Text("Sim") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showKmConfirmDialog = false }) { Text("Não") }
+            }
+        )
+    }
+    val podeAvancarEtapa1 = isModoLista || descricao.isNotBlank()
 
-                if (isModoLista) {
-                    // Lista de Itens Detectados
-                    LazyColumn(modifier = Modifier.heightIn(max = 200.dp)) {
-                        items(listaItensDetectados) { item ->
-                            val kmAtualBase = kmBase.toIntOrNull() ?: 0; val kmFuturoCalculado = if(kmAtualBase > 0) (kmAtualBase + getKmAdicionalPorTipo(item.tipo)).toString() else ""
-                            Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).background(Color(0xFF0F172A), RoundedCornerShape(8.dp)).padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Icon(item.tipo.getIcon(), null, tint = Color(0xFF3B82F6), modifier = Modifier.size(20.dp)); Spacer(Modifier.width(10.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(item.nome, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                    Row { Text(item.tipo.label, color = Color(0xFF94A3B8), fontSize = 12.sp); if (kmFuturoCalculado.isNotEmpty()) Text("  • Vence +${getKmAdicionalPorTipo(item.tipo)}km", color = Color(0xFF10B981), fontSize = 12.sp) }
+    when (etapaAtual) {
+        1 -> {
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            containerColor = Color(0xFF1E293B),
+            properties = DialogProperties(usePlatformDefaultWidth = false),
+            modifier = Modifier
+                .fillMaxWidth(0.95f)
+                .padding(16.dp)
+                .border(dialogBorderStroke, dialogCornerShape),
+            shape = dialogCornerShape,
+            title = { Text(if(isModoLista) "Itens Detectados" else "Novo Aviso", color = Color.White, fontWeight = FontWeight.Bold) },
+            text = {
+                Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Button(
+                        onClick = { showCamera = true },
+                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = if(fotoCaminho != null) Color(0xFF10B981) else Color(0xFF3B82F6))
+                    ) {
+                        Icon(if(fotoCaminho != null) Icons.Default.Check else Icons.Default.CameraAlt, null); Spacer(Modifier.width(8.dp))
+                        Text(if(fotoCaminho != null) "Foto Anexada (Refazer)" else "Escanear Produto")
+                    }
+
+                    if (isModoLista) {
+                        LazyColumn(modifier = Modifier.heightIn(max = 200.dp)) {
+                            items(listaItensDetectados) { item ->
+                                val kmAtualBase = kmBase.toIntOrNull() ?: 0; val kmFuturoCalculado = if(kmAtualBase > 0) (kmAtualBase + getKmAdicionalPorTipo(item.tipo)).toString() else ""
+                                Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).background(Color(0xFF0F172A), RoundedCornerShape(8.dp)).padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(item.tipo.getIcon(), null, tint = Color(0xFF3B82F6), modifier = Modifier.size(20.dp)); Spacer(Modifier.width(10.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(item.nome, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                        Row { Text(item.tipo.label, color = Color(0xFF94A3B8), fontSize = 12.sp); if (kmFuturoCalculado.isNotEmpty()) Text("  - Vence +${getKmAdicionalPorTipo(item.tipo)}km", color = Color(0xFF10B981), fontSize = 12.sp) }
+                                    }
+                                    IconButton(onClick = { listaItensDetectados = listaItensDetectados - item; if(listaItensDetectados.isEmpty()) isModoLista = false }) { Icon(Icons.Default.Delete, "Remover", tint = Color(0xFFEF4444)) }
                                 }
-                                IconButton(onClick = { listaItensDetectados = listaItensDetectados - item; if(listaItensDetectados.isEmpty()) isModoLista = false }) { Icon(Icons.Default.Delete, "Remover", tint = Color(0xFFEF4444)) }
+                            }
+                        }
+                    } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(
+                                value = descricao,
+                                onValueChange = { descricao = it },
+                                label = { Text("O que foi feito?") },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .focusRequester(descricaoFocusRequester),
+                                singleLine = true,
+                                shape = RoundedCornerShape(12.dp),
+                                trailingIcon = {
+                                    IconButton(onClick = ::iniciarCapturaVoz) {
+                                        Icon(
+                                            imageVector = Icons.Default.Mic,
+                                            contentDescription = "Falar descrição",
+                                            tint = Color(0xFF3B82F6)
+                                        )
+                                    }
+                                }
+                            )
+                            ExposedDropdownMenuBox(expanded = menuExpanded, onExpandedChange = { menuExpanded = !menuExpanded }) { OutlinedTextField(value = tipoSelecionado.label, onValueChange = {}, readOnly = true, label = { Text("Categoria") }, modifier = Modifier.menuAnchor().fillMaxWidth(), leadingIcon = { Icon(imageVector = tipoSelecionado.getIcon(), contentDescription = null, tint = Color(0xFF3B82F6)) }, trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = menuExpanded) }, shape = RoundedCornerShape(12.dp)); ExposedDropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) { TipoManutencao.values().forEach { t -> DropdownMenuItem(text = { Text(t.label) }, onClick = { tipoSelecionado = t; menuExpanded = false }, leadingIcon = { Icon(imageVector = t.getIcon(), contentDescription = null, tint = Color(0xFF3B82F6)) }) } } }
+                        }
+                    }
+
+                    if (textosDetectados.isNotEmpty()) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .border(BorderStroke(1.dp, Color(0xFF1E293B)), RoundedCornerShape(12.dp))
+                                .background(Color(0xFF0F172A), RoundedCornerShape(12.dp))
+                                .padding(12.dp)
+                        ) {
+                            Text("Textos capturados", color = Color.White, fontWeight = FontWeight.SemiBold)
+                            Spacer(Modifier.height(8.dp))
+                            textosDetectados.take(6).forEach { texto ->
+                                Text("• $texto", color = Color(0xFF94A3B8), fontSize = 12.sp)
                             }
                         }
                     }
-                } else {
-                    // Campos Manuais
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedTextField(value = descricao, onValueChange = { descricao = it }, label = { Text("O que foi feito?") }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(12.dp))
-                        Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) { listOf(SugestaoRapida("Troca de óleo", TipoManutencao.OLEO), SugestaoRapida("Revisão", TipoManutencao.MECANICA), SugestaoRapida("Pneu", TipoManutencao.MECANICA)).forEach { s -> AssistChip(onClick = { descricao = s.texto; tipoSelecionado = s.tipo }, label = { Text(s.texto) }) } }
-                        ExposedDropdownMenuBox(expanded = menuExpanded, onExpandedChange = { menuExpanded = !menuExpanded }) { OutlinedTextField(value = tipoSelecionado.label, onValueChange = {}, readOnly = true, label = { Text("Categoria") }, modifier = Modifier.menuAnchor().fillMaxWidth(), trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = menuExpanded) }, shape = RoundedCornerShape(12.dp)); ExposedDropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) { TipoManutencao.values().forEach { t -> DropdownMenuItem(text = { Text(t.label) }, onClick = { tipoSelecionado = t; menuExpanded = false }) } } }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = { etapaAtual = 2 },
+                    enabled = podeAvancarEtapa1,
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6)),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth().height(48.dp)
+                ) { Text("Avançar", fontSize = 16.sp) }
+            },
+            dismissButton = { TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text("Cancelar", color = Color(0xFF94A3B8)) } }
+        )
+    }
+        2 -> {
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            containerColor = Color(0xFF1E293B),
+            properties = DialogProperties(usePlatformDefaultWidth = false),
+            modifier = Modifier
+                .fillMaxWidth(0.95f)
+                .padding(16.dp)
+                .border(dialogBorderStroke, dialogCornerShape),
+            shape = dialogCornerShape,
+            title = { Text("Detalhes do Registro", color = Color.White, fontWeight = FontWeight.Bold) },
+            text = {
+                Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        OutlinedTextField(
+                            value = kmBase,
+                            onValueChange = { if (it.all(Char::isDigit)) kmBase = it },
+                            label = { Text("KM Atual") },
+                            modifier = Modifier.weight(1f),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                        OutlinedTextField(
+                            value = data,
+                            onValueChange = {},
+                            label = { Text("Data do serviço") },
+                            readOnly = true,
+                            modifier = Modifier.weight(1f),
+                            trailingIcon = {
+                                IconButton(onClick = {
+                                    abrirDatePicker(data) {
+                                        data = it
+                                        avisoPersonalizado = false
+                                    }
+                                }) {
+                                    Icon(Icons.Default.DateRange, contentDescription = null)
+                                }
+                            },
+                            singleLine = true,
+                            shape = RoundedCornerShape(12.dp)
+                        )
                     }
-                }
 
-                Divider(color = Color(0xFF334155))
-
-                // Configurações Gerais (KM, Data, Profissional)
-                Text("Detalhes do Registro", color = Color(0xFF94A3B8), style = MaterialTheme.typography.labelMedium)
-
-                ExposedDropdownMenuBox(expanded = menuContatosExpanded, onExpandedChange = { menuContatosExpanded = !menuContatosExpanded }) {
-                    OutlinedTextField(value = contatoSelecionado?.nome ?: "Sem vínculo", onValueChange = {}, readOnly = true, label = { Text("Profissional Responsável") }, modifier = Modifier.menuAnchor().fillMaxWidth(), trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = menuContatosExpanded) }, shape = RoundedCornerShape(12.dp)); ExposedDropdownMenu(expanded = menuContatosExpanded, onDismissRequest = { menuContatosExpanded = false }) { DropdownMenuItem(text = { Text("Nenhum") }, onClick = { contatoSelecionado = null; menuContatosExpanded = false }); contatosDisponiveis.forEach { c -> DropdownMenuItem(text = { Text("${c.nome} (${c.tipoServico})") }, onClick = { contatoSelecionado = c; menuContatosExpanded = false }) } }
-                }
-
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     OutlinedTextField(
-                        value = kmBase,
-                        onValueChange = { if (it.all(Char::isDigit)) kmBase = it },
-                        label = { Text("KM Atual") },
-                        modifier = Modifier.weight(1f),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        singleLine = true,
-                        shape = RoundedCornerShape(12.dp)
-                    )
-                    OutlinedTextField(
-                        value = data,
+                        value = dataAviso,
                         onValueChange = {},
-                        label = { Text("Data do serviço") },
+                        label = { Text("Data do aviso") },
                         readOnly = true,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.fillMaxWidth(),
                         trailingIcon = {
                             IconButton(onClick = {
-                                abrirDatePicker(data) {
-                                    data = it
-                                    avisoPersonalizado = false
+                                abrirDatePicker(dataAviso) {
+                                    dataAviso = it
+                                    avisoPersonalizado = true
                                 }
                             }) {
-                                Icon(Icons.Default.DateRange, contentDescription = null)
+                                Icon(Icons.Default.Event, contentDescription = null)
+                            }
+                        },
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp)
+                    )
+
+                    if (!isModoLista) {
+                        OutlinedTextField(value = valorInput, onValueChange = { if (it.all { c -> c.isDigit() || c == '.' }) valorInput = it }, label = { Text("Valor Total (R$)") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), shape = RoundedCornerShape(12.dp))
+                    }
+
+                    OutlinedTextField(
+                        value = horaNotificacao,
+                        onValueChange = {},
+                        label = { Text("Hora do aviso") },
+                        readOnly = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                abrirTimePicker(horaNotificacao) { selecionada ->
+                                    horaNotificacao = selecionada
+                                }
+                            },
+                        trailingIcon = {
+                            IconButton(onClick = {
+                                abrirTimePicker(horaNotificacao) { selecionada ->
+                                    horaNotificacao = selecionada
+                                }
+                            }) {
+                                Icon(Icons.Default.Schedule, contentDescription = null)
                             }
                         },
                         singleLine = true,
                         shape = RoundedCornerShape(12.dp)
                     )
                 }
-
-                OutlinedTextField(
-                    value = dataAviso,
-                    onValueChange = {},
-                    label = { Text("Data do aviso") },
-                    readOnly = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    trailingIcon = {
-                        IconButton(onClick = {
-                            abrirDatePicker(dataAviso) {
-                                dataAviso = it
-                                avisoPersonalizado = true
-                            }
-                        }) {
-                            Icon(Icons.Default.Event, contentDescription = null)
-                        }
-                    },
-                    singleLine = true,
-                    shape = RoundedCornerShape(12.dp)
-                )
-
-                if (!isModoLista) {
-                    OutlinedTextField(value = valorInput, onValueChange = { if (it.all { c -> c.isDigit() || c == '.' }) valorInput = it }, label = { Text("Valor Total (R$)") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), shape = RoundedCornerShape(12.dp))
+            },
+            confirmButton = {
+                Button(
+                    onClick = { etapaAtual = 3 },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6)),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth().height(48.dp)
+                ) { Text("Avançar", fontSize = 16.sp) }
+            },
+            dismissButton = {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    TextButton(onClick = { etapaAtual = 1 }) { Text("Voltar", color = Color.White) }
+                    TextButton(onClick = onDismiss) { Text("Cancelar", color = Color(0xFF94A3B8)) }
                 }
-
-                OutlinedTextField(
-                    value = horaNotificacao,
-                    onValueChange = {},
-                    label = { Text("Hora do aviso") },
-                    readOnly = true,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable {
-                            abrirTimePicker(horaNotificacao) { selecionada ->
-                                horaNotificacao = selecionada
-                            }
-                        },
-                    trailingIcon = {
-                        IconButton(onClick = {
-                            abrirTimePicker(horaNotificacao) { selecionada ->
-                                horaNotificacao = selecionada
-                            }
-                        }) {
-                            Icon(Icons.Default.Schedule, contentDescription = null)
-                        }
-                    },
-                    singleLine = true,
-                    shape = RoundedCornerShape(12.dp)
-                )
             }
-        },
-        confirmButton = {
-            Button(
-                onClick = {
-                    val kmAtualBase = kmBase.toIntOrNull() ?: 0
-                    if (kmAtualBase > carroAtual.kmAtual) onUpdateKmCarro(kmAtualBase)
-                    val dataBaseParsed = try { LocalDate.parse(data, DateTimeFormatter.ofPattern("dd/MM/yyyy")) } catch (e: Exception) { LocalDate.now() }
-
-                    val dataAvisoStr = dataAviso
-                    if (isModoLista) {
-                        val novosLembretes = listaItensDetectados.flatMap { item ->
-                            val rep = maxOf(1, item.quantidade)
-                            val kmFuturo = (kmAtualBase + getKmAdicionalPorTipo(item.tipo)).toString()
-                            (1..rep).map { indice ->
-                                val tituloFormatado = if (rep > 1) "${item.nome} (${indice}/$rep)" else item.nome
-                                Lembrete(
-                                    titulo = tituloFormatado,
-                                    dataLimite = dataAvisoStr,
-                                    kmLimite = kmFuturo,
-                                    tipo = item.tipo,
-                                    valor = item.valor,
-                                    carroId = "",
-                                    contatoId = contatoSelecionado?.id,
-                                    fotoPath = fotoCaminho,
-                                    horaAviso = horaNotificacao
-                                )
-                            }
-                        }
-                        novosLembretes.forEach { NotificacaoHelper.agendarNotificacao(appContext, it, horaNotificacao) }
-                        onMultiConfirm(novosLembretes)
+        )
+    }
+        else -> {
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            containerColor = Color(0xFF1E293B),
+            properties = DialogProperties(usePlatformDefaultWidth = false),
+            modifier = Modifier
+                .fillMaxWidth(0.95f)
+                .padding(16.dp)
+                .border(dialogBorderStroke, dialogCornerShape),
+            shape = dialogCornerShape,
+            title = { Text("Profissional Responsável", color = Color.White, fontWeight = FontWeight.Bold) },
+            text = {
+                Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Text("Vincule ou atualize o profissional que receberá este aviso.", color = Color(0xFF94A3B8))
+                    if (contatosLista.isEmpty()) {
+                        Text("Nenhum profissional cadastrado. Adicione um abaixo.", color = Color(0xFF94A3B8), fontSize = 12.sp)
                     } else {
-                        if (descricao.isNotBlank()) {
-                            val novoLembrete = Lembrete(
-                                titulo = descricao,
-                                dataLimite = dataAvisoStr,
-                                kmLimite = (kmAtualBase + getKmAdicionalPorTipo(tipoSelecionado)).toString(),
-                                tipo = tipoSelecionado,
-                                valor = valorInput.toDoubleOrNull() ?: 0.0,
-                                carroId = "",
-                                contatoId = contatoSelecionado?.id,
-                                fotoPath = fotoCaminho,
-                                horaAviso = horaNotificacao
-                            )
-                            NotificacaoHelper.agendarNotificacao(appContext, novoLembrete, horaNotificacao)
-                            onConfirm(novoLembrete)
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            contatosLista.forEach { contato ->
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .border(1.dp, if (contatoSelecionado == contato) Color(0xFF3B82F6) else Color.White.copy(alpha = 0.1f), RoundedCornerShape(12.dp))
+                                        .padding(12.dp)
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        RadioButton(
+                                            selected = contatoSelecionado == contato,
+                                            onClick = { contatoSelecionado = contato }
+                                        )
+                                        Spacer(Modifier.width(8.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(contato.nome, color = Color.White, fontWeight = FontWeight.SemiBold)
+                                            Text(contato.telefone, color = Color(0xFF94A3B8), fontSize = 12.sp)
+                                        }
+                                        TextButton(onClick = { enviarMensagemWhatsapp(contato) }) {
+                                            Text("Enviar mensagem")
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
-                },
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6)),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth().height(48.dp)
-            ) { Text("Salvar Registro", fontSize = 16.sp) }
-        },
-        dismissButton = { TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text("Cancelar", color = Color(0xFF94A3B8)) } }
-    )
+                    Divider(color = Color.White.copy(alpha = 0.2f))
+                    Text("Adicionar novo profissional", color = Color.White, fontWeight = FontWeight.SemiBold)
+                    OutlinedTextField(
+                        value = novoContatoNome,
+                        onValueChange = { novoContatoNome = it },
+                        label = { Text("Nome") },
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                    OutlinedTextField(
+                        value = novoContatoTelefone,
+                        onValueChange = { novoContatoTelefone = it },
+                        label = { Text("Telefone") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                    Button(
+                        onClick = ::adicionarContatoManual,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(Icons.Default.PersonAdd, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Cadastrar profissional")
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        salvarAvisos()
+                        onDismiss()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6)),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth().height(48.dp)
+                ) { Text(if (isModoLista) "Gerar avisos" else "Salvar Registro", fontSize = 16.sp) }
+            },
+            dismissButton = {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    TextButton(onClick = { etapaAtual = 2 }) { Text("Voltar", color = Color.White) }
+                    TextButton(onClick = onDismiss) { Text("Cancelar", color = Color(0xFF94A3B8)) }
+                }
+            }
+        )
+    }
+    }
 }
 
 @Composable
@@ -1573,7 +2194,85 @@ fun EditarCarroDialog(carroAtual: CarroInfo, titulo: String, onDismiss: () -> Un
     var kmAtualStr by remember { mutableStateOf(if (carroAtual.kmAtual > 0) carroAtual.kmAtual.toString() else "") }
     var corSelecionada by remember { mutableIntStateOf(carroAtual.corArgb) }
     val coresDisponiveis = listOf(0xFF3B82F6.toInt(), 0xFFEF4444.toInt(), 0xFF10B981.toInt(), 0xFFF59E0B.toInt(), 0xFF94A3B8.toInt(), 0xFFFFFFFF.toInt())
-    AlertDialog(onDismissRequest = onDismiss, containerColor = Color(0xFF1E293B), title = { Text(titulo, color = Color.White) }, text = { Column { OutlinedTextField(value = nome, onValueChange = { nome = it }, label = { Text("Apelido") }, singleLine = true, colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)); Spacer(Modifier.height(8.dp)); OutlinedTextField(value = marca, onValueChange = { marca = it }, label = { Text("Marca") }, singleLine = true, colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)); Spacer(Modifier.height(8.dp)); OutlinedTextField(value = modelo, onValueChange = { modelo = it }, label = { Text("Modelo e Motor") }, singleLine = true, colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)); Spacer(Modifier.height(8.dp)); OutlinedTextField(value = kmAtualStr, onValueChange = { if (it.all(Char::isDigit)) kmAtualStr = it }, label = { Text("KM Atual (Painel)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true, colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)); Spacer(Modifier.height(16.dp)); Text("Cor:", color = Color(0xFF94A3B8), fontSize = 12.sp); Spacer(Modifier.height(8.dp)); Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { coresDisponiveis.forEach { corInt -> Box(modifier = Modifier.size(32.dp).clip(CircleShape).background(Color(corInt)).border(width = if (corSelecionada == corInt) 2.dp else 0.dp, color = if (corSelecionada == corInt) Color.White else Color.Transparent, shape = CircleShape).clickable { corSelecionada = corInt }) } } } }, confirmButton = { Button(onClick = { onSalvar(carroAtual.copy(nome = nome, marca = marca, modelo = modelo, kmAtual = kmAtualStr.toIntOrNull() ?: 0, corArgb = corSelecionada)) }) { Text("Salvar") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } })
+    AlertDialog(
+        modifier = Modifier.border(dialogBorderStroke, dialogCornerShape),
+        shape = dialogCornerShape,
+        onDismissRequest = onDismiss,
+        containerColor = Color(0xFF1E293B),
+        title = { Text(titulo, color = Color.White) },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = nome,
+                    onValueChange = { nome = it },
+                    label = { Text("Apelido") },
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    )
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = marca,
+                    onValueChange = { marca = it },
+                    label = { Text("Marca") },
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    )
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = modelo,
+                    onValueChange = { modelo = it },
+                    label = { Text("Modelo e Motor") },
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    )
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = kmAtualStr,
+                    onValueChange = { if (it.all(Char::isDigit)) kmAtualStr = it },
+                    label = { Text("KM Atual (Painel)") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    )
+                )
+                Spacer(Modifier.height(16.dp))
+                Text("Cor:", color = Color(0xFF94A3B8), fontSize = 12.sp)
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    coresDisponiveis.forEach { corInt ->
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(CircleShape)
+                                .background(Color(corInt))
+                                .border(
+                                    width = if (corSelecionada == corInt) 2.dp else 0.dp,
+                                    color = if (corSelecionada == corInt) Color.White else Color.Transparent,
+                                    shape = CircleShape
+                                )
+                                .clickable { corSelecionada = corInt }
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = { Button(onClick = { onSalvar(carroAtual.copy(nome = nome, marca = marca, modelo = modelo, kmAtual = kmAtualStr.toIntOrNull() ?: 0, corArgb = corSelecionada)) }) { Text("Salvar") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } }
+    )
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -1653,25 +2352,60 @@ fun RelatorioVeiculoScreen(carroAtual: CarroInfo, lembretes: List<Lembrete>, onD
                         colors = CardDefaults.cardColors(containerColor = Color.Transparent),
                         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
                     ) {
-                        Column(
+                        val infoModelo = listOf(carroAtual.marca, carroAtual.modelo).filter { it.isNotBlank() }.joinToString(" - ")
+                        val proximaData = proximos.firstOrNull()?.second?.format(formatter) ?: "Sem agenda"
+                        val kmAtualText = if (carroAtual.kmAtual > 0) "${carroAtual.kmAtual} km" else "Não informado"
+                        val corCarro = carroAtual.getCorUI()
+                        val textoPrimario = if (corCarro.luminance() > 0.45f) Color(0xFF0F172A) else Color.White
+                        val textoSecundario = textoPrimario.copy(alpha = 0.7f)
+                        Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(24.dp))
-                                .background(Brush.linearGradient(listOf(Color(0xFF0EA5E9), Color(0xFF312E81))))
-                                .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(24.dp))
-                                .padding(20.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                                .clip(RoundedCornerShape(28.dp))
+                                .background(
+                                    Brush.linearGradient(
+                                        colors = listOf(Color.White, corCarro.copy(alpha = 0.95f)),
+                                        start = Offset(0f, 0f),
+                                        end = Offset(800f, 400f)
+                                    )
+                                )
+                                .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(28.dp))
+                                .padding(24.dp)
                         ) {
-                            Text(carroAtual.nome, color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold)
-                            val infoModelo = listOf(carroAtual.marca, carroAtual.modelo).filter { it.isNotBlank() }.joinToString(" · ")
-                            if (infoModelo.isNotBlank()) {
-                                Text(infoModelo, color = Color(0xFFBFDBFE), fontSize = 14.sp)
+                            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(60.dp)
+                                            .background(textoPrimario.copy(alpha = 0.1f), CircleShape),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(Icons.Rounded.DirectionsCar, contentDescription = null, tint = textoPrimario, modifier = Modifier.size(32.dp))
+                                    }
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(carroAtual.nome, color = textoPrimario, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold)
+                                        if (infoModelo.isNotBlank()) {
+                                            Text(infoModelo, color = textoSecundario, fontSize = 13.sp)
+                                        }
+                                    }
+                                    Box(
+                                        modifier = Modifier
+                                            .height(32.dp)
+                                            .wrapContentWidth()
+                                            .background(textoPrimario.copy(alpha = 0.08f), RoundedCornerShape(10.dp))
+                                            .padding(horizontal = 12.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(text = resumo, color = textoPrimario, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    }
+                                }
+                                Divider(color = Color.White.copy(alpha = 0.2f))
+                                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    VehicleStat(label = "Odômetro", value = kmAtualText, color = textoPrimario)
+                                    VehicleStat(label = "Avisos ativos", value = lembretes.size.toString(), color = textoPrimario)
+                                    VehicleStat(label = "Próximo serviço", value = proximaData, color = textoPrimario)
+                                }
                             }
-                            Text(
-                                text = if (carroAtual.kmAtual > 0) "Odômetro atual: ${carroAtual.kmAtual} km" else "Odômetro não informado",
-                                color = Color.White,
-                                fontWeight = FontWeight.SemiBold
-                            )
                         }
                     }
                     ElevatedCard(
@@ -1782,3 +2516,98 @@ fun RelatorioVeiculoScreen(carroAtual: CarroInfo, lembretes: List<Lembrete>, onD
 @Preview(showBackground = true)
 @Composable
 fun PreviewManutencao() { CarLembreteTheme { ManutencaoScreen() } }
+
+private fun contemSequenciaPromocional(texto: String): Boolean {
+    val clean = texto.uppercase(Locale.ROOT).unaccent()
+    val termosBloco = listOf("PROTEGE", "MANTEM", "MANTE", "LIMPO", "MOTOR")
+    val tokens = clean.split(" " ).filter { it.isNotBlank() }
+    if (tokens.size < 2) return false
+    for (i in 0 until tokens.size - 1) {
+        val primeira = tokens[i]
+        val segunda = tokens[i + 1]
+        if ((primeira.startsWith("PROTEGE") && segunda.startsWith("MANT")) ||
+            (primeira.startsWith("MANT") && segunda.contains("LIMP")) ||
+            (primeira.contains("LIMP") && segunda.contains("MOTOR")) ||
+            primeira.contains("MOTOR")
+        ) {
+            return true
+        }
+    }
+    return false
+}
+
+private fun tokenEhPromocional(tokenRaw: String): Boolean {
+    if (tokenRaw.isBlank()) return false
+    val normalizado = tokenRaw.uppercase(Locale.ROOT).unaccent()
+    if (termosPromocionaisPadrao.contains(normalizado)) return true
+    if (normalizado.length > 1 && (normalizado[0] == 'O' || normalizado[0] == 'A' || normalizado[0] == 'E')) {
+        val semPrefixo = normalizado.substring(1)
+        if (termosPromocionaisPadrao.contains(semPrefixo)) return true
+    }
+    return false
+}
+
+private fun corrigirTokenPorDicionario(token: String): String? {
+    val clean = token.uppercase(Locale.ROOT).unaccent()
+    return dicionarioProdutosPrincipais.firstOrNull { distanciaLevenshtein(clean, it) <= 1 }
+}
+
+private fun distanciaLevenshtein(a: String, b: String): Int {
+    if (a == b) return 0
+    if (a.isEmpty()) return b.length
+    if (b.isEmpty()) return a.length
+    val dp = Array(a.length + 1) { IntArray(b.length + 1) }
+    for (i in 0..a.length) dp[i][0] = i
+    for (j in 0..b.length) dp[0][j] = j
+    for (i in 1..a.length) {
+        for (j in 1..b.length) {
+            val cost = if (a[i - 1] == b[j - 1]) 0 else 1
+            dp[i][j] = minOf(
+                dp[i - 1][j] + 1,
+                dp[i][j - 1] + 1,
+                dp[i - 1][j - 1] + cost
+            )
+        }
+    }
+    return dp[a.length][b.length]
+}
+
+private fun isTextoPromocional(texto: String): Boolean {
+    val clean = texto.uppercase(Locale.ROOT).unaccent()
+    val tokens = clean.split(" " ).filter { it.isNotBlank() }
+    if (tokens.isEmpty()) return false
+    val count = tokens.count { tokenEhPromocional(it) }
+    val total = tokens.size
+    if (total == 0) return false
+    val percent = count.toFloat() / total
+    val temBarra = tokens.any { it.contains('/') }
+    return percent > 0.5f || (temBarra && percent > 0.3f)
+}
+
+private fun corrigirCaracteresVisuais(texto: String): String =
+    buildString {
+        texto.forEach { char ->
+            append(
+                when (char) {
+                    '/', '\\' -> 'L'
+                    else -> char
+                }
+            )
+        }
+    }
+
+private fun recortarAreaCentral(bitmap: Bitmap): Bitmap {
+    val largura = bitmap.width
+    val altura = bitmap.height
+    val larguraTarget = (largura * 0.55).toInt().coerceAtLeast(1)
+    val alturaTarget = (altura * 0.25).toInt().coerceAtLeast(1)
+    val inicioX = ((largura - larguraTarget) / 2).coerceAtLeast(0)
+    val inicioY = ((altura - alturaTarget) / 2).coerceAtLeast(0)
+    return Bitmap.createBitmap(
+        bitmap,
+        inicioX,
+        inicioY,
+        larguraTarget.coerceAtMost(largura),
+        alturaTarget.coerceAtMost(altura)
+    )
+}
