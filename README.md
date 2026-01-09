@@ -1,75 +1,84 @@
-
-## CarLembrete
-
-Aplicativo Android em Jetpack Compose para organizar a manutenção da sua frota.
-
-### Funcionalidades
-- Cadastro de veículos com cor, apelido e odômetro.
-- Captação de notas via câmera para sugerir lembretes automaticamente.
-- Três etapas para criar avisos (captura, detalhes, profissional).
-- Lista de lembretes com status e botão rápido para WhatsApp.
-- Relatório completo do veículo com exportação em PDF.
-
-### Requisitos
-- Android Studio
-- Kotlin 1.9+
-- Compose Multiplatform habilitado no projeto
-
-### Como executar
-1. Clone o repositório.
-2. Abra no Android Studio.
-3. Sincronize gradle e execute **Run > Run 'app'** em um dispositivo ou emulador.
-
-### Testes
-Rode os testes unitários com:
-
-```
-./gradlew test
-```
-
-Ao terminar, abra `app/build/reports/tests/test/index.html` no navegador para ver o relatório interativo (status por classe/método, logs e gráficos).
-
-### Estrutura principal
-- `app/src/main/java/br/com/gui/carlembrete/CarLembreteUi.kt`: Tela principal, diálogos e fluxos de cadastro.
-- `MainActivity.kt`: ponto de entrada e helpers (ex: geração de resumo).
-- `BancoDeDados`: serialização simples em arquivos locais para carros, contatos e lembretes.
-
-### Contribuições
-Abra issues ou pull requests descrevendo o contexto e o impacto.
-=======
 # CarLembrete 🚗🛠️
 
-Aplicativo Android feito em **Kotlin + Jetpack Compose** para organizar a manutenção da sua frota (ou do seu carro mesmo) de um jeito simples e prático.
+[![Testes Automáticos](https://github.com/encontre-tecnologia/Projeto_GOL/actions/workflows/android-ci.yml/badge.svg)](https://github.com/encontre-tecnologia/Projeto_GOL/actions/workflows/android-ci.yml)
+![Kotlin](https://img.shields.io/badge/Kotlin-1.9+-7F52FF?logo=kotlin&logoColor=white)
+![Compose](https://img.shields.io/badge/Jetpack%20Compose-M3-4285F4?logo=android&logoColor=white)
+![Platform](https://img.shields.io/badge/Platform-Android-3DDC84?logo=android&logoColor=white)
 
-A ideia é: você cadastra o veículo, lança lembretes e ainda consegue **captar notas pela câmera** para sugerir avisos automaticamente.
+> **Organize a manutenção da sua frota com Inteligência Artificial e simplicidade.**
+
+O **CarLembrete** é um aplicativo Android nativo desenvolvido para facilitar o gerenciamento de veículos. Diferente de agendas comuns, ele utiliza **OCR (ML Kit)** para ler quilometragens e dados diretamente de notas fiscais via câmera, automatizando a criação de lembretes.
 
 ---
 
 ## ✨ Funcionalidades
 
-- Cadastro de veículos com **cor, apelido e odômetro**
-- Captação de **notas via câmera** para sugerir lembretes automaticamente
-- Fluxo em **3 etapas** para criar avisos:
-  1. Captura
-  2. Detalhes
-  3. Profissional
-- Lista de lembretes com **status** e botão rápido para **WhatsApp**
-- Relatório completo do veículo com **exportação em PDF**
+* 🚘 **Gestão de Frota:** Cadastro completo de veículos (Cor, Apelido, Odômetro atual).
+* 📷 **Leitura Inteligente (OCR):** Captação de notas fiscais via câmera para preenchimento automático.
+* 🔔 **Lembretes Preditivos:** Sistema de avisos baseado na data ou quilometragem.
+* 💬 **Integração Rápida:** Botão direto para contato com mecânicos via WhatsApp.
+* 📊 **Relatórios:** Exportação do histórico do veículo em PDF.
+* 🎨 **Interface Moderna:** UI 100% construída com **Jetpack Compose (Material 3)**.
 
 ---
 
-## ✅ Requisitos
+## 🛠️ Tecnologias Utilizadas
 
-- Android Studio (recomendado: versão recente)
-- Kotlin **1.9+**
-- Projeto com **Compose Multiplatform habilitado**
+Este projeto aplica conceitos modernos de desenvolvimento Android (Modern Android Development - MAD):
+
+* **Linguagem:** [Kotlin](https://kotlinlang.org/)
+* **UI Toolkit:** [Jetpack Compose](https://developer.android.com/jetbrains/compose)
+* **Câmera:** [CameraX](https://developer.android.com/training/camerax) (Para captura de notas/painel)
+* **IA / Machine Learning:** [Google ML Kit](https://developers.google.com/ml-kit) (Reconhecimento de texto/OCR)
+* **Qualidade de Código:**
+    * [JUnit 4](https://junit.org/junit4/) (Testes Unitários)
+    * [Allure Report](https://github.com/allure-framework/allure-java) (Relatórios de teste visuais e detalhados)
+    * **CI/CD:** GitHub Actions (Pipeline automatizado de testes)
 
 ---
 
-## ▶️ Como executar
+## 📸 Screenshots
 
-1. Clone o repositório:
+| Tela Inicial | Cadastro | Leitura OCR | Detalhes |
+|:---:|:---:|:---:|:---:|
+| | | | |
+| *(Em breve)* | *(Em breve)* | *(Em breve)* | *(Em breve)* |
 
-   ```bash
-   git clone https://github.com/encontre-tecnologia/Projeto_GOL/tree/main
+---
 
+## 🚀 Como executar o projeto
+
+### Pré-requisitos
+* Android Studio Koala ou superior.
+* JDK 17 configurado no Gradle.
+* Dispositivo físico ou emulador com Android 8.0+ (MinSdk 26).
+
+### Passo a passo
+
+1.  **Clone o repositório:**
+    ```bash
+    git clone [https://github.com/encontre-tecnologia/Projeto_GOL.git](https://github.com/encontre-tecnologia/Projeto_GOL.git)
+    ```
+
+2.  **Abra no Android Studio** e aguarde a sincronização do Gradle.
+
+3.  **Configure a Câmera:**
+    Se estiver usando emulador, garanta que a câmera virtual está ativada para testar o OCR.
+
+4.  **Execute:**
+    Selecione o módulo `app` e clique em ▶️ **Run**.
+
+---
+
+## 🧪 Testes e Qualidade
+
+O projeto conta com uma suíte de testes unitários rodando no **GitHub Actions** a cada push.
+
+Para rodar localmente e gerar o relatório visual (Dashboard):
+
+```bash
+# 1. Rodar os testes
+./gradlew testDebugUnitTest
+
+# 2. Gerar o relatório Allure
+./gradlew allureServe
