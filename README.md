@@ -19,6 +19,15 @@ Aplicativo Android em Jetpack Compose para organizar a manutenção da sua frota
 2. Abra no Android Studio.
 3. Sincronize gradle e execute **Run > Run 'app'** em um dispositivo ou emulador.
 
+### Testes
+Rode os testes unitários com:
+
+```
+./gradlew test
+```
+
+Ao terminar, abra `app/build/reports/tests/test/index.html` no navegador para ver o relatório interativo (status por classe/método, logs e gráficos).
+
 ### Estrutura principal
 - `app/src/main/java/br/com/gui/carlembrete/CarLembreteUi.kt`: Tela principal, diálogos e fluxos de cadastro.
 - `MainActivity.kt`: ponto de entrada e helpers (ex: geração de resumo).
