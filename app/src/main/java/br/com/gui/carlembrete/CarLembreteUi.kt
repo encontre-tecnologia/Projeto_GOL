@@ -16,6 +16,7 @@ import android.speech.RecognizerIntent
 import android.util.Log
 import android.widget.Toast
 import java.net.URLEncoder
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
@@ -1048,6 +1049,7 @@ fun ManutencaoScreen(modifier: Modifier = Modifier, context: Context = LocalCont
     var showTesteNotificacaoDialog by remember { mutableStateOf(false) }
     var showConfiguracoes by remember { mutableStateOf(false) }
     var showPrivacidadeDialog by remember { mutableStateOf(false) }
+    var showGaragemScreen by remember { mutableStateOf(false) }
     var lembreteSelecionado by remember { mutableStateOf<Lembrete?>(null) }
     var contatoDetalheSelecionado by remember { mutableStateOf<ContatoProfissional?>(null) }
     val lembretesDoCarroAtual = todosLembretes.filter { it.carroId == carroAtual.id }
@@ -1094,6 +1096,21 @@ fun ManutencaoScreen(modifier: Modifier = Modifier, context: Context = LocalCont
     }
     if (showPrivacidadeDialog) {
         PrivacidadeTermosDialog(onDismiss = { showPrivacidadeDialog = false })
+    }
+    BackHandler(enabled = showGaragemScreen) { showGaragemScreen = false }
+    if (showGaragemScreen) {
+        GaragemOverviewScreen(
+            carros = listaCarros,
+            onSelecionar = { selecionado ->
+                val novoIndice = listaCarros.indexOfFirst { it.id == selecionado.id }
+                if (novoIndice >= 0) {
+                    indiceCarroAtual = novoIndice
+                }
+                showGaragemScreen = false
+            },
+            onDismiss = { showGaragemScreen = false }
+        )
+        return
     }
     lembreteSelecionado?.let { selecionado ->
         LembreteDetalhesDialog(
@@ -1145,110 +1162,218 @@ fun ManutencaoScreen(modifier: Modifier = Modifier, context: Context = LocalCont
         drawerState = drawerState,
         drawerContent = {
             ModalDrawerSheet(
+                modifier = Modifier.width(320.dp),
                 drawerContainerColor = Color.Black,
                 drawerContentColor = Color.White
             ) {
                 Column(
                     modifier = Modifier
-                        .fillMaxWidth()
+                        .fillMaxSize()
                         .padding(vertical = 24.dp),
-                    verticalArrangement = Arrangement.spacedBy(18.dp)
+                    verticalArrangement = Arrangement.spacedBy(20.dp)
                 ) {
-                    val detalhesCabecalho = listOfNotNull(
-                        carroAtual.marca.takeIf { it.isNotBlank() },
-                        carroAtual.modelo.takeIf { it.isNotBlank() }
-                    ).joinToString(" • ").ifBlank { "Defina marca e modelo" }
-                    Row(
+                    val nomeVeiculo = carroAtual.nome.ifBlank { "Seu veículo" }
+                    val modeloTexto = carroAtual.modelo.ifBlank { "Modelo indefinido" }
+                    val marcaTexto = carroAtual.marca.ifBlank { "Marca não informada" }
+                    val logoRes = carroAtual.logoResOrNull()
+                    Column(
                         modifier = Modifier
                             .padding(horizontal = 24.dp)
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(20.dp))
-                            .background(Color(0xFF111B2A))
-                            .padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                            .clip(RoundedCornerShape(28.dp))
+                            .background(Color(0xFF0F1830))
+                            .padding(20.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        val logoRes = carroAtual.logoResOrNull()
-                        Box(
-                            modifier = Modifier
-                                .size(56.dp)
-                                .background(carroAtual.getCorUI().copy(alpha = 0.2f), CircleShape),
-                            contentAlignment = Alignment.Center
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            if (logoRes != null) {
-                                Image(
-                                    painter = painterResource(id = logoRes),
-                                    contentDescription = carroAtual.marca.ifBlank { "Logo" },
-                                    modifier = Modifier.size(36.dp),
-                                    colorFilter = ColorFilter.tint(Color.White)
-                                )
-                            } else {
-                                Icon(Icons.Rounded.DirectionsCar, contentDescription = null, tint = Color.White, modifier = Modifier.size(28.dp))
+                            Box(
+                                modifier = Modifier
+                                    .size(70.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.White.copy(alpha = 0.12f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (logoRes != null) {
+                                    Image(
+                                        painter = painterResource(id = logoRes),
+                                        contentDescription = marcaTexto,
+                                        modifier = Modifier.size(40.dp),
+                                        colorFilter = ColorFilter.tint(Color.White)
+                                    )
+                                } else {
+                                    Icon(Icons.Rounded.DirectionsCar, contentDescription = null, tint = Color.White, modifier = Modifier.size(32.dp))
+                                }
+                            }
+                            Spacer(Modifier.width(16.dp))
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(nomeVeiculo, color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                                Text(modeloTexto, color = Color(0xFFCBD5F5), fontSize = 14.sp)
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text(marcaTexto, color = Color(0xFF93A6D1), fontSize = 13.sp)
+                                    if (logoRes != null) {
+                                        Image(
+                                            painter = painterResource(id = logoRes),
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp),
+                                            colorFilter = ColorFilter.tint(Color(0xFF93A6D1))
+                                        )
+                                    } else {
+                                        Icon(Icons.Rounded.DirectionsCar, contentDescription = null, tint = Color(0xFF93A6D1), modifier = Modifier.size(14.dp))
+                                    }
+                                }
                             }
                         }
-                        Spacer(Modifier.width(14.dp))
-                        Column {
-                            Text(
-                                carroAtual.nome.ifBlank { "Seu veículo" },
-                                color = Color.White,
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                detalhesCabecalho,
-                                color = Color(0xFF94A3B8),
-                                fontSize = 13.sp,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis
-                            )
+                        Button(
+                            onClick = {
+                                showGaragemScreen = true
+                                drawerScope.launch { drawerState.close() }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(16.dp),
+                            elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0D1831), contentColor = Color.White),
+                            contentPadding = PaddingValues(vertical = 12.dp, horizontal = 14.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Start
+                            ) {
+                                Text(
+                                    "Ver minha garagem",
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 15.sp,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Icon(Icons.Rounded.DirectionsCar, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                            }
                         }
                     }
-                    Divider(color = Color.White.copy(alpha = 0.12f))
                     Column(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 24.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        OutlinedButton(
+                        Button(
                             onClick = {
                                 showConfiguracoes = true
                                 drawerScope.launch { drawerState.close() }
                             },
                             modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(14.dp),
-                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.4f)),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
+                            shape = RoundedCornerShape(12.dp),
+                            elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1C2458), contentColor = Color.White),
+                            contentPadding = PaddingValues(vertical = 14.dp, horizontal = 16.dp)
                         ) {
-                            Icon(Icons.Default.Settings, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text("Configurações", fontWeight = FontWeight.SemiBold, color = Color.White)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Start
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(Color.White.copy(alpha = 0.12f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(Icons.Default.Settings, contentDescription = null, tint = Color.White)
+                                }
+                                Spacer(Modifier.width(14.dp))
+                                Text(
+                                    "Configurações",
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 17.sp,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
                         }
-                        OutlinedButton(
+                        Button(
                             onClick = {
                                 showAddCarDialog = true
                                 drawerScope.launch { drawerState.close() }
                             },
                             modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(14.dp),
-                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.4f)),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
+                            shape = RoundedCornerShape(12.dp),
+                            elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1C3EA4), contentColor = Color.White),
+                            contentPadding = PaddingValues(vertical = 14.dp, horizontal = 16.dp)
                         ) {
-                            Icon(Icons.Rounded.DirectionsCar, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text("Adicionar veículo", fontWeight = FontWeight.SemiBold, color = Color.White)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Start
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(Color.White.copy(alpha = 0.12f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(Icons.Rounded.DirectionsCar, contentDescription = null, tint = Color.White)
+                                }
+                                Spacer(Modifier.width(14.dp))
+                                Text(
+                                    "Adicionar veículo",
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 17.sp,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
                         }
-                        OutlinedButton(
+                        Button(
                             onClick = {
                                 showPrivacidadeDialog = true
                                 drawerScope.launch { drawerState.close() }
                             },
                             modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(14.dp),
-                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.4f)),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
+                            shape = RoundedCornerShape(12.dp),
+                            elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0F6E4D), contentColor = Color.White),
+                            contentPadding = PaddingValues(vertical = 14.dp, horizontal = 16.dp)
                         ) {
-                            Icon(Icons.Default.Lock, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text("Privacidade e termos", fontWeight = FontWeight.SemiBold, color = Color.White)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Start
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(Color.White.copy(alpha = 0.12f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(Icons.Default.Lock, contentDescription = null, tint = Color.White)
+                                }
+                                Spacer(Modifier.width(14.dp))
+                                Text(
+                                    "Privacidade e termos",
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 17.sp,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
                         }
+                    }
+                    Spacer(modifier = Modifier.weight(1f))
+                    Button(
+                        onClick = { drawerScope.launch { drawerState.close() } },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 24.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE53935), contentColor = Color.White),
+                        contentPadding = PaddingValues(vertical = 14.dp, horizontal = 16.dp)
+                    ) {
+                        Icon(Icons.Default.Close, contentDescription = null, tint = Color.White)
+                        Spacer(Modifier.width(10.dp))
+                        Text("Fechar", fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -3062,6 +3187,124 @@ fun RelatorioVeiculoScreen(carroAtual: CarroInfo, lembretes: List<Lembrete>, onD
                     contentPadding = PaddingValues(vertical = 10.dp)
                 ) {
                     Text("Fechar", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun GaragemOverviewScreen(
+    carros: List<CarroInfo>,
+    onSelecionar: (CarroInfo) -> Unit,
+    onDismiss: () -> Unit
+) {
+    Scaffold(
+        modifier = Modifier.fillMaxSize(),
+        containerColor = Color(0xFF020617),
+        topBar = {
+            TopAppBar(
+                title = {
+                    Text(
+                        "Minha garagem",
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                },
+                navigationIcon = {
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar", tint = Color.White)
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF020617))
+            )
+        }
+    ) { innerPadding ->
+        if (carros.isEmpty()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .padding(24.dp),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = Color(0xFF94A3B8), modifier = Modifier.size(56.dp))
+                Spacer(Modifier.height(12.dp))
+                Text("Nenhum veículo cadastrado", color = Color(0xFF94A3B8))
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                contentPadding = PaddingValues(vertical = 12.dp)
+            ) {
+                items(carros) { carro ->
+                    val infoLinha = listOfNotNull(
+                        carro.marca.takeIf { it.isNotBlank() },
+                        carro.modelo.takeIf { it.isNotBlank() }
+                    ).joinToString(" • ").ifBlank { "Marca e modelo não informados" }
+                    val kmTexto = if (carro.kmAtual > 0) "${carro.kmAtual} km" else "KM não informado"
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 24.dp)
+                            .clickable { onSelecionar(carro) },
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF0B1324)),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            val logoRes = carro.logoResOrNull()
+                            Box(
+                                modifier = Modifier
+                                    .size(56.dp)
+                                    .clip(CircleShape)
+                                    .background(carro.getCorUI().copy(alpha = 0.35f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (logoRes != null) {
+                                    Image(
+                                        painter = painterResource(id = logoRes),
+                                        contentDescription = carro.marca.ifBlank { "Logo do veículo" },
+                                        modifier = Modifier.size(32.dp),
+                                        colorFilter = ColorFilter.tint(Color.White)
+                                    )
+                                } else {
+                                    Icon(
+                                        Icons.Rounded.DirectionsCar,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(28.dp)
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.width(14.dp))
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text(
+                                    carro.nome.ifBlank { "Veículo sem nome" },
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 16.sp
+                                )
+                                Text(infoLinha, color = Color(0xFF94A3B8), fontSize = 13.sp)
+                                Text(kmTexto, color = Color(0xFF94A3B8), fontSize = 12.sp)
+                            }
+                            Icon(Icons.Default.ArrowForwardIos, contentDescription = "Ver mais", tint = Color(0xFF94A3B8), modifier = Modifier.size(18.dp))
+                        }
+                    }
                 }
             }
         }
