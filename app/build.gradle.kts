@@ -39,6 +39,11 @@ android {
     buildFeatures {
         compose = true
     }
+    sourceSets {
+        getByName("main") {
+            res.srcDir("src/main/res-carlogos")
+        }
+    }
 }
 
 dependencies {

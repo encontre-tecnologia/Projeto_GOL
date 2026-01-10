@@ -21,6 +21,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import br.com.gui.carlembrete.ui.theme.CarLembreteTheme
 import java.io.File
 import java.io.FileOutputStream
@@ -75,6 +77,10 @@ class MainActivity : ComponentActivity() {
         } else {
             initializeContentIfNeeded()
         }
+
+        WindowCompat.setDecorFitsSystemWindows(window, true)
+        window.statusBarColor = android.graphics.Color.BLACK
+        WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightStatusBars = false
     }
 
     private fun initializeContentIfNeeded() {
