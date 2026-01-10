@@ -6,6 +6,7 @@ import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import android.content.ActivityNotFoundException
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
@@ -28,7 +29,9 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.annotation.DrawableRes
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -63,15 +66,18 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -83,6 +89,9 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsControllerCompat
+import br.com.gui.carlembrete.R
 import br.com.gui.carlembrete.ui.theme.CarLembreteTheme
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
@@ -112,6 +121,12 @@ private val dialogBorderStroke = BorderStroke(0.2.dp, Color.White.copy(alpha = 0
 private val dialogCornerShape = RoundedCornerShape(20.dp)
 private val dialogActionButtonShape = RoundedCornerShape(8.dp)
 private const val LER_NOTAS_HABILITADO = false
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
+}
 
 /* ----------------- ESTRUTURAS DE DADOS ----------------- */
 
@@ -145,15 +160,146 @@ data class Lembrete(
     val horaAviso: String = "09:00"
 ) : Serializable
 
+private val marcaLogoMap = mapOf(
+    "audi" to R.drawable.logo_audi,
+    "bmw" to R.drawable.logo_bmw,
+    "citroen" to R.drawable.logo_citroen,
+    "citroem" to R.drawable.logo_citroen,
+    "chevrolet" to R.drawable.logo_chevrolet,
+    "chevy" to R.drawable.logo_chevrolet,
+    "chevolet" to R.drawable.logo_chevrolet,
+    "fiat" to R.drawable.logo_fiat,
+    "ford" to R.drawable.logo_ford,
+    "honda" to R.drawable.logo_honda,
+    "hyundai" to R.drawable.logo_hyundai,
+    "jeep" to R.drawable.logo_jeep,
+    "kia" to R.drawable.logo_kia,
+    "lamborghini" to R.drawable.logo_lamborghini,
+    "mercedes" to R.drawable.logo_mercedes,
+    "mercedesbenz" to R.drawable.logo_mercedes,
+    "mitsubishi" to R.drawable.logo_mitsubishi,
+    "nissan" to R.drawable.logo_nissan,
+    "nissam" to R.drawable.logo_nissan,
+    "peugeot" to R.drawable.logo_peugeot,
+    "renault" to R.drawable.logo_renault,
+    "toyota" to R.drawable.logo_toyota,
+    "volkswagen" to R.drawable.logo_volkswagen,
+    "vw" to R.drawable.logo_volkswagen
+)
+
+enum class TipoVeiculo(val label: String, @DrawableRes val iconRes: Int) {
+    BICICLETA("Bicicleta", R.drawable.bike),
+    CARRETINHA("Carretinha", R.drawable.carretinha),
+    CARRO("Carro", R.drawable.carro),
+    MOTO("Moto", R.drawable.moto),
+    CAMINHONETE("Caminhonete", R.drawable.picap),
+    TRATOR("Trator", R.drawable.trator)
+}
+
+private val marcasSuportadas = listOf(
+    "Audi",
+    "BMW",
+    "Citroën",
+    "Citroen",
+    "Citroem",
+    "Chevrolet",
+    "Fiat",
+    "Ford",
+    "Honda",
+    "Hyundai",
+    "Jeep",
+    "Kia",
+    "Lamborghini",
+    "Mercedes-Benz",
+    "Mitsubishi",
+    "Nissan",
+    "Nissam",
+    "Peugeot",
+    "Renault",
+    "Toyota",
+    "Volkswagen"
+)
+
 data class CarroInfo(
     val id: String = UUID.randomUUID().toString(),
     val nome: String = "Novo Carro",
     val modelo: String = "Modelo 1.0",
     val marca: String = "",
     val corArgb: Int = 0xFF3B82F6.toInt(),
-    val kmAtual: Int = 0
+    val kmAtual: Int = 0,
+    val tipoVeiculo: TipoVeiculo = TipoVeiculo.CARRO
 ) : Serializable {
     fun getCorUI(): Color = Color(corArgb)
+}
+
+@DrawableRes
+fun CarroInfo.logoResOrNull(): Int? = logoResForMarca(marca)
+
+@DrawableRes
+fun CarroInfo.tipoIconRes(): Int = tipoVeiculo.iconRes
+
+private fun normalizarMarca(marca: String): String =
+    marca.trim().lowercase(Locale.getDefault()).replace(Regex("[^a-z0-9]"), "")
+
+@DrawableRes
+fun logoResForMarca(marca: String): Int? = marcaLogoMap[normalizarMarca(marca)]
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun TipoVeiculoSelector(
+    selecionado: TipoVeiculo,
+    onSelect: (TipoVeiculo) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var expanded by remember { mutableStateOf(false) }
+    ExposedDropdownMenuBox(
+        expanded = expanded,
+        onExpandedChange = { expanded = !expanded },
+        modifier = modifier.fillMaxWidth()
+    ) {
+        OutlinedTextField(
+            value = selecionado.label,
+            onValueChange = {},
+            readOnly = true,
+            label = { Text("Tipo de veículo") },
+            modifier = Modifier
+                .menuAnchor()
+                .fillMaxWidth(),
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            leadingIcon = {
+                Image(
+                    painter = painterResource(id = selecionado.iconRes),
+                    contentDescription = selecionado.label,
+                    modifier = Modifier.size(24.dp)
+                )
+            },
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedTextColor = Color.White,
+                unfocusedTextColor = Color.White
+            )
+        )
+        ExposedDropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false }
+        ) {
+            TipoVeiculo.values().forEach { tipo ->
+                DropdownMenuItem(
+                    text = { Text(tipo.label) },
+                    onClick = {
+                        onSelect(tipo)
+                        expanded = false
+                    },
+                    leadingIcon = {
+                        Image(
+                            painter = painterResource(id = tipo.iconRes),
+                            contentDescription = tipo.label,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                )
+            }
+        }
+    }
 }
 
 data class ContatoProfissional(
@@ -589,6 +735,7 @@ fun ImageProxy.toBitmap(): Bitmap {
 
 /* ----------------- ONBOARDING ----------------- */
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OnboardingScreen(onFinish: () -> Unit) {
     var step by remember { mutableIntStateOf(1) }
@@ -598,15 +745,21 @@ fun OnboardingScreen(onFinish: () -> Unit) {
     var carroMarca by remember { mutableStateOf("") }
     var carroModeloUnico by remember { mutableStateOf("") }
     var carroKm by remember { mutableStateOf("") }
-    var carroCor by remember { mutableIntStateOf(0xFF3B82F6.toInt()) }
+    var carroTipo by remember { mutableStateOf(TipoVeiculo.CARRO) }
     var frotaTemporaria by remember { mutableStateOf(listOf<CarroInfo>()) }
     var contatosAdicionados by remember { mutableStateOf(listOf<ContatoProfissional>()) }
     var showContatoDialog by remember { mutableStateOf(false) }
 
     if (showContatoDialog) NovoContatoDialog(onDismiss = { showContatoDialog = false }, onSalvar = { novo -> contatosAdicionados = contatosAdicionados + novo; scope.launch(Dispatchers.IO) { BancoDeDados.salvarContatos(context, contatosAdicionados) }; showContatoDialog = false })
-    val coresDisponiveis = listOf(0xFF3B82F6.toInt(), 0xFFEF4444.toInt(), 0xFF10B981.toInt(), 0xFFF59E0B.toInt(), 0xFF94A3B8.toInt(), 0xFFFFFFFF.toInt())
 
-    Column(modifier = Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+            .padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
         AnimatedContent(targetState = step, transitionSpec = { fadeIn(animationSpec = tween(500)) togetherWith fadeOut(animationSpec = tween(500)) }, label = "onboarding") { currentStep ->
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
                 when (currentStep) {
@@ -617,18 +770,156 @@ fun OnboardingScreen(onFinish: () -> Unit) {
                         Spacer(Modifier.height(48.dp)); Button(onClick = { step = 2 }, modifier = Modifier.fillMaxWidth().height(50.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6))) { Text("Começar", fontSize = 18.sp) }
                     }
                     2 -> {
-                        if (frotaTemporaria.isNotEmpty()) { Text("Carros Adicionados:", style = MaterialTheme.typography.labelMedium, color = Color(0xFF94A3B8)); Spacer(Modifier.height(8.dp)); LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.fillMaxWidth(), contentPadding = PaddingValues(bottom = 16.dp)) { items(frotaTemporaria) { c -> Column(horizontalAlignment = Alignment.CenterHorizontally) { Icon(imageVector = Icons.Rounded.DirectionsCar, contentDescription = null, tint = Color(c.corArgb), modifier = Modifier.size(40.dp)); Spacer(Modifier.height(4.dp)); Text(text = c.nome, style = MaterialTheme.typography.labelSmall, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis) } } } }
-                        Box(contentAlignment = Alignment.BottomCenter, modifier = Modifier.height(170.dp).width(160.dp)) { Icon(imageVector = Icons.Default.Home, contentDescription = null, tint = Color(0xFF334155), modifier = Modifier.size(160.dp).align(Alignment.BottomCenter)); Box(modifier = Modifier.size(width = 38.dp, height = 58.dp).background(Color(0xFF4B5563), shape = RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp)).align(Alignment.BottomCenter).padding(bottom = 2.dp)); Icon(imageVector = Icons.Rounded.DirectionsCar, contentDescription = null, tint = Color(carroCor), modifier = Modifier.size(100.dp).align(Alignment.BottomCenter).offset(y = (-4).dp)) }
+                        if (frotaTemporaria.isNotEmpty()) {
+                            Text("Carros Adicionados:", style = MaterialTheme.typography.labelMedium, color = Color(0xFF94A3B8))
+                            Spacer(Modifier.height(8.dp))
+                            LazyRow(
+                                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                modifier = Modifier.fillMaxWidth(),
+                                contentPadding = PaddingValues(bottom = 16.dp)
+                            ) {
+                                items(frotaTemporaria) { c ->
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Image(
+                                            painter = painterResource(id = c.tipoIconRes()),
+                                            contentDescription = c.tipoVeiculo.label,
+                                            modifier = Modifier.size(40.dp)
+                                        )
+                                        Spacer(Modifier.height(4.dp))
+                                        Text(
+                                            text = c.nome,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = Color.White,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        Box(contentAlignment = Alignment.BottomCenter, modifier = Modifier.height(170.dp).width(160.dp)) {
+                            Icon(imageVector = Icons.Default.Home, contentDescription = null, tint = Color(0xFF334155), modifier = Modifier.size(160.dp).align(Alignment.BottomCenter))
+                            Box(modifier = Modifier.size(width = 38.dp, height = 58.dp).background(Color(0xFF4B5563), shape = RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp)).align(Alignment.BottomCenter).padding(bottom = 2.dp))
+                            Image(
+                                painter = painterResource(id = carroTipo.iconRes),
+                                contentDescription = carroTipo.label,
+                                modifier = Modifier.size(100.dp).align(Alignment.BottomCenter).offset(y = (-4).dp)
+                            )
+                        }
                         Spacer(Modifier.height(16.dp)); Text("Sua Garagem", style = MaterialTheme.typography.headlineMedium, color = Color.White, fontWeight = FontWeight.Bold)
-                        Spacer(Modifier.height(16.dp)); OutlinedTextField(value = carroNome, onValueChange = { carroNome = it }, label = { Text("Apelido (ex: Fox do Gui)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                        Spacer(Modifier.height(8.dp)); OutlinedTextField(value = carroMarca, onValueChange = { carroMarca = it }, label = { Text("Marca") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                        Spacer(Modifier.height(8.dp)); OutlinedTextField(value = carroModeloUnico, onValueChange = { carroModeloUnico = it }, label = { Text("Modelo e Motor") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                        Spacer(Modifier.height(8.dp)); OutlinedTextField(value = carroKm, onValueChange = { if (it.all(Char::isDigit)) carroKm = it }, label = { Text("KM Atual") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true)
-                        Spacer(Modifier.height(16.dp)); Text("Selecione a cor do veículo:", color = Color(0xFF94A3B8), fontSize = 14.sp)
-                        Spacer(Modifier.height(8.dp)); Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { coresDisponiveis.forEach { cor -> Box(modifier = Modifier.size(36.dp).clip(CircleShape).background(Color(cor)).border(width = if (carroCor == cor) 3.dp else 0.dp, color = if (carroCor == cor) Color.White else Color.Transparent, shape = CircleShape).clickable { carroCor = cor }) } }
+                        Spacer(Modifier.height(16.dp))
+                        OutlinedTextField(value = carroNome, onValueChange = { carroNome = it }, label = { Text("Apelido (ex: Fox do Gui)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                        Spacer(Modifier.height(8.dp))
+                        var marcaExpanded by remember { mutableStateOf(false) }
+                        ExposedDropdownMenuBox(expanded = marcaExpanded, onExpandedChange = { marcaExpanded = !marcaExpanded }) {
+                            OutlinedTextField(
+                                value = carroMarca,
+                                onValueChange = {},
+                                readOnly = true,
+                                label = { Text("Marca") },
+                                placeholder = { Text("Selecione a marca") },
+                                modifier = Modifier
+                                    .menuAnchor()
+                                    .fillMaxWidth(),
+                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = marcaExpanded) },
+                                leadingIcon = {
+                                    val logoMarca = logoResForMarca(carroMarca)
+                                    if (logoMarca != null) {
+                                        Image(
+                                            painter = painterResource(id = logoMarca),
+                                            contentDescription = carroMarca,
+                                            modifier = Modifier.size(24.dp),
+                                            colorFilter = ColorFilter.tint(Color.White)
+                                        )
+                                    } else {
+                                        Icon(Icons.Rounded.DirectionsCar, contentDescription = null, tint = Color(0xFF3B82F6))
+                                    }
+                                }
+                            )
+                            ExposedDropdownMenu(expanded = marcaExpanded, onDismissRequest = { marcaExpanded = false }) {
+                                marcasSuportadas.forEach { marcaNome ->
+                                    DropdownMenuItem(
+                                        text = { Text(marcaNome) },
+                                        onClick = {
+                                            carroMarca = marcaNome
+                                            marcaExpanded = false
+                                        },
+                                        leadingIcon = {
+                                            val res = logoResForMarca(marcaNome)
+                                            if (res != null) {
+                                                Image(
+                                                    painter = painterResource(id = res),
+                                                    contentDescription = marcaNome,
+                                                    modifier = Modifier.size(20.dp),
+                                                    colorFilter = ColorFilter.tint(Color.White)
+                                                )
+                                            } else {
+                                                Icon(Icons.Rounded.DirectionsCar, contentDescription = null)
+                                            }
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedTextField(value = carroModeloUnico, onValueChange = { carroModeloUnico = it }, label = { Text("Modelo e Motor") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = carroKm,
+                            onValueChange = { if (it.all(Char::isDigit)) carroKm = it },
+                            label = { Text("KM Atual") },
+                            modifier = Modifier.fillMaxWidth(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true
+                        )
+                        Spacer(Modifier.height(16.dp))
+                        TipoVeiculoSelector(
+                            selecionado = carroTipo,
+                            onSelect = { carroTipo = it }
+                        )
                         Spacer(Modifier.height(24.dp))
-                        OutlinedButton(onClick = { if (carroNome.isNotBlank() && carroModeloUnico.isNotBlank()) { val novo = CarroInfo(nome = carroNome, modelo = carroModeloUnico, marca = carroMarca, kmAtual = carroKm.toIntOrNull() ?: 0, corArgb = carroCor); frotaTemporaria = frotaTemporaria + novo; carroNome = ""; carroMarca = ""; carroModeloUnico = ""; carroKm = "" } }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF3B82F6))) { Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(8.dp)); Text("Adicionar Outro Carro") }
-                        Spacer(Modifier.height(8.dp)); Button(onClick = { var listaFinal = frotaTemporaria; if (carroNome.isNotBlank() || carroModeloUnico.isNotBlank() || carroMarca.isNotBlank()) { val ultimo = CarroInfo(nome = if(carroNome.isBlank()) "Carro" else carroNome, modelo = carroModeloUnico, marca = carroMarca, kmAtual = carroKm.toIntOrNull() ?: 0, corArgb = carroCor); listaFinal = listaFinal + ultimo }; val listaSalvar = if (listaFinal.isNotEmpty()) listaFinal else listOf(CarroInfo(nome = "Meu Carro", modelo = "Padrão", marca = "Marca", kmAtual = 0)); scope.launch(Dispatchers.IO) { BancoDeDados.salvarCarros(context, listaSalvar) }; step = 3 }, modifier = Modifier.fillMaxWidth().height(50.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981))) { Text("Salvar e Continuar", fontSize = 18.sp) }
+                        OutlinedButton(
+                            onClick = {
+                                if (carroNome.isNotBlank() && carroModeloUnico.isNotBlank()) {
+                                    val novo = CarroInfo(
+                                        nome = carroNome,
+                                        modelo = carroModeloUnico,
+                                        marca = carroMarca,
+                                        kmAtual = carroKm.toIntOrNull() ?: 0,
+                                        tipoVeiculo = carroTipo
+                                    )
+                                    frotaTemporaria = frotaTemporaria + novo
+                                    carroNome = ""
+                                    carroMarca = ""
+                                    carroModeloUnico = ""
+                                    carroKm = ""
+                                    carroTipo = TipoVeiculo.CARRO
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF3B82F6))
+                        ) { Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(8.dp)); Text("Adicionar Outro Carro") }
+                        Spacer(Modifier.height(8.dp))
+                        Button(
+                            onClick = {
+                                var listaFinal = frotaTemporaria
+                                if (carroNome.isNotBlank() || carroModeloUnico.isNotBlank() || carroMarca.isNotBlank()) {
+                                    val ultimo = CarroInfo(
+                                        nome = if(carroNome.isBlank()) "Carro" else carroNome,
+                                        modelo = carroModeloUnico,
+                                        marca = carroMarca,
+                                        kmAtual = carroKm.toIntOrNull() ?: 0,
+                                        tipoVeiculo = carroTipo
+                                    )
+                                    listaFinal = listaFinal + ultimo
+                                }
+                                val listaSalvar = if (listaFinal.isNotEmpty()) listaFinal else listOf(CarroInfo(nome = "Meu Carro", modelo = "Padrão", marca = "Marca", kmAtual = 0))
+                                scope.launch(Dispatchers.IO) { BancoDeDados.salvarCarros(context, listaSalvar) }
+                                step = 3
+                            },
+                            modifier = Modifier.fillMaxWidth().height(50.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981))
+                        ) { Text("Salvar e Continuar", fontSize = 18.sp) }
                     }
                     3 -> {
                         Text("Profissionais", style = MaterialTheme.typography.headlineMedium, color = Color.White, fontWeight = FontWeight.Bold)
@@ -756,10 +1047,22 @@ fun ManutencaoScreen(modifier: Modifier = Modifier, context: Context = LocalCont
     var showRelatorioDialog by remember { mutableStateOf(false) }
     var showTesteNotificacaoDialog by remember { mutableStateOf(false) }
     var showConfiguracoes by remember { mutableStateOf(false) }
+    var showPrivacidadeDialog by remember { mutableStateOf(false) }
     var lembreteSelecionado by remember { mutableStateOf<Lembrete?>(null) }
     var contatoDetalheSelecionado by remember { mutableStateOf<ContatoProfissional?>(null) }
     val lembretesDoCarroAtual = todosLembretes.filter { it.carroId == carroAtual.id }
     val formatterData = remember { DateTimeFormatter.ofPattern("dd/MM/yyyy") }
+    val drawerState = rememberDrawerState(DrawerValue.Closed)
+    val drawerScope = rememberCoroutineScope()
+    val activity = remember(context) { context.findActivity() }
+
+    SideEffect {
+        activity?.window?.let { window ->
+            WindowCompat.setDecorFitsSystemWindows(window, true)
+            window.statusBarColor = android.graphics.Color.BLACK
+            WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightStatusBars = false
+        }
+    }
 
     if (showEditCarDialog) { EditarCarroDialog(carroAtual = carroAtual, titulo = "Editar Veículo", onDismiss = { showEditCarDialog = false }, onSalvar = { carroEditado -> listaCarros = listaCarros.map { if (it.id == carroAtual.id) carroEditado else it }; showEditCarDialog = false }) }
     if (showAddCarDialog) { EditarCarroDialog(carroAtual = CarroInfo(nome = "", modelo = ""), titulo = "Novo Carro", onDismiss = { showAddCarDialog = false }, onSalvar = { novoCarro -> listaCarros = listaCarros + novoCarro; indiceCarroAtual = listaCarros.lastIndex; showAddCarDialog = false }) }
@@ -788,6 +1091,9 @@ fun ManutencaoScreen(modifier: Modifier = Modifier, context: Context = LocalCont
                 showConfiguracoes = false
             }
         )
+    }
+    if (showPrivacidadeDialog) {
+        PrivacidadeTermosDialog(onDismiss = { showPrivacidadeDialog = false })
     }
     lembreteSelecionado?.let { selecionado ->
         LembreteDetalhesDialog(
@@ -835,117 +1141,309 @@ fun ManutencaoScreen(modifier: Modifier = Modifier, context: Context = LocalCont
         )
     }
 
-    Scaffold(
-        modifier = modifier,
-        containerColor = Color(0xFF0F172A),
-        floatingActionButton = {}
-    ) { innerPadding ->
-        if (isLoading) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Color(0xFF3B82F6)) }
-        } else {
-            Column(modifier = Modifier.padding(innerPadding).fillMaxSize().verticalScroll(rememberScrollState())) {
-                // Header Topo
-                Row(modifier = Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Column {
-                        Text("CarLembrete", color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                        Text("Gestão de Frota", color = Color(0xFF94A3B8), style = MaterialTheme.typography.bodySmall)
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        OutlinedButton(
-                            onClick = { showAddCarDialog = true },
-                            border = BorderStroke(1.dp, Color(0xFF1E293B)),
-                            shape = RoundedCornerShape(12.dp),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            ModalDrawerSheet(
+                drawerContainerColor = Color.Black,
+                drawerContentColor = Color.White
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 24.dp),
+                    verticalArrangement = Arrangement.spacedBy(18.dp)
+                ) {
+                    val detalhesCabecalho = listOfNotNull(
+                        carroAtual.marca.takeIf { it.isNotBlank() },
+                        carroAtual.modelo.takeIf { it.isNotBlank() }
+                    ).joinToString(" • ").ifBlank { "Defina marca e modelo" }
+                    Row(
+                        modifier = Modifier
+                            .padding(horizontal = 24.dp)
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(Color(0xFF111B2A))
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        val logoRes = carroAtual.logoResOrNull()
+                        Box(
+                            modifier = Modifier
+                                .size(56.dp)
+                                .background(carroAtual.getCorUI().copy(alpha = 0.2f), CircleShape),
+                            contentAlignment = Alignment.Center
                         ) {
-                            Icon(Icons.Rounded.DirectionsCar, "Add Carro", tint = Color(0xFF10B981))
-                            Spacer(Modifier.width(6.dp))
-                            Text("Adicionar veículo", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            if (logoRes != null) {
+                                Image(
+                                    painter = painterResource(id = logoRes),
+                                    contentDescription = carroAtual.marca.ifBlank { "Logo" },
+                                    modifier = Modifier.size(36.dp),
+                                    colorFilter = ColorFilter.tint(Color.White)
+                                )
+                            } else {
+                                Icon(Icons.Rounded.DirectionsCar, contentDescription = null, tint = Color.White, modifier = Modifier.size(28.dp))
+                            }
                         }
-                        IconButton(onClick = { showConfiguracoes = true }, modifier = Modifier.background(Color(0xFF1E293B), CircleShape)) {
-                            Icon(Icons.Default.Settings, "Configurações", tint = Color(0xFF94A3B8))
+                        Spacer(Modifier.width(14.dp))
+                        Column {
+                            Text(
+                                carroAtual.nome.ifBlank { "Seu veículo" },
+                                color = Color.White,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                detalhesCabecalho,
+                                color = Color(0xFF94A3B8),
+                                fontSize = 13.sp,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                    Divider(color = Color.White.copy(alpha = 0.12f))
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                showConfiguracoes = true
+                                drawerScope.launch { drawerState.close() }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(14.dp),
+                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.4f)),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
+                        ) {
+                            Icon(Icons.Default.Settings, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Configurações", fontWeight = FontWeight.SemiBold, color = Color.White)
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                showAddCarDialog = true
+                                drawerScope.launch { drawerState.close() }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(14.dp),
+                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.4f)),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
+                        ) {
+                            Icon(Icons.Rounded.DirectionsCar, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Adicionar veículo", fontWeight = FontWeight.SemiBold, color = Color.White)
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                showPrivacidadeDialog = true
+                                drawerScope.launch { drawerState.close() }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(14.dp),
+                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.4f)),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
+                        ) {
+                            Icon(Icons.Default.Lock, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Privacidade e termos", fontWeight = FontWeight.SemiBold, color = Color.White)
                         }
                     }
                 }
-
-                // Card Principal do Carro (Com Gradiente)
-                val corCarroAtual = carroAtual.getCorUI()
-                val textoCardPrimario = if (corCarroAtual.luminance() > 0.55f) Color(0xFF0F172A) else Color.White
-                val textoCardSecundario = textoCardPrimario.copy(alpha = 0.75f)
+            }
+        }
+    ) {
+        Scaffold(
+            modifier = modifier,
+            containerColor = Color.Black,
+            topBar = {
+                TopAppBar(
+                    modifier = Modifier
+                        .windowInsetsPadding(WindowInsets.statusBars)
+                        .padding(top = 4.dp)
+                        .height(70.dp),
+                    title = {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .padding(top = 18.dp),
+                            contentAlignment = Alignment.TopStart
+                        ) {
+                            Text("CarLembrete", color = Color(0xFF0F172A), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                        }
+                    },
+                    navigationIcon = {
+                        IconButton(
+                            onClick = { drawerScope.launch { drawerState.open() } },
+                            modifier = Modifier.fillMaxHeight()
+                        ) {
+                            Column(
+                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier.padding(horizontal = 8.dp)
+                            ) {
+                                repeat(3) {
+                                    Box(
+                                        modifier = Modifier
+                                            .width(38.dp)
+                                            .height(4.dp)
+                                            .clip(RoundedCornerShape(2.dp))
+                                            .background(Color(0xFF0F172A))
+                                    )
+                                }
+                            }
+                        }
+                    },
+                    actions = {},
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = Color.White,
+                        titleContentColor = Color(0xFF0F172A),
+                        navigationIconContentColor = Color(0xFF0F172A),
+                        actionIconContentColor = Color(0xFF0F172A)
+                    )
+                )
+            },
+            floatingActionButton = {}
+        ) { innerPadding ->
+            if (isLoading) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Color(0xFF3B82F6)) }
+            } else {
+                Column(modifier = Modifier.padding(innerPadding).fillMaxSize().verticalScroll(rememberScrollState())) {
+                    Spacer(Modifier.height(16.dp))
+                // Card Principal do Carro
+                val textoCardPrimario = Color(0xFF0F172A)
+                val textoCardSecundario = Color(0xFF475569)
+                val logoMarcaAtual = carroAtual.logoResOrNull()
                 Box(
-                    modifier = Modifier.padding(horizontal = 16.dp).fillMaxWidth().clip(RoundedCornerShape(24.dp))
-                        .background(
-                            Brush.linearGradient(
-                                colors = listOf(Color.White, corCarroAtual.copy(alpha = 0.95f)),
-                                start = Offset(0f, 0f),
-                                end = Offset(600f, 300f)
-                            )
-                        )
-                        .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(24.dp))
+                    modifier = Modifier
+                        .padding(horizontal = 16.dp)
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(24.dp))
+                        .background(Color(0xFFF7F6F9))
+                        .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(24.dp))
                         .padding(20.dp)
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(220.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
                             IconButton(
                                 onClick = { if (indiceCarroAtual > 0) indiceCarroAtual-- else indiceCarroAtual = listaCarros.lastIndex },
-                                modifier = Modifier.background(textoCardPrimario.copy(alpha = 0.08f), CircleShape)
+                                modifier = Modifier
+                                    .align(Alignment.CenterStart)
+                                    .background(Color(0xFFE2E8F0), CircleShape)
                             ) { Icon(Icons.Default.ArrowBackIosNew, "Anterior", tint = textoCardPrimario.copy(alpha = 0.8f)) }
-                            Box(modifier = Modifier.size(80.dp).background(textoCardPrimario.copy(alpha = 0.12f), CircleShape), contentAlignment = Alignment.Center) {
-                                Icon(Icons.Rounded.DirectionsCar, null, tint = textoCardPrimario, modifier = Modifier.size(48.dp))
+                            Column(
+                                modifier = Modifier.align(Alignment.TopCenter),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    carroAtual.nome,
+                                    style = MaterialTheme.typography.headlineMedium,
+                                    color = textoCardPrimario,
+                                    fontWeight = FontWeight.ExtraBold
+                                )
+                                logoMarcaAtual?.let { logo ->
+                                    Spacer(Modifier.height(6.dp))
+                                    Image(
+                                        painter = painterResource(id = logo),
+                                        contentDescription = carroAtual.marca.ifBlank { "Marca" },
+                                        modifier = Modifier.size(50.dp)
+                                    )
+                                }
+                                Spacer(Modifier.height(12.dp))
+                                Image(
+                                    painter = painterResource(id = carroAtual.tipoIconRes()),
+                                    contentDescription = carroAtual.tipoVeiculo.label,
+                                    modifier = Modifier.size(180.dp)
+                                )
                             }
                             IconButton(
                                 onClick = { if (indiceCarroAtual < listaCarros.lastIndex) indiceCarroAtual++ else indiceCarroAtual = 0 },
-                                modifier = Modifier.background(textoCardPrimario.copy(alpha = 0.08f), CircleShape)
+                                modifier = Modifier
+                                    .align(Alignment.CenterEnd)
+                                    .background(Color(0xFFE2E8F0), CircleShape)
                             ) { Icon(Icons.Default.ArrowForwardIos, "Próximo", tint = textoCardPrimario.copy(alpha = 0.8f)) }
                         }
-                        Spacer(Modifier.height(12.dp))
-                        Text(carroAtual.nome, style = MaterialTheme.typography.headlineMedium, color = textoCardPrimario, fontWeight = FontWeight.ExtraBold)
-                        val descricaoModelo = listOf(carroAtual.marca, carroAtual.modelo).filter { it.isNotBlank() }.joinToString(" - ")
-                        if (descricaoModelo.isNotBlank()) {
-                            Text(descricaoModelo, style = MaterialTheme.typography.bodyMedium, color = textoCardSecundario)
-                        }
-                        Spacer(Modifier.height(16.dp))
-                        Spacer(Modifier.height(8.dp))
-                        Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+                        Spacer(Modifier.height(20.dp))
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
                             OutlinedButton(
                                 onClick = { showEditCarDialog = true },
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(48.dp),
+                                    .height(46.dp),
                                 shape = RoundedCornerShape(14.dp),
                                 border = BorderStroke(2.dp, textoCardPrimario.copy(alpha = 0.7f)),
                                 colors = ButtonDefaults.outlinedButtonColors(contentColor = textoCardPrimario)
                             ) {
-                                Icon(Icons.Default.Edit, contentDescription = "Editar veículo", tint = textoCardPrimario, modifier = Modifier.size(20.dp))
+                                Icon(Icons.Default.Edit, contentDescription = "Editar veículo", tint = textoCardPrimario, modifier = Modifier.size(18.dp))
                                 Spacer(Modifier.width(8.dp))
-                                Text("Editar veículo", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = textoCardPrimario)
+                                Text("Editar veículo", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = textoCardPrimario)
                             }
                             OutlinedButton(
                                 onClick = { showRelatorioDialog = true },
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(48.dp),
+                                    .height(46.dp),
                                 shape = RoundedCornerShape(14.dp),
                                 border = BorderStroke(2.dp, textoCardPrimario.copy(alpha = 0.7f)),
                                 colors = ButtonDefaults.outlinedButtonColors(contentColor = textoCardPrimario)
                             ) {
-                                Icon(Icons.Default.Description, contentDescription = "Relatório", tint = textoCardPrimario, modifier = Modifier.size(20.dp))
+                                Icon(Icons.Default.Description, contentDescription = "Relatório", tint = textoCardPrimario, modifier = Modifier.size(18.dp))
                                 Spacer(Modifier.width(8.dp))
-                                Text("Relatório do veículo", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = textoCardPrimario)
+                                Text("Relatório do veículo", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = textoCardPrimario)
                             }
                         }
                     }
                 }
 
                 Spacer(Modifier.height(24.dp))
-
-                // Painel de Status
+                Button(
+                    onClick = {
+                        iniciarCameraProduto = false
+                        showAddLembreteDialog = true
+                    },
+                    modifier = Modifier
+                        .padding(horizontal = 16.dp)
+                        .fillMaxWidth()
+                        .shadow(12.dp, RoundedCornerShape(18.dp))
+                        .height(60.dp),
+                    shape = RoundedCornerShape(18.dp),
+                    border = BorderStroke(2.dp, Color.White.copy(alpha = 0.3f)),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF1D4ED8),
+                        contentColor = Color.White
+                    )
+                ) {
+                    Icon(
+                        Icons.Default.AddCircle,
+                        contentDescription = "Novo aviso",
+                        modifier = Modifier.size(26.dp),
+                        tint = Color.White
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    Text(
+                        "Criar novo aviso agora",
+                        fontSize = 19.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                }
+                Spacer(Modifier.height(24.dp))
+                // Painel de Status (agora abaixo do botão)
                 val contagemPorTipo = TipoManutencao.values().associateWith { tipo -> lembretesDoCarroAtual.count { it.tipo == tipo } }
                 val statusBorderColor = Color.White.copy(alpha = 0.25f)
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp)
-                        .border(1.dp, statusBorderColor, RoundedCornerShape(24.dp))
+                        .clip(RoundedCornerShape(24.dp))
+                        .background(Color(0xFFF7F6F9))
+                        .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(24.dp))
                         .padding(16.dp)
                 ) {
                     Row(
@@ -962,27 +1460,7 @@ fun ManutencaoScreen(modifier: Modifier = Modifier, context: Context = LocalCont
                     }
                     Spacer(Modifier.height(12.dp))
                 }
-
                 Spacer(Modifier.height(24.dp))
-                Button(
-                    onClick = {
-                        iniciarCameraProduto = false
-                        showAddLembreteDialog = true
-                    },
-                    modifier = Modifier
-                        .padding(horizontal = 16.dp)
-                        .fillMaxWidth()
-                        .height(56.dp),
-                    shape = RoundedCornerShape(8.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6))
-                ) {
-                    Icon(Icons.Default.AddCircle, contentDescription = "Novo aviso", modifier = Modifier.size(24.dp))
-                    Spacer(Modifier.width(12.dp))
-                    Text("Criar novo aviso", fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                }
-                Spacer(Modifier.height(8.dp))
-
-                Spacer(Modifier.height(8.dp))
 
                     val lembretesOrdenados = lembretesDoCarroAtual.sortedBy { dataParaOrdenacao(it) }
 
@@ -1025,6 +1503,7 @@ fun ManutencaoScreen(modifier: Modifier = Modifier, context: Context = LocalCont
             }
         }
     }
+}
 }
 
 @Composable
@@ -1104,6 +1583,28 @@ fun ConfiguracoesScreen(onDismiss: () -> Unit, onTestarNotificacao: () -> Unit) 
 }
 
 @Composable
+fun PrivacidadeTermosDialog(onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        modifier = Modifier.border(dialogBorderStroke, dialogCornerShape),
+        shape = dialogCornerShape,
+        title = { Text("Privacidade e Termos", color = Color.White, fontWeight = FontWeight.Bold) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Os dados ficam armazenados apenas neste dispositivo para gerar lembretes personalizados.", color = Color(0xFF94A3B8))
+                Text("Ao continuar, você concorda com o uso das informações para criar recomendações e notificações.", color = Color(0xFF94A3B8))
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Fechar", color = Color.White, fontWeight = FontWeight.SemiBold)
+            }
+        },
+        containerColor = Color(0xFF1E293B)
+    )
+}
+
+@Composable
 private fun ConfigToggleItem(
     title: String,
     description: String,
@@ -1137,19 +1638,15 @@ private fun ConfigToggleItem(
 @Composable
 fun MonitorIcon(tipo: TipoManutencao, cor: Color, quantidade: Int) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        // Box Pai invisível: Não corta o conteúdo
         Box(modifier = Modifier.size(64.dp), contentAlignment = Alignment.Center) {
-
-            // 1. Ícone com fundo recortado em Círculo
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
                     .size(56.dp)
                     .clip(CircleShape)
-                    .background(Color(0xFF1E293B))
-                    .border(2.dp, cor.copy(alpha = 0.5f), CircleShape)
+                    .background(Color(0xFFE2E8F0))
+                    .border(2.dp, cor.copy(alpha = 0.4f), CircleShape)
             ) {
-                // Se for FREIO, mostra texto "ABS". Senão, mostra o ícone.
                 if (tipo == TipoManutencao.FREIO) {
                     Text(
                         text = "ABS",
@@ -1167,7 +1664,6 @@ fun MonitorIcon(tipo: TipoManutencao, cor: Color, quantidade: Int) {
                 }
             }
 
-            // 2. Bolinha Vermelha Flutuando (Badge)
             if (quantidade > 0) {
                 Box(
                     modifier = Modifier
@@ -1175,7 +1671,7 @@ fun MonitorIcon(tipo: TipoManutencao, cor: Color, quantidade: Int) {
                         .offset(x = (-4).dp, y = 4.dp)
                         .size(22.dp)
                         .background(Color(0xFFEF4444), CircleShape)
-                        .border(2.dp, Color(0xFF0F172A), CircleShape),
+                        .border(2.dp, Color(0xFF475569), CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
@@ -1190,7 +1686,13 @@ fun MonitorIcon(tipo: TipoManutencao, cor: Color, quantidade: Int) {
         }
 
         Spacer(Modifier.height(4.dp))
-        Text(text = tipo.label, style = MaterialTheme.typography.labelSmall, color = Color(0xFF94A3B8), fontSize = 11.sp)
+            Text(
+                text = tipo.label,
+                style = MaterialTheme.typography.labelSmall,
+                color = Color(0xFF475569),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold
+            )
     }
 }
 
@@ -1231,72 +1733,91 @@ fun LembreteCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(16.dp))
+            .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(20.dp))
             .clickable { onClick() },
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
-        shape = RoundedCornerShape(16.dp),
-        elevation = CardDefaults.cardElevation(4.dp)
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        shape = RoundedCornerShape(20.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
-        Box(modifier = Modifier.fillMaxWidth()) {
-            Row(modifier = Modifier.height(IntrinsicSize.Min)) {
-                Box(
+        Box {
+            Column(
+                modifier = Modifier
+                    .padding(18.dp)
+            ) {
+                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .background(statusColor.copy(alpha = 0.15f), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(lembrete.tipo.getIcon(), contentDescription = null, tint = statusColor, modifier = Modifier.size(26.dp))
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(lembrete.titulo, color = Color(0xFF0F172A), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text(lembrete.tipo.label, color = Color(0xFF475569), fontSize = 12.sp)
+                    }
+                }
+
+                Spacer(Modifier.height(12.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier
-                        .width(6.dp)
-                        .fillMaxHeight()
-                        .background(statusColor)
-                )
-
-                Column(modifier = Modifier.padding(16.dp).weight(1f)) {
-                    Row(verticalAlignment = Alignment.Top) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(lembrete.titulo, color = Color.White, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                            Spacer(Modifier.height(4.dp))
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Rounded.CalendarMonth, null, tint = Color(0xFF64748B), modifier = Modifier.size(14.dp))
-                                Spacer(Modifier.width(4.dp))
-                                Text(lembrete.dataLimite, color = Color(0xFF94A3B8), fontSize = 12.sp)
-                                Spacer(Modifier.width(12.dp))
-                                if (lembrete.kmLimite.isNotBlank()) {
-                                    Icon(Icons.Rounded.Speed, null, tint = Color(0xFF64748B), modifier = Modifier.size(14.dp))
-                                    Spacer(Modifier.width(4.dp))
-                                    Text("${lembrete.kmLimite} Km", color = Color(0xFF94A3B8), fontSize = 12.sp)
-                                }
-                            }
-                        }
-                        if (lembrete.valor > 0) {
-                            Surface(color = Color(0xFF064E3B), shape = RoundedCornerShape(4.dp)) {
-                                Text(
-                                    formatarMoeda(lembrete.valor),
-                                    color = Color(0xFF34D399),
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                )
-                            }
+                        .fillMaxWidth()
+                        .background(Color(0xFFE2E8F0), RoundedCornerShape(12.dp))
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.CalendarMonth, null, tint = Color(0xFF2563EB), modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text(lembrete.dataLimite, color = Color(0xFF0F172A), fontSize = 13.sp)
+                    }
+                    if (lembrete.kmLimite.isNotBlank()) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Rounded.Speed, null, tint = Color(0xFFF97316), modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("${lembrete.kmLimite} km", color = Color(0xFF0F172A), fontSize = 13.sp)
                         }
                     }
-
-                    if (statusLabel.isNotBlank()) {
-                        Spacer(Modifier.height(8.dp))
-                        Text(statusLabel, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                    }
-
-                    if (contato != null) {
-                        Spacer(Modifier.height(12.dp))
-                        Button(
-                            onClick = { abrirWhatsApp(context, contato.telefone, "Olá ${contato.nome}, preciso de *${lembrete.titulo}* para o *$modeloCarro*.") },
-                            modifier = Modifier.fillMaxWidth().height(38.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366)),
-                            contentPadding = PaddingValues(0.dp),
-                            shape = RoundedCornerShape(6.dp)
-                        ) {
-                            Text("Agendar c/ ${contato.nome.split(" ")[0]}", fontSize = 12.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                    if (lembrete.valor > 0) {
+                        Surface(color = Color(0xFFEFFBF4), shape = RoundedCornerShape(8.dp)) {
+                            Text(
+                                formatarMoeda(lembrete.valor),
+                                color = Color(0xFF047857),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
                         }
                     }
                 }
-            }
 
-            IconButton(onClick = { showDeleteDialog = true }, modifier = Modifier.align(Alignment.TopEnd).padding(4.dp)) {
+                if (statusLabel.isNotBlank()) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(statusLabel, color = statusColor, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                }
+
+                if (contato != null) {
+                    Spacer(Modifier.height(12.dp))
+                    HorizontalDivider(color = Color(0xFFE2E8F0))
+                    Spacer(Modifier.height(12.dp))
+                    Button(
+                        onClick = { abrirWhatsApp(context, contato.telefone, "Olá ${contato.nome}, preciso de *${lembrete.titulo}* para o *$modeloCarro*.") },
+                        modifier = Modifier.fillMaxWidth().height(40.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366)),
+                        contentPadding = PaddingValues(horizontal = 12.dp),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Text("Enviar mensagem para ${contato.nome.split(" ")[0]}", fontSize = 13.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            }
+            IconButton(
+                onClick = { showDeleteDialog = true },
+                modifier = Modifier.align(Alignment.TopEnd).offset(x = (-8).dp)
+            ) {
                 Icon(Icons.Default.Delete, null, tint = Color(0xFFEF4444))
             }
         }
@@ -2186,14 +2707,14 @@ fun adicionarContatoManual() {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun EditarCarroDialog(carroAtual: CarroInfo, titulo: String, onDismiss: () -> Unit, onSalvar: (CarroInfo) -> Unit) {
     var nome by remember { mutableStateOf(carroAtual.nome) }
     var marca by remember { mutableStateOf(carroAtual.marca) }
     var modelo by remember { mutableStateOf(carroAtual.modelo) }
     var kmAtualStr by remember { mutableStateOf(if (carroAtual.kmAtual > 0) carroAtual.kmAtual.toString() else "") }
-    var corSelecionada by remember { mutableIntStateOf(carroAtual.corArgb) }
-    val coresDisponiveis = listOf(0xFF3B82F6.toInt(), 0xFFEF4444.toInt(), 0xFF10B981.toInt(), 0xFFF59E0B.toInt(), 0xFF94A3B8.toInt(), 0xFFFFFFFF.toInt())
+    var tipoSelecionado by remember { mutableStateOf(carroAtual.tipoVeiculo) }
     AlertDialog(
         modifier = Modifier.border(dialogBorderStroke, dialogCornerShape),
         shape = dialogCornerShape,
@@ -2213,15 +2734,65 @@ fun EditarCarroDialog(carroAtual: CarroInfo, titulo: String, onDismiss: () -> Un
                     )
                 )
                 Spacer(Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = marca,
-                    onValueChange = { marca = it },
-                    label = { Text("Marca") },
-                    singleLine = true,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White
+                var marcaExpanded by remember { mutableStateOf(false) }
+                val marcaLogo = logoResForMarca(marca)
+                ExposedDropdownMenuBox(expanded = marcaExpanded, onExpandedChange = { marcaExpanded = !marcaExpanded }) {
+                    OutlinedTextField(
+                        value = marca,
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("Marca") },
+                        placeholder = { Text("Selecione a marca") },
+                        modifier = Modifier
+                            .menuAnchor()
+                            .fillMaxWidth(),
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = marcaExpanded) },
+                        leadingIcon = {
+                            if (marcaLogo != null) {
+                                Image(
+                                    painter = painterResource(marcaLogo),
+                                    contentDescription = marca,
+                                    modifier = Modifier.size(24.dp),
+                                    colorFilter = ColorFilter.tint(Color.White)
+                                )
+                            } else {
+                                Icon(Icons.Rounded.DirectionsCar, contentDescription = null, tint = Color(0xFF3B82F6))
+                            }
+                        },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White
+                        )
                     )
+                    ExposedDropdownMenu(expanded = marcaExpanded, onDismissRequest = { marcaExpanded = false }) {
+                        marcasSuportadas.forEach { marcaNome ->
+                            DropdownMenuItem(
+                                text = { Text(marcaNome) },
+                                onClick = {
+                                    marca = marcaNome
+                                    marcaExpanded = false
+                                },
+                                leadingIcon = {
+                                    val res = logoResForMarca(marcaNome)
+                                    if (res != null) {
+                                        Image(
+                                            painter = painterResource(res),
+                                            contentDescription = marcaNome,
+                                            modifier = Modifier.size(20.dp),
+                                            colorFilter = ColorFilter.tint(Color.White)
+                                        )
+                                    } else {
+                                        Icon(Icons.Rounded.DirectionsCar, contentDescription = null)
+                                    }
+                                }
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+                TipoVeiculoSelector(
+                    selecionado = tipoSelecionado,
+                    onSelect = { tipoSelecionado = it }
                 )
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(
@@ -2247,30 +2818,21 @@ fun EditarCarroDialog(carroAtual: CarroInfo, titulo: String, onDismiss: () -> Un
                     )
                 )
                 Spacer(Modifier.height(16.dp))
-                Text("Cor:", color = Color(0xFF94A3B8), fontSize = 12.sp)
-                Spacer(Modifier.height(8.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    coresDisponiveis.forEach { corInt ->
-                        Box(
-                            modifier = Modifier
-                                .size(32.dp)
-                                .clip(CircleShape)
-                                .background(Color(corInt))
-                                .border(
-                                    width = if (corSelecionada == corInt) 2.dp else 0.dp,
-                                    color = if (corSelecionada == corInt) Color.White else Color.Transparent,
-                                    shape = CircleShape
-                                )
-                                .clickable { corSelecionada = corInt }
-                        )
-                    }
-                }
             }
         },
-        confirmButton = { Button(onClick = { onSalvar(carroAtual.copy(nome = nome, marca = marca, modelo = modelo, kmAtual = kmAtualStr.toIntOrNull() ?: 0, corArgb = corSelecionada)) }) { Text("Salvar") } },
+        confirmButton = {
+            Button(onClick = {
+                onSalvar(
+                    carroAtual.copy(
+                        nome = nome,
+                        marca = marca,
+                        modelo = modelo,
+                        kmAtual = kmAtualStr.toIntOrNull() ?: 0,
+                        tipoVeiculo = tipoSelecionado
+                    )
+                )
+            }) { Text("Salvar") }
+        },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } }
     )
 }
@@ -2280,6 +2842,12 @@ fun EditarCarroDialog(carroAtual: CarroInfo, titulo: String, onDismiss: () -> Un
 fun RelatorioVeiculoScreen(carroAtual: CarroInfo, lembretes: List<Lembrete>, onDismiss: () -> Unit) {
     val context = LocalContext.current
     val resumo = remember(carroAtual, lembretes) { gerarResumoRelatorio(carroAtual, lembretes) }
+    val resumoChip = remember(resumo) {
+        resumo.lineSequence()
+            .map { it.trim() }
+            .firstOrNull { it.isNotEmpty() && !it.equals("Relatório do veículo", ignoreCase = true) }
+            ?: "Sem dados"
+    }
     val formatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
     val lembretesPorTipo = TipoManutencao.values().associateWith { tipo -> lembretes.count { it.tipo == tipo } }
     val proximos = lembretes.mapNotNull { lembrete ->
@@ -2293,16 +2861,13 @@ fun RelatorioVeiculoScreen(carroAtual: CarroInfo, lembretes: List<Lembrete>, onD
     ) {
         Surface(
             modifier = Modifier.fillMaxSize(),
-            color = Color(0xFF030B18)
+            color = Color.Black
         ) {
             Column(
-                modifier = Modifier.fillMaxSize().background(
-                    Brush.verticalGradient(
-                        colors = listOf(Color(0xFF0F202F), Color(0xFF031222)),
-                        startY = 0f,
-                        endY = Float.POSITIVE_INFINITY
-                    )
-                ).padding(24.dp)
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black)
+                    .padding(24.dp)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -2355,33 +2920,23 @@ fun RelatorioVeiculoScreen(carroAtual: CarroInfo, lembretes: List<Lembrete>, onD
                         val infoModelo = listOf(carroAtual.marca, carroAtual.modelo).filter { it.isNotBlank() }.joinToString(" - ")
                         val proximaData = proximos.firstOrNull()?.second?.format(formatter) ?: "Sem agenda"
                         val kmAtualText = if (carroAtual.kmAtual > 0) "${carroAtual.kmAtual} km" else "Não informado"
-                        val corCarro = carroAtual.getCorUI()
-                        val textoPrimario = if (corCarro.luminance() > 0.45f) Color(0xFF0F172A) else Color.White
-                        val textoSecundario = textoPrimario.copy(alpha = 0.7f)
+                        val textoPrimario = Color(0xFF0F172A)
+                        val textoSecundario = Color(0xFF475569)
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(28.dp))
-                                .background(
-                                    Brush.linearGradient(
-                                        colors = listOf(Color.White, corCarro.copy(alpha = 0.95f)),
-                                        start = Offset(0f, 0f),
-                                        end = Offset(800f, 400f)
-                                    )
-                                )
-                                .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(28.dp))
-                                .padding(24.dp)
+                                .clip(RoundedCornerShape(24.dp))
+                                .background(Color(0xFFF7F6F9))
+                                .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(24.dp))
+                                .padding(20.dp)
                         ) {
                             Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(60.dp)
-                                            .background(textoPrimario.copy(alpha = 0.1f), CircleShape),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(Icons.Rounded.DirectionsCar, contentDescription = null, tint = textoPrimario, modifier = Modifier.size(32.dp))
-                                    }
+                                    Image(
+                                        painter = painterResource(id = carroAtual.tipoIconRes()),
+                                        contentDescription = carroAtual.tipoVeiculo.label,
+                                        modifier = Modifier.size(150.dp)
+                                    )
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(carroAtual.nome, color = textoPrimario, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold)
                                         if (infoModelo.isNotBlank()) {
@@ -2390,16 +2945,16 @@ fun RelatorioVeiculoScreen(carroAtual: CarroInfo, lembretes: List<Lembrete>, onD
                                     }
                                     Box(
                                         modifier = Modifier
-                                            .height(32.dp)
+                                            .height(34.dp)
                                             .wrapContentWidth()
-                                            .background(textoPrimario.copy(alpha = 0.08f), RoundedCornerShape(10.dp))
+                                            .background(Color(0xFFE2E8F0), RoundedCornerShape(12.dp))
                                             .padding(horizontal = 12.dp),
                                         contentAlignment = Alignment.Center
                                     ) {
-                                        Text(text = resumo, color = textoPrimario, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        Text(text = resumoChip, color = textoPrimario, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     }
                                 }
-                                Divider(color = Color.White.copy(alpha = 0.2f))
+                                Divider(color = Color(0xFFE2E8F0))
                                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                     VehicleStat(label = "Odômetro", value = kmAtualText, color = textoPrimario)
                                     VehicleStat(label = "Avisos ativos", value = lembretes.size.toString(), color = textoPrimario)
