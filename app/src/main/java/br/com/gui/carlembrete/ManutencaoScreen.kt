@@ -76,6 +76,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.painterResource
@@ -97,6 +98,10 @@ import br.com.gui.carlembrete.ui.theme.CarLembreteTheme
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import com.google.android.gms.auth.api.signin.GoogleSignIn
+import com.google.android.gms.auth.api.signin.GoogleSignInOptions
+import com.google.firebase.auth.FirebaseAuth
+import coil.compose.AsyncImage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -282,7 +287,7 @@ fun ManutencaoScreen(modifier: Modifier = Modifier, context: Context = LocalCont
         drawerContent = {
             ModalDrawerSheet(
                 modifier = Modifier.width(320.dp),
-                drawerContainerColor = Color.Black,
+                drawerContainerColor = Color(0xFF0B0F1A),
                 drawerContentColor = Color.White
             ) {
                 Column(
@@ -295,21 +300,17 @@ fun ManutencaoScreen(modifier: Modifier = Modifier, context: Context = LocalCont
                     val modeloTexto = carroAtual.modelo.ifBlank { "Modelo indefinido" }
                     val marcaTexto = carroAtual.marca.ifBlank { "Marca não informada" }
                     val logoRes = carroAtual.logoResOrNull()
+                    val fotoGoogle = FirebaseAuth.getInstance().currentUser?.photoUrl?.toString()
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(0.dp))
-                            .background(
-                                Brush.linearGradient(
-                                    colors = listOf(Color(0xFF0F1830), Color(0xFF111C2E))
-                                )
-                            )
-                            .border(1.dp, Color(0xFF1F2A44), RoundedCornerShape(0.dp))
-                            .padding(horizontal = 24.dp, vertical = 20.dp),
+                            .background(Color(0xFF0F172A))
+                            .border(1.dp, Color(0xFF1F2937), RoundedCornerShape(0.dp))
+                            .padding(horizontal = 24.dp, vertical = 20.dp)
+                            .padding(top = 4.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        val kmTexto = if (carroAtual.kmAtual > 0) "${carroAtual.kmAtual} km" else "KM nao informado"
-                        val avisosAtivos = lembretesDoCarroAtual.size
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically
@@ -321,12 +322,21 @@ fun ManutencaoScreen(modifier: Modifier = Modifier, context: Context = LocalCont
                                     .background(Color.White.copy(alpha = 0.12f)),
                                 contentAlignment = Alignment.Center
                             ) {
-                                if (logoRes != null) {
-                                    Image(
-                                        painter = painterResource(id = logoRes),
-                                        contentDescription = marcaTexto,
-                                        modifier = Modifier.size(40.dp),
-                                        colorFilter = ColorFilter.tint(Color.White)
+                            if (!fotoGoogle.isNullOrBlank()) {
+                                AsyncImage(
+                                    model = fotoGoogle,
+                                    contentDescription = "Foto do Google",
+                                    modifier = Modifier
+                                        .size(70.dp)
+                                        .clip(CircleShape),
+                                    contentScale = ContentScale.Crop
+                                )
+                            } else if (logoRes != null) {
+                                Image(
+                                    painter = painterResource(id = logoRes),
+                                    contentDescription = marcaTexto,
+                                    modifier = Modifier.size(40.dp),
+                                    colorFilter = ColorFilter.tint(Color.White)
                                     )
                                 } else {
                                     Icon(Icons.Rounded.DirectionsCar, contentDescription = null, tint = Color.White, modifier = Modifier.size(32.dp))
@@ -353,78 +363,12 @@ fun ManutencaoScreen(modifier: Modifier = Modifier, context: Context = LocalCont
                                 onClick = { drawerScope.launch { drawerState.close() } },
                                 modifier = Modifier
                                     .size(36.dp)
-                                    .offset(y = (-12).dp)
-                                    .background(Color(0xFFEF4444), RoundedCornerShape(6.dp))
+                                    .background(Color(0xFF1F2937), RoundedCornerShape(8.dp))
                             ) {
                                 Icon(Icons.Default.Close, contentDescription = "Fechar menu", tint = Color.White)
                             }
                         }
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(Color(0xFF0D1A34))
-                                    .border(1.dp, Color(0xFF1F2A44), RoundedCornerShape(12.dp))
-                                    .padding(vertical = 10.dp, horizontal = 12.dp)
-                            ) {
-                                Column {
-                                    Text("KM atual", color = Color(0xFF93A6D1), fontSize = 11.sp)
-                                    Text(kmTexto, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                                }
-                            }
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(Color(0xFF0D1A34))
-                                    .border(1.dp, Color(0xFF1F2A44), RoundedCornerShape(12.dp))
-                                    .padding(vertical = 10.dp, horizontal = 12.dp)
-                            ) {
-                                Column {
-                                    Text("Avisos ativos", color = Color(0xFF93A6D1), fontSize = 11.sp)
-                                    Text(avisosAtivos.toString(), color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                                }
-                            }
-                        }
-                        Button(
-                            onClick = {
-                                showGaragemScreen = true
-                                drawerScope.launch { drawerState.close() }
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(18.dp),
-                            elevation = ButtonDefaults.buttonElevation(defaultElevation = 2.dp, pressedElevation = 0.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1C3EA4), contentColor = Color.White),
-                            contentPadding = PaddingValues(vertical = 14.dp, horizontal = 16.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.Start
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(36.dp)
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .background(Color.White.copy(alpha = 0.15f)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(Icons.Rounded.DirectionsCar, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
-                                }
-                                Spacer(Modifier.width(12.dp))
-                                Text(
-                                    "Ver minha garagem",
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontSize = 15.sp,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                Icon(Icons.Default.ArrowForwardIos, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
-                            }
-                        }
+                        Spacer(Modifier.height(6.dp))
                     }
                     Spacer(Modifier.height(8.dp))
                     Column(
@@ -441,7 +385,7 @@ fun ManutencaoScreen(modifier: Modifier = Modifier, context: Context = LocalCont
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(12.dp),
                             elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1C2458), contentColor = Color.White),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF111827), contentColor = Color.White),
                             contentPadding = PaddingValues(vertical = 14.dp, horizontal = 16.dp)
                         ) {
                             Row(
@@ -453,7 +397,7 @@ fun ManutencaoScreen(modifier: Modifier = Modifier, context: Context = LocalCont
                                     modifier = Modifier
                                         .size(40.dp)
                                         .clip(RoundedCornerShape(12.dp))
-                                        .background(Color.White.copy(alpha = 0.12f)),
+                                        .background(Color(0xFF1F2937)),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Icon(Icons.Default.Settings, contentDescription = null, tint = Color.White)
@@ -469,13 +413,13 @@ fun ManutencaoScreen(modifier: Modifier = Modifier, context: Context = LocalCont
                         }
                         Button(
                             onClick = {
-                                showAddCarDialog = true
+                                showGaragemScreen = true
                                 drawerScope.launch { drawerState.close() }
                             },
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(12.dp),
                             elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1C3EA4), contentColor = Color.White),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF111827), contentColor = Color.White),
                             contentPadding = PaddingValues(vertical = 14.dp, horizontal = 16.dp)
                         ) {
                             Row(
@@ -487,7 +431,41 @@ fun ManutencaoScreen(modifier: Modifier = Modifier, context: Context = LocalCont
                                     modifier = Modifier
                                         .size(40.dp)
                                         .clip(RoundedCornerShape(12.dp))
-                                        .background(Color.White.copy(alpha = 0.12f)),
+                                        .background(Color(0xFF1F2937)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(Icons.Rounded.DirectionsCar, contentDescription = null, tint = Color.White)
+                                }
+                                Spacer(Modifier.width(14.dp))
+                                Text(
+                                    "Minha garagem",
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 17.sp,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
+                        Button(
+                            onClick = {
+                                showAddCarDialog = true
+                                drawerScope.launch { drawerState.close() }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF111827), contentColor = Color.White),
+                            contentPadding = PaddingValues(vertical = 14.dp, horizontal = 16.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Start
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(Color(0xFF1F2937)),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Icon(Icons.Rounded.DirectionsCar, contentDescription = null, tint = Color.White)
@@ -509,7 +487,7 @@ fun ManutencaoScreen(modifier: Modifier = Modifier, context: Context = LocalCont
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(12.dp),
                             elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0F6E4D), contentColor = Color.White),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF111827), contentColor = Color.White),
                             contentPadding = PaddingValues(vertical = 14.dp, horizontal = 16.dp)
                         ) {
                             Row(
@@ -521,7 +499,7 @@ fun ManutencaoScreen(modifier: Modifier = Modifier, context: Context = LocalCont
                                     modifier = Modifier
                                         .size(40.dp)
                                         .clip(RoundedCornerShape(12.dp))
-                                        .background(Color.White.copy(alpha = 0.12f)),
+                                        .background(Color(0xFF1F2937)),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Icon(Icons.Default.Lock, contentDescription = null, tint = Color.White)
@@ -537,18 +515,26 @@ fun ManutencaoScreen(modifier: Modifier = Modifier, context: Context = LocalCont
                         }
                     }
                     Spacer(modifier = Modifier.weight(1f))
-                    Button(
-                        onClick = { drawerScope.launch { drawerState.close() } },
+                    OutlinedButton(
+                        onClick = {
+                            FirebaseAuth.getInstance().signOut()
+                            GoogleSignIn.getClient(
+                                context,
+                                GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN).build()
+                            ).signOut()
+                            drawerScope.launch { drawerState.close() }
+                        },
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 24.dp),
                         shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE53935), contentColor = Color.White),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                        border = BorderStroke(1.dp, Color.White),
                         contentPadding = PaddingValues(vertical = 14.dp, horizontal = 16.dp)
                     ) {
-                        Icon(Icons.Default.Close, contentDescription = null, tint = Color.White)
+                        Icon(Icons.Default.Logout, contentDescription = null, tint = Color.White)
                         Spacer(Modifier.width(10.dp))
-                        Text("Fechar", fontWeight = FontWeight.Bold)
+                        Text("Logout", fontWeight = FontWeight.Bold, color = Color.White)
                     }
                 }
             }

@@ -4,6 +4,7 @@ plugins {
     alias(libs.plugins.kotlin.compose)
     // Plugin do Allure para gerar o relatório
     id("io.qameta.allure") version "2.12.0"
+    id("com.google.gms.google-services")
 }
 
 android {
@@ -47,6 +48,9 @@ android {
 }
 
 dependencies {
+    implementation(platform("com.google.firebase:firebase-bom:33.3.0"))
+    implementation("com.google.firebase:firebase-auth-ktx")
+    implementation("com.google.android.gms:play-services-auth:21.2.0")
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)
@@ -85,5 +89,7 @@ dependencies {
     // Permissões
     implementation("com.google.accompanist:accompanist-permissions:0.34.0")
     implementation("com.google.zxing:core:3.5.1")
+    // Imagens remotas
+    implementation("io.coil-kt:coil-compose:2.6.0")
 }
 

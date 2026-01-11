@@ -19,11 +19,17 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import br.com.gui.carlembrete.ui.theme.CarLembreteTheme
+import com.google.firebase.auth.FirebaseAuth
 import java.io.File
 import java.io.FileOutputStream
 import java.io.ObjectInputStream
@@ -89,7 +95,20 @@ class MainActivity : ComponentActivity() {
         setContent {
             CarLembreteTheme {
                 Surface(modifier = Modifier.fillMaxSize(), color = Color(0xFF0F172A)) {
-                    ManutencaoScreen()
+                    val auth = remember { FirebaseAuth.getInstance() }
+                    var usuario by remember { mutableStateOf(auth.currentUser) }
+                    DisposableEffect(Unit) {
+                        val listener = FirebaseAuth.AuthStateListener { firebaseAuth ->
+                            usuario = firebaseAuth.currentUser
+                        }
+                        auth.addAuthStateListener(listener)
+                        onDispose { auth.removeAuthStateListener(listener) }
+                    }
+                    if (usuario == null) {
+                        AuthScreen(onSignedIn = { })
+                    } else {
+                        ManutencaoScreen()
+                    }
                 }
             }
         }
