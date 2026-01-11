@@ -1,135 +1,129 @@
 package br.com.gui.carlembrete
 
-import android.Manifest
-import android.app.Activity
-import android.app.DatePickerDialog
-import android.app.TimePickerDialog
-import android.content.ActivityNotFoundException
-import android.content.Context
-import android.content.ContextWrapper
-import android.content.Intent
-import android.content.pm.PackageManager
-import android.graphics.Bitmap
-import android.graphics.Matrix
-import android.net.Uri
-import android.speech.RecognizerIntent
 import android.util.Log
 import android.widget.Toast
-import java.net.URLEncoder
-import androidx.activity.compose.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.camera.core.CameraSelector
-import androidx.camera.core.ImageCapture
-import androidx.camera.core.ImageCaptureException
-import androidx.camera.core.ImageProxy
-import androidx.camera.lifecycle.ProcessCameraProvider
-import androidx.camera.view.PreviewView
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
-import androidx.annotation.DrawableRes
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.BatteryAlert
-import androidx.compose.material.icons.rounded.Build
-import androidx.compose.material.icons.rounded.CalendarMonth
-import androidx.compose.material.icons.rounded.DirectionsCar
-import androidx.compose.material.icons.rounded.Edit
-import androidx.compose.material.icons.rounded.ErrorOutline
-import androidx.compose.material.icons.rounded.Speed
-import androidx.compose.material.icons.rounded.Thermostat
-import androidx.compose.material.icons.rounded.WaterDrop
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Divider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ColorFilter
-import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import androidx.core.content.ContextCompat
-import androidx.core.view.WindowCompat
-import androidx.core.view.WindowInsetsControllerCompat
-import br.com.gui.carlembrete.R
-import br.com.gui.carlembrete.ui.theme.CarLembreteTheme
-import com.google.mlkit.vision.common.InputImage
-import com.google.mlkit.vision.text.TextRecognition
-import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
-import java.io.FileOutputStream
-import java.io.ObjectInputStream
-import java.io.ObjectOutputStream
-import java.io.Serializable
-import java.text.Normalizer
-import java.text.NumberFormat
-import java.time.LocalDate
-import java.time.format.DateTimeFormatter
-import java.time.temporal.ChronoUnit
-import java.time.DayOfWeek
-import java.time.YearMonth
-import java.time.temporal.TemporalAdjusters
-import java.util.Locale
-import java.util.UUID
-import java.util.concurrent.Executors
-import kotlin.math.roundToInt
 
 @Composable
-fun ConfiguracoesScreen(onDismiss: () -> Unit, onTestarNotificacao: () -> Unit) {
-    var notificacoesAtivas by rememberSaveable { mutableStateOf(true) }
-    var alertasPorKm by rememberSaveable { mutableStateOf(true) }
-    var resumoSemanal by rememberSaveable { mutableStateOf(false) }
+fun ConfiguracoesScreen(
+    onDismiss: () -> Unit,
+    onTestarNotificacao: () -> Unit,
+    carros: List<CarroInfo>,
+    lembretes: List<Lembrete>,
+    contatos: List<ContatoProfissional>
+) {
     val scrollState = rememberScrollState()
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    fun criarBackup() {
+        val usuario = FirebaseAuth.getInstance().currentUser
+        if (usuario == null) {
+            Toast.makeText(context, "Faca login para criar backup", Toast.LENGTH_SHORT).show()
+            return
+        }
+        scope.launch(Dispatchers.IO) {
+            BancoDeDados.salvarCarros(context, carros)
+            BancoDeDados.salvarLembretes(context, lembretes)
+            BancoDeDados.salvarContatos(context, contatos)
+            val payload = BackupPayload(carros, lembretes, contatos).toMap()
+            val ref = FirebaseFirestore.getInstance()
+                .collection("backups")
+                .document(usuario.uid)
+            ref.set(payload).addOnSuccessListener {
+                Toast.makeText(context, "Backup enviado com sucesso", Toast.LENGTH_SHORT).show()
+            }.addOnFailureListener { err ->
+                Log.e("Backup", "Falha ao enviar backup", err)
+                Toast.makeText(context, "Falha ao enviar backup: ${err.message}", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    fun recuperarBackup() {
+        val usuario = FirebaseAuth.getInstance().currentUser
+        if (usuario == null) {
+            Toast.makeText(context, "Faca login para recuperar backup", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val ref = FirebaseFirestore.getInstance()
+            .collection("backups")
+            .document(usuario.uid)
+        ref.get().addOnSuccessListener { snapshot ->
+            if (!snapshot.exists()) {
+                Toast.makeText(context, "Nenhum backup encontrado", Toast.LENGTH_SHORT).show()
+                return@addOnSuccessListener
+            }
+            val data = snapshot.data ?: emptyMap()
+            scope.launch(Dispatchers.IO) {
+                try {
+                    val payload = backupPayloadFromMap(data)
+                    BancoDeDados.salvarCarros(context, payload.carros)
+                    BancoDeDados.salvarLembretes(context, payload.lembretes)
+                    BancoDeDados.salvarContatos(context, payload.contatos)
+                    NotificacaoHelper.reagendarExistentes(context.applicationContext, payload.lembretes)
+                    ref.delete()
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(context, "Backup recuperado com sucesso", Toast.LENGTH_SHORT).show()
+                    }
+                } catch (_: Exception) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(context, "Falha ao ler backup", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        }.addOnFailureListener { err ->
+            Log.e("Backup", "Falha ao obter backup", err)
+            Toast.makeText(context, "Falha ao obter backup: ${err.message}", Toast.LENGTH_LONG).show()
+        }
+    }
 
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(
             modifier = Modifier
                 .fillMaxWidth(0.92f)
-                .wrapContentHeight()
                 .border(dialogBorderStroke, dialogCornerShape),
             shape = dialogCornerShape,
             color = Color(0xFF0F172A)
@@ -142,7 +136,7 @@ fun ConfiguracoesScreen(onDismiss: () -> Unit, onTestarNotificacao: () -> Unit) 
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                     Column {
-                        Text("Configurações", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                        Text("Configuracoes", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                         Text("Personalize o jeito de cuidar da frota", color = Color(0xFF94A3B8), fontSize = 14.sp)
                     }
                     IconButton(onClick = onDismiss, modifier = Modifier.size(40.dp)) {
@@ -151,25 +145,33 @@ fun ConfiguracoesScreen(onDismiss: () -> Unit, onTestarNotificacao: () -> Unit) 
                 }
                 Divider(color = Color.White.copy(alpha = 0.15f))
 
-                Text("Notificações", color = Color.White, fontWeight = FontWeight.SemiBold)
-                ConfigToggleItem(
-                    title = "Alertas automáticos",
-                    description = "Receba lembretes nos horários definidos",
-                    checked = notificacoesAtivas,
-                    onCheckedChange = { notificacoesAtivas = it }
+                Text("Backup", color = Color.White, fontWeight = FontWeight.SemiBold)
+                Text(
+                    "Envie os dados locais para o Firebase e recupere em outro dispositivo.",
+                    color = Color(0xFF94A3B8),
+                    fontSize = 12.sp
                 )
-                ConfigToggleItem(
-                    title = "Alertas por KM",
-                    description = "Utilize o odômetro como gatilho adicional",
-                    checked = alertasPorKm,
-                    onCheckedChange = { alertasPorKm = it }
-                )
-                ConfigToggleItem(
-                    title = "Resumo semanal",
-                    description = "Receba um boletim dos principais avisos",
-                    checked = resumoSemanal,
-                    onCheckedChange = { resumoSemanal = it }
-                )
+                Button(
+                    onClick = ::criarBackup,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB))
+                ) {
+                    Icon(Icons.Default.CloudUpload, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Enviar backup", fontWeight = FontWeight.Bold)
+                }
+                OutlinedButton(
+                    onClick = ::recuperarBackup,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.3f)),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
+                ) {
+                    Icon(Icons.Default.CloudDownload, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Obter backup", fontWeight = FontWeight.Bold)
+                }
 
                 Button(
                     onClick = onTestarNotificacao,
@@ -179,11 +181,11 @@ fun ConfiguracoesScreen(onDismiss: () -> Unit, onTestarNotificacao: () -> Unit) 
                 ) {
                     Icon(Icons.Default.NotificationsActive, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text("Enviar notificação", fontWeight = FontWeight.Bold)
+                    Text("Enviar notificacao", fontWeight = FontWeight.Bold)
                 }
 
                 Text(
-                    "Versão do app 1.0.0 | dados salvos localmente",
+                    "Versao do app 1.0.0 | dados salvos localmente",
                     color = Color(0xFF94A3B8),
                     fontSize = 12.sp,
                     textAlign = TextAlign.Center,

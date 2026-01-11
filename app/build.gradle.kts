@@ -82,6 +82,7 @@ dependencies {
     implementation("androidx.camera:camera-camera2:1.3.1")
     implementation("androidx.camera:camera-lifecycle:1.3.1")
     implementation("androidx.camera:camera-view:1.3.1")
+    implementation("com.google.guava:guava:31.1-android")
 
     // Inteligência Artificial (Google ML Kit - OCR)
     implementation("com.google.android.gms:play-services-mlkit-text-recognition:19.0.0")
@@ -91,5 +92,8 @@ dependencies {
     implementation("com.google.zxing:core:3.5.1")
     // Imagens remotas
     implementation("io.coil-kt:coil-compose:2.6.0")
+
+    // Firebase Firestore
+    implementation("com.google.firebase:firebase-firestore-ktx")
 }
 

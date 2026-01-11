@@ -215,7 +215,10 @@ fun ManutencaoScreen(modifier: Modifier = Modifier, context: Context = LocalCont
             onTestarNotificacao = {
                 showTesteNotificacaoDialog = true
                 showConfiguracoes = false
-            }
+            },
+            carros = listaCarros,
+            lembretes = todosLembretes,
+            contatos = listaContatos
         )
     }
     if (showPrivacidadeDialog) {
