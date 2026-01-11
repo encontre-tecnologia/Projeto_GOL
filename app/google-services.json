@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "101479851038",
+    "project_id": "carlembrete",
+    "storage_bucket": "carlembrete.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:101479851038:android:eee122f164f5346a153a0f",
+        "android_client_info": {
+          "package_name": "br.com.gui.carlembrete"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "101479851038-1boffm67u2lbmgmhnfj5ejahjh61sj38.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "br.com.gui.carlembrete",
+            "certificate_hash": "2f780354efb626845a51f92822e32e6830403859"
+          }
+        },
+        {
+          "client_id": "101479851038-82vpsm2gs89nen077d4ur26v8unh24cl.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB244k7_Yh4_K3ZAMHJcz4vjl1k5hKCr4I"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "101479851038-82vpsm2gs89nen077d4ur26v8unh24cl.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
