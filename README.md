@@ -1,75 +1,39 @@
-
 ## CarLembrete
 
-Aplicativo Android em Jetpack Compose para organizar a manutenção da sua frota.
+Aplicativo Android em Kotlin + Jetpack Compose para organizar manutencao da frota.
 
 ### Funcionalidades
-- Cadastro de veículos com cor, apelido e odômetro.
-- Captação de notas via câmera para sugerir lembretes automaticamente.
-- Três etapas para criar avisos (captura, detalhes, profissional).
-- Lista de lembretes com status e botão rápido para WhatsApp.
-- Relatório completo do veículo com exportação em PDF.
+- Cadastro de veiculos com apelido, cor e odometro.
+- Captura de notas via camera para sugerir lembretes.
+- Fluxo em 3 etapas para criar avisos (captura, detalhes, profissional).
+- Lista de lembretes com status e atalho para WhatsApp.
+- Relatorio do veiculo com exportacao em PDF.
 
 ### Requisitos
 - Android Studio
 - Kotlin 1.9+
-- Compose Multiplatform habilitado no projeto
+- Compose habilitado no projeto
 
 ### Como executar
-1. Clone o repositório.
-2. Abra no Android Studio.
-3. Sincronize gradle e execute **Run > Run 'app'** em um dispositivo ou emulador.
+1. Abra o projeto no Android Studio.
+2. Sincronize o Gradle.
+3. Execute **Run > Run 'app'** em um dispositivo ou emulador.
 
-### Testes
-Rode os testes unitários com:
+### Estrutura principal (UI)
+- `app/src/main/java/br/com/gui/carlembrete/ManutencaoScreen.kt`: tela principal.
+- `app/src/main/java/br/com/gui/carlembrete/OnboardingScreen.kt`: onboarding inicial.
+- `app/src/main/java/br/com/gui/carlembrete/ConfiguracoesScreen.kt`: configuracoes do app.
+- `app/src/main/java/br/com/gui/carlembrete/RelatorioVeiculoScreen.kt`: relatorio do veiculo.
+- `app/src/main/java/br/com/gui/carlembrete/GaragemOverviewScreen.kt`: tela da garagem.
+- `app/src/main/java/br/com/gui/carlembrete/Dialogs.kt`: dialogs do fluxo de lembretes/contatos/carros.
+- `app/src/main/java/br/com/gui/carlembrete/UiComponents.kt`: componentes reutilizaveis.
+- `app/src/main/java/br/com/gui/carlembrete/CameraCapture.kt`: captura + OCR e filtros.
+- `app/src/main/java/br/com/gui/carlembrete/CarLembreteModels.kt`: modelos e enums.
+- `app/src/main/java/br/com/gui/carlembrete/LembreteUtils.kt`: utilidades de status e datas.
+- `app/src/main/java/br/com/gui/carlembrete/UiDefaults.kt`: estilos base de dialogs.
+- `app/src/main/java/br/com/gui/carlembrete/Previews.kt`: previews do Compose.
+- `app/src/main/java/br/com/gui/carlembrete/CarLembreteUi.kt`: arquivo minimo (mantido por compatibilidade).
 
-```
-./gradlew test
-```
-
-Ao terminar, abra `app/build/reports/tests/test/index.html` no navegador para ver o relatório interativo (status por classe/método, logs e gráficos).
-
-### Estrutura principal
-- `app/src/main/java/br/com/gui/carlembrete/CarLembreteUi.kt`: Tela principal, diálogos e fluxos de cadastro.
-- `MainActivity.kt`: ponto de entrada e helpers (ex: geração de resumo).
-- `BancoDeDados`: serialização simples em arquivos locais para carros, contatos e lembretes.
-
-### Contribuições
-Abra issues ou pull requests descrevendo o contexto e o impacto.
-=======
-# CarLembrete 🚗🛠️
-
-Aplicativo Android feito em **Kotlin + Jetpack Compose** para organizar a manutenção da sua frota (ou do seu carro mesmo) de um jeito simples e prático.
-
-A ideia é: você cadastra o veículo, lança lembretes e ainda consegue **captar notas pela câmera** para sugerir avisos automaticamente.
-
----
-
-## ✨ Funcionalidades
-
-- Cadastro de veículos com **cor, apelido e odômetro**
-- Captação de **notas via câmera** para sugerir lembretes automaticamente
-- Fluxo em **3 etapas** para criar avisos:
-  1. Captura
-  2. Detalhes
-  3. Profissional
-- Lista de lembretes com **status** e botão rápido para **WhatsApp**
-- Relatório completo do veículo com **exportação em PDF**
-
----
-
-## ✅ Requisitos
-
-- Android Studio (recomendado: versão recente)
-- Kotlin **1.9+**
-- Projeto com **Compose Multiplatform habilitado**
-
----
-
-## ▶️ Como executar
-
-1. Clone o repositório:
-
-   ```bash
-   git clone https://github.com/encontre-tecnologia/Projeto_GOL/tree/main
-
+### Estrutura principal (core)
+- `app/src/main/java/br/com/gui/carlembrete/MainActivity.kt`: entrypoint e helpers.
+- `app/src/main/java/br/com/gui/carlembrete/LocalDb.kt`: persistencia local simples.
