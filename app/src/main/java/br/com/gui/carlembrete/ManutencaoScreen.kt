@@ -559,7 +559,7 @@ fun ManutencaoScreen(modifier: Modifier = Modifier, context: Context = LocalCont
                                 .padding(top = 18.dp),
                             contentAlignment = Alignment.TopStart
                         ) {
-                            Text("CarLembrete", color = Color(0xFFE2E8F0), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                            Text("Zellu", color = Color(0xFFE2E8F0), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                         }
                     },
                     navigationIcon = {
