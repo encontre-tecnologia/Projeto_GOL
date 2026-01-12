@@ -1,4 +1,7 @@
-# CarLembrete 🚗🛠️
+
+<img width="764" height="339" alt="image" src="https://github.com/user-attachments/assets/a0305fbc-e195-45af-94df-7c9f54530ebf" />
+
+# Zellu 🚗🛠️
 
 [![Testes Automáticos](https://github.com/encontre-tecnologia/Projeto_GOL/actions/workflows/android-ci.yml/badge.svg)](https://github.com/encontre-tecnologia/Projeto_GOL/actions/workflows/android-ci.yml)
 ![Kotlin](https://img.shields.io/badge/Kotlin-1.9+-7F52FF?logo=kotlin&logoColor=white)
@@ -7,7 +10,7 @@
 
 > **Organize a manutenção da sua frota com Inteligência Artificial e simplicidade.**
 
-O **CarLembrete** é um aplicativo Android nativo desenvolvido para facilitar o gerenciamento de veículos. Diferente de agendas comuns, ele utiliza **OCR (ML Kit)** para ler quilometragens e dados diretamente de notas fiscais via câmera, automatizando a criação de lembretes.
+O **Zellu** é um aplicativo Android nativo desenvolvido para facilitar o gerenciamento de veículos. Diferente de agendas comuns, ele utiliza **OCR (ML Kit)** para ler quilometragens e dados diretamente de notas fiscais via câmera, automatizando a criação de lembretes.
 
 ---
 
