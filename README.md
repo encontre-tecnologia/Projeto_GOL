@@ -40,15 +40,6 @@ Este projeto aplica conceitos modernos de desenvolvimento Android (Modern Androi
 
 ---
 
-## 📸 Screenshots
-
-| Tela Inicial | Cadastro | Leitura OCR | Detalhes |
-|:---:|:---:|:---:|:---:|
-| | | | |
-| *(Em breve)* | *(Em breve)* | *(Em breve)* | *(Em breve)* |
-
----
-
 ## 🚀 Como executar o projeto
 
 ### Pré-requisitos
