@@ -150,16 +150,31 @@ fun ConfigToggleItem(
 }
 
 @Composable
-fun MonitorIcon(tipo: TipoManutencao, cor: Color, quantidade: Int) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Box(modifier = Modifier.size(64.dp), contentAlignment = Alignment.Center) {
+fun MonitorIcon(
+    tipo: TipoManutencao,
+    cor: Color,
+    quantidade: Int,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    val bg = if (selected) cor.copy(alpha = 0.18f) else Color(0xFF0B1220)
+    val border = if (selected) cor.copy(alpha = 0.9f) else Color(0xFF334155)
+    val labelColor = if (selected) Color.White else Color(0xFFCBD5E1)
+    val badgeBg = if (quantidade > 0) Color(0xFFEF4444) else Color(0xFF1F2937)
+    val badgeText = if (quantidade > 0) Color.White else Color(0xFF94A3B8)
+
+    Column(
+        modifier = Modifier.clickable(onClick = onClick),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Box(modifier = Modifier.size(72.dp), contentAlignment = Alignment.Center) {
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
-                    .size(56.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xFFE2E8F0))
-                    .border(2.dp, cor.copy(alpha = 0.4f), CircleShape)
+                    .size(64.dp)
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(bg)
+                    .border(2.dp, border, RoundedCornerShape(18.dp))
             ) {
                 if (tipo == TipoManutencao.FREIO) {
                     Text(
@@ -173,42 +188,42 @@ fun MonitorIcon(tipo: TipoManutencao, cor: Color, quantidade: Int) {
                         imageVector = tipo.getIcon(),
                         contentDescription = tipo.label,
                         tint = cor,
-                        modifier = Modifier.size(24.dp)
+                        modifier = Modifier.size(26.dp)
                     )
                 }
             }
 
-            if (quantidade > 0) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .offset(x = (-4).dp, y = 4.dp)
-                        .size(22.dp)
-                        .background(Color(0xFFEF4444), CircleShape)
-                        .border(2.dp, Color(0xFF475569), CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = quantidade.toString(),
-                        color = Color.White,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        textAlign = TextAlign.Center
-                    )
-                }
+            Surface(
+                color = badgeBg,
+                shape = RoundedCornerShape(4.dp),
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .offset(x = (-4).dp, y = 4.dp)
+                    .border(1.dp, border, RoundedCornerShape(4.dp))
+            ) {
+                Text(
+                    text = quantidade.toString(),
+                    color = badgeText,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                )
             }
         }
 
-        Spacer(Modifier.height(4.dp))
-            Text(
-                text = tipo.label,
-                style = MaterialTheme.typography.labelSmall,
-                color = Color(0xFF475569),
-                fontSize = 12.sp,
-                fontWeight = FontWeight.SemiBold
-            )
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = tipo.label,
+            style = MaterialTheme.typography.labelSmall,
+            color = labelColor,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold
+        )
     }
 }
+
+
 
 @Composable
 fun RowScope.VehicleStat(label: String, value: String, modifier: Modifier = Modifier, color: Color = Color.White) {
@@ -247,93 +262,131 @@ fun LembreteCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(20.dp))
+            .border(1.dp, Color(0xFF1F2A44), RoundedCornerShape(18.dp))
             .clickable { onClick() },
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        shape = RoundedCornerShape(20.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF0B1B33)),
+        shape = RoundedCornerShape(18.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
     ) {
         Box {
-            Column(
-                modifier = Modifier
-                    .padding(18.dp)
-            ) {
+            Column(modifier = Modifier.padding(16.dp)) {
                 Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Box(
                         modifier = Modifier
-                            .size(48.dp)
-                            .background(statusColor.copy(alpha = 0.15f), CircleShape),
+                            .size(46.dp)
+                            .background(statusColor.copy(alpha = 0.18f), CircleShape)
+                            .border(1.dp, statusColor.copy(alpha = 0.7f), CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(lembrete.tipo.getIcon(), contentDescription = null, tint = statusColor, modifier = Modifier.size(26.dp))
+                        Icon(
+                            lembrete.tipo.getIcon(),
+                            contentDescription = null,
+                            tint = statusColor,
+                            modifier = Modifier.size(24.dp)
+                        )
                     }
                     Spacer(Modifier.width(12.dp))
                     Column(modifier = Modifier.weight(1f)) {
-                        Text(lembrete.titulo, color = Color(0xFF0F172A), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        Text(lembrete.tipo.label, color = Color(0xFF475569), fontSize = 12.sp)
+                        Text(
+                            lembrete.titulo,
+                            color = Color.White,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(lembrete.tipo.label, color = Color(0xFF94A3B8), fontSize = 12.sp)
                     }
                 }
 
                 Spacer(Modifier.height(12.dp))
+
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(Color(0xFFE2E8F0), RoundedCornerShape(12.dp))
-                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.CalendarMonth, null, tint = Color(0xFF2563EB), modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text(lembrete.dataLimite, color = Color(0xFF0F172A), fontSize = 13.sp)
+                    Surface(color = Color(0xFF122542), shape = RoundedCornerShape(10.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Icon(Icons.Rounded.CalendarMonth, null, tint = Color(0xFF60A5FA), modifier = Modifier.size(14.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text(lembrete.dataLimite, color = Color.White, fontSize = 12.sp)
+                        }
                     }
                     if (lembrete.kmLimite.isNotBlank()) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Rounded.Speed, null, tint = Color(0xFFF97316), modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("${lembrete.kmLimite} km", color = Color(0xFF0F172A), fontSize = 13.sp)
+                        Surface(color = Color(0xFF122542), shape = RoundedCornerShape(10.dp)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                            ) {
+                                Icon(Icons.Rounded.Speed, null, tint = Color(0xFFFBBF24), modifier = Modifier.size(14.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("${lembrete.kmLimite} km", color = Color.White, fontSize = 12.sp)
+                            }
                         }
                     }
                     if (lembrete.valor > 0) {
-                        Surface(color = Color(0xFFEFFBF4), shape = RoundedCornerShape(8.dp)) {
+                        Surface(color = Color(0xFF0F2A1F), shape = RoundedCornerShape(10.dp)) {
                             Text(
                                 formatarMoeda(lembrete.valor),
-                                color = Color(0xFF047857),
+                                color = Color(0xFF34D399),
                                 fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
                             )
                         }
                     }
                 }
 
                 if (statusLabel.isNotBlank()) {
-                    Spacer(Modifier.height(8.dp))
-                    Text(statusLabel, color = statusColor, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(10.dp))
+                    Surface(color = statusColor.copy(alpha = 0.18f), shape = RoundedCornerShape(10.dp)) {
+                        Text(
+                            statusLabel,
+                            color = statusColor,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                        )
+                    }
                 }
 
                 if (contato != null) {
                     Spacer(Modifier.height(12.dp))
-                    HorizontalDivider(color = Color(0xFFE2E8F0))
+                    HorizontalDivider(color = Color(0xFF1F2A44))
                     Spacer(Modifier.height(12.dp))
                     Button(
                         onClick = { abrirWhatsApp(context, contato.telefone, "Olá ${contato.nome}, preciso de *${lembrete.titulo}* para o *$modeloCarro*.") },
-                        modifier = Modifier.fillMaxWidth().height(40.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366)),
+                        modifier = Modifier.fillMaxWidth().height(44.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF16A34A)),
                         contentPadding = PaddingValues(horizontal = 12.dp),
-                        shape = RoundedCornerShape(10.dp)
+                        shape = RoundedCornerShape(12.dp)
                     ) {
-                        Text("Enviar mensagem para ${contato.nome.split(" ")[0]}", fontSize = 13.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "Enviar mensagem para ${contato.nome.split(" ")[0]}",
+                            fontSize = 13.sp,
+                            color = Color.White,
+                            fontWeight = FontWeight.SemiBold
+                        )
                     }
                 }
             }
-            IconButton(
-                onClick = { showDeleteDialog = true },
-                modifier = Modifier.align(Alignment.TopEnd).offset(x = (-8).dp)
+
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(8.dp)
+                    .size(32.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFF16243D))
+                    .border(1.dp, Color(0xFF2B3A5C), CircleShape)
+                    .clickable { showDeleteDialog = true },
+                contentAlignment = Alignment.Center
             ) {
-                Icon(Icons.Default.Delete, null, tint = Color(0xFFEF4444))
+                Icon(Icons.Default.Delete, null, tint = Color(0xFFEF4444), modifier = Modifier.size(18.dp))
             }
         }
     }
 }
+

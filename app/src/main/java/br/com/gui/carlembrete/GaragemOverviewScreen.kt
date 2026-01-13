@@ -140,7 +140,7 @@ fun GaragemOverviewScreen(
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
-        containerColor = Color(0xFF020617),
+        containerColor = Color(0xFF0F2A4A),
         topBar = {
             TopAppBar(
                 title = {
@@ -159,7 +159,7 @@ fun GaragemOverviewScreen(
                         Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar", tint = Color.White, modifier = Modifier.size(26.dp))
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF020617))
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF0F2A4A))
             )
         }
     ) { innerPadding ->

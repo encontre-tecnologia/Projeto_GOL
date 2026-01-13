@@ -1,144 +1,90 @@
 package br.com.gui.carlembrete
 
-import android.Manifest
 import android.app.Activity
-import android.app.DatePickerDialog
-import android.app.TimePickerDialog
-import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.ContextWrapper
-import android.content.Intent
-import android.content.pm.PackageManager
-import android.graphics.Bitmap
-import android.graphics.Matrix
-import android.net.Uri
-import android.speech.RecognizerIntent
-import android.util.Log
 import android.widget.Toast
-import java.net.URLEncoder
 import androidx.activity.compose.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.camera.core.CameraSelector
-import androidx.camera.core.ImageCapture
-import androidx.camera.core.ImageCaptureException
-import androidx.camera.core.ImageProxy
-import androidx.camera.lifecycle.ProcessCameraProvider
-import androidx.camera.view.PreviewView
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
-import androidx.annotation.DrawableRes
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.BatteryAlert
-import androidx.compose.material.icons.rounded.Build
-import androidx.compose.material.icons.rounded.CalendarMonth
-import androidx.compose.material.icons.rounded.DirectionsCar
-import androidx.compose.material.icons.rounded.Edit
-import androidx.compose.material.icons.rounded.ErrorOutline
-import androidx.compose.material.icons.rounded.Speed
-import androidx.compose.material.icons.rounded.Thermostat
-import androidx.compose.material.icons.rounded.WaterDrop
+import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.viewinterop.AndroidView
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
-import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import br.com.gui.carlembrete.R
-import br.com.gui.carlembrete.ui.theme.CarLembreteTheme
-import com.google.mlkit.vision.common.InputImage
-import com.google.mlkit.vision.text.TextRecognition
-import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.firebase.auth.FirebaseAuth
 import coil.compose.AsyncImage
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
-import java.io.FileOutputStream
-import java.io.ObjectInputStream
-import java.io.ObjectOutputStream
-import java.io.Serializable
-import java.text.Normalizer
-import java.text.NumberFormat
 import java.time.LocalDate
-import java.time.format.DateTimeFormatter
-import java.time.temporal.ChronoUnit
-import java.time.DayOfWeek
 import java.time.YearMonth
-import java.time.temporal.TemporalAdjusters
-import java.util.Locale
-import java.util.UUID
-import java.util.concurrent.Executors
-import kotlin.math.roundToInt
+import java.time.format.DateTimeFormatter
 
+// Função utilitária para encontrar a Activity
 private tailrec fun Context.findActivity(): Activity? = when (this) {
     is Activity -> this
     is ContextWrapper -> baseContext.findActivity()
     else -> null
 }
 
-/* ----------------- TELA PRINCIPAL (UI Melhorada) ----------------- */
+/* ----------------- TELA PRINCIPAL (Visual Dashboard Premium) ----------------- */
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ManutencaoScreen(modifier: Modifier = Modifier, context: Context = LocalContext.current) {
+fun ManutencaoScreen(
+    modifier: Modifier = Modifier,
+    context: Context = LocalContext.current
+) {
+    // ----------------- ESTADOS E VARIÁVEIS -----------------
     var listaCarros by remember { mutableStateOf<List<CarroInfo>>(emptyList()) }
     var listaContatos by remember { mutableStateOf<List<ContatoProfissional>>(emptyList()) }
     var todosLembretes by remember { mutableStateOf<List<Lembrete>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
 
+    // CORES DO TEMA (Azul Premium)
+    val primaryDark = Color(0xFF0F172A)
+    val surfaceDark = Color(0xFF1E293B)
+    val accentBlue = Color(0xFF3B82F6)
+    val textLight = Color(0xFFF1F5F9)
+    val textDim = Color(0xFF94A3B8)
+
+    // ----------------- CARREGAMENTO DE DADOS -----------------
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) {
             val carros = BancoDeDados.carregarCarrosComFallback(context)
@@ -154,6 +100,7 @@ fun ManutencaoScreen(modifier: Modifier = Modifier, context: Context = LocalCont
         }
     }
 
+    // Persistência automática ao alterar dados
     LaunchedEffect(listaCarros) { if(!isLoading && listaCarros.isNotEmpty()) withContext(Dispatchers.IO) { BancoDeDados.salvarCarros(context, listaCarros) } }
     LaunchedEffect(listaContatos) { if(!isLoading) withContext(Dispatchers.IO) { BancoDeDados.salvarContatos(context, listaContatos) } }
     LaunchedEffect(todosLembretes) { if(!isLoading) withContext(Dispatchers.IO) { BancoDeDados.salvarLembretes(context, todosLembretes) } }
@@ -164,6 +111,7 @@ fun ManutencaoScreen(modifier: Modifier = Modifier, context: Context = LocalCont
         listaCarros[indiceCarroAtual]
     } else { CarroInfo() }
 
+    // Estados de Controle de Interface
     var showEditCarDialog by remember { mutableStateOf(false) }
     var showAddCarDialog by remember { mutableStateOf(false) }
     var showAddLembreteDialog by remember { mutableStateOf(false) }
@@ -176,25 +124,76 @@ fun ManutencaoScreen(modifier: Modifier = Modifier, context: Context = LocalCont
     var showGaragemScreen by remember { mutableStateOf(false) }
     var lembreteSelecionado by remember { mutableStateOf<Lembrete?>(null) }
     var contatoDetalheSelecionado by remember { mutableStateOf<ContatoProfissional?>(null) }
+    var filtroTipo by remember { mutableStateOf<TipoManutencao?>(null) }
+
     val lembretesDoCarroAtual = todosLembretes.filter { it.carroId == carroAtual.id }
-    val formatterData = remember { DateTimeFormatter.ofPattern("dd/MM/yyyy") }
+    val lembretesFiltrados = if (filtroTipo == null) {
+        lembretesDoCarroAtual
+    } else {
+        lembretesDoCarroAtual.filter { it.tipo == filtroTipo }
+    }
+    val totalGastos = lembretesDoCarroAtual.sumOf { it.valor }
+    val totalGastosCount = lembretesDoCarroAtual.count { it.valor > 0 }
+    val categorySpendData = TipoManutencao.values().map { tipo ->
+        val totalCategoria = lembretesDoCarroAtual.filter { it.tipo == tipo }.sumOf { it.valor }
+        CategorySpend(
+            label = tipo.label,
+            valor = totalCategoria,
+            color = corCategoria(tipo)
+        )
+    }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val drawerScope = rememberCoroutineScope()
     val activity = remember(context) { context.findActivity() }
 
+    // Configuração da Barra de Status (Cor escura)
     SideEffect {
         activity?.window?.let { window ->
             WindowCompat.setDecorFitsSystemWindows(window, true)
-            window.statusBarColor = android.graphics.Color.BLACK
+            window.statusBarColor = android.graphics.Color.parseColor("#0F172A")
             WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightStatusBars = false
         }
     }
 
-    if (showEditCarDialog) { EditarCarroDialog(carroAtual = carroAtual, titulo = "Editar Veículo", onDismiss = { showEditCarDialog = false }, onSalvar = { carroEditado -> listaCarros = listaCarros.map { if (it.id == carroAtual.id) carroEditado else it }; showEditCarDialog = false }) }
-    if (showAddCarDialog) { EditarCarroDialog(carroAtual = CarroInfo(nome = "", modelo = ""), titulo = "Novo Carro", onDismiss = { showAddCarDialog = false }, onSalvar = { novoCarro -> listaCarros = listaCarros + novoCarro; indiceCarroAtual = listaCarros.lastIndex; showAddCarDialog = false }) }
-    if (showAddContatoDialog) { NovoContatoDialog(onDismiss = { showAddContatoDialog = false }, onSalvar = { novo -> listaContatos = listaContatos + novo; showAddContatoDialog = false }) }
+    // ----------------- DIÁLOGOS -----------------
+    if (showEditCarDialog) {
+        EditarCarroDialog(
+            carroAtual = carroAtual,
+            titulo = "Editar Veículo",
+            onDismiss = { showEditCarDialog = false },
+            onSalvar = { carroEditado ->
+                listaCarros = listaCarros.map { if (it.id == carroAtual.id) carroEditado else it }
+                showEditCarDialog = false
+            }
+        )
+    }
+    if (showAddCarDialog) {
+        EditarCarroDialog(
+            carroAtual = CarroInfo(nome = "", modelo = ""),
+            titulo = "Novo Carro",
+            onDismiss = { showAddCarDialog = false },
+            onSalvar = { novoCarro ->
+                listaCarros = listaCarros + novoCarro
+                indiceCarroAtual = listaCarros.lastIndex
+                showAddCarDialog = false
+            }
+        )
+    }
+    if (showAddContatoDialog) {
+        NovoContatoDialog(
+            onDismiss = { showAddContatoDialog = false },
+            onSalvar = { novo ->
+                listaContatos = listaContatos + novo
+                showAddContatoDialog = false
+            }
+        )
+    }
     if (showRelatorioDialog) {
-        RelatorioVeiculoScreen(carroAtual = carroAtual, lembretes = lembretesDoCarroAtual, onDismiss = { showRelatorioDialog = false })
+        RelatorioVeiculoScreen(
+            carroAtual = carroAtual,
+            lembretes = lembretesDoCarroAtual,
+            onDismiss = { showRelatorioDialog = false }
+        )
     }
     if (showTesteNotificacaoDialog) {
         NotificacaoRapidaDialog(
@@ -202,8 +201,8 @@ fun ManutencaoScreen(modifier: Modifier = Modifier, context: Context = LocalCont
             onDisparar = {
                 NotificacaoHelper.dispararNotificacaoInstantanea(
                     context.applicationContext,
-                    "Aviso imediato",
-                    "Esse é um disparo rápido de teste."
+                    "Aviso Zellu",
+                    "Teste de notificação enviado com sucesso."
                 )
                 Toast.makeText(context, "Notificação enviada!", Toast.LENGTH_SHORT).show()
             }
@@ -220,10 +219,12 @@ fun ManutencaoScreen(modifier: Modifier = Modifier, context: Context = LocalCont
             lembretes = todosLembretes,
             contatos = listaContatos
         )
+        return
     }
     if (showPrivacidadeDialog) {
         PrivacidadeTermosDialog(onDismiss = { showPrivacidadeDialog = false })
     }
+
     BackHandler(enabled = showGaragemScreen) { showGaragemScreen = false }
     if (showGaragemScreen) {
         GaragemOverviewScreen(
@@ -239,6 +240,7 @@ fun ManutencaoScreen(modifier: Modifier = Modifier, context: Context = LocalCont
         )
         return
     }
+
     lembreteSelecionado?.let { selecionado ->
         LembreteDetalhesDialog(
             lembrete = selecionado,
@@ -285,239 +287,87 @@ fun ManutencaoScreen(modifier: Modifier = Modifier, context: Context = LocalCont
         )
     }
 
+    // ----------------- DRAWER (MENU LATERAL) -----------------
     ModalNavigationDrawer(
         drawerState = drawerState,
         drawerContent = {
             ModalDrawerSheet(
-                modifier = Modifier.width(320.dp),
-                drawerContainerColor = Color(0xFF0B0F1A),
-                drawerContentColor = Color.White
+                modifier = Modifier.width(300.dp),
+                drawerContainerColor = primaryDark,
+                drawerContentColor = textLight
             ) {
-                Column(
+                // Cabeçalho do Drawer com Gradiente
+                Box(
                     modifier = Modifier
-                        .fillMaxSize()
-                        .padding(bottom = 24.dp),
-                    verticalArrangement = Arrangement.spacedBy(20.dp)
+                        .fillMaxWidth()
+                        .background(Brush.verticalGradient(listOf(Color(0xFF1E3A8A), primaryDark)))
+                        .padding(24.dp)
                 ) {
-                    val nomeVeiculo = carroAtual.nome.ifBlank { "Seu veículo" }
-                    val modeloTexto = carroAtual.modelo.ifBlank { "Modelo indefinido" }
-                    val marcaTexto = carroAtual.marca.ifBlank { "Marca não informada" }
-                    val logoRes = carroAtual.logoResOrNull()
-                    val fotoGoogle = FirebaseAuth.getInstance().currentUser?.photoUrl?.toString()
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(0.dp))
-                            .background(Color(0xFF0F172A))
-                            .border(1.dp, Color(0xFF1F2937), RoundedCornerShape(0.dp))
-                            .padding(horizontal = 24.dp, vertical = 20.dp)
-                            .padding(top = 4.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
+                    Column {
+                        val fotoGoogle = FirebaseAuth.getInstance().currentUser?.photoUrl?.toString()
+                        Box(
+                            modifier = Modifier
+                                .size(80.dp)
+                                .clip(CircleShape)
+                                .border(2.dp, accentBlue, CircleShape)
+                                .background(Color.White.copy(0.1f)),
+                            contentAlignment = Alignment.Center
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(70.dp)
-                                    .clip(CircleShape)
-                                    .background(Color.White.copy(alpha = 0.12f)),
-                                contentAlignment = Alignment.Center
-                            ) {
                             if (!fotoGoogle.isNullOrBlank()) {
                                 AsyncImage(
                                     model = fotoGoogle,
-                                    contentDescription = "Foto do Google",
-                                    modifier = Modifier
-                                        .size(70.dp)
-                                        .clip(CircleShape),
+                                    contentDescription = null,
+                                    modifier = Modifier.fillMaxSize().clip(CircleShape),
                                     contentScale = ContentScale.Crop
                                 )
-                            } else if (logoRes != null) {
-                                Image(
-                                    painter = painterResource(id = logoRes),
-                                    contentDescription = marcaTexto,
-                                    modifier = Modifier.size(40.dp),
-                                    colorFilter = ColorFilter.tint(Color.White)
-                                    )
-                                } else {
-                                    Icon(Icons.Rounded.DirectionsCar, contentDescription = null, tint = Color.White, modifier = Modifier.size(32.dp))
-                                }
-                            }
-                            Spacer(Modifier.width(16.dp))
-                            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Text(nomeVeiculo, color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Text(marcaTexto, color = Color(0xFF93A6D1), fontSize = 13.sp)
-                                    if (logoRes != null) {
-                                        Image(
-                                            painter = painterResource(id = logoRes),
-                                            contentDescription = null,
-                                            modifier = Modifier.size(16.dp),
-                                            colorFilter = ColorFilter.tint(Color(0xFF93A6D1))
-                                        )
-                                    } else {
-                                        Icon(Icons.Rounded.DirectionsCar, contentDescription = null, tint = Color(0xFF93A6D1), modifier = Modifier.size(14.dp))
-                                    }
-                                }
-                            }
-                            IconButton(
-                                onClick = { drawerScope.launch { drawerState.close() } },
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .background(Color(0xFF1F2937), RoundedCornerShape(8.dp))
-                            ) {
-                                Icon(Icons.Default.Close, contentDescription = "Fechar menu", tint = Color.White)
+                            } else {
+                                Icon(Icons.Rounded.DirectionsCar, null, tint = textLight, modifier = Modifier.size(40.dp))
                             }
                         }
-                        Spacer(Modifier.height(6.dp))
+                        Spacer(Modifier.height(16.dp))
+                        Text(
+                            text = "Olá, Motorista",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = textLight
+                        )
+                        Text(
+                            text = "Gerencie sua frota com o Zellu",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = textDim
+                        )
                     }
-                    Spacer(Modifier.height(8.dp))
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 24.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Button(
-                            onClick = {
-                                showConfiguracoes = true
-                                drawerScope.launch { drawerState.close() }
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(12.dp),
-                            elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF111827), contentColor = Color.White),
-                            contentPadding = PaddingValues(vertical = 14.dp, horizontal = 16.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.Start
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(40.dp)
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .background(Color(0xFF1F2937)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(Icons.Default.Settings, contentDescription = null, tint = Color.White)
-                                }
-                                Spacer(Modifier.width(14.dp))
-                                Text(
-                                    "Configurações",
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontSize = 17.sp,
-                                    modifier = Modifier.weight(1f)
-                                )
-                            }
-                        }
-                        Button(
-                            onClick = {
-                                showGaragemScreen = true
-                                drawerScope.launch { drawerState.close() }
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(12.dp),
-                            elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF111827), contentColor = Color.White),
-                            contentPadding = PaddingValues(vertical = 14.dp, horizontal = 16.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.Start
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(40.dp)
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .background(Color(0xFF1F2937)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(Icons.Rounded.DirectionsCar, contentDescription = null, tint = Color.White)
-                                }
-                                Spacer(Modifier.width(14.dp))
-                                Text(
-                                    "Minha garagem",
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontSize = 17.sp,
-                                    modifier = Modifier.weight(1f)
-                                )
-                            }
-                        }
-                        Button(
-                            onClick = {
-                                showAddCarDialog = true
-                                drawerScope.launch { drawerState.close() }
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(12.dp),
-                            elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF111827), contentColor = Color.White),
-                            contentPadding = PaddingValues(vertical = 14.dp, horizontal = 16.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.Start
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(40.dp)
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .background(Color(0xFF1F2937)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(Icons.Rounded.DirectionsCar, contentDescription = null, tint = Color.White)
-                                }
-                                Spacer(Modifier.width(14.dp))
-                                Text(
-                                    "Adicionar veículo",
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontSize = 17.sp,
-                                    modifier = Modifier.weight(1f)
-                                )
-                            }
-                        }
-                        Button(
-                            onClick = {
-                                showPrivacidadeDialog = true
-                                drawerScope.launch { drawerState.close() }
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(12.dp),
-                            elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF111827), contentColor = Color.White),
-                            contentPadding = PaddingValues(vertical = 14.dp, horizontal = 16.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.Start
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(40.dp)
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .background(Color(0xFF1F2937)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(Icons.Default.Lock, contentDescription = null, tint = Color.White)
-                                }
-                                Spacer(Modifier.width(14.dp))
-                                Text(
-                                    "Privacidade e termos",
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontSize = 17.sp,
-                                    modifier = Modifier.weight(1f)
-                                )
-                            }
-                        }
+                }
+
+                HorizontalDivider(color = surfaceDark, thickness = 1.dp)
+
+                // Itens do Menu
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(16.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    DrawerMenuItem(Icons.Rounded.DirectionsCar, "Minha Garagem") {
+                        showGaragemScreen = true
+                        drawerScope.launch { drawerState.close() }
                     }
+                    DrawerMenuItem(Icons.Default.AddCircle, "Adicionar Veículo") {
+                        showAddCarDialog = true
+                        drawerScope.launch { drawerState.close() }
+                    }
+                    DrawerMenuItem(Icons.Default.Settings, "Configurações") {
+                        showConfiguracoes = true
+                        drawerScope.launch { drawerState.close() }
+                    }
+                    DrawerMenuItem(Icons.Default.Lock, "Privacidade e Termos") {
+                        showPrivacidadeDialog = true
+                        drawerScope.launch { drawerState.close() }
+                    }
+
                     Spacer(modifier = Modifier.weight(1f))
+
                     OutlinedButton(
                         onClick = {
                             FirebaseAuth.getInstance().signOut()
@@ -529,251 +379,454 @@ fun ManutencaoScreen(modifier: Modifier = Modifier, context: Context = LocalCont
                         },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 24.dp),
+                            .padding(bottom = 24.dp),
                         shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
-                        border = BorderStroke(1.dp, Color.White),
-                        contentPadding = PaddingValues(vertical = 14.dp, horizontal = 16.dp)
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFEF4444)),
+                        border = BorderStroke(1.dp, Color(0xFFEF4444).copy(0.5f))
                     ) {
-                        Icon(Icons.Default.Logout, contentDescription = null, tint = Color.White)
-                        Spacer(Modifier.width(10.dp))
-                        Text("Logout", fontWeight = FontWeight.Bold, color = Color.White)
+                        Icon(Icons.Default.Logout, null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Sair da conta", fontWeight = FontWeight.SemiBold)
                     }
                 }
             }
         }
     ) {
+        // ----------------- CONTEÚDO PRINCIPAL (SCAFFOLD) -----------------
         Scaffold(
             modifier = modifier,
-            containerColor = Color.Black,
+            containerColor = primaryDark,
             topBar = {
-                TopAppBar(
-                    modifier = Modifier
-                        .windowInsetsPadding(WindowInsets.statusBars)
-                        .padding(top = 4.dp)
-                        .height(70.dp),
+                CenterAlignedTopAppBar(
                     title = {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxHeight()
-                                .padding(top = 18.dp),
-                            contentAlignment = Alignment.TopStart
-                        ) {
-                            Text("Zellu", color = Color(0xFFE2E8F0), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                        }
+                        Text(
+                            "Zellu",
+                            color = textLight,
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 1.sp
+                        )
                     },
                     navigationIcon = {
-                        IconButton(
-                            onClick = { drawerScope.launch { drawerState.open() } },
-                            modifier = Modifier.fillMaxHeight()
-                        ) {
-                            Column(
-                                verticalArrangement = Arrangement.spacedBy(4.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                modifier = Modifier.padding(horizontal = 8.dp)
-                            ) {
-                                repeat(3) {
-                                    Box(
-                                        modifier = Modifier
-                                            .width(38.dp)
-                                            .height(4.dp)
-                                            .clip(RoundedCornerShape(2.dp))
-                                        .background(Color(0xFFE2E8F0))
-                                    )
-                                }
-                            }
+                        IconButton(onClick = { drawerScope.launch { drawerState.open() } }) {
+                            Icon(Icons.Default.Menu, "Menu", tint = textLight)
                         }
                     },
-                    actions = {},
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = Color.Black,
-                        titleContentColor = Color(0xFFE2E8F0),
-                        navigationIconContentColor = Color(0xFFE2E8F0),
-                        actionIconContentColor = Color(0xFFE2E8F0)
-                    )
+                    colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = primaryDark)
                 )
-            },
-            floatingActionButton = {}
+            }
         ) { innerPadding ->
             if (isLoading) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Color(0xFF3B82F6)) }
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = accentBlue)
+                }
             } else {
-                Column(modifier = Modifier.padding(innerPadding).fillMaxSize().verticalScroll(rememberScrollState())) {
-                    Spacer(Modifier.height(16.dp))
-                // Card Principal do Carro
-                val textoCardPrimario = Color(0xFF0F172A)
-                val textoCardSecundario = Color(0xFF475569)
-                val logoMarcaAtual = carroAtual.logoResOrNull()
-                Box(
-                    modifier = Modifier
-                        .padding(horizontal = 16.dp)
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(24.dp))
-                        .background(Color(0xFFF7F6F9))
-                        .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(24.dp))
-                        .padding(20.dp)
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(220.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            IconButton(
-                                onClick = { if (indiceCarroAtual > 0) indiceCarroAtual-- else indiceCarroAtual = listaCarros.lastIndex },
-                                modifier = Modifier
-                                    .align(Alignment.CenterStart)
-                                    .background(Color(0xFFE2E8F0), CircleShape)
-                            ) { Icon(Icons.Default.ArrowBackIosNew, "Anterior", tint = textoCardPrimario.copy(alpha = 0.8f)) }
-                            Column(
-                                modifier = Modifier.align(Alignment.TopCenter),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                Text(
-                                    carroAtual.nome,
-                                    style = MaterialTheme.typography.headlineMedium,
-                                    color = textoCardPrimario,
-                                    fontWeight = FontWeight.ExtraBold
-                                )
-                                logoMarcaAtual?.let { logo ->
-                                    Spacer(Modifier.height(6.dp))
-                                    Image(
-                                        painter = painterResource(id = logo),
-                                        contentDescription = carroAtual.marca.ifBlank { "Marca" },
-                                        modifier = Modifier.size(50.dp)
-                                    )
-                                }
-                                Spacer(Modifier.height(12.dp))
-                                Image(
-                                    painter = painterResource(id = carroAtual.tipoIconRes()),
-                                    contentDescription = carroAtual.tipoVeiculo.label,
-                                    modifier = Modifier.size(180.dp)
-                                )
-                            }
-                            IconButton(
-                                onClick = { if (indiceCarroAtual < listaCarros.lastIndex) indiceCarroAtual++ else indiceCarroAtual = 0 },
-                                modifier = Modifier
-                                    .align(Alignment.CenterEnd)
-                                    .background(Color(0xFFE2E8F0), CircleShape)
-                            ) { Icon(Icons.Default.ArrowForwardIos, "Próximo", tint = textoCardPrimario.copy(alpha = 0.8f)) }
-                        }
-                        Spacer(Modifier.height(20.dp))
-                        Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                            OutlinedButton(
-                                onClick = { showEditCarDialog = true },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(46.dp),
-                                shape = RoundedCornerShape(14.dp),
-                                border = BorderStroke(2.dp, textoCardPrimario.copy(alpha = 0.7f)),
-                                colors = ButtonDefaults.outlinedButtonColors(contentColor = textoCardPrimario)
-                            ) {
-                                Icon(Icons.Default.Edit, contentDescription = "Editar veículo", tint = textoCardPrimario, modifier = Modifier.size(18.dp))
-                                Spacer(Modifier.width(8.dp))
-                                Text("Editar veículo", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = textoCardPrimario)
-                            }
-                            OutlinedButton(
-                                onClick = { showRelatorioDialog = true },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(46.dp),
-                                shape = RoundedCornerShape(14.dp),
-                                border = BorderStroke(2.dp, textoCardPrimario.copy(alpha = 0.7f)),
-                                colors = ButtonDefaults.outlinedButtonColors(contentColor = textoCardPrimario)
-                            ) {
-                                Icon(Icons.Default.Description, contentDescription = "Relatório", tint = textoCardPrimario, modifier = Modifier.size(18.dp))
-                                Spacer(Modifier.width(8.dp))
-                                Text("Relatório do veículo", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = textoCardPrimario)
-                            }
-                        }
-                    }
-                }
-
-                Spacer(Modifier.height(24.dp))
-                Button(
-                    onClick = {
-                        iniciarCameraProduto = false
-                        showAddLembreteDialog = true
-                    },
-                    modifier = Modifier
-                        .padding(horizontal = 16.dp)
-                        .fillMaxWidth()
-                        .shadow(12.dp, RoundedCornerShape(18.dp))
-                        .height(60.dp),
-                    shape = RoundedCornerShape(18.dp),
-                    border = BorderStroke(2.dp, Color.White.copy(alpha = 0.3f)),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF1D4ED8),
-                        contentColor = Color.White
-                    )
-                ) {
-                    Icon(
-                        Icons.Default.AddCircle,
-                        contentDescription = "Novo aviso",
-                        modifier = Modifier.size(26.dp),
-                        tint = Color.White
-                    )
-                    Spacer(Modifier.width(12.dp))
-                    Text(
-                        "Criar novo aviso agora",
-                        fontSize = 19.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
-                }
-                Spacer(Modifier.height(24.dp))
-                // Painel de Status (agora abaixo do botão)
-                val contagemPorTipo = TipoManutencao.values().associateWith { tipo -> lembretesDoCarroAtual.count { it.tipo == tipo } }
-                val statusBorderColor = Color.White.copy(alpha = 0.25f)
                 Column(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp)
-                        .clip(RoundedCornerShape(24.dp))
-                        .background(Color(0xFFF7F6F9))
-                        .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(24.dp))
-                        .padding(16.dp)
+                        .padding(innerPadding)
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
                 ) {
+                    Spacer(Modifier.height(10.dp))
+
+                    // 1. HERO CARD DO CARRO (Com Estampa de Fundo)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp)
+                            .height(260.dp)
+                            .clip(RoundedCornerShape(28.dp))
+                            .background(
+                                Brush.linearGradient(
+                                    colors = listOf(Color(0xFF1E3A8A), Color(0xFF172554)),
+                                    start = Offset(0f, 0f),
+                                    end = Offset(1000f, 1000f)
+                                )
+                            )
+                            .clickable { showRelatorioDialog = true }
+                    ) {
+                        // --- CAMADA DE ESTAMPA (BACKGROUND DECORATIVO) ---
+                        // Ícone 1: Óleo (Canto superior esquerdo)
+                        Icon(
+                            imageVector = Icons.Rounded.WaterDrop,
+                            contentDescription = null,
+                            tint = Color.White.copy(alpha = 0.05f),
+                            modifier = Modifier
+                                .size(120.dp)
+                                .align(Alignment.TopStart)
+                                .offset(x = (-20).dp, y = (-20).dp)
+                                .rotate(15f)
+                        )
+                        // Ícone 2: Ferramenta (Canto inferior direito)
+                        Icon(
+                            imageVector = Icons.Rounded.Build,
+                            contentDescription = null,
+                            tint = Color.White.copy(alpha = 0.05f),
+                            modifier = Modifier
+                                .size(140.dp)
+                                .align(Alignment.BottomEnd)
+                                .offset(x = 30.dp, y = 30.dp)
+                                .rotate(-25f)
+                        )
+                        // Ícone 3: Engrenagem (Canto superior direito)
+                        Icon(
+                            imageVector = Icons.Rounded.Settings,
+                            contentDescription = null,
+                            tint = Color.White.copy(alpha = 0.04f),
+                            modifier = Modifier
+                                .size(100.dp)
+                                .align(Alignment.TopEnd)
+                                .offset(x = 20.dp, y = 10.dp)
+                                .rotate(45f)
+                        )
+                        // Ícone 4: Velocímetro (Canto inferior esquerdo)
+                        Icon(
+                            imageVector = Icons.Rounded.Speed,
+                            contentDescription = null,
+                            tint = Color.White.copy(alpha = 0.04f),
+                            modifier = Modifier
+                                .size(90.dp)
+                                .align(Alignment.BottomStart)
+                                .offset(x = 10.dp, y = 40.dp)
+                                .rotate(-10f)
+                        )
+                        // --- FIM DA ESTAMPA ---
+
+                        // Conteúdo Principal do Card (Texto e Logo)
+                        Column(
+                            modifier = Modifier
+                                .padding(24.dp)
+                                .fillMaxSize(),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            // Topo: Navegação e Nome
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                IconButton(
+                                    onClick = {
+                                        if (indiceCarroAtual > 0) indiceCarroAtual-- else indiceCarroAtual = listaCarros.lastIndex
+                                    }
+                                ) {
+                                    Icon(Icons.Default.ChevronLeft, null, tint = textLight.copy(0.7f), modifier = Modifier.size(32.dp))
+                                }
+
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text(
+                                        text = carroAtual.marca.uppercase(),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = accentBlue,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = carroAtual.nome,
+                                        style = MaterialTheme.typography.headlineSmall,
+                                        color = textLight,
+                                        fontWeight = FontWeight.ExtraBold
+                                    )
+                                }
+
+                                IconButton(
+                                    onClick = {
+                                        if (indiceCarroAtual < listaCarros.lastIndex) indiceCarroAtual++ else indiceCarroAtual = 0
+                                    }
+                                ) {
+                                    Icon(Icons.Default.ChevronRight, null, tint = textLight.copy(0.7f), modifier = Modifier.size(32.dp))
+                                }
+                            }
+
+                            Spacer(Modifier.weight(1f))
+
+                            // Logo Central (Se houver logo da marca, exibe. Se não, exibe ícone padrão menor)
+                            val logoRes = carroAtual.logoResOrNull()
+                            if (logoRes != null) {
+                                Image(
+                                    painter = painterResource(id = logoRes),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(70.dp),
+                                    colorFilter = ColorFilter.tint(textLight)
+                                )
+                            } else {
+                                // Ícone padrão central (se não tiver logo)
+                                Icon(
+                                    painter = painterResource(id = carroAtual.tipoIconRes()),
+                                    contentDescription = null,
+                                    tint = textLight,
+                                    modifier = Modifier.size(80.dp)
+                                )
+                            }
+
+                            Spacer(Modifier.weight(1f))
+
+                            // Modelo
+                            Text(
+                                text = carroAtual.modelo.ifBlank { "Modelo não informado" },
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = textDim
+                            )
+                        }
+                    }
+
+                    Spacer(Modifier.height(16.dp))
+
+                    // 2. AÇÕES RÁPIDAS (Botoes Lado a Lado)
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(20.dp)
+                            .padding(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        MonitorIcon(TipoManutencao.OLEO, calcularCorStatus(lembretesDoCarroAtual, TipoManutencao.OLEO), contagemPorTipo[TipoManutencao.OLEO] ?: 0)
-                        MonitorIcon(TipoManutencao.MECANICA, calcularCorStatus(lembretesDoCarroAtual, TipoManutencao.MECANICA), contagemPorTipo[TipoManutencao.MECANICA] ?: 0)
-                        MonitorIcon(TipoManutencao.BATERIA, calcularCorStatus(lembretesDoCarroAtual, TipoManutencao.BATERIA), contagemPorTipo[TipoManutencao.BATERIA] ?: 0)
-                        MonitorIcon(TipoManutencao.FREIO, calcularCorStatus(lembretesDoCarroAtual, TipoManutencao.FREIO), contagemPorTipo[TipoManutencao.FREIO] ?: 0)
-                        MonitorIcon(TipoManutencao.TEMPERATURA, calcularCorStatus(lembretesDoCarroAtual, TipoManutencao.TEMPERATURA), contagemPorTipo[TipoManutencao.TEMPERATURA] ?: 0)
+                        ActionButton(
+                            icon = Icons.Rounded.Edit,
+                            label = "Editar",
+                            modifier = Modifier.weight(1f),
+                            onClick = { showEditCarDialog = true }
+                        )
+                        ActionButton(
+                            icon = Icons.Default.Description,
+                            label = "Relatório",
+                            modifier = Modifier.weight(1f),
+                            onClick = { showRelatorioDialog = true }
+                        )
                     }
-                    Spacer(Modifier.height(12.dp))
-                }
-                Spacer(Modifier.height(24.dp))
 
-                    val lembretesOrdenados = lembretesDoCarroAtual.sortedBy { dataParaOrdenacao(it) }
+                    Spacer(Modifier.height(24.dp))
 
-                    if (lembretesDoCarroAtual.isEmpty()) {
-                        Box(modifier = Modifier.fillMaxWidth().height(150.dp), contentAlignment = Alignment.Center) {
+
+                    // 4. BOTÃO "NOVO LEMBRETE"
+                    Button(
+                        onClick = {
+                            iniciarCameraProduto = false
+                            showAddLembreteDialog = true
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp)
+                            .height(56.dp)
+                            .shadow(8.dp, RoundedCornerShape(16.dp)),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = accentBlue)
+                    ) {
+                        Icon(Icons.Default.Add, null, tint = Color.White)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Novo Lembrete", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                    }
+
+                    Spacer(Modifier.height(24.dp))
+
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp)
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(surfaceDark)
+                            .border(1.dp, Color(0xFF24324D), RoundedCornerShape(18.dp))
+                            .padding(16.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(Color(0xFF122542)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Rounded.Payments, null, tint = Color(0xFF60A5FA), modifier = Modifier.size(22.dp))
+                            }
+                            Spacer(Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Controle de gastos", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                                Text("Total gasto no carro", color = textDim, fontSize = 12.sp)
+                            }
+                        }
+                        Spacer(Modifier.height(12.dp))
+                        Text(
+                            text = formatarMoeda(totalGastos),
+                            color = Color.White,
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.ExtraBold
+                        )
+                        if (totalGastosCount > 0) {
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                text = "$totalGastosCount registros com valor",
+                                color = textDim,
+                                fontSize = 12.sp
+                            )
+                        }
+                    }
+
+                    Spacer(Modifier.height(24.dp))
+
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp)
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(surfaceDark)
+                            .border(1.dp, Color(0xFF24324D), RoundedCornerShape(18.dp))
+                            .padding(16.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(Color(0xFF122542)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Rounded.ShowChart, null, tint = Color(0xFF60A5FA), modifier = Modifier.size(22.dp))
+                            }
+                            Spacer(Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Gasto por categoria", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                                Text("Controle de gastos por tipo", color = textDim, fontSize = 12.sp)
+                            }
+                        }
+                        Spacer(Modifier.height(10.dp))
+                        Text(
+                            text = "Total: ${formatarMoeda(totalGastos)}",
+                            color = Color.White,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        CategoryExpenseLineChart(
+                            data = categorySpendData,
+                            lineColor = Color(0xFF60A5FA),
+                            gridColor = Color(0xFF13203A),
+                            labelColor = textDim,
+                            modifier = Modifier.fillMaxWidth().height(160.dp)
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        val scrollState = rememberScrollState()
+                        LaunchedEffect(categorySpendData.size) {
+                            while (true) {
+                                if (scrollState.maxValue > 0) {
+                                    scrollState.animateScrollBy(1.6f, animationSpec = tween(45))
+                                    if (scrollState.value >= scrollState.maxValue) {
+                                        scrollState.scrollTo(0)
+                                    }
+                                }
+                                delay(16)
+                            }
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth().horizontalScroll(scrollState),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            categorySpendData.forEach { item ->
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(8.dp)
+                                            .clip(CircleShape)
+                                            .background(item.color)
+                                    )
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(
+                                        text = "${item.label}: ${formatarMoeda(item.valor)}",
+                                        color = textDim,
+                                        fontSize = 10.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(Modifier.height(24.dp))
+
+                    // 3. PAINEL DE STATUS (Monitoramento)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp)
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(surfaceDark)
+                            .border(1.dp, Color(0xFF24324D), RoundedCornerShape(20.dp))
+                            .padding(16.dp)
+                    ) {
+                        Text(
+                            text = "Categorias",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = Color.White,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 12.dp)
+                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            val contagem = TipoManutencao.values().associateWith { tipo ->
+                                lembretesDoCarroAtual.count { it.tipo == tipo }
+                            }
+
+                            listOf(
+                                TipoManutencao.OLEO,
+                                TipoManutencao.MECANICA,
+                                TipoManutencao.BATERIA,
+                                TipoManutencao.FREIO,
+                                TipoManutencao.TEMPERATURA,
+                                TipoManutencao.LICENCIAMENTO,
+                                TipoManutencao.IPVA
+                            ).forEach { tipo ->
+                                // FIX: Usando 'quantidade' conforme solicitado no erro
+                                MonitorIcon(
+                                    tipo = tipo,
+                                    cor = calcularCorStatus(lembretesDoCarroAtual, tipo),
+                                    quantidade = contagem[tipo] ?: 0,
+                                    selected = filtroTipo == tipo,
+                                    onClick = {
+                                        filtroTipo = if (filtroTipo == tipo) null else tipo
+                                    }
+                                )
+                                Spacer(Modifier.width(20.dp))
+                            }
+                        }
+                    }
+
+                    Spacer(Modifier.height(24.dp))
+
+                    // 5. LISTA DE LEMBRETES
+                    Text(
+                        text = "Próximas Manutenções",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = textLight,
+                        modifier = Modifier.padding(start = 16.dp, bottom = 12.dp)
+                    )
+
+                    if (lembretesFiltrados.isEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(120.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(Icons.Default.EventNote, null, tint = Color(0xFF334155), modifier = Modifier.size(48.dp))
+                                Icon(Icons.Default.CheckCircle, null, tint = textDim, modifier = Modifier.size(40.dp))
                                 Spacer(Modifier.height(8.dp))
-                                Text("Nenhum registro", color = Color(0xFF64748B))
+                                Text("Tudo em dia! ✅", color = textDim)
                             }
                         }
                     } else {
-                        Column(modifier = Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            val descricaoModeloCompleto = listOf(carroAtual.marca, carroAtual.modelo)
-                                .filter { it.isNotBlank() }
-                                .joinToString(" ")
-                                .ifBlank { carroAtual.modelo }
+                        val lembretesOrdenados = lembretesFiltrados.sortedBy { dataParaOrdenacao(it) }
+                        Column(
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
                             lembretesOrdenados.forEach { lembrete ->
-                                val statusColor = calcularCorStatus(lembretesDoCarroAtual, lembrete.tipo)
-                                val statusLabel = textoStatusPrazo(lembrete)
                                 LembreteCard(
                                     lembrete = lembrete,
                                     contato = listaContatos.find { it.id == lembrete.contatoId },
-                                    modeloCarro = descricaoModeloCompleto,
+                                    modeloCarro = carroAtual.modelo,
                                     onDelete = {
                                         NotificacaoHelper.cancelarNotificacao(context.applicationContext, lembrete.id)
                                         todosLembretes = todosLembretes.filter { it.id != lembrete.id }
@@ -782,15 +835,167 @@ fun ManutencaoScreen(modifier: Modifier = Modifier, context: Context = LocalCont
                                         lembreteSelecionado = lembrete
                                         contatoDetalheSelecionado = listaContatos.find { it.id == lembrete.contatoId }
                                     },
-                                    statusLabel = statusLabel,
-                                    statusColor = statusColor
+                                    statusLabel = textoStatusPrazo(lembrete),
+                                    statusColor = calcularCorStatus(lembretesDoCarroAtual, lembrete.tipo)
                                 )
                             }
                         }
                     }
                     Spacer(Modifier.height(80.dp))
+                }
             }
         }
     }
 }
+
+// ----------------- COMPONENTES AUXILIARES LOCAIS -----------------
+
+@Composable
+fun DrawerMenuItem(icon: ImageVector, label: String, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+            .padding(vertical = 12.dp, horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = Color(0xFF94A3B8), // Slate 400
+            modifier = Modifier.size(24.dp)
+        )
+        Spacer(Modifier.width(16.dp))
+        Text(
+            text = label,
+            fontSize = 16.sp,
+            color = Color(0xFFF1F5F9), // Slate 100x
+            fontWeight = FontWeight.Medium
+        )
+    }
+}
+
+@Composable
+fun ActionButton(
+    icon: ImageVector,
+    label: String,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Button(
+        onClick = onClick,
+        modifier = modifier.height(50.dp),
+        shape = RoundedCornerShape(12.dp),
+        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)), // Surface Dark
+        contentPadding = PaddingValues(0.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = Color(0xFF3B82F6), // Blue 500
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = label,
+                color = Color(0xFFE2E8F0), // Slate 200
+                fontSize = 14.sp
+            )
+        }
+    }
+}
+
+data class CategorySpend(
+    val label: String,
+    val valor: Double,
+    val color: Color
+)
+
+@Composable
+fun CategoryExpenseLineChart(
+    data: List<CategorySpend>,
+    modifier: Modifier = Modifier,
+    lineColor: Color = Color(0xFF3B82F6),
+    gridColor: Color = Color(0xFF1E293B),
+    labelColor: Color = Color(0xFF94A3B8)
+) {
+    val safeData = if (data.isEmpty()) listOf(CategorySpend(label = "--", valor = 0.0, color = lineColor)) else data
+    val maxValor = safeData.maxOf { it.valor }.coerceAtLeast(1.0)
+    val maxIndex = if (maxValor > 0) safeData.indexOfFirst { it.valor == maxValor } else -1
+    Column(modifier = modifier) {
+        Canvas(modifier = Modifier.fillMaxWidth().weight(1f)) {
+            val count = safeData.size
+            val spacing = if (count <= 1) 0f else size.width / (count - 1)
+            val guideColor = labelColor.copy(alpha = 0.12f)
+            val guideSteps = 3
+            for (i in 1..guideSteps) {
+                val y = size.height * (i / (guideSteps + 1f))
+                drawLine(
+                    color = guideColor,
+                    start = Offset(0f, y),
+                    end = Offset(size.width, y),
+                    strokeWidth = 1f
+                )
+            }
+            drawLine(
+                color = gridColor,
+                start = Offset(0f, size.height),
+                end = Offset(size.width, size.height),
+                strokeWidth = 2f
+            )
+            val points = safeData.mapIndexed { index, item ->
+                val ratio = if (item.valor <= 0.0) 0f else (item.valor / maxValor).toFloat().coerceIn(0f, 1f)
+                val x = if (count <= 1) size.width / 2 else spacing * index
+                val y = size.height - (size.height * ratio)
+                Offset(x, y)
+            }
+            if (points.size >= 2) {
+                val path = androidx.compose.ui.graphics.Path().apply {
+                    moveTo(points.first().x, points.first().y)
+                    for (i in 1 until points.size) {
+                        lineTo(points[i].x, points[i].y)
+                    }
+                }
+                drawPath(
+                    path = path,
+                    color = lineColor,
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3f)
+                )
+            }
+            points.forEachIndexed { index, point ->
+                val dotColor = safeData[index].color
+                val isMax = index == maxIndex
+                drawCircle(
+                    color = dotColor,
+                    radius = if (isMax) 6f else 4.5f,
+                    center = point
+                )
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        Row(modifier = Modifier.fillMaxWidth()) {
+            safeData.forEach { item ->
+                Text(
+                    text = item.label,
+                    color = labelColor,
+                    fontSize = 11.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+    }
+}
+
+private fun corCategoria(tipo: TipoManutencao): Color = when (tipo) {
+    TipoManutencao.OLEO -> Color(0xFF38BDF8)
+    TipoManutencao.BATERIA -> Color(0xFFF97316)
+    TipoManutencao.MECANICA -> Color(0xFF22C55E)
+    TipoManutencao.FREIO -> Color(0xFFEF4444)
+    TipoManutencao.TEMPERATURA -> Color(0xFFEAB308)
+    TipoManutencao.LICENCIAMENTO -> Color(0xFFA855F7)
+    TipoManutencao.IPVA -> Color(0xFF06B6D4)
+    TipoManutencao.OUTROS -> Color(0xFF94A3B8)
 }

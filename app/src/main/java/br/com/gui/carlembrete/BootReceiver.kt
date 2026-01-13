@@ -1,4 +1,4 @@
-package br.com.gui.carlembrete
+﻿package br.com.gui.carlembrete
 
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -8,7 +8,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 /**
- * Reagenda notificações após eventos do sistema (boot/update).
+ * Reagenda notifica?Ãµes ap?s eventos do sistema (boot/update).
  */
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context?, intent: Intent?) {
@@ -34,3 +34,4 @@ class BootReceiver : BroadcastReceiver() {
         }
     }
 }
+

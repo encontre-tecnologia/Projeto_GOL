@@ -1,4 +1,4 @@
-package br.com.gui.carlembrete
+﻿package br.com.gui.carlembrete
 
 import android.Manifest
 import android.app.Activity
@@ -120,7 +120,7 @@ import kotlin.math.roundToInt
 
 private const val LER_NOTAS_HABILITADO = false
 
-/* ----------------- CÂMERA INTELIGENTE ----------------- */
+/* ----------------- CÃ‚MERA INTELIGENTE ----------------- */
 
 @Composable
 fun CameraCapturaDialog(onDismiss: () -> Unit, onFotoCapturada: (ResultadoCaptura) -> Unit) {
@@ -620,3 +620,4 @@ private fun recortarAreaCentral(bitmap: Bitmap): Bitmap {
         alturaTarget.coerceAtMost(altura)
     )
 }
+
