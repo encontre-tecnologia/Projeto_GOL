@@ -55,9 +55,11 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.BatteryAlert
 import androidx.compose.material.icons.rounded.Build
 import androidx.compose.material.icons.rounded.CalendarMonth
+import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.DirectionsCar
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.Payments
 import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.Thermostat
 import androidx.compose.material.icons.rounded.WaterDrop
@@ -305,6 +307,8 @@ enum class TipoManutencao(val label: String) {
     MECANICA("Mecânica"),
     FREIO("Freio/ABS"),
     TEMPERATURA("Temp."), // Mudado para ficar menor
+    LICENCIAMENTO("Licenciamento"),
+    IPVA("IPVA"),
     OUTROS("Outros");
 
     fun getIcon(): ImageVector = when(this) {
@@ -313,6 +317,8 @@ enum class TipoManutencao(val label: String) {
         MECANICA -> Icons.Rounded.Build
         FREIO -> Icons.Rounded.ErrorOutline
         TEMPERATURA -> Icons.Rounded.Thermostat
+        LICENCIAMENTO -> Icons.Rounded.Description
+        IPVA -> Icons.Rounded.Payments
         OUTROS -> Icons.Rounded.Edit
     }
 }

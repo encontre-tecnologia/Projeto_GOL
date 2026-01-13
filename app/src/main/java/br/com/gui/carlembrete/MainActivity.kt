@@ -94,16 +94,17 @@ class MainActivity : ComponentActivity() {
         contentInitialized = true
         setContent {
             CarLembreteTheme {
-                Surface(modifier = Modifier.fillMaxSize(), color = Color(0xFF0F172A)) {
-                    val auth = remember { FirebaseAuth.getInstance() }
-                    var usuario by remember { mutableStateOf(auth.currentUser) }
-                    DisposableEffect(Unit) {
-                        val listener = FirebaseAuth.AuthStateListener { firebaseAuth ->
-                            usuario = firebaseAuth.currentUser
-                        }
-                        auth.addAuthStateListener(listener)
-                        onDispose { auth.removeAuthStateListener(listener) }
+                val auth = remember { FirebaseAuth.getInstance() }
+                var usuario by remember { mutableStateOf(auth.currentUser) }
+                DisposableEffect(Unit) {
+                    val listener = FirebaseAuth.AuthStateListener { firebaseAuth ->
+                        usuario = firebaseAuth.currentUser
                     }
+                    auth.addAuthStateListener(listener)
+                    onDispose { auth.removeAuthStateListener(listener) }
+                }
+                val baseBackground = if (usuario == null) Color.Black else Color(0xFF0F2A4A)
+                Surface(modifier = Modifier.fillMaxSize(), color = baseBackground) {
                     if (usuario == null) {
                         AuthScreen(onSignedIn = { })
                     } else {
@@ -129,6 +130,8 @@ fun calcularProximaData(tipo: TipoManutencao, dataServico: LocalDate): String {
         TipoManutencao.FREIO -> 12L
         TipoManutencao.MECANICA -> 6L
         TipoManutencao.TEMPERATURA -> 12L
+        TipoManutencao.LICENCIAMENTO -> 12L
+        TipoManutencao.IPVA -> 12L
         TipoManutencao.OUTROS -> 3L
     }
     return dataServico.plusMonths(mesesParaAdicionar).format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))
@@ -141,6 +144,8 @@ fun getKmAdicionalPorTipo(tipo: TipoManutencao): Int {
         TipoManutencao.FREIO -> 20000
         TipoManutencao.MECANICA -> 10000
         TipoManutencao.TEMPERATURA -> 30000
+        TipoManutencao.LICENCIAMENTO -> 0
+        TipoManutencao.IPVA -> 0
         TipoManutencao.OUTROS -> 5000
     }
 }

@@ -1,4 +1,4 @@
-package br.com.gui.carlembrete
+﻿package br.com.gui.carlembrete
 
 import android.app.Activity
 import android.widget.Toast
@@ -84,7 +84,7 @@ fun AuthScreen(onSignedIn: () -> Unit) {
             val account = task.getResult(ApiException::class.java)
             val token = account.idToken
             if (token.isNullOrBlank()) {
-                Toast.makeText(context, "Token do Google nÃ£o gerado. Verifique SHA-1.", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "Token do Google não gerado. Verifique SHA-1.", Toast.LENGTH_SHORT).show()
                 return@rememberLauncherForActivityResult
             }
             val credential = GoogleAuthProvider.getCredential(token, null)
@@ -131,7 +131,7 @@ fun AuthScreen(onSignedIn: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black)
+            .background(Color(0xFF0F2A4A))
             .padding(24.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
@@ -186,7 +186,7 @@ fun AuthScreen(onSignedIn: () -> Unit) {
                             } else {
                                 auth.sendPasswordResetEmail(email).addOnCompleteListener { task ->
                                     if (task.isSuccessful) {
-                                        Toast.makeText(context, "Email de redefinicao enviado", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, "Email de redefinição enviado", Toast.LENGTH_SHORT).show()
                                     } else {
                                         Toast.makeText(context, "Falha ao enviar email", Toast.LENGTH_SHORT).show()
                                     }
@@ -202,7 +202,7 @@ fun AuthScreen(onSignedIn: () -> Unit) {
                         Text("Enviar link", color = Color.White, style = MaterialTheme.typography.titleMedium)
                     }
                     Text(
-                        text = "Nao recebeu? Verifique a caixa de spam e a lixeira.",
+                        text = "Não recebeu? Verifique a caixa de spam e a lixeira.",
                         color = Color(0xFF94A3B8),
                         style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier.align(Alignment.Start)
@@ -264,7 +264,7 @@ fun AuthScreen(onSignedIn: () -> Unit) {
                         modifier = Modifier.height(44.dp)
                     ) {
                         Text(
-                            if (modoCadastro) "Ja tenho conta" else "Quero criar conta",
+                            if (modoCadastro) "Já tenho conta" else "Quero criar conta",
                             color = Color(0xFF94A3B8)
                         )
                     }
@@ -297,3 +297,4 @@ fun AuthScreen(onSignedIn: () -> Unit) {
         }
     }
 }
+

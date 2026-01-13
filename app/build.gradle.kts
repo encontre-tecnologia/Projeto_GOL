@@ -95,5 +95,8 @@ dependencies {
 
     // Firebase Firestore
     implementation("com.google.firebase:firebase-firestore-ktx")
+
+    // Google Play Billing
+    implementation("com.android.billingclient:billing-ktx:6.1.0")
 }
 

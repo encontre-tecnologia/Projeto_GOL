@@ -142,12 +142,12 @@ fun RelatorioVeiculoScreen(carroAtual: CarroInfo, lembretes: List<Lembrete>, onD
     ) {
         Surface(
             modifier = Modifier.fillMaxSize(),
-            color = Color.Black
+            color = Color(0xFF0F2A4A)
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black)
+                    .background(Color(0xFF0F2A4A))
                     .padding(24.dp)
             ) {
                 Row(
