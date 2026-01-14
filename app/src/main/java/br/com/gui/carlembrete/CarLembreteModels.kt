@@ -144,6 +144,7 @@ data class Lembrete(
     val carroId: String,
     val contatoId: String? = null,
     val titulo: String,
+    val peca: String = "",
     val dataLimite: String,
     val kmLimite: String,
     val tipo: TipoManutencao,

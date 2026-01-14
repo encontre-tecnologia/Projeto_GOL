@@ -7,7 +7,6 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -49,12 +48,12 @@ import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.firebase.auth.FirebaseAuth
 import coil.compose.AsyncImage
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 // Função utilitária para encontrar a Activity
 private tailrec fun Context.findActivity(): Activity? = when (this) {
@@ -122,6 +121,7 @@ fun ManutencaoScreen(
     var showConfiguracoes by remember { mutableStateOf(false) }
     var showPrivacidadeDialog by remember { mutableStateOf(false) }
     var showGaragemScreen by remember { mutableStateOf(false) }
+    var showCarInfoScreen by remember { mutableStateOf(false) }
     var lembreteSelecionado by remember { mutableStateOf<Lembrete?>(null) }
     var contatoDetalheSelecionado by remember { mutableStateOf<ContatoProfissional?>(null) }
     var filtroTipo by remember { mutableStateOf<TipoManutencao?>(null) }
@@ -133,7 +133,6 @@ fun ManutencaoScreen(
         lembretesDoCarroAtual.filter { it.tipo == filtroTipo }
     }
     val totalGastos = lembretesDoCarroAtual.sumOf { it.valor }
-    val totalGastosCount = lembretesDoCarroAtual.count { it.valor > 0 }
     val categorySpendData = TipoManutencao.values().map { tipo ->
         val totalCategoria = lembretesDoCarroAtual.filter { it.tipo == tipo }.sumOf { it.valor }
         CategorySpend(
@@ -237,6 +236,15 @@ fun ManutencaoScreen(
                 showGaragemScreen = false
             },
             onDismiss = { showGaragemScreen = false }
+        )
+        return
+    }
+    BackHandler(enabled = showCarInfoScreen) { showCarInfoScreen = false }
+    if (showCarInfoScreen) {
+        CarroInfoScreen(
+            carro = carroAtual,
+            lembretes = lembretesDoCarroAtual,
+            onDismiss = { showCarInfoScreen = false }
         )
         return
     }
@@ -594,6 +602,23 @@ fun ManutencaoScreen(
 
                     Spacer(Modifier.height(24.dp))
 
+                    OutlinedButton(
+                        onClick = { showCarInfoScreen = true },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp)
+                            .height(52.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        border = BorderStroke(1.dp, Color(0xFF334155)),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = textLight)
+                    ) {
+                        Icon(Icons.Rounded.SwapHoriz, null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Quero trocar de carro", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    }
+
+                    Spacer(Modifier.height(16.dp))
+
 
                     // 4. BOTÃO "NOVO LEMBRETE"
                     Button(
@@ -638,51 +663,7 @@ fun ManutencaoScreen(
                             Spacer(Modifier.width(12.dp))
                             Column(modifier = Modifier.weight(1f)) {
                                 Text("Controle de gastos", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                                Text("Total gasto no carro", color = textDim, fontSize = 12.sp)
-                            }
-                        }
-                        Spacer(Modifier.height(12.dp))
-                        Text(
-                            text = formatarMoeda(totalGastos),
-                            color = Color.White,
-                            fontSize = 24.sp,
-                            fontWeight = FontWeight.ExtraBold
-                        )
-                        if (totalGastosCount > 0) {
-                            Spacer(Modifier.height(6.dp))
-                            Text(
-                                text = "$totalGastosCount registros com valor",
-                                color = textDim,
-                                fontSize = 12.sp
-                            )
-                        }
-                    }
-
-                    Spacer(Modifier.height(24.dp))
-
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp)
-                            .clip(RoundedCornerShape(18.dp))
-                            .background(surfaceDark)
-                            .border(1.dp, Color(0xFF24324D), RoundedCornerShape(18.dp))
-                            .padding(16.dp)
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                modifier = Modifier
-                                    .size(44.dp)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(Color(0xFF122542)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(Icons.Rounded.ShowChart, null, tint = Color(0xFF60A5FA), modifier = Modifier.size(22.dp))
-                            }
-                            Spacer(Modifier.width(12.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text("Gasto por categoria", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                                Text("Controle de gastos por tipo", color = textDim, fontSize = 12.sp)
+                                Text("Gasto por categoria", color = textDim, fontSize = 12.sp)
                             }
                         }
                         Spacer(Modifier.height(10.dp))
@@ -693,50 +674,15 @@ fun ManutencaoScreen(
                             fontWeight = FontWeight.Bold
                         )
                         Spacer(Modifier.height(12.dp))
-                        CategoryExpenseLineChart(
+                        CategoryExpenseBarChart(
                             data = categorySpendData,
-                            lineColor = Color(0xFF60A5FA),
-                            gridColor = Color(0xFF13203A),
+                            trackColor = Color(0xFF13203A),
                             labelColor = textDim,
-                            modifier = Modifier.fillMaxWidth().height(160.dp)
+                            modifier = Modifier.fillMaxWidth()
                         )
-                        Spacer(Modifier.height(8.dp))
-                        val scrollState = rememberScrollState()
-                        LaunchedEffect(categorySpendData.size) {
-                            while (true) {
-                                if (scrollState.maxValue > 0) {
-                                    scrollState.animateScrollBy(1.6f, animationSpec = tween(45))
-                                    if (scrollState.value >= scrollState.maxValue) {
-                                        scrollState.scrollTo(0)
-                                    }
-                                }
-                                delay(16)
-                            }
-                        }
-                        Row(
-                            modifier = Modifier.fillMaxWidth().horizontalScroll(scrollState),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            categorySpendData.forEach { item ->
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(8.dp)
-                                            .clip(CircleShape)
-                                            .background(item.color)
-                                    )
-                                    Spacer(Modifier.width(6.dp))
-                                    Text(
-                                        text = "${item.label}: ${formatarMoeda(item.valor)}",
-                                        color = textDim,
-                                        fontSize = 10.sp,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                            }
-                        }
                     }
+
+
 
                     Spacer(Modifier.height(24.dp))
 
@@ -907,6 +853,254 @@ fun ActionButton(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun CarroInfoScreen(
+    carro: CarroInfo,
+    lembretes: List<Lembrete>,
+    onDismiss: () -> Unit
+) {
+    val primaryDark = Color(0xFF0F172A)
+    val surfaceDark = Color(0xFF1E293B)
+    val textLight = Color(0xFFF1F5F9)
+    val textDim = Color(0xFF94A3B8)
+    val totalGastos = lembretes.sumOf { it.valor }
+    val context = LocalContext.current
+    val proximo = lembretes.minByOrNull { dataParaOrdenacao(it) }?.let {
+        val data = dataParaOrdenacao(it)
+        if (data == LocalDate.MAX) null else data.format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))
+    } ?: "Sem agenda"
+    val corHex = String.format(Locale.US, "#%08X", carro.corArgb)
+    val (tituloSaude, descricaoSaude) = calcularReputacao(lembretes)
+    val corSaude = when (tituloSaude) {
+        "Excelente" -> Color(0xFF10B981)
+        "Crítica" -> Color(0xFFEF4444)
+        "Em atenção" -> Color(0xFFEAB308)
+        else -> textLight
+    }
+    val historicoManutencoes = lembretes
+        .mapNotNull { lembrete ->
+            val data = dataParaOrdenacao(lembrete)
+            if (data == LocalDate.MAX) null else data to lembrete
+        }
+        .filter { (data, _) -> data.isBefore(LocalDate.now()) }
+        .sortedByDescending { it.first }
+        .take(6)
+    val documentos = listOf(
+        TipoManutencao.IPVA to "IPVA",
+        TipoManutencao.LICENCIAMENTO to "Licenciamento"
+    ).map { (tipo, label) ->
+        val ultimaData = lembretes
+            .filter { it.tipo == tipo }
+            .map { dataParaOrdenacao(it) }
+            .filter { it != LocalDate.MAX }
+            .maxOrNull()
+        val status = when {
+            ultimaData == null -> "Não informado"
+            !ultimaData.isBefore(LocalDate.now()) -> "Em dia"
+            else -> "Vencido"
+        }
+        Triple(label, status, ultimaData?.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")) ?: "--")
+    }
+    val pecaLabels = linkedMapOf<String, String>()
+    lembretes.forEach { lembrete ->
+        val raw = lembrete.peca.ifBlank { lembrete.titulo }.trim()
+        if (raw.isNotBlank()) {
+            val key = raw.lowercase(Locale.getDefault())
+            pecaLabels.putIfAbsent(key, raw)
+        }
+    }
+    val trocasPorPeca = lembretes
+        .map { lembrete -> lembrete.peca.ifBlank { lembrete.titulo }.trim() }
+        .filter { it.isNotBlank() }
+        .groupingBy { it.lowercase(Locale.getDefault()) }
+        .eachCount()
+        .map { (key, count) -> (pecaLabels[key] ?: key) to count }
+        .sortedByDescending { it.second }
+
+    Scaffold(
+        modifier = Modifier.fillMaxSize(),
+        containerColor = primaryDark,
+        topBar = {
+            TopAppBar(
+                title = {
+                    Text(
+                        "Detalhes do veiculo",
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                },
+                navigationIcon = {
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar", tint = Color.White)
+                    }
+                },
+                actions = {
+                    OutlinedButton(
+                        onClick = {
+                            val uri = gerarPdfRelatorio(context, carro, lembretes)
+                            if (uri != null) {
+                                compartilharPdf(context, uri)
+                            } else {
+                                Toast.makeText(context, "Nao foi possivel gerar o PDF", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.7f)),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp)
+                    ) {
+                        Icon(Icons.Default.Print, contentDescription = "Imprimir", modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("PDF", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = primaryDark)
+            )
+        }
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .padding(horizontal = 20.dp, vertical = 12.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                ElevatedCard(
+                    colors = CardDefaults.cardColors(containerColor = surfaceDark),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text("Informacoes gerais", color = textLight, fontWeight = FontWeight.Bold)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            val logoRes = carro.logoResOrNull()
+                            if (logoRes != null) {
+                                Image(
+                                    painter = painterResource(id = logoRes),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(48.dp),
+                                    colorFilter = ColorFilter.tint(textLight)
+                                )
+                            } else {
+                                Icon(
+                                    painter = painterResource(id = carro.tipoIconRes()),
+                                    contentDescription = null,
+                                    tint = textLight,
+                                    modifier = Modifier.size(48.dp)
+                                )
+                            }
+                            Spacer(Modifier.width(12.dp))
+                            Column {
+                                Text(carro.nome, color = textLight, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                                Text(carro.marca.ifBlank { "Marca nao informada" }, color = textDim, fontSize = 12.sp)
+                            }
+                        }
+                        InfoRow("Modelo", carro.modelo.ifBlank { "Nao informado" }, textLight, textDim)
+                        InfoRow("Tipo", carro.tipoVeiculo.label, textLight, textDim)
+                        InfoRow("KM atual", if (carro.kmAtual > 0) "${carro.kmAtual} km" else "Nao informado", textLight, textDim)
+                    }
+                }
+
+                ElevatedCard(
+                    colors = CardDefaults.cardColors(containerColor = surfaceDark),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Saude do veiculo", color = textLight, fontWeight = FontWeight.Bold)
+                        Text(tituloSaude, color = corSaude, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Text(descricaoSaude, color = textDim, fontSize = 12.sp)
+                    }
+                }
+
+                ElevatedCard(
+                    colors = CardDefaults.cardColors(containerColor = surfaceDark),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text("Informacoes tecnicas", color = textLight, fontWeight = FontWeight.Bold)
+                        InfoRow("Cor", corHex, textLight, textDim)
+                        InfoRow("ID", carro.id, textLight, textDim)
+                        InfoRow("Avisos ativos", lembretes.size.toString(), textLight, textDim)
+                        InfoRow("Proximo servico", proximo, textLight, textDim)
+                        InfoRow("Total gasto", formatarMoeda(totalGastos), textLight, textDim)
+                    }
+                }
+
+                ElevatedCard(
+                    colors = CardDefaults.cardColors(containerColor = surfaceDark),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("Historico de manutencoes", color = textLight, fontWeight = FontWeight.Bold)
+                        if (historicoManutencoes.isEmpty()) {
+                            Text("Nenhuma manutencao registrada ainda.", color = textDim, fontSize = 12.sp)
+                        } else {
+                            historicoManutencoes.forEach { (data, lembrete) ->
+                                InfoRow(lembrete.titulo, data.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")), textLight, textDim)
+                            }
+                        }
+                    }
+                }
+
+                ElevatedCard(
+                    colors = CardDefaults.cardColors(containerColor = surfaceDark),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("Documentacao", color = textLight, fontWeight = FontWeight.Bold)
+                        documentos.forEach { (label, status, data) ->
+                            InfoRow(label, "$status • $data", textLight, textDim)
+                        }
+                    }
+                }
+
+                ElevatedCard(
+                    colors = CardDefaults.cardColors(containerColor = surfaceDark),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("Trocas de peças", color = textLight, fontWeight = FontWeight.Bold)
+                        if (trocasPorPeca.isEmpty()) {
+                            Text("Nenhuma peça registrada ainda.", color = textDim, fontSize = 12.sp)
+                        } else {
+                            trocasPorPeca.forEach { (label, count) ->
+                                InfoRow(label, "$count vez(es)", textLight, textDim)
+                            }
+                        }
+                    }
+                }
+
+                OutlinedButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.fillMaxWidth(),
+                    border = BorderStroke(1.dp, Color(0xFF334155)),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("Voltar", color = textLight, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun InfoRow(label: String, value: String, textLight: Color, textDim: Color) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(label, color = textDim, fontSize = 12.sp)
+        Text(value, color = textLight, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
 data class CategorySpend(
     val label: String,
     val valor: Double,
@@ -914,75 +1108,46 @@ data class CategorySpend(
 )
 
 @Composable
-fun CategoryExpenseLineChart(
+fun CategoryExpenseBarChart(
     data: List<CategorySpend>,
     modifier: Modifier = Modifier,
-    lineColor: Color = Color(0xFF3B82F6),
-    gridColor: Color = Color(0xFF1E293B),
+    trackColor: Color = Color(0xFF1E293B),
     labelColor: Color = Color(0xFF94A3B8)
 ) {
-    val safeData = if (data.isEmpty()) listOf(CategorySpend(label = "--", valor = 0.0, color = lineColor)) else data
+    val safeData = if (data.isEmpty()) listOf(CategorySpend(label = "--", valor = 0.0, color = labelColor)) else data
     val maxValor = safeData.maxOf { it.valor }.coerceAtLeast(1.0)
-    val maxIndex = if (maxValor > 0) safeData.indexOfFirst { it.valor == maxValor } else -1
-    Column(modifier = modifier) {
-        Canvas(modifier = Modifier.fillMaxWidth().weight(1f)) {
-            val count = safeData.size
-            val spacing = if (count <= 1) 0f else size.width / (count - 1)
-            val guideColor = labelColor.copy(alpha = 0.12f)
-            val guideSteps = 3
-            for (i in 1..guideSteps) {
-                val y = size.height * (i / (guideSteps + 1f))
-                drawLine(
-                    color = guideColor,
-                    start = Offset(0f, y),
-                    end = Offset(size.width, y),
-                    strokeWidth = 1f
-                )
-            }
-            drawLine(
-                color = gridColor,
-                start = Offset(0f, size.height),
-                end = Offset(size.width, size.height),
-                strokeWidth = 2f
-            )
-            val points = safeData.mapIndexed { index, item ->
-                val ratio = if (item.valor <= 0.0) 0f else (item.valor / maxValor).toFloat().coerceIn(0f, 1f)
-                val x = if (count <= 1) size.width / 2 else spacing * index
-                val y = size.height - (size.height * ratio)
-                Offset(x, y)
-            }
-            if (points.size >= 2) {
-                val path = androidx.compose.ui.graphics.Path().apply {
-                    moveTo(points.first().x, points.first().y)
-                    for (i in 1 until points.size) {
-                        lineTo(points[i].x, points[i].y)
-                    }
-                }
-                drawPath(
-                    path = path,
-                    color = lineColor,
-                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3f)
-                )
-            }
-            points.forEachIndexed { index, point ->
-                val dotColor = safeData[index].color
-                val isMax = index == maxIndex
-                drawCircle(
-                    color = dotColor,
-                    radius = if (isMax) 6f else 4.5f,
-                    center = point
-                )
-            }
-        }
-        Spacer(Modifier.height(6.dp))
-        Row(modifier = Modifier.fillMaxWidth()) {
-            safeData.forEach { item ->
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        safeData.forEach { item ->
+            val ratio = if (item.valor <= 0.0) 0f else (item.valor / maxValor).toFloat().coerceIn(0f, 1f)
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = item.label,
                     color = labelColor,
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.width(92.dp)
+                )
+                Box(
+                    modifier = Modifier
+                        .height(10.dp)
+                        .weight(1f)
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(trackColor)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .fillMaxWidth(ratio)
+                            .background(item.color)
+                    )
+                }
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = formatarMoeda(item.valor),
+                    color = labelColor,
                     fontSize = 11.sp,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.weight(1f)
+                    maxLines = 1
                 )
             }
         }

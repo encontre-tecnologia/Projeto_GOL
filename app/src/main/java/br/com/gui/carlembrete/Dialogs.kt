@@ -118,6 +118,30 @@ import java.util.UUID
 import java.util.concurrent.Executors
 import kotlin.math.roundToInt
 
+private const val pecaOutraLabel = "Outra (digitar)"
+private val pecasSugestao = listOf(
+    "Óleo do motor",
+    "Filtro de óleo",
+    "Filtro de ar",
+    "Filtro de combustível",
+    "Pastilha de freio",
+    "Disco de freio",
+    "Fluido de freio",
+    "Bateria",
+    "Pneus",
+    "Amortecedor",
+    "Correia dentada",
+    "Embreagem",
+    "Velas",
+    "Radiador",
+    "Fluido de arrefecimento",
+    "Limpador de para-brisa",
+    "Lâmpadas",
+    "Suspensão",
+    "Ar condicionado",
+    "Outra (digitar)"
+)
+
 @Composable
 fun PrivacidadeTermosDialog(onDismiss: () -> Unit) {
     AlertDialog(
@@ -273,6 +297,18 @@ fun LembreteDetalhesDialog(
     var horaAviso by remember { mutableStateOf(lembrete.horaAviso) }
     var kmLimite by remember { mutableStateOf(lembrete.kmLimite) }
     var valorTexto by remember { mutableStateOf(if (lembrete.valor > 0) lembrete.valor.toString() else "") }
+    val pecasDisponiveis = pecasSugestao
+    var pecaSelecionada by remember {
+        mutableStateOf(
+            if (lembrete.peca.isNotBlank() && pecasDisponiveis.contains(lembrete.peca)) {
+                lembrete.peca
+            } else if (lembrete.peca.isNotBlank()) {
+                pecaOutraLabel
+            } else {
+                ""
+            }
+        )
+    }
 
     LaunchedEffect(lembrete) {
         titulo = lembrete.titulo
@@ -280,6 +316,10 @@ fun LembreteDetalhesDialog(
         horaAviso = lembrete.horaAviso
         kmLimite = lembrete.kmLimite
         valorTexto = if (lembrete.valor > 0) lembrete.valor.toString() else ""
+        pecaSelecionada =
+            if (lembrete.peca.isNotBlank() && pecasDisponiveis.contains(lembrete.peca)) lembrete.peca
+            else if (lembrete.peca.isNotBlank()) pecaOutraLabel
+            else ""
         isEditando = false
     }
 
@@ -397,12 +437,17 @@ fun LembreteDetalhesDialog(
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                             singleLine = true
                         )
+                        SeletorPeca(
+                            pecaSelecionada = pecaSelecionada,
+                            onSelecionar = { pecaSelecionada = it }
+                        )
                     } else {
                         val infoItems = buildList {
                             add("Veículo" to carro.nome)
                             add("Data do aviso" to lembrete.dataLimite.ifBlank { "Sem data" })
                             add("Hora do aviso" to lembrete.horaAviso)
                             add("KM limite" to lembrete.kmLimite.ifBlank { "Não definido" })
+                            if (lembrete.peca.isNotBlank()) add("Peça" to lembrete.peca)
                             if (lembrete.valor > 0) add("Valor" to formatarMoeda(lembrete.valor))
                             contato?.let { add("Profissional" to "${it.nome} (${it.tipoServico})") }
                             lembrete.fotoPath?.let { add("Anexo" to "Foto disponível") }
@@ -434,6 +479,10 @@ fun LembreteDetalhesDialog(
                                     horaAviso = lembrete.horaAviso
                                     kmLimite = lembrete.kmLimite
                                     valorTexto = if (lembrete.valor > 0) lembrete.valor.toString() else ""
+                                    pecaSelecionada =
+                                        if (lembrete.peca.isNotBlank() && pecasDisponiveis.contains(lembrete.peca)) lembrete.peca
+                                        else if (lembrete.peca.isNotBlank()) pecaOutraLabel
+                                        else ""
                                     isEditando = false
                                 },
                                 modifier = Modifier
@@ -442,16 +491,22 @@ fun LembreteDetalhesDialog(
                                 border = BorderStroke(0.2.dp, Color.White.copy(alpha = 0.7f)),
                                 shape = dialogActionButtonShape
                             ) { Text("Cancelar", fontSize = 18.sp) }
-                            Button(
-                                onClick = {
-                                    val novoValor = valorTexto.toDoubleOrNull() ?: 0.0
-                                    val atualizado = lembrete.copy(
-                                        titulo = titulo.ifBlank { lembrete.titulo },
-                                        dataLimite = dataAviso.ifBlank { lembrete.dataLimite },
-                                        horaAviso = horaAviso.ifBlank { lembrete.horaAviso },
-                                        kmLimite = kmLimite,
-                                        valor = novoValor
-                                    )
+                                Button(
+                                    onClick = {
+                                        val novoValor = valorTexto.toDoubleOrNull() ?: 0.0
+                                        val pecaFinal = when {
+                                            pecaSelecionada == pecaOutraLabel -> titulo.trim()
+                                            pecaSelecionada.isBlank() -> ""
+                                            else -> pecaSelecionada
+                                        }
+                                        val atualizado = lembrete.copy(
+                                            titulo = titulo.ifBlank { lembrete.titulo },
+                                            dataLimite = dataAviso.ifBlank { lembrete.dataLimite },
+                                            horaAviso = horaAviso.ifBlank { lembrete.horaAviso },
+                                            kmLimite = kmLimite,
+                                            valor = novoValor,
+                                            peca = pecaFinal
+                                        )
                                     onSalvar(atualizado)
                                     isEditando = false
                                 },
@@ -486,6 +541,47 @@ private fun InfoLinha(label: String, valor: String, modifier: Modifier = Modifie
     }
 }
 
+private fun formatarKm(valor: Int): String =
+    NumberFormat.getIntegerInstance(Locale("pt", "BR")).format(valor)
+
+private fun formatarKmTexto(texto: String): String {
+    val digits = texto.filter(Char::isDigit)
+    val value = digits.toLongOrNull() ?: 0L
+    return NumberFormat.getIntegerInstance(Locale("pt", "BR")).format(value)
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SeletorPeca(
+    pecaSelecionada: String,
+    onSelecionar: (String) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = !expanded }) {
+        OutlinedTextField(
+            value = pecaSelecionada,
+            onValueChange = {},
+            readOnly = true,
+            label = { Text("Peça") },
+            placeholder = { Text("Selecione a peça") },
+            modifier = Modifier.menuAnchor().fillMaxWidth(),
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            shape = RoundedCornerShape(12.dp)
+        )
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            pecasSugestao.forEach { peca ->
+                DropdownMenuItem(
+                    text = { Text(peca) },
+                    onClick = {
+                        onSelecionar(peca)
+                        expanded = false
+                    }
+                )
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun NovoAgendamentoDialog(
@@ -506,6 +602,7 @@ fun NovoAgendamentoDialog(
     var kmBase by remember { mutableStateOf(if (carroAtual.kmAtual > 0) carroAtual.kmAtual.toString() else "") }
     var valorInput by remember { mutableStateOf("") }
     var tipoSelecionado by remember { mutableStateOf(TipoManutencao.OLEO) }
+    var pecaSelecionada by remember { mutableStateOf("") }
     var contatosLista by remember { mutableStateOf(contatosDisponiveis) }
     var contatoSelecionado by remember { mutableStateOf<ContatoProfissional?>(null) }
     var listaItensDetectados by remember { mutableStateOf<List<ItemDetectado>>(emptyList()) }
@@ -635,6 +732,11 @@ fun adicionarContatoManual() {
         val kmAtualBase = kmBase.toIntOrNull() ?: 0
         if (kmAtualBase > carroAtual.kmAtual) onUpdateKmCarro(kmAtualBase)
         val dataAvisoStr = dataAviso
+        val pecaFinal = when {
+            pecaSelecionada == pecaOutraLabel -> descricao.trim()
+            pecaSelecionada.isBlank() -> descricao.trim()
+            else -> pecaSelecionada
+        }
         if (isModoLista) {
             val novosLembretes = listaItensDetectados.flatMap { item ->
                 val rep = maxOf(1, item.quantidade)
@@ -643,6 +745,7 @@ fun adicionarContatoManual() {
                     val tituloFormatado = if (rep > 1) "${item.nome} (${indice}/$rep)" else item.nome
                     Lembrete(
                         titulo = tituloFormatado,
+                        peca = item.nome,
                         dataLimite = dataAvisoStr,
                         kmLimite = kmFuturo,
                         tipo = item.tipo,
@@ -659,6 +762,7 @@ fun adicionarContatoManual() {
         } else if (descricao.isNotBlank()) {
             val novoLembrete = Lembrete(
                 titulo = descricao,
+                peca = pecaFinal,
                 dataLimite = dataAvisoStr,
                 kmLimite = (kmAtualBase + getKmAdicionalPorTipo(tipoSelecionado)).toString(),
                 tipo = tipoSelecionado,
@@ -783,6 +887,10 @@ fun adicionarContatoManual() {
                                         )
                                     }
                                 }
+                            )
+                            SeletorPeca(
+                                pecaSelecionada = pecaSelecionada,
+                                onSelecionar = { pecaSelecionada = it }
                             )
                             ExposedDropdownMenuBox(expanded = menuExpanded, onExpandedChange = { menuExpanded = !menuExpanded }) { OutlinedTextField(value = tipoSelecionado.label, onValueChange = {}, readOnly = true, label = { Text("Categoria") }, modifier = Modifier.menuAnchor().fillMaxWidth(), leadingIcon = { Icon(imageVector = tipoSelecionado.getIcon(), contentDescription = null, tint = Color(0xFF3B82F6)) }, trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = menuExpanded) }, shape = RoundedCornerShape(12.dp)); ExposedDropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) { TipoManutencao.values().forEach { t -> DropdownMenuItem(text = { Text(t.label) }, onClick = { tipoSelecionado = t; menuExpanded = false }, leadingIcon = { Icon(imageVector = t.getIcon(), contentDescription = null, tint = Color(0xFF3B82F6)) }) } } }
                         }
@@ -1024,11 +1132,53 @@ fun adicionarContatoManual() {
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun EditarCarroDialog(carroAtual: CarroInfo, titulo: String, onDismiss: () -> Unit, onSalvar: (CarroInfo) -> Unit) {
+    val context = LocalContext.current
     var nome by remember { mutableStateOf(carroAtual.nome) }
     var marca by remember { mutableStateOf(carroAtual.marca) }
     var modelo by remember { mutableStateOf(carroAtual.modelo) }
-    var kmAtualStr by remember { mutableStateOf(if (carroAtual.kmAtual > 0) carroAtual.kmAtual.toString() else "") }
+    var kmAtualStr by remember { mutableStateOf(if (carroAtual.kmAtual > 0) formatarKm(carroAtual.kmAtual) else "") }
     var tipoSelecionado by remember { mutableStateOf(carroAtual.tipoVeiculo) }
+    var alvoVoz by remember { mutableStateOf("nome") }
+    val speechLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val textoReconhecido = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
+            if (!textoReconhecido.isNullOrBlank()) {
+                if (alvoVoz == "motor") {
+                    modelo = textoReconhecido
+                } else {
+                    nome = textoReconhecido
+                }
+            }
+        }
+    }
+
+    fun iniciarCapturaVozApelido() {
+        alvoVoz = "nome"
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
+            putExtra(RecognizerIntent.EXTRA_PROMPT, "Diga o nome do carro")
+        }
+        try {
+            speechLauncher.launch(intent)
+        } catch (_: Exception) {
+            Toast.makeText(context, "Voz indisponível neste dispositivo", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun iniciarCapturaVozMotor() {
+        alvoVoz = "motor"
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
+            putExtra(RecognizerIntent.EXTRA_PROMPT, "Diga o motor do carro")
+        }
+        try {
+            speechLauncher.launch(intent)
+        } catch (_: Exception) {
+            Toast.makeText(context, "Voz indisponível neste dispositivo", Toast.LENGTH_SHORT).show()
+        }
+    }
     AlertDialog(
         modifier = Modifier.border(dialogBorderStroke, dialogCornerShape),
         shape = dialogCornerShape,
@@ -1040,8 +1190,29 @@ fun EditarCarroDialog(carroAtual: CarroInfo, titulo: String, onDismiss: () -> Un
                 OutlinedTextField(
                     value = nome,
                     onValueChange = { nome = it },
-                    label = { Text("Apelido") },
+                    label = { Text("Nome do carro") },
                     singleLine = true,
+                    trailingIcon = {
+                        IconButton(onClick = ::iniciarCapturaVozApelido) {
+                            Icon(Icons.Default.Mic, contentDescription = "Falar nome do carro")
+                        }
+                    },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    )
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = modelo,
+                    onValueChange = { modelo = it },
+                    label = { Text("Motor") },
+                    singleLine = true,
+                    trailingIcon = {
+                        IconButton(onClick = ::iniciarCapturaVozMotor) {
+                            Icon(Icons.Default.Mic, contentDescription = "Falar motor")
+                        }
+                    },
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = Color.White,
                         unfocusedTextColor = Color.White
@@ -1110,19 +1281,8 @@ fun EditarCarroDialog(carroAtual: CarroInfo, titulo: String, onDismiss: () -> Un
                 )
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(
-                    value = modelo,
-                    onValueChange = { modelo = it },
-                    label = { Text("Modelo e Motor") },
-                    singleLine = true,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White
-                    )
-                )
-                Spacer(Modifier.height(8.dp))
-                OutlinedTextField(
                     value = kmAtualStr,
-                    onValueChange = { if (it.all(Char::isDigit)) kmAtualStr = it },
+                    onValueChange = { kmAtualStr = formatarKmTexto(it) },
                     label = { Text("KM Atual (Painel)") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     singleLine = true,
@@ -1141,7 +1301,7 @@ fun EditarCarroDialog(carroAtual: CarroInfo, titulo: String, onDismiss: () -> Un
                         nome = nome,
                         marca = marca,
                         modelo = modelo,
-                        kmAtual = kmAtualStr.toIntOrNull() ?: 0,
+                        kmAtual = kmAtualStr.filter(Char::isDigit).toIntOrNull() ?: 0,
                         tipoVeiculo = tipoSelecionado
                     )
                 )
