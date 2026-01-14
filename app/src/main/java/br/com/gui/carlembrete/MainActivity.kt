@@ -5,6 +5,9 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Typeface
 import android.graphics.pdf.PdfDocument
@@ -12,6 +15,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -116,6 +120,9 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+
+
+
 /* ----------------- UTILITÁRIOS & LÓGICA DE CÁLCULO ----------------- */
 
 fun String.unaccent(): String {
@@ -191,26 +198,81 @@ fun gerarPdfRelatorio(context: Context, carro: CarroInfo, lembretes: List<Lembre
         val pageInfo = PdfDocument.PageInfo.Builder(595, 842, 1).create()
         var currentPage = document.startPage(pageInfo)
         var canvas = currentPage.canvas
-        val titlePaint = Paint().apply {
+        val headerPaint = Paint().apply {
             textSize = 24f
             color = android.graphics.Color.BLACK
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            isAntiAlias = true
         }
-        val subtitlePaint = Paint().apply {
+        val headerSubPaint = Paint().apply {
             textSize = 14f
-            color = android.graphics.Color.DKGRAY
+            color = android.graphics.Color.BLACK
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            isAntiAlias = true
+        }
+        val sectionTitlePaint = Paint().apply {
+            textSize = 13f
+            color = android.graphics.Color.BLACK
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            isAntiAlias = true
+        }
+        val labelPaint = Paint().apply {
+            textSize = 10f
+            color = android.graphics.Color.DKGRAY
+            isAntiAlias = true
+        }
+        val valuePaint = Paint().apply {
+            textSize = 13f
+            color = android.graphics.Color.BLACK
+            isAntiAlias = true
+        }
+        val valueBoldPaint = Paint().apply {
+            textSize = 11f
+            color = android.graphics.Color.BLACK
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            isAntiAlias = true
         }
         val bodyPaint = Paint().apply {
-            textSize = 12f
+            textSize = 11f
             color = android.graphics.Color.DKGRAY
+            isAntiAlias = true
+        }
+        val debugPaint = Paint().apply {
+            textSize = 26f
+            color = android.graphics.Color.RED
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            isAntiAlias = true
         }
         val dividerPaint = Paint().apply {
             strokeWidth = 2f
-            color = android.graphics.Color.LTGRAY
+            color = android.graphics.Color.parseColor("#94A3B8")
+            isAntiAlias = true
         }
-        val marginX = 40f
-        var y = 60f
+        val colorSuccess = android.graphics.Color.parseColor("#16A34A")
+        val colorDanger = android.graphics.Color.parseColor("#DC2626")
+        val accentColor = android.graphics.Color.parseColor("#2563EB")
+        val logoBitmap = try {
+            context.assets.open("logorelatorio.png").use { BitmapFactory.decodeStream(it) }
+        } catch (_: Exception) {
+            null
+        }
+        val cardBgPaint = Paint().apply { color = android.graphics.Color.parseColor("#F8FAFC") }
+        val headerCardPaint = Paint().apply { color = android.graphics.Color.parseColor("#E2E8F0") }
+        val headerBorderPaint = Paint().apply {
+            color = android.graphics.Color.parseColor("#E2E8F0")
+            style = Paint.Style.STROKE
+            strokeWidth = 1.5f
+            isAntiAlias = true
+        }
+        val marginX = 36f
+        canvas.drawColor(android.graphics.Color.WHITE)
+        val topBarPaint = Paint().apply { color = android.graphics.Color.parseColor("#E2E8F0") }
+        canvas.drawRect(0f, 0f, pageInfo.pageWidth.toFloat(), 6f, topBarPaint)
+        val contentWidth = pageInfo.pageWidth - marginX * 2
+        var y = 170f
+
+        fun fit(text: String, maxChars: Int): String =
+            if (text.length <= maxChars) text else text.take(maxChars - 3) + "..."
 
         fun ensureSpace(extra: Float) {
             if (y + extra > pageInfo.pageHeight - 40) {
@@ -222,75 +284,265 @@ fun gerarPdfRelatorio(context: Context, carro: CarroInfo, lembretes: List<Lembre
             }
         }
 
-        canvas.drawText("Relatório do Veículo", marginX, y, titlePaint)
-        y += 30f
-        canvas.drawText("Gerado em ${LocalDate.now().format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))}", marginX, y, bodyPaint)
-        y += 24f
-        canvas.drawLine(marginX, y, pageInfo.pageWidth - marginX, y, dividerPaint)
-        y += 24f
-
-        val tituloCarro = buildString {
-            append(carro.nome)
-            val detalhes = listOf(carro.marca, carro.modelo).filter { it.isNotBlank() }.joinToString(" - ")
-            if (detalhes.isNotBlank()) {
-                append(" - ")
-                append(detalhes)
+        fun drawHeader() {
+            val titleCenterPaint = Paint(headerPaint).apply { textAlign = Paint.Align.CENTER }
+            canvas.drawText("RELATORIO TÉCNICO", pageInfo.pageWidth / 2f, 54f, titleCenterPaint)
+            val tituloCarro = buildString {
+                append(carro.nome)
+                val detalhes = listOf(carro.marca, carro.modelo).filter { it.isNotBlank() }.joinToString(" - ")
+                if (detalhes.isNotBlank()) append(" - $detalhes")
             }
+            canvas.drawLine(marginX, 78f, pageInfo.pageWidth - marginX, 78f, dividerPaint)
+            canvas.drawText(fit(tituloCarro, 60), marginX + 12f, 100f, headerSubPaint)
+            canvas.drawText(
+                "Gerado em ${LocalDate.now().format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))}",
+                marginX + 12f,
+                126f,
+                headerSubPaint
+            )
+            canvas.drawLine(marginX, 140f, pageInfo.pageWidth - marginX, 140f, dividerPaint)
         }
-        canvas.drawText(tituloCarro, marginX, y, subtitlePaint)
-        y += 18f
-        val odometroTexto = if (carro.kmAtual > 0) "Odômetro: ${carro.kmAtual} km" else "Odômetro: não informado"
-        canvas.drawText(odometroTexto, marginX, y, bodyPaint)
-        y += 28f
 
-        canvas.drawText("Status Geral", marginX, y, subtitlePaint)
-        y += 20f
-        TipoManutencao.values().forEach { tipo ->
-            ensureSpace(20f)
-            val quantidade = lembretes.count { it.tipo == tipo }
-            val status = when (calcularCorStatus(lembretes, tipo)) {
-                Color(0xFFEF4444) -> "CRÍTICO"
-                Color(0xFFEAB308) -> "ATENÇÃO"
-                Color(0xFF10B981) -> "OK"
-                else -> "SEM DADOS"
-            }
-            canvas.drawText("- ${tipo.label}: $quantidade avisos ($status)", marginX + 10f, y, bodyPaint)
-            y += 18f
+        fun drawSectionTitle(title: String) {
+            ensureSpace(30f)
+            val titleY = y
+            canvas.drawText(title, marginX, titleY, sectionTitlePaint)
+            y += 10f
+            canvas.drawLine(marginX, y, pageInfo.pageWidth - marginX, y, dividerPaint)
+            y += 12f
         }
-        y += 16f
-        val (tituloRep, descRep) = calcularReputacao(lembretes)
-        canvas.drawText("Reputação: $tituloRep", marginX, y, subtitlePaint)
-        y += 18f
-        canvas.drawText(descRep, marginX, y, bodyPaint)
-        y += 28f
 
-        canvas.drawLine(marginX, y, pageInfo.pageWidth - marginX, y, dividerPaint)
-        y += 24f
-        canvas.drawText("Próximas manutenções", marginX, y, subtitlePaint)
-        y += 20f
-        if (lembretes.isEmpty()) {
-            canvas.drawText("Nenhum lembrete cadastrado.", marginX + 10f, y, bodyPaint)
-            y += 18f
-        } else {
-            val formatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
-            val proximos = lembretes
-                .mapNotNull { lembrete ->
-                    val data = try { LocalDate.parse(lembrete.dataLimite, formatter) } catch (e: Exception) { null }
-                    data?.let { lembrete to it }
+        val cardBorderPaint = Paint().apply {
+            color = android.graphics.Color.parseColor("#E2E8F0")
+            style = Paint.Style.STROKE
+            strokeWidth = 1.5f
+            isAntiAlias = true
+        }
+
+        fun drawCard(height: Float, content: (Float) -> Unit) {
+            ensureSpace(height + 6f)
+            val rect = android.graphics.RectF(marginX, y, marginX + contentWidth, y + height)
+            canvas.drawRoundRect(rect, 12f, 12f, cardBgPaint)
+            canvas.drawRoundRect(rect, 12f, 12f, cardBorderPaint)
+            content(y)
+            y += height + 28f
+        }
+
+        fun drawWrappedText(text: String, x: Float, maxWidth: Float, paint: Paint): Float {
+            val words = text.split(" ")
+            var line = ""
+            var currentY = y
+            words.forEach { word ->
+                val test = if (line.isBlank()) word else "$line $word"
+                if (paint.measureText(test) <= maxWidth) {
+                    line = test
+                } else {
+                    canvas.drawText(line, x, currentY, paint)
+                    currentY += 14f
+                    line = word
                 }
-                .sortedBy { it.second }
-            proximos.forEach { (lembrete, data) ->
-                ensureSpace(40f)
-                canvas.drawText("- ${lembrete.titulo}", marginX + 10f, y, bodyPaint)
-                y += 16f
-                canvas.drawText("  Data: ${lembrete.dataLimite.ifBlank { data.format(formatter) }} | KM: ${lembrete.kmLimite.ifBlank { "-" }}", marginX + 10f, y, bodyPaint)
-                y += 20f
+            }
+            if (line.isNotBlank()) {
+                canvas.drawText(line, x, currentY, paint)
+                currentY += 14f
+            }
+            return currentY
+        }
+
+        fun drawKeyValue(label: String, value: String, x: Float, lineY: Float, valueOffset: Float = 14f) {
+            canvas.drawText(label.uppercase(Locale.getDefault()), x, lineY, valueBoldPaint)
+            canvas.drawText(value, x, lineY + valueOffset, valuePaint)
+        }
+
+        drawHeader()
+
+        val totalGastos = lembretes.sumOf { it.valor }
+        val proximos = lembretes
+            .mapNotNull { lembrete ->
+                val data = try { LocalDate.parse(lembrete.dataLimite, DateTimeFormatter.ofPattern("dd/MM/yyyy")) } catch (_: Exception) { null }
+                data?.let { lembrete to it }
+            }
+            .sortedBy { it.second }
+        val proximoServico = proximos.firstOrNull()?.second?.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")) ?: "--"
+
+        drawSectionTitle("IDENTIFICACAO DO VEICULO")
+        val boxHeight = 140f
+        ensureSpace(boxHeight)
+        canvas.drawRect(marginX, y, marginX + contentWidth, y + boxHeight, cardBgPaint)
+        canvas.drawRoundRect(android.graphics.RectF(marginX, y, marginX + contentWidth, y + boxHeight), 12f, 12f, cardBorderPaint)
+        val leftX = marginX + 12f
+        val rightX = marginX + contentWidth / 2 + 10f
+        val rowY = y + 24f
+        drawKeyValue("Nome", fit(carro.nome, 30), leftX, rowY)
+        drawKeyValue("Motor", fit(carro.modelo.ifBlank { "-" }, 26), rightX, rowY)
+        drawKeyValue("Marca", carro.marca.ifBlank { "-" }, leftX, rowY + 42f)
+        drawKeyValue("Tipo", carro.tipoVeiculo.label, rightX, rowY + 42f)
+        val odometroTexto = if (carro.kmAtual > 0) "${carro.kmAtual} km" else "Nao informado"
+        drawKeyValue("Odometro", odometroTexto, leftX, rowY + 78f)
+        val corHex = String.format(Locale.US, "#%08X", carro.corArgb)
+        drawKeyValue("Cor", corHex, rightX, rowY + 78f)
+        y += boxHeight + 24f
+
+        drawSectionTitle("STATUS E SAUDE")
+        val (tituloRep, descRep) = calcularReputacao(lembretes)
+        val statusBoxHeight = 160f
+        ensureSpace(statusBoxHeight)
+        canvas.drawRect(marginX, y, marginX + contentWidth, y + statusBoxHeight, cardBgPaint)
+        canvas.drawRoundRect(android.graphics.RectF(marginX, y, marginX + contentWidth, y + statusBoxHeight), 12f, 12f, cardBorderPaint)
+        val saudeColor = if (tituloRep == "Excelente") colorSuccess else colorDanger
+        val pillPaint = Paint().apply { color = saudeColor }
+        val pillTextPaint = Paint().apply {
+            color = android.graphics.Color.WHITE
+            textSize = 10f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        }
+        val pillText = tituloRep.uppercase(Locale.getDefault())
+        val pillWidth = pillTextPaint.measureText(pillText) + 16f
+        canvas.drawText("SAUDE", leftX, y + 24f, valueBoldPaint)
+        val pillRect = android.graphics.RectF(leftX, y + 30f, leftX + pillWidth, y + 46f)
+        canvas.drawRoundRect(pillRect, 10f, 10f, pillPaint)
+        canvas.drawText(pillText, leftX + 8f, y + 42f, pillTextPaint)
+        drawKeyValue("Alertas ativos", lembretes.size.toString(), rightX, y + 24f)
+        drawKeyValue("Proximo servico", proximoServico, leftX, y + 74f)
+        drawKeyValue("Total gasto", formatarMoeda(totalGastos), rightX, y + 74f)
+        val resultadoGeral = "RESULTADO GERAL"
+        val saudeLabel = if (tituloRep == "Excelente") "Todas as manutencoes em dia" else "Revisar manutencoes pendentes"
+        val saudePaint = Paint(bodyPaint).apply {
+            color = if (tituloRep == "Excelente") colorSuccess else colorDanger
+        }
+        val saudeMetrics = saudePaint.fontMetrics
+        val saudeBaseline = y + statusBoxHeight - 14f - saudeMetrics.descent
+        val resultadoBaseline = saudeBaseline - 14f
+        canvas.drawText(resultadoGeral, leftX, resultadoBaseline, valueBoldPaint)
+        canvas.drawText(saudeLabel, leftX, saudeBaseline, saudePaint)
+        y += statusBoxHeight + 34f
+
+        drawSectionTitle("DOCUMENTACAO")
+        val documentos = listOf(
+            TipoManutencao.IPVA to "IPVA",
+            TipoManutencao.LICENCIAMENTO to "Licenciamento"
+        ).map { (tipo, label) ->
+            val ultimaData = lembretes
+                .filter { it.tipo == tipo }
+                .map { dataParaOrdenacao(it) }
+                .filter { it != LocalDate.MAX }
+                .maxOrNull()
+            val status = when {
+                ultimaData == null -> "Nao informado"
+                !ultimaData.isBefore(LocalDate.now()) -> "Em dia"
+                else -> "Vencido"
+            }
+            Triple(label, status, ultimaData?.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")) ?: "--")
+        }
+        val docsVazios = documentos.all { it.second == "Nao informado" }
+        val docsCardHeight = if (docsVazios) 70f else 70f + (documentos.size * 18f)
+        drawCard(docsCardHeight) { topY ->
+            var rowY = topY + 28f
+            if (docsVazios) {
+                val avisoPaint = Paint(bodyPaint).apply {
+                    color = colorDanger
+                    textSize = 13f
+                    textAlign = Paint.Align.CENTER
+                }
+                canvas.drawText("Veiculo sem documentacao", marginX + (contentWidth / 2), rowY + 6f, avisoPaint)
+            } else {
+                documentos.forEach { (label, status, data) ->
+                    canvas.drawText(label, marginX + 16f, rowY, valuePaint)
+                    val dateCenterPaint = Paint(bodyPaint).apply { textAlign = Paint.Align.CENTER }
+                    canvas.drawText("Venc: $data", marginX + (contentWidth / 2), rowY, dateCenterPaint)
+                    val statusPaint = Paint(valuePaint).apply {
+                        color = if (status == "Em dia") colorSuccess else colorDanger
+                        textAlign = Paint.Align.RIGHT
+                    }
+                    canvas.drawText(status, marginX + contentWidth - 16f, rowY, statusPaint)
+                    rowY += 22f
+                }
             }
         }
-        y += 16f
+        y += 8f
+
+        document.finishPage(currentPage)
+        val nextPageInfo = PdfDocument.PageInfo.Builder(595, 842, document.pages.size + 1).create()
+        currentPage = document.startPage(nextPageInfo)
+        canvas = currentPage.canvas
+        canvas.drawColor(android.graphics.Color.WHITE)
+        canvas.drawRect(0f, 0f, nextPageInfo.pageWidth.toFloat(), 6f, topBarPaint)
+        y = 60f
+
+        drawSectionTitle("TROCAS POR PECA")
+        val pecaLabels = linkedMapOf<String, String>()
+        lembretes.forEach { lembrete ->
+            val raw = lembrete.peca.ifBlank { lembrete.titulo }.trim()
+            if (raw.isNotBlank()) {
+                val key = raw.lowercase(Locale.getDefault())
+                pecaLabels.putIfAbsent(key, raw)
+            }
+        }
+        val trocasPorPeca = lembretes
+            .map { lembrete -> lembrete.peca.ifBlank { lembrete.titulo }.trim() }
+            .filter { it.isNotBlank() }
+            .groupingBy { it.lowercase(Locale.getDefault()) }
+            .eachCount()
+            .map { (key, count) -> (pecaLabels[key] ?: key) to count }
+            .sortedByDescending { it.second }
+            .take(8)
+        val trocasCardHeight = if (trocasPorPeca.isEmpty()) 60f else 70f + (trocasPorPeca.size * 16f)
+        drawCard(trocasCardHeight) { topY ->
+            var rowY = topY + 28f
+            if (trocasPorPeca.isEmpty()) {
+                canvas.drawText("Nenhuma peca registrada.", marginX + 16f, rowY, bodyPaint)
+            } else {
+                trocasPorPeca.forEach { (peca, count) ->
+                    canvas.drawText("- ${fit(peca, 36)}", marginX + 16f, rowY, bodyPaint)
+                    val countPaint = Paint(valuePaint).apply { textAlign = Paint.Align.RIGHT }
+                    canvas.drawText("${count}x", marginX + contentWidth - 16f, rowY, countPaint)
+                    rowY += 20f
+                }
+            }
+        }
+        y += 8f
+
+        drawSectionTitle("MANUTENCOES FUTURAS")
+        if (proximos.isEmpty()) {
+            canvas.drawText("Nenhum lembrete cadastrado.", marginX, y, bodyPaint)
+            y += 16f
+        } else {
+            val headerHeight = 22f
+            val headerBg = Paint().apply { color = android.graphics.Color.parseColor("#E2E8F0") }
+            canvas.drawRect(marginX, y, marginX + contentWidth, y + headerHeight, headerBg)
+            val headerTextPaint = Paint(labelPaint).apply {
+                color = android.graphics.Color.BLACK
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            }
+            val headerY = y + 15f
+            canvas.drawText("Item", marginX + 6f, headerY, headerTextPaint)
+            canvas.drawText("Data", marginX + 240f, headerY, headerTextPaint)
+            canvas.drawText("KM", marginX + 330f, headerY, headerTextPaint)
+            canvas.drawText("Cat.", marginX + 420f, headerY, headerTextPaint)
+            y += headerHeight + 8f
+            proximos.take(10).forEach { (lembrete, data) ->
+                ensureSpace(26f)
+                val rowTextY = y + 4f
+                canvas.drawText(fit(lembrete.titulo, 28), marginX + 6f, rowTextY, bodyPaint)
+                canvas.drawText(data.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")), marginX + 240f, rowTextY, bodyPaint)
+                canvas.drawText(lembrete.kmLimite.ifBlank { "-" }, marginX + 330f, rowTextY, bodyPaint)
+                canvas.drawText(fit(lembrete.tipo.label, 8), marginX + 420f, rowTextY, bodyPaint)
+                y += 26f
+                canvas.drawLine(marginX, y - 14f, marginX + contentWidth, y - 14f, dividerPaint)
+            }
+        }
+        y += 18f
         canvas.drawLine(marginX, y, pageInfo.pageWidth - marginX, y, dividerPaint)
-        y += 20f
-        canvas.drawText("Gerado via CarLembrete", marginX, y, bodyPaint)
+        y += 24f
+        if (logoBitmap != null) {
+            val targetWidth = 160f
+            val scale = targetWidth / logoBitmap.width.toFloat()
+            val targetHeight = logoBitmap.height * scale
+            val scaled = Bitmap.createScaledBitmap(logoBitmap, targetWidth.toInt(), targetHeight.toInt(), true)
+            val left = (pageInfo.pageWidth - targetWidth) / 2f
+            canvas.drawBitmap(scaled, left, y, null)
+            y += targetHeight
+        }
 
         document.finishPage(currentPage)
         val pdfFile = File(context.cacheDir, "relatorio_${System.currentTimeMillis()}.pdf")
@@ -298,6 +550,7 @@ fun gerarPdfRelatorio(context: Context, carro: CarroInfo, lembretes: List<Lembre
         document.close()
         FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", pdfFile)
     } catch (e: Exception) {
+        Log.e("PDF", "Erro ao gerar PDF", e)
         null
     }
 }
@@ -311,22 +564,7 @@ fun compartilharPdf(context: Context, uri: Uri) {
     context.startActivity(Intent.createChooser(intent, "Compartilhar PDF"))
 }
 
-private val padroesQuantidade = listOf(
-    Regex("QTD\\s*[:=]?\\s*(\\d+)", RegexOption.IGNORE_CASE),
-    Regex("(\\d+)\\s?(?:UN|UND|UNID|P[ÇC]S?|PCS|ITENS?)\\b", RegexOption.IGNORE_CASE),
-    Regex("(\\d+)\\s?[X×]", RegexOption.IGNORE_CASE),
-    Regex("[X×]\\s?(\\d+)", RegexOption.IGNORE_CASE)
-)
 
-fun extrairQuantidadeDaParte(parte: String): Int? {
-    val texto = parte.trim()
-    for (regex in padroesQuantidade) {
-        val match = regex.find(texto)
-        if (match != null) {
-            val quantidade = match.groupValues[1].toIntOrNull()
-            if (quantidade != null && quantidade > 1) return quantidade
-        }
-    }
-    return null
-}
+
+
 
