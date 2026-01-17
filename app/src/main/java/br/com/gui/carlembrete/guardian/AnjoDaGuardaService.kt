@@ -58,6 +58,7 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
         const val ACTION_START = "br.com.gui.carlembrete.guardian.START"
         const val ACTION_STOP = "br.com.gui.carlembrete.guardian.STOP"
         const val ACTION_PAUSE = "br.com.gui.carlembrete.guardian.PAUSE"
+        const val ACTION_UPDATE = "br.com.gui.carlembrete.guardian.UPDATE"
         const val EXTRA_IS_CAR = "extra_is_car"
         const val EXTRA_NOTIFY_REMOTE = "extra_notify_remote"
         const val EXTRA_ALARM_LOCAL = "extra_alarm_local"
@@ -85,6 +86,8 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
     private var accelSensor: Sensor? = null
     private var lastMagnitude = 0f
     private var lastAlertAt = 0L
+    private var spikeCount = 0
+    private var firstSpikeAt = 0L
 
     private var bluetoothManager: BluetoothManager? = null
     private var adapter: BluetoothAdapter? = null
@@ -135,6 +138,16 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
                 notifyRemote = intent.getBooleanExtra(EXTRA_NOTIFY_REMOTE, notifyRemote)
                 alarmLocal = intent.getBooleanExtra(EXTRA_ALARM_LOCAL, alarmLocal)
                 alarmRemote = intent.getBooleanExtra(EXTRA_ALARM_REMOTE, alarmRemote)
+                stopOwnerAlarm()
+            }
+            ACTION_UPDATE -> {
+                isCarMode = intent.getBooleanExtra(EXTRA_IS_CAR, isCarMode)
+                notifyRemote = intent.getBooleanExtra(EXTRA_NOTIFY_REMOTE, notifyRemote)
+                alarmLocal = intent.getBooleanExtra(EXTRA_ALARM_LOCAL, alarmLocal)
+                alarmRemote = intent.getBooleanExtra(EXTRA_ALARM_REMOTE, alarmRemote)
+                if (!alarmRemote) {
+                    stopOwnerAlarm()
+                }
             }
             ACTION_START -> {
                 isCarMode = intent.getBooleanExtra(EXTRA_IS_CAR, true)
@@ -142,6 +155,9 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
                 notifyRemote = intent.getBooleanExtra(EXTRA_NOTIFY_REMOTE, true)
                 alarmLocal = intent.getBooleanExtra(EXTRA_ALARM_LOCAL, true)
                 alarmRemote = intent.getBooleanExtra(EXTRA_ALARM_REMOTE, true)
+                if (!alarmRemote) {
+                    stopOwnerAlarm()
+                }
             }
         }
 
@@ -153,10 +169,12 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
             stopBatteryMonitor()
         }
 
-        startForeground(
-            NOTIF_ID,
-            buildStatusNotification(if (isArmed) "Vigia ativo" else "Vigia pausado")
-        )
+        if (intent?.action != ACTION_UPDATE) {
+            startForeground(
+                NOTIF_ID,
+                buildStatusNotification(if (isArmed) "Vigia ativo" else "Vigia pausado")
+            )
+        }
 
         if (isCarMode) {
             if (isArmed) {
@@ -206,9 +224,18 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
         lastMagnitude = magnitude
 
         val now = SystemClock.elapsedRealtime()
-        if (delta > 1.8f && now - lastAlertAt > 2000) {
-            lastAlertAt = now
-            handleMotionDetected()
+        if (delta > 2.6f) {
+            if (firstSpikeAt == 0L || now - firstSpikeAt > 1200) {
+                firstSpikeAt = now
+                spikeCount = 0
+            }
+            spikeCount += 1
+            if (spikeCount >= 2 && now - lastAlertAt > 4000) {
+                lastAlertAt = now
+                spikeCount = 0
+                firstSpikeAt = 0L
+                handleMotionDetected()
+            }
         }
     }
 
