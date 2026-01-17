@@ -1,13 +1,13 @@
 package br.com.gui.carlembrete
 
-import android.bluetooth.BluetoothAdapter
 import android.content.Context
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.app.KeyguardManager
 import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -47,6 +47,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -63,6 +64,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.Query
+import kotlinx.coroutines.delay
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -91,15 +93,16 @@ fun AnjoDaGuardaScreen(onDismiss: () -> Unit) {
     val isLogged = FirebaseAuth.getInstance().currentUser != null
     val alertItems = remember { mutableStateOf<List<String>>(emptyList()) }
     val formatter = remember { DateTimeFormatter.ofPattern("dd/MM HH:mm") }
-    val pendingEnableBluetooth = remember { mutableStateOf(false) }
     val isAuthenticated = remember { mutableStateOf(false) }
     val authLaunched = remember { mutableStateOf(false) }
-
-    val enableBluetoothLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        if (result.resultCode == android.app.Activity.RESULT_OK && pendingEnableBluetooth.value) {
-            pendingEnableBluetooth.value = false
+    val networkLabel = remember { mutableStateOf("Sem internet") }
+ 
+    // Launcher de Permissoes (Agora focado em Notificacao)
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { granted ->
+        val allGranted = granted.values.all { it }
+        if (allGranted) {
             startGuardianService(
                 context = context,
                 isCar = isCarMode.value,
@@ -107,26 +110,8 @@ fun AnjoDaGuardaScreen(onDismiss: () -> Unit) {
                 alarmLocal = alarmLocal.value,
                 alarmRemote = alarmRemote.value
             )
-        }
-    }
-
-    // Launcher de Permissoes (Agora focado em GPS e Notificacao)
-    val permissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
-    ) { granted ->
-        val allGranted = granted.values.all { it }
-        if (allGranted) {
-            ensureBluetoothAndStart(
-                context = context,
-                pendingEnableBluetooth = pendingEnableBluetooth,
-                enableBluetoothLauncher = enableBluetoothLauncher,
-                isCar = isCarMode.value,
-                notifyRemote = notifyRemote.value,
-                alarmLocal = alarmLocal.value,
-                alarmRemote = alarmRemote.value
-            )
         } else {
-            Toast.makeText(context, "Sem permissao de GPS, o rastreamento falhara.", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, "Sem permissao de notificacao, os alertas nao vao aparecer.", Toast.LENGTH_LONG).show()
             isArmed.value = false
         }
     }
@@ -191,6 +176,12 @@ fun AnjoDaGuardaScreen(onDismiss: () -> Unit) {
         onDispose { registration?.remove() }
     }
 
+    LaunchedEffect(Unit) {
+        while (true) {
+            networkLabel.value = getNetworkLabel(context)
+            delay(1200)
+        }
+    }
 
     Scaffold(
         containerColor = primaryDark,
@@ -283,10 +274,8 @@ fun AnjoDaGuardaScreen(onDismiss: () -> Unit) {
                             onClick = {
                                 isCarMode.value = true
                                 if (isArmed.value) {
-                                    ensureBluetoothAndStart(
+                                    startGuardianService(
                                         context = context,
-                                        pendingEnableBluetooth = pendingEnableBluetooth,
-                                        enableBluetoothLauncher = enableBluetoothLauncher,
                                         isCar = true,
                                         notifyRemote = notifyRemote.value,
                                         alarmLocal = alarmLocal.value,
@@ -317,10 +306,8 @@ fun AnjoDaGuardaScreen(onDismiss: () -> Unit) {
                             onClick = {
                                 isCarMode.value = false
                                 if (isArmed.value) {
-                                    ensureBluetoothAndStart(
+                                    startGuardianService(
                                         context = context,
-                                        pendingEnableBluetooth = pendingEnableBluetooth,
-                                        enableBluetoothLauncher = enableBluetoothLauncher,
                                         isCar = false,
                                         notifyRemote = notifyRemote.value,
                                         alarmLocal = alarmLocal.value,
@@ -361,6 +348,11 @@ fun AnjoDaGuardaScreen(onDismiss: () -> Unit) {
                         fontSize = 12.sp,
                         lineHeight = 16.sp
                     )
+                    Text(
+                        text = "Rede: " + networkLabel.value,
+                        color = textDim,
+                        fontSize = 11.sp
+                    )
 
                     // Switch Principal
                     Row(
@@ -392,7 +384,13 @@ fun AnjoDaGuardaScreen(onDismiss: () -> Unit) {
                                         )
                                     }
                                 } else {
-                                    stopGuardianService(context)
+                                    pauseGuardianService(
+                                        context = context,
+                                        isCar = isCarMode.value,
+                                        notifyRemote = notifyRemote.value,
+                                        alarmLocal = alarmLocal.value,
+                                        alarmRemote = alarmRemote.value
+                                    )
                                 }
                             },
                             colors = SwitchDefaults.colors(
@@ -549,6 +547,18 @@ fun StepText(text: String) {
     Text(text, color = Color(0xFF94A3B8), fontSize = 12.sp)
 }
 
+private fun getNetworkLabel(context: Context): String {
+    val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+    val network = cm.activeNetwork ?: return "Sem internet"
+    val caps = cm.getNetworkCapabilities(network) ?: return "Sem internet"
+    return when {
+        caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "WiFi"
+        caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "Celular"
+        caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "Ethernet"
+        else -> "Internet"
+    }
+}
+
 @Composable
 fun StatusPill(text: String, background: Color, foreground: Color) {
     Box(
@@ -560,25 +570,10 @@ fun StatusPill(text: String, background: Color, foreground: Color) {
     }
 }
 
-// Permissoes Focadas em RASTREAMENTO (GPS) e nao mais Bluetooth
+// Permissoes para alertas
 private fun getRequiredPermissions(): Array<String> {
     val permissions = mutableListOf<String>()
 
-    // Bluetooth
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-        permissions.add(android.Manifest.permission.BLUETOOTH_SCAN)
-        permissions.add(android.Manifest.permission.BLUETOOTH_CONNECT)
-        permissions.add(android.Manifest.permission.BLUETOOTH_ADVERTISE)
-    } else {
-        permissions.add(android.Manifest.permission.BLUETOOTH)
-        permissions.add(android.Manifest.permission.BLUETOOTH_ADMIN)
-    }
-
-    // GPS (alguns dispositivos exigem para scan BLE)
-    permissions.add(android.Manifest.permission.ACCESS_FINE_LOCATION)
-    permissions.add(android.Manifest.permission.ACCESS_COARSE_LOCATION)
-
-    // Notificacoes (Android 13+)
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         permissions.add(android.Manifest.permission.POST_NOTIFICATIONS)
     }
@@ -586,28 +581,6 @@ private fun getRequiredPermissions(): Array<String> {
     return permissions.toTypedArray()
 }
 
-
-private fun ensureBluetoothAndStart(
-    context: Context,
-    pendingEnableBluetooth: MutableState<Boolean>,
-    enableBluetoothLauncher: ActivityResultLauncher<Intent>,
-    isCar: Boolean,
-    notifyRemote: Boolean,
-    alarmLocal: Boolean,
-    alarmRemote: Boolean
-) {
-    val adapter = BluetoothAdapter.getDefaultAdapter()
-    if (adapter == null) {
-        Toast.makeText(context, "Bluetooth nao suportado neste dispositivo", Toast.LENGTH_SHORT).show()
-        return
-    }
-    if (!adapter.isEnabled) {
-        pendingEnableBluetooth.value = true
-        enableBluetoothLauncher.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
-        return
-    }
-    startGuardianService(context, isCar, notifyRemote, alarmLocal, alarmRemote)
-}
 
 
 private fun startGuardianService(
@@ -617,13 +590,14 @@ private fun startGuardianService(
     alarmLocal: Boolean,
     alarmRemote: Boolean
 ) {
-    // Inicia o Servico que agora vai usar Firestore listener ou GPS Updates
+    // Inicia o Servico que agora vai usar Firestore
     val intent = Intent(context, AnjoDaGuardaService::class.java).apply {
         action = AnjoDaGuardaService.ACTION_START
         putExtra(AnjoDaGuardaService.EXTRA_IS_CAR, isCar)
         putExtra(AnjoDaGuardaService.EXTRA_NOTIFY_REMOTE, notifyRemote)
         putExtra(AnjoDaGuardaService.EXTRA_ALARM_LOCAL, alarmLocal)
         putExtra(AnjoDaGuardaService.EXTRA_ALARM_REMOTE, alarmRemote)
+        putExtra(AnjoDaGuardaService.EXTRA_ARMED, true)
     }
 
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -633,10 +607,21 @@ private fun startGuardianService(
     }
 }
 
-private fun stopGuardianService(context: Context) {
+private fun pauseGuardianService(
+    context: Context,
+    isCar: Boolean,
+    notifyRemote: Boolean,
+    alarmLocal: Boolean,
+    alarmRemote: Boolean
+) {
     Toast.makeText(context, "Alertas do guardiao serao apagados", Toast.LENGTH_SHORT).show()
     val intent = Intent(context, AnjoDaGuardaService::class.java).apply {
-        action = AnjoDaGuardaService.ACTION_STOP
+        action = AnjoDaGuardaService.ACTION_PAUSE
+        putExtra(AnjoDaGuardaService.EXTRA_IS_CAR, isCar)
+        putExtra(AnjoDaGuardaService.EXTRA_NOTIFY_REMOTE, notifyRemote)
+        putExtra(AnjoDaGuardaService.EXTRA_ALARM_LOCAL, alarmLocal)
+        putExtra(AnjoDaGuardaService.EXTRA_ALARM_REMOTE, alarmRemote)
+        putExtra(AnjoDaGuardaService.EXTRA_ARMED, false)
     }
     context.startService(intent)
 }

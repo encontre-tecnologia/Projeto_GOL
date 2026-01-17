@@ -26,6 +26,7 @@ import android.bluetooth.le.ScanSettings
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.BroadcastReceiver
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
@@ -56,10 +57,12 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
     companion object {
         const val ACTION_START = "br.com.gui.carlembrete.guardian.START"
         const val ACTION_STOP = "br.com.gui.carlembrete.guardian.STOP"
+        const val ACTION_PAUSE = "br.com.gui.carlembrete.guardian.PAUSE"
         const val EXTRA_IS_CAR = "extra_is_car"
         const val EXTRA_NOTIFY_REMOTE = "extra_notify_remote"
         const val EXTRA_ALARM_LOCAL = "extra_alarm_local"
         const val EXTRA_ALARM_REMOTE = "extra_alarm_remote"
+        const val EXTRA_ARMED = "extra_armed"
 
         private const val CHANNEL_ID = "guardian_channel"
         private const val NOTIF_ID = 4401
@@ -68,9 +71,12 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
         private val CHAR_ALERT_UUID = UUID.fromString("a2c0e0a2-2b49-4c91-9b4c-3f0e0a8b0b0f")
         private val DESC_CCCD_UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
         private const val TAG = "AnjoDaGuarda"
+        @Volatile
+        var bleConnected: Boolean = false
     }
 
     private var isCarMode = true
+    private var isArmed = true
     private var notifyRemote = true
     private var alarmLocal = true
     private var alarmRemote = true
@@ -91,10 +97,15 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
     private var lastAlertTimestamp: Timestamp? = null
     private var lastAlertMillis: Long = 0L
     private var lastBleAlertMillis: Long = 0L
+    private var lastOwnerAlertAt: Long = 0L
     private var alarmTrack: AudioTrack? = null
     private var lastSoundAt: Long = 0L
     private var previousAlarmVolume: Int? = null
     private var batteryReceiver: android.content.BroadcastReceiver? = null
+    private var bluetoothStateReceiver: BroadcastReceiver? = null
+    private val bleHandler = Handler(Looper.getMainLooper())
+    private var bleWatchdogActive = false
+    private var lastScanRestartAt: Long = 0L
     private var lowBatterySent = false
     private var unpluggedSent = false
     private var lastCharging: Boolean? = null
@@ -117,26 +128,52 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
                 stopSelf()
                 return START_NOT_STICKY
             }
+            ACTION_PAUSE -> {
+                clearFirestoreAlerts()
+                isArmed = false
+                isCarMode = intent.getBooleanExtra(EXTRA_IS_CAR, isCarMode)
+                notifyRemote = intent.getBooleanExtra(EXTRA_NOTIFY_REMOTE, notifyRemote)
+                alarmLocal = intent.getBooleanExtra(EXTRA_ALARM_LOCAL, alarmLocal)
+                alarmRemote = intent.getBooleanExtra(EXTRA_ALARM_REMOTE, alarmRemote)
+            }
             ACTION_START -> {
                 isCarMode = intent.getBooleanExtra(EXTRA_IS_CAR, true)
+                isArmed = intent.getBooleanExtra(EXTRA_ARMED, true)
                 notifyRemote = intent.getBooleanExtra(EXTRA_NOTIFY_REMOTE, true)
                 alarmLocal = intent.getBooleanExtra(EXTRA_ALARM_LOCAL, true)
                 alarmRemote = intent.getBooleanExtra(EXTRA_ALARM_REMOTE, true)
             }
         }
 
-        startForeground(NOTIF_ID, buildStatusNotification("Vigia ativo"))
+        if (isCarMode) {
+            stopFirestoreListener()
+            stopOwnerAlarm()
+        } else {
+            stopMotionMonitor()
+            stopBatteryMonitor()
+        }
+
+        startForeground(
+            NOTIF_ID,
+            buildStatusNotification(if (isArmed) "Vigia ativo" else "Vigia pausado")
+        )
 
         if (isCarMode) {
-            startMotionMonitor()
-            startBleAdvertiser()
-            startGattServer()
-            startBatteryMonitor()
+            if (isArmed) {
+                startMotionMonitor()
+                startBatteryMonitor()
+            } else {
+                stopMotionMonitor()
+                stopBatteryMonitor()
+            }
         } else {
             lastAlertMillis = System.currentTimeMillis()
             lastAlertTimestamp = Timestamp.now()
-            startBleScanner()
-            startFirestoreListener()
+            if (isArmed) {
+                startFirestoreListener()
+            } else {
+                stopFirestoreListener()
+            }
         }
 
         return START_STICKY
@@ -144,13 +181,10 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
 
     override fun onDestroy() {
         stopMotionMonitor()
-        stopBleAdvertiser()
-        stopBleScanner()
-        stopGattServer()
-        closeGattClient()
         stopFirestoreListener()
         stopBatteryMonitor()
         stopOwnerAlarm()
+        bleConnected = false
         super.onDestroy()
     }
 
@@ -179,9 +213,9 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
     }
 
     private fun handleMotionDetected() {
+        if (!isArmed) return
         showAlertNotification("Movimento detectado")
         if (notifyRemote) {
-            notifyBleClients()
             sendFirestoreAlert("Movimento")
         }
     }
@@ -189,6 +223,7 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
     private fun startBleAdvertiser() {
         if (adapter?.isEnabled != true) return
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) return
+        if (advertiser != null) return
         advertiser = adapter?.bluetoothLeAdvertiser
         val settings = AdvertiseSettings.Builder()
             .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
@@ -211,6 +246,7 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
 
     private fun startGattServer() {
         if (adapter?.isEnabled != true) return
+        if (gattServer != null) return
         gattServer = bluetoothManager?.openGattServer(this, gattServerCallback)
         val service = BluetoothGattService(SERVICE_UUID, BluetoothGattService.SERVICE_TYPE_PRIMARY)
         val characteristic = BluetoothGattCharacteristic(
@@ -238,8 +274,10 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
             if (device == null) return
             if (newState == BluetoothGatt.STATE_CONNECTED) {
                 connectedDevices.add(device)
+                bleConnected = true
             } else {
                 connectedDevices.remove(device)
+                bleConnected = connectedDevices.isNotEmpty()
             }
         }
 
@@ -278,6 +316,7 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
 
     private fun startBleScanner() {
         if (adapter?.isEnabled != true) return
+        if (scanner != null) return
         scanner = adapter?.bluetoothLeScanner
         val filter = ScanFilter.Builder()
             .setServiceUuid(ParcelUuid(SERVICE_UUID))
@@ -299,15 +338,23 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
             if (gattClient != null) return
             gattClient = device.connectGatt(this@AnjoDaGuardaService, false, gattCallback)
         }
+
+        override fun onScanFailed(errorCode: Int) {
+            Log.w(TAG, "Scan BLE falhou: $errorCode")
+            restartBleScanWithDelay()
+        }
     }
 
     private val gattCallback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(gatt: BluetoothGatt?, status: Int, newState: Int) {
             if (newState == BluetoothGatt.STATE_CONNECTED) {
+                bleConnected = true
                 gatt?.discoverServices()
             } else if (newState == BluetoothGatt.STATE_DISCONNECTED) {
                 gatt?.close()
                 gattClient = null
+                bleConnected = false
+                restartBleScanWithDelay()
             }
         }
 
@@ -354,8 +401,65 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
         gattClient = null
     }
 
+    private fun startBleWatchdog() {
+        if (bleWatchdogActive) return
+        bleWatchdogActive = true
+        bleHandler.post(bleWatchdog)
+    }
+
+    private fun stopBleWatchdog() {
+        bleWatchdogActive = false
+        bleHandler.removeCallbacks(bleWatchdog)
+    }
+
+    private val bleWatchdog = object : Runnable {
+        override fun run() {
+            if (!bleWatchdogActive) return
+            if (!isCarMode && gattClient == null) {
+                restartBleScanWithDelay()
+            }
+            bleHandler.postDelayed(this, 20000)
+        }
+    }
+
+    private fun restartBleScanWithDelay() {
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastScanRestartAt < 2000) return
+        lastScanRestartAt = now
+        bleHandler.postDelayed({
+            if (!isCarMode) {
+                stopBleScanner()
+                startBleScanner()
+            }
+        }, 1200)
+    }
+
+    private fun registerBluetoothStateReceiver() {
+        if (bluetoothStateReceiver != null) return
+        bluetoothStateReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                if (intent.action != BluetoothAdapter.ACTION_STATE_CHANGED) return
+                val state = intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR)
+                if (state == BluetoothAdapter.STATE_ON && !isCarMode) {
+                    restartBleScanWithDelay()
+                } else if (state == BluetoothAdapter.STATE_OFF) {
+                    stopBleScanner()
+                    closeGattClient()
+                }
+            }
+        }
+        registerReceiver(bluetoothStateReceiver, IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED))
+    }
+
+    private fun unregisterBluetoothStateReceiver() {
+        bluetoothStateReceiver?.let { receiver ->
+            unregisterReceiver(receiver)
+        }
+        bluetoothStateReceiver = null
+    }
+
     private fun startFirestoreListener() {
-        if (!notifyRemote) return
+        if (!notifyRemote || !isArmed) return
         val uid = FirebaseAuth.getInstance().currentUser?.uid
         if (uid == null) {
             Log.w(TAG, "Sem login para escutar alertas remotos")
@@ -379,10 +483,7 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
                     if (clientMillis > lastAlertMillis) {
                         lastAlertMillis = clientMillis
                         Log.d(TAG, "Alerta remoto recebido (clientMillis)")
-                        showAlertNotification("Movimento no carro detectado")
-                        if (alarmRemote) {
-                            playOwnerAlarm()
-                        }
+                        handleOwnerAlert("Movimento no carro detectado")
                     }
                     return@addSnapshotListener
                 }
@@ -391,10 +492,7 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
                 if (lastTs == null || ts > lastTs) {
                     lastAlertTimestamp = ts
                     Log.d(TAG, "Alerta remoto recebido (timestamp)")
-                    showAlertNotification("Movimento no carro detectado")
-                    if (alarmRemote) {
-                        playOwnerAlarm()
-                    }
+                    handleOwnerAlert("Movimento no carro detectado")
                 }
             }
     }
@@ -488,6 +586,7 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
 
     private fun handleBleAlert(characteristic: BluetoothGattCharacteristic?) {
         if (characteristic?.uuid != CHAR_ALERT_UUID) return
+        if (!isArmed) return
         val value = characteristic.value ?: return
         val alertMillis = if (value.size >= 8) {
             ByteBuffer.wrap(value).long
@@ -496,7 +595,15 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
         }
         if (alertMillis <= lastBleAlertMillis) return
         lastBleAlertMillis = alertMillis
-        showAlertNotification("Movimento no carro detectado")
+        handleOwnerAlert("Movimento no carro detectado")
+    }
+
+    private fun handleOwnerAlert(message: String) {
+        if (isCarMode) return
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastOwnerAlertAt < 3000) return
+        lastOwnerAlertAt = now
+        showAlertNotification(message)
         if (alarmRemote) {
             playOwnerAlarm()
         }
@@ -519,7 +626,6 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
                     unpluggedSent = true
                     showAlertNotification("Celular do carro desconectado da energia")
                     if (notifyRemote) {
-                        notifyBleClients()
                         sendFirestoreAlert("Energia desconectada")
                     }
                 }
@@ -531,7 +637,6 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
                     lowBatterySent = true
                     showAlertNotification("Bateria baixa no carro (${percent}%)")
                     if (notifyRemote) {
-                        notifyBleClients()
                         sendFirestoreAlert("Bateria baixa ${percent}%")
                     }
                 } else if (percent >= 95) {
