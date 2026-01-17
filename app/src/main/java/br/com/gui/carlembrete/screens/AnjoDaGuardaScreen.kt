@@ -1,65 +1,40 @@
 package br.com.gui.carlembrete
 
+import android.app.KeyguardManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
-import android.app.KeyguardManager
 import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CloudSync
-import androidx.compose.material.icons.filled.GpsFixed
-import androidx.compose.material.icons.filled.NotificationsActive
-import androidx.compose.material.icons.filled.Shield
-import androidx.compose.material.icons.filled.VolumeUp
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ElevatedCard
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.MutableState
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
-import android.content.pm.PackageManager
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
@@ -72,47 +47,70 @@ import java.time.format.DateTimeFormatter
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AnjoDaGuardaScreen(onDismiss: () -> Unit) {
-    // Paleta Dark Mode Premium
-    val primaryDark = Color(0xFF0F172A)
-    val surfaceDark = Color(0xFF1E293B)
-    val textLight = Color(0xFFF1F5F9)
-    val textDim = Color(0xFF94A3B8)
-    val accent = Color(0xFF3B82F6) // Azul tecnologico
-    val accentSoft = Color(0xFF1E3A8A)
-    val cardStroke = Color(0xFF273449)
-    val danger = Color(0xFFEF4444) // Vermelho alerta
+    // --- Cores do Tema ---
+    val bgDark = Color(0xFF0B1120)
+    val cardBg = Color(0xFF1E293B)
+    val accentBlue = Color(0xFF3B82F6)
+    val accentRed = Color(0xFFEF4444)
+    val successGreen = Color(0xFF10B981)
+    val textPrimary = Color(0xFFF8FAFC)
+    val textSecondary = Color(0xFF94A3B8)
 
     val context = LocalContext.current
 
-    // Estados
-    val isArmed = remember { mutableStateOf(false) }
-    val notifyRemote = remember { mutableStateOf(true) }
-    val alarmLocal = remember { mutableStateOf(true) }
-    val alarmRemote = remember { mutableStateOf(true) }
-    val isCarMode = remember { mutableStateOf(true) } // True = Celular no Carro, False = Dono
+    // --- Estados Reativos ---
+    var isArmed by remember { mutableStateOf(false) }
+    var isTriggered by remember { mutableStateOf(false) } // Estado do Alerta Visual
+
+    var notifyRemote by remember { mutableStateOf(true) }
+    var alarmLocal by remember { mutableStateOf(true) }
+    var alarmRemote by remember { mutableStateOf(true) }
+    var isCarMode by remember { mutableStateOf(true) }
+
     val isLogged = FirebaseAuth.getInstance().currentUser != null
-    val alertItems = remember { mutableStateOf<List<String>>(emptyList()) }
+    var alertItems by remember { mutableStateOf<List<String>>(emptyList()) }
     val formatter = remember { DateTimeFormatter.ofPattern("dd/MM HH:mm") }
-    val isAuthenticated = remember { mutableStateOf(false) }
-    val authLaunched = remember { mutableStateOf(false) }
-    val networkLabel = remember { mutableStateOf("Sem internet") }
- 
-    // Launcher de Permissoes (Agora focado em Notificacao)
+    var isAuthenticated by remember { mutableStateOf(false) }
+    var authLaunched by remember { mutableStateOf(false) }
+    var networkLabel by remember { mutableStateOf("Verificando...") }
+
+    // --- Lógica Visual Dinâmica ---
+    val statusColor = when {
+        isTriggered -> accentRed       // 1. Vermelho (Alerta temporário)
+        isArmed -> successGreen        // 2. Verde (Monitorando)
+        else -> textSecondary          // 3. Cinza (Desligado)
+    }
+
+    val statusIcon = when {
+        isTriggered -> Icons.Filled.Warning
+        isArmed -> Icons.Filled.Lock
+        else -> Icons.Filled.LockOpen
+    }
+
+    val statusText = when {
+        isTriggered -> "ALERTA!"
+        isArmed -> "ARMADO"
+        else -> "DESARMADO"
+    }
+
+    // --- TIMER DE RESET RÁPIDO ---
+    LaunchedEffect(isTriggered) {
+        if (isTriggered) {
+            // AGORA SÃO APENAS 5 SEGUNDOS (5000ms)
+            delay(5_000L)
+            isTriggered = false
+        }
+    }
+
+    // --- Launchers ---
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { granted ->
-        val allGranted = granted.values.all { it }
-        if (allGranted) {
-            startGuardianService(
-                context = context,
-                isCar = isCarMode.value,
-                notifyRemote = notifyRemote.value,
-                alarmLocal = alarmLocal.value,
-                alarmRemote = alarmRemote.value
-            )
+        if (granted.values.all { it }) {
+            startGuardianService(context, isCarMode, notifyRemote, alarmLocal, alarmRemote)
         } else {
-            Toast.makeText(context, "Sem permissao de notificacao, os alertas nao vao aparecer.", Toast.LENGTH_LONG).show()
-            isArmed.value = false
+            Toast.makeText(context, "Permissão negada! O sistema não funcionará corretamente.", Toast.LENGTH_LONG).show()
+            isArmed = false
         }
     }
 
@@ -120,35 +118,28 @@ fun AnjoDaGuardaScreen(onDismiss: () -> Unit) {
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == android.app.Activity.RESULT_OK) {
-            isAuthenticated.value = true
+            isAuthenticated = true
         } else {
             onDismiss()
         }
     }
 
+    // --- Efeitos e Lógica ---
     DisposableEffect(Unit) {
-        if (!authLaunched.value) {
-            authLaunched.value = true
+        if (!authLaunched) {
+            authLaunched = true
             val keyguard = context.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
             if (keyguard.isKeyguardSecure) {
-                val intent = keyguard.createConfirmDeviceCredentialIntent(
-                    "Anjo da Guarda",
-                    "Confirme sua senha para acessar"
-                )
-                if (intent != null) {
-                    authLauncher.launch(intent)
-                } else {
-                    isAuthenticated.value = true
-                }
+                val intent = keyguard.createConfirmDeviceCredentialIntent("Acesso Seguro", "Confirme para acessar")
+                if (intent != null) authLauncher.launch(intent) else isAuthenticated = true
             } else {
-                Toast.makeText(context, "Configure uma senha no celular para proteger esta tela", Toast.LENGTH_LONG).show()
-                isAuthenticated.value = true
+                Toast.makeText(context, "Recomendado: Use senha no celular.", Toast.LENGTH_LONG).show()
+                isAuthenticated = true
             }
         }
         onDispose { }
     }
 
-    // Listener do Firestore para mostrar o Log de Eventos
     DisposableEffect(isLogged) {
         var registration: ListenerRegistration? = null
         val uid = FirebaseAuth.getInstance().currentUser?.uid
@@ -160,17 +151,25 @@ fun AnjoDaGuardaScreen(onDismiss: () -> Unit) {
                 .orderBy("timestamp", Query.Direction.DESCENDING)
                 .limit(10)
                 .addSnapshotListener { snapshot, _ ->
+                    val latestDoc = snapshot?.documents?.firstOrNull()
+                    val latestType = latestDoc?.getString("type") ?: ""
+                    val latestTs = latestDoc?.getTimestamp("timestamp")?.toDate()?.time ?: 0L
+
+                    val now = System.currentTimeMillis()
+                    // Verifica se o evento é "novo" (menos de 1 minuto pra garantir)
+                    val isRecent = (now - latestTs) < 60_000L
+
+                    if (isArmed && isRecent && (latestType.contains("Movimento", ignoreCase = true) || latestType.contains("Roubo", ignoreCase = true))) {
+                        isTriggered = true
+                    }
+
                     val items = snapshot?.documents?.map { doc ->
                         val ts = doc.getTimestamp("timestamp")?.toDate()?.time
                         val type = doc.getString("type") ?: "Alerta"
-                        val timeLabel = if (ts != null) {
-                            Instant.ofEpochMilli(ts)
-                                .atZone(ZoneId.systemDefault())
-                                .format(formatter)
-                        } else "--:--"
-                        "$timeLabel - $type"
+                        val timeLabel = if (ts != null) Instant.ofEpochMilli(ts).atZone(ZoneId.systemDefault()).format(formatter) else "--:--"
+                        "$timeLabel • $type"
                     } ?: emptyList()
-                    alertItems.value = items
+                    alertItems = items
                 }
         }
         onDispose { registration?.remove() }
@@ -178,419 +177,292 @@ fun AnjoDaGuardaScreen(onDismiss: () -> Unit) {
 
     LaunchedEffect(Unit) {
         while (true) {
-            networkLabel.value = getNetworkLabel(context)
-            delay(1200)
+            networkLabel = getNetworkLabel(context)
+            delay(2000)
         }
     }
 
+    // --- UI Principal ---
     Scaffold(
-        containerColor = primaryDark,
-        topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text(
-                            text = "Anjo da Guarda",
-                            color = textLight,
-                            fontWeight = FontWeight.Bold,
-                            style = MaterialTheme.typography.titleMedium
-                        )
-                        Text(
-                            text = "Sistema Anti-Furto via Nuvem",
-                            color = textDim,
-                            style = MaterialTheme.typography.bodySmall,
-                            fontSize = 10.sp
-                        )
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.Shield, contentDescription = "Voltar", tint = textLight)
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = primaryDark)
-            )
-        }
+        containerColor = bgDark
     ) { innerPadding ->
-        if (!isAuthenticated.value) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
-                contentAlignment = Alignment.Center
-            ) {
-                Text("Autenticando...", color = textDim)
+        if (!isAuthenticated) {
+            Box(Modifier.fillMaxSize().padding(innerPadding), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = accentBlue)
             }
             return@Scaffold
         }
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(horizontal = 16.dp, vertical = 12.dp)
                 .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // CARD PRINCIPAL: Configuracao do Modo
-            ElevatedCard(
-                colors = CardDefaults.cardColors(containerColor = surfaceDark),
-                shape = RoundedCornerShape(18.dp),
-                modifier = Modifier.fillMaxWidth()
+
+            // 1. Top Bar
+            CenterAlignedTopAppBar(
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Filled.Shield, contentDescription = null, tint = accentBlue, modifier = Modifier.size(24.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("ANJO DA GUARDA", color = textPrimary, fontWeight = FontWeight.Black, style = MaterialTheme.typography.titleMedium)
+                    }
+                },
+                navigationIcon = {
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Filled.ArrowBack, contentDescription = "Voltar", tint = textSecondary)
+                    }
+                },
+                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent)
+            )
+
+            Spacer(Modifier.height(48.dp))
+
+            Column(
+                modifier = Modifier.padding(horizontal = 20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(24.dp)
             ) {
-                Column(
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 20.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(Icons.Default.CloudSync, contentDescription = null, tint = accent)
-                        Text("Modo Sentinela 24h", color = textLight, fontWeight = FontWeight.SemiBold)
-                        Spacer(Modifier.weight(1f))
-                        StatusPill(
-                            text = if (isArmed.value) "ATIVO" else "PAUSADO",
-                            background = if (isArmed.value) Color(0xFF0EA5E9).copy(alpha = 0.18f) else Color(0xFF334155),
-                            foreground = if (isArmed.value) Color(0xFF38BDF8) else textDim
-                        )
-                    }
-                    Spacer(Modifier.height(8.dp))
 
-                    // Seletor de Perfil (Carro vs Dono)
-                    Text(
-                        text = "Escolha um perfil:",
-                        color = textLight,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.fillMaxWidth(),
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        OutlinedButton(
-                            onClick = {
-                                isCarMode.value = true
-                                if (isArmed.value) {
-                                    startGuardianService(
-                                        context = context,
-                                        isCar = true,
-                                        notifyRemote = notifyRemote.value,
-                                        alarmLocal = alarmLocal.value,
-                                        alarmRemote = alarmRemote.value
-                                    )
-                                }
-                            },
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(64.dp),
-                            border = BorderStroke(1.dp, if (isCarMode.value) accent else cardStroke),
-                            shape = RoundedCornerShape(10.dp),
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                containerColor = if (isCarMode.value) accentSoft else Color.Transparent,
-                                contentColor = if (isCarMode.value) textLight else textDim
-                            )
-                        ) {
-                            Icon(Icons.Default.GpsFixed, contentDescription = null, modifier = Modifier.size(20.dp), tint = if(isCarMode.value) textLight else textDim)
-                            Spacer(Modifier.padding(6.dp))
-                            Text(
-                                text = "Carro",
-                                color = if (isCarMode.value) textLight else textDim,
-                                fontSize = 16.sp,
-                                maxLines = 1
-                            )
-                        }
-                        OutlinedButton(
-                            onClick = {
-                                isCarMode.value = false
-                                if (isArmed.value) {
-                                    startGuardianService(
-                                        context = context,
-                                        isCar = false,
-                                        notifyRemote = notifyRemote.value,
-                                        alarmLocal = alarmLocal.value,
-                                        alarmRemote = alarmRemote.value
-                                    )
-                                }
-                            },
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(64.dp),
-                            border = BorderStroke(1.dp, if (!isCarMode.value) accent else cardStroke),
-                            shape = RoundedCornerShape(10.dp),
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                containerColor = if (!isCarMode.value) accentSoft else Color.Transparent,
-                                contentColor = if (!isCarMode.value) textLight else textDim
-                            )
-                        ) {
-                            Icon(Icons.Default.NotificationsActive, contentDescription = null, modifier = Modifier.size(20.dp), tint = if(!isCarMode.value) textLight else textDim)
-                            Spacer(Modifier.padding(6.dp))
-                            Text(
-                                text = "Dono",
-                                color = if (!isCarMode.value) textLight else textDim,
-                                fontSize = 16.sp,
-                                maxLines = 1
-                            )
-                        }
-                    }
+                // 2. Botão Principal (Radar)
+                Box(contentAlignment = Alignment.Center) {
+                    RadarAnimation(isArmed || isTriggered, statusColor)
 
-                    HorizontalDivider(color = cardStroke)
+                    Button(
+                        onClick = {
+                            val newState = !isArmed
+                            isArmed = newState
 
-                    // Texto explicativo dinamico
-                    Text(
-                        text = if (isCarMode.value)
-                            "Esconda este celular no carro. Ele envia localizacao e alertas via Internet se detectar movimento."
-                        else
-                            "Este celular recebe os alertas de roubo onde quer que voce esteja.",
-                        color = textDim,
-                        fontSize = 12.sp,
-                        lineHeight = 16.sp
-                    )
-                    Text(
-                        text = "Rede: " + networkLabel.value,
-                        color = textDim,
-                        fontSize = 11.sp
-                    )
+                            if (newState) {
+                                val permissions = getRequiredPermissions()
+                                val missing = permissions.filter { ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED }
 
-                    // Switch Principal
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(if (isArmed.value) "MONITORANDO" else "Desativado", color = if(isArmed.value) accent else textDim, fontWeight = FontWeight.Bold)
-                        Switch(
-                            checked = isArmed.value,
-                            onCheckedChange = { checked ->
-                                isArmed.value = checked
-                                if (checked) {
-                                    val permissions = getRequiredPermissions()
-                                    // Verifica se tem permissao faltando
-                                    val missing = permissions.filter {
-                                        ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
-                                    }
-
-                                    if (missing.isNotEmpty()) {
-                                        permissionLauncher.launch(missing.toTypedArray())
-                                    } else {
-                                        startGuardianService(
-                                            context = context,
-                                            isCar = isCarMode.value,
-                                            notifyRemote = notifyRemote.value,
-                                            alarmLocal = alarmLocal.value,
-                                            alarmRemote = alarmRemote.value
-                                        )
-                                    }
+                                if (missing.isNotEmpty()) {
+                                    permissionLauncher.launch(missing.toTypedArray())
                                 } else {
-                                    pauseGuardianService(
-                                        context = context,
-                                        isCar = isCarMode.value,
-                                        notifyRemote = notifyRemote.value,
-                                        alarmLocal = alarmLocal.value,
-                                        alarmRemote = alarmRemote.value
-                                    )
+                                    startGuardianService(context, isCarMode, notifyRemote, alarmLocal, alarmRemote)
                                 }
-                            },
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = accent,
-                                checkedTrackColor = accent.copy(alpha = 0.5f)
+                            } else {
+                                isTriggered = false
+                                pauseGuardianService(context, isCarMode, notifyRemote, alarmLocal, alarmRemote)
+                            }
+                        },
+                        modifier = Modifier.size(160.dp),
+                        shape = CircleShape,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = statusColor.copy(alpha = 0.2f),
+                        ),
+                        border = BorderStroke(2.dp, if (isArmed || isTriggered) statusColor else textSecondary.copy(alpha = 0.3f)),
+                        contentPadding = PaddingValues(0.dp)
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                imageVector = statusIcon,
+                                contentDescription = null,
+                                modifier = Modifier.size(48.dp),
+                                tint = statusColor
                             )
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                text = statusText,
+                                color = statusColor,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp
+                            )
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(24.dp))
+
+                // 3. Status da Rede
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Wifi, null, tint = if(networkLabel.contains("Sem")) accentRed else successGreen, modifier = Modifier.size(14.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(networkLabel.uppercase(), color = textSecondary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+
+                HorizontalDivider(color = cardBg, thickness = 1.dp)
+
+                // 4. Seletor de Modo
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text("PERFIL DE OPERAÇÃO", color = textSecondary, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                    Spacer(Modifier.height(12.dp))
+
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        ModeSelectionCard(
+                            title = "MÓDULO CARRO",
+                            desc = "Fica no veículo",
+                            icon = Icons.Filled.DirectionsCar,
+                            isSelected = isCarMode,
+                            color = accentBlue,
+                            onClick = {
+                                isCarMode = true
+                                if(isArmed) updateService(context, true, notifyRemote, alarmLocal, alarmRemote)
+                            },
+                            modifier = Modifier.weight(1f)
+                        )
+                        ModeSelectionCard(
+                            title = "MÓDULO DONO",
+                            desc = "Recebe alertas",
+                            icon = Icons.Filled.Smartphone,
+                            isSelected = !isCarMode,
+                            color = accentBlue,
+                            onClick = {
+                                isCarMode = false
+                                if(isArmed) updateService(context, false, notifyRemote, alarmLocal, alarmRemote)
+                            },
+                            modifier = Modifier.weight(1f)
                         )
                     }
                 }
-            }
 
-
-            // Instrucoes Rapidas
-            ElevatedCard(
-                colors = CardDefaults.cardColors(containerColor = surfaceDark),
-                shape = RoundedCornerShape(18.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text("Como funciona?", color = textLight, fontWeight = FontWeight.Bold)
-                    StepText("1. Esconda o celular velho no carro ligado a um powerbank ou USB.")
-                    StepText("2. Ative o 'Modo Sentinela' no celular do carro.")
-                    StepText("3. Se o carro mover, voce recebe o alerta onde estiver.")
-                }
-            }
-
-            // Log de Eventos
-            ElevatedCard(
-                colors = CardDefaults.cardColors(containerColor = surfaceDark),
-                shape = RoundedCornerShape(18.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text("Historico de Atividade", color = textLight, fontWeight = FontWeight.Bold)
-                    if (alertItems.value.isEmpty()) {
-                        Text("Nenhum evento registrado hoje.", color = textDim, fontSize = 12.sp)
-                    } else {
-                        alertItems.value.forEach { item ->
-                            Text(item, color = textDim, fontSize = 12.sp)
-                        }
+                // 5. Configurações
+                if (isCarMode) {
+                    SettingToggleRow("Sirene Local", "Toca alarme alto no veículo", alarmLocal, accentRed) {
+                        alarmLocal = it
+                        updateService(context, true, notifyRemote, it, alarmRemote)
+                    }
+                } else {
+                    SettingToggleRow("Alerta Sonoro", "Tocar som no seu celular", alarmRemote, accentRed) {
+                        alarmRemote = it
+                        updateService(context, false, notifyRemote, alarmLocal, it)
                     }
                 }
-            }
 
-
-            // Opcoes Avancadas
-            if (isCarMode.value) {
-                ElevatedCard(
-                    colors = CardDefaults.cardColors(containerColor = surfaceDark),
-                    shape = RoundedCornerShape(18.dp),
+                // 6. Logs de Sistema
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, Color(0xFF334155)),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Text("Configuracao de Disparo", color = textLight, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-
-                        // Opcao de Sirene
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Icon(Icons.Default.VolumeUp, contentDescription = null, tint = danger)
-                                Column {
-                                    Text("Sirene Local (Max. Vol)", color = textLight)
-                                    Text("Toca alarme no carro ao detectar roubo", color = textDim, fontSize = 10.sp)
-                                }
+                    Column(Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Filled.Terminal, null, tint = textSecondary, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("SYSTEM_LOGS", color = textSecondary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                        Spacer(Modifier.height(12.dp))
+                        if (alertItems.isEmpty()) {
+                            Text("> Aguardando eventos...", color = Color(0xFF64748B), fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace, fontSize = 12.sp)
+                        } else {
+                            alertItems.forEach { item ->
+                                val itemColor = if (item.contains("Roubo") || item.contains("Movimento")) accentRed else successGreen
+                                Text("> $item", color = itemColor, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace, fontSize = 12.sp)
+                                Spacer(Modifier.height(4.dp))
                             }
-                            Switch(
-                                checked = alarmLocal.value,
-                                onCheckedChange = { alarmLocal.value = it },
-                                colors = SwitchDefaults.colors(
-                                    checkedThumbColor = danger,
-                                    checkedTrackColor = danger.copy(alpha = 0.5f)
-                                )
-                            )
                         }
                     }
                 }
-            } else {
-                ElevatedCard(
-                    colors = CardDefaults.cardColors(containerColor = surfaceDark),
-                    shape = RoundedCornerShape(18.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Text("Alertas do Dono", color = textLight, fontWeight = FontWeight.Bold, fontSize = 14.sp)
 
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Icon(Icons.Default.VolumeUp, contentDescription = null, tint = danger)
-                                Column {
-                                    Text("Sirene no dono", color = textLight)
-                                    Text("Silencie a sirene e deixe so a notificacao", color = textDim, fontSize = 10.sp)
-                                }
-                            }
-                            Switch(
-                                checked = alarmRemote.value,
-                                onCheckedChange = {
-                                    alarmRemote.value = it
-                                    if (isArmed.value && !isCarMode.value) {
-                                        startGuardianService(
-                                            context = context,
-                                            isCar = false,
-                                            notifyRemote = notifyRemote.value,
-                                            alarmLocal = alarmLocal.value,
-                                            alarmRemote = alarmRemote.value
-                                        )
-                                    }
-                                },
-                                colors = SwitchDefaults.colors(
-                                    checkedThumbColor = danger,
-                                    checkedTrackColor = danger.copy(alpha = 0.5f)
-                                )
-                            )
-                        }
-                    }
-                }
+                Spacer(Modifier.height(48.dp))
             }
-
-            OutlinedButton(
-                onClick = onDismiss,
-                modifier = Modifier.fillMaxWidth(),
-                border = BorderStroke(1.dp, Color(0xFF334155)),
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Text("Voltar", color = textLight, fontWeight = FontWeight.SemiBold)
-            }
-
-            Spacer(Modifier.height(12.dp))
         }
     }
 }
 
+// --- Componentes Auxiliares ---
 
 @Composable
-fun StepText(text: String) {
-    Text(text, color = Color(0xFF94A3B8), fontSize = 12.sp)
+fun RadarAnimation(isActive: Boolean, color: Color) {
+    if (!isActive) return
+
+    val infiniteTransition = rememberInfiniteTransition()
+    val scale by infiniteTransition.animateFloat(
+        initialValue = 1f, targetValue = 1.8f,
+        animationSpec = infiniteRepeatable(tween(2000, easing = LinearEasing), RepeatMode.Restart)
+    )
+    val alpha by infiniteTransition.animateFloat(
+        initialValue = 0.5f, targetValue = 0f,
+        animationSpec = infiniteRepeatable(tween(2000, easing = LinearEasing), RepeatMode.Restart)
+    )
+
+    Box(
+        modifier = Modifier
+            .size(160.dp)
+            .scale(scale)
+            .alpha(alpha)
+            .background(color, CircleShape)
+    )
 }
+
+@Composable
+fun ModeSelectionCard(
+    title: String, desc: String, icon: ImageVector, isSelected: Boolean, color: Color, onClick: () -> Unit, modifier: Modifier
+) {
+    val borderColor by animateColorAsState(if (isSelected) color else Color.Transparent)
+    val bgAlpha = if (isSelected) 0.15f else 0.05f
+
+    Card(
+        onClick = onClick,
+        modifier = modifier,
+        colors = CardDefaults.cardColors(containerColor = color.copy(alpha = bgAlpha)),
+        border = BorderStroke(1.dp, if (isSelected) color else Color(0xFF334155)),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Column(
+            Modifier.padding(16.dp).fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Icon(icon, null, tint = if(isSelected) color else Color(0xFF64748B), modifier = Modifier.size(32.dp))
+            Spacer(Modifier.height(8.dp))
+            Text(title, color = if(isSelected) Color.White else Color(0xFF94A3B8), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            Text(desc, color = Color(0xFF64748B), fontSize = 10.sp, lineHeight = 12.sp, textAlign = TextAlign.Center)
+        }
+    }
+}
+
+@Composable
+fun SettingToggleRow(title: String, subtitle: String, state: Boolean, activeColor: Color, onUpdate: (Boolean) -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color(0xFF1E293B), RoundedCornerShape(12.dp))
+            .padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(title, color = Color.White, fontWeight = FontWeight.Bold)
+            Text(subtitle, color = Color(0xFF94A3B8), fontSize = 12.sp)
+        }
+        Switch(
+            checked = state,
+            onCheckedChange = onUpdate,
+            colors = SwitchDefaults.colors(checkedThumbColor = activeColor, checkedTrackColor = activeColor.copy(alpha = 0.3f))
+        )
+    }
+}
+
+// --- Funções Lógicas ---
 
 private fun getNetworkLabel(context: Context): String {
     val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-    val network = cm.activeNetwork ?: return "Sem internet"
-    val caps = cm.getNetworkCapabilities(network) ?: return "Sem internet"
+    val network = cm.activeNetwork ?: return "Sem Conexão"
+    val caps = cm.getNetworkCapabilities(network) ?: return "Sem Conexão"
     return when {
-        caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "WiFi"
-        caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "Celular"
-        caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "Ethernet"
-        else -> "Internet"
+        caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "WiFi Conectado"
+        caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "Dados Móveis"
+        else -> "Online"
     }
 }
 
-@Composable
-fun StatusPill(text: String, background: Color, foreground: Color) {
-    Box(
-        modifier = Modifier
-            .background(background, RoundedCornerShape(999.dp))
-            .padding(horizontal = 10.dp, vertical = 4.dp)
-    ) {
-        Text(text = text, color = foreground, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-    }
-}
-
-// Permissoes para alertas
 private fun getRequiredPermissions(): Array<String> {
     val permissions = mutableListOf<String>()
-
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         permissions.add(android.Manifest.permission.POST_NOTIFICATIONS)
     }
-
     return permissions.toTypedArray()
 }
 
+private fun updateService(ctx: Context, isCar: Boolean, notify: Boolean, local: Boolean, remote: Boolean) {
+    startGuardianService(ctx, isCar, notify, local, remote)
+}
 
-
-private fun startGuardianService(
-    context: Context,
-    isCar: Boolean,
-    notifyRemote: Boolean,
-    alarmLocal: Boolean,
-    alarmRemote: Boolean
-) {
-    // Inicia o Servico que agora vai usar Firestore
+private fun startGuardianService(context: Context, isCar: Boolean, notifyRemote: Boolean, alarmLocal: Boolean, alarmRemote: Boolean) {
     val intent = Intent(context, AnjoDaGuardaService::class.java).apply {
         action = AnjoDaGuardaService.ACTION_START
         putExtra(AnjoDaGuardaService.EXTRA_IS_CAR, isCar)
@@ -599,7 +471,6 @@ private fun startGuardianService(
         putExtra(AnjoDaGuardaService.EXTRA_ALARM_REMOTE, alarmRemote)
         putExtra(AnjoDaGuardaService.EXTRA_ARMED, true)
     }
-
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
         ContextCompat.startForegroundService(context, intent)
     } else {
@@ -607,20 +478,10 @@ private fun startGuardianService(
     }
 }
 
-private fun pauseGuardianService(
-    context: Context,
-    isCar: Boolean,
-    notifyRemote: Boolean,
-    alarmLocal: Boolean,
-    alarmRemote: Boolean
-) {
-    Toast.makeText(context, "Alertas do guardiao serao apagados", Toast.LENGTH_SHORT).show()
+private fun pauseGuardianService(context: Context, isCar: Boolean, notifyRemote: Boolean, alarmLocal: Boolean, alarmRemote: Boolean) {
     val intent = Intent(context, AnjoDaGuardaService::class.java).apply {
         action = AnjoDaGuardaService.ACTION_PAUSE
         putExtra(AnjoDaGuardaService.EXTRA_IS_CAR, isCar)
-        putExtra(AnjoDaGuardaService.EXTRA_NOTIFY_REMOTE, notifyRemote)
-        putExtra(AnjoDaGuardaService.EXTRA_ALARM_LOCAL, alarmLocal)
-        putExtra(AnjoDaGuardaService.EXTRA_ALARM_REMOTE, alarmRemote)
         putExtra(AnjoDaGuardaService.EXTRA_ARMED, false)
     }
     context.startService(intent)
