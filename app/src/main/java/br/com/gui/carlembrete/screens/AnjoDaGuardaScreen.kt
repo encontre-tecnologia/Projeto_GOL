@@ -1,15 +1,18 @@
-﻿package br.com.gui.carlembrete
+package br.com.gui.carlembrete
 
 import android.bluetooth.BluetoothAdapter
 import android.content.Context
 import android.content.Intent
+import android.app.KeyguardManager
 import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -18,6 +21,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -32,6 +36,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
@@ -39,6 +44,7 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.MutableState
@@ -52,9 +58,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
-import androidx.core.app.NotificationManagerCompat
 import android.content.pm.PackageManager
-import androidx.compose.foundation.layout.size
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
@@ -71,7 +75,9 @@ fun AnjoDaGuardaScreen(onDismiss: () -> Unit) {
     val surfaceDark = Color(0xFF1E293B)
     val textLight = Color(0xFFF1F5F9)
     val textDim = Color(0xFF94A3B8)
-    val accent = Color(0xFF3B82F6) // Azul tecnológico
+    val accent = Color(0xFF3B82F6) // Azul tecnologico
+    val accentSoft = Color(0xFF1E3A8A)
+    val cardStroke = Color(0xFF273449)
     val danger = Color(0xFFEF4444) // Vermelho alerta
 
     val context = LocalContext.current
@@ -80,12 +86,14 @@ fun AnjoDaGuardaScreen(onDismiss: () -> Unit) {
     val isArmed = remember { mutableStateOf(false) }
     val notifyRemote = remember { mutableStateOf(true) }
     val alarmLocal = remember { mutableStateOf(true) }
+    val alarmRemote = remember { mutableStateOf(true) }
     val isCarMode = remember { mutableStateOf(true) } // True = Celular no Carro, False = Dono
     val isLogged = FirebaseAuth.getInstance().currentUser != null
     val alertItems = remember { mutableStateOf<List<String>>(emptyList()) }
     val formatter = remember { DateTimeFormatter.ofPattern("dd/MM HH:mm") }
-    val notificationsEnabled = remember { mutableStateOf(true) }
     val pendingEnableBluetooth = remember { mutableStateOf(false) }
+    val isAuthenticated = remember { mutableStateOf(false) }
+    val authLaunched = remember { mutableStateOf(false) }
 
     val enableBluetoothLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -96,12 +104,13 @@ fun AnjoDaGuardaScreen(onDismiss: () -> Unit) {
                 context = context,
                 isCar = isCarMode.value,
                 notifyRemote = notifyRemote.value,
-                alarmLocal = alarmLocal.value
+                alarmLocal = alarmLocal.value,
+                alarmRemote = alarmRemote.value
             )
         }
     }
 
-    // Launcher de Permissões (Agora focado em GPS e Notificação)
+    // Launcher de Permissoes (Agora focado em GPS e Notificacao)
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { granted ->
@@ -113,12 +122,45 @@ fun AnjoDaGuardaScreen(onDismiss: () -> Unit) {
                 enableBluetoothLauncher = enableBluetoothLauncher,
                 isCar = isCarMode.value,
                 notifyRemote = notifyRemote.value,
-                alarmLocal = alarmLocal.value
+                alarmLocal = alarmLocal.value,
+                alarmRemote = alarmRemote.value
             )
         } else {
-            Toast.makeText(context, "Sem permissão de GPS, o rastreamento falhará.", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, "Sem permissao de GPS, o rastreamento falhara.", Toast.LENGTH_LONG).show()
             isArmed.value = false
         }
+    }
+
+    val authLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK) {
+            isAuthenticated.value = true
+        } else {
+            onDismiss()
+        }
+    }
+
+    DisposableEffect(Unit) {
+        if (!authLaunched.value) {
+            authLaunched.value = true
+            val keyguard = context.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+            if (keyguard.isKeyguardSecure) {
+                val intent = keyguard.createConfirmDeviceCredentialIntent(
+                    "Anjo da Guarda",
+                    "Confirme sua senha para acessar"
+                )
+                if (intent != null) {
+                    authLauncher.launch(intent)
+                } else {
+                    isAuthenticated.value = true
+                }
+            } else {
+                Toast.makeText(context, "Configure uma senha no celular para proteger esta tela", Toast.LENGTH_LONG).show()
+                isAuthenticated.value = true
+            }
+        }
+        onDispose { }
     }
 
     // Listener do Firestore para mostrar o Log de Eventos
@@ -141,7 +183,7 @@ fun AnjoDaGuardaScreen(onDismiss: () -> Unit) {
                                 .atZone(ZoneId.systemDefault())
                                 .format(formatter)
                         } else "--:--"
-                        "$timeLabel • $type"
+                        "$timeLabel - $type"
                     } ?: emptyList()
                     alertItems.value = items
                 }
@@ -149,11 +191,6 @@ fun AnjoDaGuardaScreen(onDismiss: () -> Unit) {
         onDispose { registration?.remove() }
     }
 
-    // Checagem inicial de notificação
-    DisposableEffect(Unit) {
-        notificationsEnabled.value = NotificationManagerCompat.from(context).areNotificationsEnabled()
-        onDispose { }
-    }
 
     Scaffold(
         containerColor = primaryDark,
@@ -184,6 +221,17 @@ fun AnjoDaGuardaScreen(onDismiss: () -> Unit) {
             )
         }
     ) { innerPadding ->
+        if (!isAuthenticated.value) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("Autenticando...", color = textDim)
+            }
+            return@Scaffold
+        }
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -192,21 +240,41 @@ fun AnjoDaGuardaScreen(onDismiss: () -> Unit) {
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // CARD PRINCIPAL: Configuração do Modo
+            // CARD PRINCIPAL: Configuracao do Modo
             ElevatedCard(
                 colors = CardDefaults.cardColors(containerColor = surfaceDark),
+                shape = RoundedCornerShape(18.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 20.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
                         Icon(Icons.Default.CloudSync, contentDescription = null, tint = accent)
                         Text("Modo Sentinela 24h", color = textLight, fontWeight = FontWeight.SemiBold)
+                        Spacer(Modifier.weight(1f))
+                        StatusPill(
+                            text = if (isArmed.value) "ATIVO" else "PAUSADO",
+                            background = if (isArmed.value) Color(0xFF0EA5E9).copy(alpha = 0.18f) else Color(0xFF334155),
+                            foreground = if (isArmed.value) Color(0xFF38BDF8) else textDim
+                        )
                     }
+                    Spacer(Modifier.height(8.dp))
 
                     // Seletor de Perfil (Carro vs Dono)
+                    Text(
+                        text = "Escolha um perfil:",
+                        color = textLight,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.fillMaxWidth(),
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -221,17 +289,29 @@ fun AnjoDaGuardaScreen(onDismiss: () -> Unit) {
                                         enableBluetoothLauncher = enableBluetoothLauncher,
                                         isCar = true,
                                         notifyRemote = notifyRemote.value,
-                                        alarmLocal = alarmLocal.value
+                                        alarmLocal = alarmLocal.value,
+                                        alarmRemote = alarmRemote.value
                                     )
                                 }
                             },
-                            modifier = Modifier.weight(1f),
-                            border = BorderStroke(1.dp, if (isCarMode.value) accent else Color(0xFF334155)),
-                            shape = RoundedCornerShape(12.dp)
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(64.dp),
+                            border = BorderStroke(1.dp, if (isCarMode.value) accent else cardStroke),
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = if (isCarMode.value) accentSoft else Color.Transparent,
+                                contentColor = if (isCarMode.value) textLight else textDim
+                            )
                         ) {
-                            Icon(Icons.Default.GpsFixed, contentDescription = null, modifier = Modifier.size(16.dp), tint = if(isCarMode.value) accent else textDim)
-                            Spacer(Modifier.padding(4.dp))
-                            Text("Este é o Carro", color = if(isCarMode.value) textLight else textDim, fontSize = 12.sp)
+                            Icon(Icons.Default.GpsFixed, contentDescription = null, modifier = Modifier.size(20.dp), tint = if(isCarMode.value) textLight else textDim)
+                            Spacer(Modifier.padding(6.dp))
+                            Text(
+                                text = "Carro",
+                                color = if (isCarMode.value) textLight else textDim,
+                                fontSize = 16.sp,
+                                maxLines = 1
+                            )
                         }
                         OutlinedButton(
                             onClick = {
@@ -243,26 +323,40 @@ fun AnjoDaGuardaScreen(onDismiss: () -> Unit) {
                                         enableBluetoothLauncher = enableBluetoothLauncher,
                                         isCar = false,
                                         notifyRemote = notifyRemote.value,
-                                        alarmLocal = alarmLocal.value
+                                        alarmLocal = alarmLocal.value,
+                                        alarmRemote = alarmRemote.value
                                     )
                                 }
                             },
-                            modifier = Modifier.weight(1f),
-                            border = BorderStroke(1.dp, if (!isCarMode.value) accent else Color(0xFF334155)),
-                            shape = RoundedCornerShape(12.dp)
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(64.dp),
+                            border = BorderStroke(1.dp, if (!isCarMode.value) accent else cardStroke),
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = if (!isCarMode.value) accentSoft else Color.Transparent,
+                                contentColor = if (!isCarMode.value) textLight else textDim
+                            )
                         ) {
-                            Icon(Icons.Default.NotificationsActive, contentDescription = null, modifier = Modifier.size(16.dp), tint = if(!isCarMode.value) accent else textDim)
-                            Spacer(Modifier.padding(4.dp))
-                            Text("Sou o Dono", color = if(!isCarMode.value) textLight else textDim, fontSize = 12.sp)
+                            Icon(Icons.Default.NotificationsActive, contentDescription = null, modifier = Modifier.size(20.dp), tint = if(!isCarMode.value) textLight else textDim)
+                            Spacer(Modifier.padding(6.dp))
+                            Text(
+                                text = "Dono",
+                                color = if (!isCarMode.value) textLight else textDim,
+                                fontSize = 16.sp,
+                                maxLines = 1
+                            )
                         }
                     }
 
-                    // Texto explicativo dinâmico
+                    HorizontalDivider(color = cardStroke)
+
+                    // Texto explicativo dinamico
                     Text(
                         text = if (isCarMode.value)
-                            "Esconda este celular no carro. Ele enviará localização e alertas via Internet se detectar movimento."
+                            "Esconda este celular no carro. Ele envia localizacao e alertas via Internet se detectar movimento."
                         else
-                            "Este celular receberá os alertas de roubo onde quer que você esteja.",
+                            "Este celular recebe os alertas de roubo onde quer que voce esteja.",
                         color = textDim,
                         fontSize = 12.sp,
                         lineHeight = 16.sp
@@ -281,7 +375,7 @@ fun AnjoDaGuardaScreen(onDismiss: () -> Unit) {
                                 isArmed.value = checked
                                 if (checked) {
                                     val permissions = getRequiredPermissions()
-                                    // Verifica se tem permissão faltando
+                                    // Verifica se tem permissao faltando
                                     val missing = permissions.filter {
                                         ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
                                     }
@@ -293,7 +387,8 @@ fun AnjoDaGuardaScreen(onDismiss: () -> Unit) {
                                             context = context,
                                             isCar = isCarMode.value,
                                             notifyRemote = notifyRemote.value,
-                                            alarmLocal = alarmLocal.value
+                                            alarmLocal = alarmLocal.value,
+                                            alarmRemote = alarmRemote.value
                                         )
                                     }
                                 } else {
@@ -309,19 +404,60 @@ fun AnjoDaGuardaScreen(onDismiss: () -> Unit) {
                 }
             }
 
-            // Opções Avançadas
+
+            // Instrucoes Rapidas
+            ElevatedCard(
+                colors = CardDefaults.cardColors(containerColor = surfaceDark),
+                shape = RoundedCornerShape(18.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text("Como funciona?", color = textLight, fontWeight = FontWeight.Bold)
+                    StepText("1. Esconda o celular velho no carro ligado a um powerbank ou USB.")
+                    StepText("2. Ative o 'Modo Sentinela' no celular do carro.")
+                    StepText("3. Se o carro mover, voce recebe o alerta onde estiver.")
+                }
+            }
+
+            // Log de Eventos
+            ElevatedCard(
+                colors = CardDefaults.cardColors(containerColor = surfaceDark),
+                shape = RoundedCornerShape(18.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text("Historico de Atividade", color = textLight, fontWeight = FontWeight.Bold)
+                    if (alertItems.value.isEmpty()) {
+                        Text("Nenhum evento registrado hoje.", color = textDim, fontSize = 12.sp)
+                    } else {
+                        alertItems.value.forEach { item ->
+                            Text(item, color = textDim, fontSize = 12.sp)
+                        }
+                    }
+                }
+            }
+
+
+            // Opcoes Avancadas
             if (isCarMode.value) {
                 ElevatedCard(
                     colors = CardDefaults.cardColors(containerColor = surfaceDark),
+                    shape = RoundedCornerShape(18.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(
                         modifier = Modifier.padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Text("Configuração de Disparo", color = textLight, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Text("Configuracao de Disparo", color = textLight, fontWeight = FontWeight.Bold, fontSize = 14.sp)
 
-                        // Opção de Sirene
+                        // Opcao de Sirene
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -330,7 +466,7 @@ fun AnjoDaGuardaScreen(onDismiss: () -> Unit) {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Icon(Icons.Default.VolumeUp, contentDescription = null, tint = danger)
                                 Column {
-                                    Text("Sirene Local (Máx. Vol)", color = textLight)
+                                    Text("Sirene Local (Max. Vol)", color = textLight)
                                     Text("Toca alarme no carro ao detectar roubo", color = textDim, fontSize = 10.sp)
                                 }
                             }
@@ -345,58 +481,51 @@ fun AnjoDaGuardaScreen(onDismiss: () -> Unit) {
                         }
                     }
                 }
-            }
-
-            // Status Técnico
-            ElevatedCard(
-                colors = CardDefaults.cardColors(containerColor = surfaceDark),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+            } else {
+                ElevatedCard(
+                    colors = CardDefaults.cardColors(containerColor = surfaceDark),
+                    shape = RoundedCornerShape(18.dp),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("Diagnóstico", color = textLight, fontWeight = FontWeight.Bold)
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Text("Alertas do Dono", color = textLight, fontWeight = FontWeight.Bold, fontSize = 14.sp)
 
-                    StatusRow("Conexão Nuvem", if (isLogged) "Online (Firestore)" else "Offline", if(isLogged) Color.Green else Color.Red)
-                    StatusRow("Permissão GPS", if (hasLocationPermission(context)) "Autorizado" else "Pendente", if(hasLocationPermission(context)) Color.Green else Color.Yellow)
-                    StatusRow("Notificações", if (notificationsEnabled.value) "Ativas" else "Bloqueadas", if(notificationsEnabled.value) Color.Green else Color.Red)
-                }
-            }
-
-            // Log de Eventos
-            ElevatedCard(
-                colors = CardDefaults.cardColors(containerColor = surfaceDark),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text("Histórico de Atividade", color = textLight, fontWeight = FontWeight.Bold)
-                    if (alertItems.value.isEmpty()) {
-                        Text("Nenhum evento registrado hoje.", color = textDim, fontSize = 12.sp)
-                    } else {
-                        alertItems.value.forEach { item ->
-                            Text(item, color = textDim, fontSize = 12.sp)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Icon(Icons.Default.VolumeUp, contentDescription = null, tint = danger)
+                                Column {
+                                    Text("Sirene no dono", color = textLight)
+                                    Text("Silencie a sirene e deixe so a notificacao", color = textDim, fontSize = 10.sp)
+                                }
+                            }
+                            Switch(
+                                checked = alarmRemote.value,
+                                onCheckedChange = {
+                                    alarmRemote.value = it
+                                    if (isArmed.value && !isCarMode.value) {
+                                        startGuardianService(
+                                            context = context,
+                                            isCar = false,
+                                            notifyRemote = notifyRemote.value,
+                                            alarmLocal = alarmLocal.value,
+                                            alarmRemote = alarmRemote.value
+                                        )
+                                    }
+                                },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = danger,
+                                    checkedTrackColor = danger.copy(alpha = 0.5f)
+                                )
+                            )
                         }
                     }
-                }
-            }
-
-            // Instruções Rápidas
-            ElevatedCard(
-                colors = CardDefaults.cardColors(containerColor = surfaceDark),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text("Como funciona?", color = textLight, fontWeight = FontWeight.Bold)
-                    StepText("1. Esconda o celular velho no carro ligado a um powerbank ou USB.")
-                    StepText("2. Ative o 'Modo Sentinela' no celular do carro.")
-                    StepText("3. Se o carro mover, você recebe o alerta onde estiver.")
                 }
             }
 
@@ -414,20 +543,24 @@ fun AnjoDaGuardaScreen(onDismiss: () -> Unit) {
     }
 }
 
-@Composable
-fun StatusRow(label: String, value: String, color: Color) {
-    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-        Text(label, color = Color(0xFF94A3B8), fontSize = 12.sp)
-        Text(value, color = color, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-    }
-}
 
 @Composable
 fun StepText(text: String) {
     Text(text, color = Color(0xFF94A3B8), fontSize = 12.sp)
 }
 
-// Permissões Focadas em RASTREAMENTO (GPS) e não mais Bluetooth
+@Composable
+fun StatusPill(text: String, background: Color, foreground: Color) {
+    Box(
+        modifier = Modifier
+            .background(background, RoundedCornerShape(999.dp))
+            .padding(horizontal = 10.dp, vertical = 4.dp)
+    ) {
+        Text(text = text, color = foreground, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
+// Permissoes Focadas em RASTREAMENTO (GPS) e nao mais Bluetooth
 private fun getRequiredPermissions(): Array<String> {
     val permissions = mutableListOf<String>()
 
@@ -460,7 +593,8 @@ private fun ensureBluetoothAndStart(
     enableBluetoothLauncher: ActivityResultLauncher<Intent>,
     isCar: Boolean,
     notifyRemote: Boolean,
-    alarmLocal: Boolean
+    alarmLocal: Boolean,
+    alarmRemote: Boolean
 ) {
     val adapter = BluetoothAdapter.getDefaultAdapter()
     if (adapter == null) {
@@ -472,25 +606,24 @@ private fun ensureBluetoothAndStart(
         enableBluetoothLauncher.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
         return
     }
-    startGuardianService(context, isCar, notifyRemote, alarmLocal)
+    startGuardianService(context, isCar, notifyRemote, alarmLocal, alarmRemote)
 }
 
-private fun hasLocationPermission(context: Context): Boolean {
-    return ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
-}
 
 private fun startGuardianService(
     context: Context,
     isCar: Boolean,
     notifyRemote: Boolean,
-    alarmLocal: Boolean
+    alarmLocal: Boolean,
+    alarmRemote: Boolean
 ) {
-    // Inicia o Serviço que agora vai usar Firestore listener ou GPS Updates
+    // Inicia o Servico que agora vai usar Firestore listener ou GPS Updates
     val intent = Intent(context, AnjoDaGuardaService::class.java).apply {
         action = AnjoDaGuardaService.ACTION_START
         putExtra(AnjoDaGuardaService.EXTRA_IS_CAR, isCar)
         putExtra(AnjoDaGuardaService.EXTRA_NOTIFY_REMOTE, notifyRemote)
         putExtra(AnjoDaGuardaService.EXTRA_ALARM_LOCAL, alarmLocal)
+        putExtra(AnjoDaGuardaService.EXTRA_ALARM_REMOTE, alarmRemote)
     }
 
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -501,6 +634,7 @@ private fun startGuardianService(
 }
 
 private fun stopGuardianService(context: Context) {
+    Toast.makeText(context, "Alertas do guardiao serao apagados", Toast.LENGTH_SHORT).show()
     val intent = Intent(context, AnjoDaGuardaService::class.java).apply {
         action = AnjoDaGuardaService.ACTION_STOP
     }

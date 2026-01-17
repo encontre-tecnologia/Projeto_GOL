@@ -25,6 +25,7 @@ import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
@@ -35,8 +36,7 @@ import android.os.IBinder
 import android.os.ParcelUuid
 import android.os.SystemClock
 import android.os.Looper
-import android.os.VibrationEffect
-import android.os.Vibrator
+import android.os.BatteryManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import android.media.AudioAttributes
@@ -48,7 +48,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
-import java.nio.charset.Charset
+import java.nio.ByteBuffer
 import java.util.UUID
 import kotlin.math.sin
 
@@ -59,6 +59,7 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
         const val EXTRA_IS_CAR = "extra_is_car"
         const val EXTRA_NOTIFY_REMOTE = "extra_notify_remote"
         const val EXTRA_ALARM_LOCAL = "extra_alarm_local"
+        const val EXTRA_ALARM_REMOTE = "extra_alarm_remote"
 
         private const val CHANNEL_ID = "guardian_channel"
         private const val NOTIF_ID = 4401
@@ -72,6 +73,7 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
     private var isCarMode = true
     private var notifyRemote = true
     private var alarmLocal = true
+    private var alarmRemote = true
 
     private var sensorManager: SensorManager? = null
     private var accelSensor: Sensor? = null
@@ -88,9 +90,14 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
     private var firestoreListener: ListenerRegistration? = null
     private var lastAlertTimestamp: Timestamp? = null
     private var lastAlertMillis: Long = 0L
+    private var lastBleAlertMillis: Long = 0L
     private var alarmTrack: AudioTrack? = null
     private var lastSoundAt: Long = 0L
     private var previousAlarmVolume: Int? = null
+    private var batteryReceiver: android.content.BroadcastReceiver? = null
+    private var lowBatterySent = false
+    private var unpluggedSent = false
+    private var lastCharging: Boolean? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -106,6 +113,7 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
+                clearFirestoreAlerts()
                 stopSelf()
                 return START_NOT_STICKY
             }
@@ -113,6 +121,7 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
                 isCarMode = intent.getBooleanExtra(EXTRA_IS_CAR, true)
                 notifyRemote = intent.getBooleanExtra(EXTRA_NOTIFY_REMOTE, true)
                 alarmLocal = intent.getBooleanExtra(EXTRA_ALARM_LOCAL, true)
+                alarmRemote = intent.getBooleanExtra(EXTRA_ALARM_REMOTE, true)
             }
         }
 
@@ -122,7 +131,10 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
             startMotionMonitor()
             startBleAdvertiser()
             startGattServer()
+            startBatteryMonitor()
         } else {
+            lastAlertMillis = System.currentTimeMillis()
+            lastAlertTimestamp = Timestamp.now()
             startBleScanner()
             startFirestoreListener()
         }
@@ -137,6 +149,7 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
         stopGattServer()
         closeGattClient()
         stopFirestoreListener()
+        stopBatteryMonitor()
         stopOwnerAlarm()
         super.onDestroy()
     }
@@ -167,18 +180,9 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
 
     private fun handleMotionDetected() {
         showAlertNotification("Movimento detectado")
-        if (alarmLocal) {
-            val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                vibrator.vibrate(VibrationEffect.createOneShot(1200, VibrationEffect.DEFAULT_AMPLITUDE))
-            } else {
-                @Suppress("DEPRECATION")
-                vibrator.vibrate(1200)
-            }
-        }
         if (notifyRemote) {
             notifyBleClients()
-            sendFirestoreAlert()
+            sendFirestoreAlert("Movimento")
         }
     }
 
@@ -265,7 +269,8 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
         val server = gattServer ?: return
         val service = server.getService(SERVICE_UUID) ?: return
         val characteristic = service.getCharacteristic(CHAR_ALERT_UUID) ?: return
-        characteristic.value = "ALERT".toByteArray(Charset.defaultCharset())
+        val payload = ByteBuffer.allocate(8).putLong(System.currentTimeMillis()).array()
+        characteristic.value = payload
         connectedDevices.forEach { device ->
             server.notifyCharacteristicChanged(device, characteristic, false)
         }
@@ -321,12 +326,25 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
                     gatt.writeDescriptor(descriptor)
                 }
             }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                gatt.readCharacteristic(characteristic)
+            } else {
+                @Suppress("DEPRECATION")
+                gatt.readCharacteristic(characteristic)
+            }
         }
 
         override fun onCharacteristicChanged(gatt: BluetoothGatt?, characteristic: BluetoothGattCharacteristic?) {
-            if (characteristic?.uuid == CHAR_ALERT_UUID) {
-                showAlertNotification("Movimento no carro detectado")
-                playOwnerAlarm()
+            handleBleAlert(characteristic)
+        }
+
+        override fun onCharacteristicRead(
+            gatt: BluetoothGatt?,
+            characteristic: BluetoothGattCharacteristic?,
+            status: Int
+        ) {
+            if (status == BluetoothGatt.GATT_SUCCESS) {
+                handleBleAlert(characteristic)
             }
         }
     }
@@ -362,7 +380,9 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
                         lastAlertMillis = clientMillis
                         Log.d(TAG, "Alerta remoto recebido (clientMillis)")
                         showAlertNotification("Movimento no carro detectado")
-                        playOwnerAlarm()
+                        if (alarmRemote) {
+                            playOwnerAlarm()
+                        }
                     }
                     return@addSnapshotListener
                 }
@@ -372,7 +392,9 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
                     lastAlertTimestamp = ts
                     Log.d(TAG, "Alerta remoto recebido (timestamp)")
                     showAlertNotification("Movimento no carro detectado")
-                    playOwnerAlarm()
+                    if (alarmRemote) {
+                        playOwnerAlarm()
+                    }
                 }
             }
     }
@@ -382,7 +404,35 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
         firestoreListener = null
     }
 
+    private fun clearFirestoreAlerts() {
+        val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
+        val db = FirebaseFirestore.getInstance()
+        db.collection("guardian_alerts")
+            .document(uid)
+            .collection("events")
+            .get()
+            .addOnSuccessListener { snapshot ->
+                if (snapshot.isEmpty) return@addOnSuccessListener
+                val batch = db.batch()
+                snapshot.documents.forEach { doc -> batch.delete(doc.reference) }
+                batch.commit()
+                    .addOnSuccessListener {
+                        showAlertNotification("Alertas do guardiao apagados")
+                    }
+                    .addOnFailureListener { err ->
+                        Log.e(TAG, "Falha ao apagar alertas do guardiao", err)
+                    }
+            }
+            .addOnFailureListener { err ->
+                Log.e(TAG, "Falha ao carregar alertas para apagar", err)
+            }
+    }
+
     private fun sendFirestoreAlert() {
+        sendFirestoreAlert(null)
+    }
+
+    private fun sendFirestoreAlert(type: String?) {
         val uid = FirebaseAuth.getInstance().currentUser?.uid
         if (uid == null) {
             Log.w(TAG, "Sem login para enviar alerta remoto")
@@ -395,6 +445,9 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
             "clientMillis" to System.currentTimeMillis(),
             "device" to Build.MODEL
         )
+        if (!type.isNullOrBlank()) {
+            payload["type"] = type
+        }
         db.collection("guardian_alerts")
             .document(uid)
             .collection("events")
@@ -431,6 +484,75 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val channel = NotificationChannel(CHANNEL_ID, "Anjo da Guarda", NotificationManager.IMPORTANCE_HIGH)
         manager.createNotificationChannel(channel)
+    }
+
+    private fun handleBleAlert(characteristic: BluetoothGattCharacteristic?) {
+        if (characteristic?.uuid != CHAR_ALERT_UUID) return
+        val value = characteristic.value ?: return
+        val alertMillis = if (value.size >= 8) {
+            ByteBuffer.wrap(value).long
+        } else {
+            System.currentTimeMillis()
+        }
+        if (alertMillis <= lastBleAlertMillis) return
+        lastBleAlertMillis = alertMillis
+        showAlertNotification("Movimento no carro detectado")
+        if (alarmRemote) {
+            playOwnerAlarm()
+        }
+    }
+
+    private fun startBatteryMonitor() {
+        if (batteryReceiver != null) return
+        val filter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
+        batteryReceiver = object : android.content.BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                val level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
+                val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, 100)
+                val percent = if (level >= 0 && scale > 0) (level * 100 / scale) else -1
+                val plugged = intent.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) != 0
+
+                val wasCharging = lastCharging
+                lastCharging = plugged
+
+                if (wasCharging == true && !plugged && !unpluggedSent) {
+                    unpluggedSent = true
+                    showAlertNotification("Celular do carro desconectado da energia")
+                    if (notifyRemote) {
+                        notifyBleClients()
+                        sendFirestoreAlert("Energia desconectada")
+                    }
+                }
+                if (plugged) {
+                    unpluggedSent = false
+                }
+
+                if (percent in 0..90 && !lowBatterySent) {
+                    lowBatterySent = true
+                    showAlertNotification("Bateria baixa no carro (${percent}%)")
+                    if (notifyRemote) {
+                        notifyBleClients()
+                        sendFirestoreAlert("Bateria baixa ${percent}%")
+                    }
+                } else if (percent >= 95) {
+                    lowBatterySent = false
+                }
+            }
+        }
+        val sticky = registerReceiver(batteryReceiver, filter)
+        if (sticky != null) {
+            batteryReceiver?.onReceive(this, sticky)
+        }
+    }
+
+    private fun stopBatteryMonitor() {
+        batteryReceiver?.let { receiver ->
+            unregisterReceiver(receiver)
+        }
+        batteryReceiver = null
+        lowBatterySent = false
+        unpluggedSent = false
+        lastCharging = null
     }
 
     private fun playOwnerAlarm() {
