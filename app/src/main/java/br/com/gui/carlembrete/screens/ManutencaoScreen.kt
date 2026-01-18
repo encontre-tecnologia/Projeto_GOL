@@ -493,7 +493,7 @@ fun ManutencaoScreen(
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp)
                             .height(260.dp)
-                            .clip(RoundedCornerShape(28.dp))
+                            .clip(RoundedCornerShape(22.dp))
                             .background(
                                 Brush.linearGradient(
                                     colors = listOf(Color(0xFF1E3A8A), Color(0xFF172554)),
@@ -575,7 +575,7 @@ fun ManutencaoScreen(
                                     Text(
                                         text = carroAtual.marca.uppercase(),
                                         style = MaterialTheme.typography.labelMedium,
-                                        color = accentBlue,
+                                        color = Color.White,
                                         fontWeight = FontWeight.Bold
                                     )
                                     Text(
@@ -618,12 +618,19 @@ fun ManutencaoScreen(
 
                             Spacer(Modifier.weight(1f))
 
-                            // Modelo
-                            Text(
-                                text = carroAtual.modelo.ifBlank { "Modelo não informado" },
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = textDim
-                            )
+                            // Modelo + KM atual
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    text = carroAtual.modelo.ifBlank { "Modelo não informado" },
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = textLight.copy(alpha = 0.85f)
+                                )
+                                Text(
+                                    text = if (carroAtual.kmAtual > 0) "${carroAtual.kmAtual} km" else "KM nao informado",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = textLight.copy(alpha = 0.75f)
+                                )
+                            }
                         }
                     }
 
@@ -662,8 +669,8 @@ fun ManutencaoScreen(
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp)
                             .height(56.dp)
-                            .shadow(8.dp, RoundedCornerShape(16.dp)),
-                        shape = RoundedCornerShape(16.dp),
+                            .shadow(8.dp, RoundedCornerShape(12.dp)),
+                        shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = accentBlue)
                     ) {
                         Icon(Icons.Default.Add, null, tint = Color.White)
@@ -671,7 +678,7 @@ fun ManutencaoScreen(
                         Text("Novo Lembrete", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                     }
 
-                    Spacer(Modifier.height(24.dp))
+                    Spacer(Modifier.height(16.dp))
 
                     Box(
                         modifier = Modifier
@@ -711,8 +718,9 @@ fun ManutencaoScreen(
                             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 Box(
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(999.dp))
+                                        .clip(RoundedCornerShape(8.dp))
                                         .background(Color(0xFF1E3A8A))
+                                        .border(1.dp, Color.White.copy(alpha = 0.25f), RoundedCornerShape(8.dp))
                                         .padding(horizontal = 12.dp, vertical = 6.dp)
                                 ) {
                                     Text(
@@ -724,8 +732,9 @@ fun ManutencaoScreen(
                                 }
                                 Box(
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(999.dp))
+                                        .clip(RoundedCornerShape(8.dp))
                                         .background(Color(0xFF0B223F))
+                                        .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(8.dp))
                                         .padding(horizontal = 12.dp, vertical = 6.dp)
                                 ) {
                                     Text(
@@ -742,6 +751,16 @@ fun ManutencaoScreen(
                                 centerColor = Color(0xFF0B1224),
                                 modifier = Modifier.fillMaxWidth()
                             )
+                            Button(
+                                onClick = { showMecanicoVirtualScreen = true },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(10.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1D4ED8))
+                            ) {
+                                Icon(Icons.Rounded.Build, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text("Abrir Mecanico inteligente", color = Color.White, fontWeight = FontWeight.SemiBold)
+                            }
                         }
                     }
 
@@ -854,6 +873,7 @@ fun ManutencaoScreen(
                                         NotificacaoHelper.cancelarNotificacao(context.applicationContext, lembrete.id)
                                         todosLembretes = todosLembretes.filter { it.id != lembrete.id }
                                     },
+                                    onAddPrestador = { showAddContatoDialog = true },
                                     onClick = {
                                         lembreteSelecionado = lembrete
                                         contatoDetalheSelecionado = listaContatos.find { it.id == lembrete.contatoId }
@@ -909,7 +929,7 @@ fun ActionButton(
     Button(
         onClick = onClick,
         modifier = modifier.height(50.dp),
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(10.dp),
         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)), // Surface Dark
         contentPadding = PaddingValues(0.dp)
     ) {
@@ -937,6 +957,7 @@ fun LembreteCardLocal(
     contato: ContatoProfissional?,
     modeloCarro: String,
     onDelete: () -> Unit,
+    onAddPrestador: () -> Unit,
     onClick: () -> Unit,
     statusLabel: String,
     statusColor: Color
@@ -1057,11 +1078,12 @@ fun LembreteCardLocal(
                                         .padding(start = 8.dp)
                                         .clip(RoundedCornerShape(10.dp))
                                         .background(Color(0xFF0F172A))
+                                        .border(1.dp, Color.White.copy(alpha = 0.25f), RoundedCornerShape(10.dp))
                                         .padding(horizontal = 10.dp, vertical = 6.dp)
                                 ) {
                                     Text(
                                         text = formatarMoedaLocal(lembrete.valor),
-                                        style = MaterialTheme.typography.labelSmall,
+                                        style = MaterialTheme.typography.bodyMedium,
                                         color = Color(0xFF34D399),
                                         fontWeight = FontWeight.Bold
                                     )
@@ -1122,20 +1144,54 @@ fun LembreteCardLocal(
                     )
                 }
 
+                Spacer(Modifier.height(14.dp))
+                HorizontalDivider(color = Color.White.copy(alpha = 0.06f), thickness = 1.dp)
+                Spacer(Modifier.height(10.dp))
                 if (contato != null) {
-                    Spacer(Modifier.height(14.dp))
-                    HorizontalDivider(color = Color.White.copy(alpha = 0.06f), thickness = 1.dp)
-                    Spacer(Modifier.height(10.dp))
                     Button(
                         onClick = onClick,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(8.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B))
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(44.dp),
+                        shape = RoundedCornerShape(6.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6))
                     ) {
+                        Icon(
+                            imageVector = Icons.Rounded.CalendarMonth,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(Modifier.width(8.dp))
                         Text(
                             text = "Agendar o serviço com ${contato.nome}",
                             color = Color.White,
-                            fontSize = 12.sp,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                } else {
+                    Button(
+                        onClick = onAddPrestador,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(44.dp),
+                        shape = RoundedCornerShape(6.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF14532D))
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Phone,
+                            contentDescription = null,
+                            tint = Color(0xFFD1FAE5),
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = "Adicionar prestador do servico",
+                            color = Color(0xFFD1FAE5),
+                            fontSize = 13.sp,
                             fontWeight = FontWeight.SemiBold,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
@@ -1403,7 +1459,12 @@ fun CarroInfoScreen(
                             Spacer(Modifier.width(12.dp))
                             Column {
                                 Text(carro.nome, color = textLight, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
-                                Text(carro.marca.ifBlank { "Marca nao informada" }, color = textDim, fontSize = 12.sp)
+                                Text(carro.marca.ifBlank { "Marca nao informada" }, color = Color.White, fontSize = 12.sp)
+                                Text(
+                                    if (carro.kmAtual > 0) "${carro.kmAtual} km" else "KM nao informado",
+                                    color = textDim,
+                                    fontSize = 12.sp
+                                )
                             }
                         }
                         InfoRow("Modelo", carro.modelo.ifBlank { "Nao informado" }, textLight, textDim)
