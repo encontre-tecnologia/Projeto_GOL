@@ -288,6 +288,7 @@ fun LembreteDetalhesDialog(
     contato: ContatoProfissional?,
     carro: CarroInfo,
     onDismiss: () -> Unit,
+    onDelete: () -> Unit,
     onSalvar: (Lembrete) -> Unit
 ) {
     val context = LocalContext.current
@@ -519,13 +520,24 @@ fun LembreteDetalhesDialog(
                         }
                     } else {
                         Button(
+                            onClick = {
+                                onDelete()
+                                onDismiss()
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(54.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444)),
+                            shape = dialogActionButtonShape
+                        ) { Text("Apagar aviso", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp) }
+                        OutlinedButton(
                             onClick = onDismiss,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(56.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6)),
+                                .height(54.dp),
+                            border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.6f)),
                             shape = dialogActionButtonShape
-                        ) { Text("Fechar", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp) }
+                        ) { Text("Fechar", color = Color.White, fontWeight = FontWeight.Medium, fontSize = 16.sp) }
                     }
                 }
             }
