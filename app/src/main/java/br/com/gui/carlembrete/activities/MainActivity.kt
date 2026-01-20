@@ -420,7 +420,7 @@ fun gerarPdfRelatorio(context: Context, carro: CarroInfo, lembretes: List<Lembre
         drawSectionTitle("DOCUMENTACAO")
         val documentos = listOf(
             TipoManutencao.IPVA to "IPVA",
-            TipoManutencao.LICENCIAMENTO to "Licenciamento"
+            TipoManutencao.LICENCIAMENTO to "Licença"
         ).map { (tipo, label) ->
             val ultimaData = lembretes
                 .filter { it.tipo == tipo }

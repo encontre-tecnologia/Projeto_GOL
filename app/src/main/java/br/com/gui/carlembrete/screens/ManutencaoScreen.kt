@@ -3,6 +3,7 @@ package br.com.gui.carlembrete
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
+import android.graphics.Paint
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
@@ -23,6 +24,8 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -33,10 +36,12 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -53,6 +58,8 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import java.util.Locale
+import kotlin.math.cos
+import kotlin.math.sin
 
 // Função utilitária para encontrar a Activity
 private tailrec fun Context.findActivity(): Activity? = when (this) {
@@ -145,8 +152,28 @@ fun ManutencaoScreen(
         }
     }
     val totalGastos = lembretesDoCarroAtual.sumOf { it.valor }
-    val categorySpendData = TipoManutencao.values().map { tipo ->
-        val totalCategoria = lembretesDoCarroAtual.filter { it.tipo == tipo }.sumOf { it.valor }
+    var filtroGrafico by remember { mutableStateOf("TODOS") }
+    val gastosPorTipo = remember(lembretesDoCarroAtual) {
+        TipoManutencao.values()
+            .map { tipo -> tipo to lembretesDoCarroAtual.filter { it.tipo == tipo }.sumOf { it.valor } }
+            .associate { it.first to it.second }
+    }
+    val tiposSelecionados = when (filtroGrafico) {
+        "IMPOSTOS" -> listOf(TipoManutencao.LICENCIAMENTO, TipoManutencao.IPVA)
+        "MAIS_CAROS" -> gastosPorTipo.entries
+            .filter { it.value > 0.0 }
+            .sortedByDescending { it.value }
+            .take(3)
+            .map { it.key }
+        "MAIS_BARATOS" -> gastosPorTipo.entries
+            .filter { it.value > 0.0 }
+            .sortedBy { it.value }
+            .take(3)
+            .map { it.key }
+        else -> TipoManutencao.values().toList()
+    }
+    val categorySpendData = tiposSelecionados.map { tipo ->
+        val totalCategoria = gastosPorTipo[tipo] ?: 0.0
         CategorySpend(
             label = tipo.label,
             valor = totalCategoria,
@@ -680,26 +707,29 @@ fun ManutencaoScreen(
 
                     Spacer(Modifier.height(16.dp))
 
-                    Box(
+                    Card(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp)
                             .shadow(10.dp, RoundedCornerShape(20.dp))
-                            .clip(RoundedCornerShape(20.dp))
-                            .background(
-                                Brush.linearGradient(
-                                    colors = listOf(Color(0xFF0B1224), Color(0xFF14284C))
-                                )
-                            )
-                            .border(1.dp, Color(0xFF2A3A5E), RoundedCornerShape(20.dp))
-                            .padding(16.dp)
+                            .heightIn(min = 520.dp),
+                        shape = RoundedCornerShape(20.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF111827)),
+                        border = BorderStroke(1.dp, Color(0xFF23324D))
                     ) {
-                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
                                 Box(
                                     modifier = Modifier
-                                        .size(46.dp)
-                                        .clip(RoundedCornerShape(14.dp))
+                                        .size(42.dp)
+                                        .clip(RoundedCornerShape(8.dp))
                                         .background(
                                             Brush.linearGradient(
                                                 colors = listOf(Color(0xFF1D4ED8), Color(0xFF60A5FA))
@@ -707,50 +737,188 @@ fun ManutencaoScreen(
                                         ),
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    Icon(Icons.Rounded.Payments, null, tint = Color.White, modifier = Modifier.size(22.dp))
+                                    Icon(Icons.Rounded.Payments, null, tint = Color.White, modifier = Modifier.size(20.dp))
                                 }
-                                Spacer(Modifier.width(12.dp))
-                                Column(modifier = Modifier.weight(1f)) {
+                                Column(modifier = Modifier.padding(start = 2.dp)) {
                                     Text("Controle de gastos", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                                     Text("Gasto por categoria", color = textDim, fontSize = 12.sp)
                                 }
                             }
-                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .offset(y = 10.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
                                 Box(
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(Color(0xFF1E3A8A))
-                                        .border(1.dp, Color.White.copy(alpha = 0.25f), RoundedCornerShape(8.dp))
-                                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(14.dp))
+                                        .background(
+                                            Brush.linearGradient(
+                                                colors = listOf(Color(0xFF0B1224), Color(0xFF0F1E3A))
+                                            )
+                                        )
+                                        .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(14.dp))
+                                        .padding(horizontal = 22.dp, vertical = 22.dp)
                                 ) {
-                                    Text(
-                                        text = "Total ${formatarMoedaLocal(totalGastos)}",
-                                        color = Color.White,
-                                        fontWeight = FontWeight.SemiBold,
-                                        fontSize = 12.sp
-                                    )
-                                }
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(Color(0xFF0B223F))
-                                        .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(8.dp))
-                                        .padding(horizontal = 12.dp, vertical = 6.dp)
-                                ) {
-                                    Text(
-                                        text = "${lembretesDoCarroAtual.size} itens",
-                                        color = textDim,
-                                        fontWeight = FontWeight.SemiBold,
-                                        fontSize = 12.sp
-                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .matchParentSize()
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.ShowChart,
+                                            contentDescription = null,
+                                            tint = Color.White.copy(alpha = 0.05f),
+                                            modifier = Modifier
+                                                .size(90.dp)
+                                                .align(Alignment.TopStart)
+                                                .offset(x = (-26).dp, y = (-22).dp)
+                                                .rotate(-18f)
+                                        )
+                                        Icon(
+                                            imageVector = Icons.Default.TrendingUp,
+                                            contentDescription = null,
+                                            tint = Color.White.copy(alpha = 0.04f),
+                                            modifier = Modifier
+                                                .size(80.dp)
+                                                .align(Alignment.TopEnd)
+                                                .offset(x = 26.dp, y = (-22).dp)
+                                                .rotate(20f)
+                                        )
+                                        Icon(
+                                            imageVector = Icons.Default.Savings,
+                                            contentDescription = null,
+                                            tint = Color.White.copy(alpha = 0.04f),
+                                            modifier = Modifier
+                                                .size(100.dp)
+                                                .align(Alignment.BottomStart)
+                                                .offset(x = (-26).dp, y = 26.dp)
+                                                .rotate(12f)
+                                        )
+                                        Icon(
+                                            imageVector = Icons.Default.Payments,
+                                            contentDescription = null,
+                                            tint = Color.White.copy(alpha = 0.04f),
+                                            modifier = Modifier
+                                                .size(110.dp)
+                                                .align(Alignment.BottomEnd)
+                                                .offset(x = 26.dp, y = 26.dp)
+                                                .rotate(-15f)
+                                        )
+                                    }
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.Center
+                                    ) {
+                                        Column(
+                                            modifier = Modifier.offset(x = (-4).dp),
+                                            horizontalAlignment = Alignment.CenterHorizontally
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(22.dp)
+                                                        .clip(RoundedCornerShape(6.dp))
+                                                        .background(Color(0xFF052E2B))
+                                                        .border(1.dp, Color(0xFF34D399).copy(alpha = 0.35f), RoundedCornerShape(6.dp)),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Rounded.Payments,
+                                                        contentDescription = null,
+                                                        tint = Color(0xFF34D399),
+                                                        modifier = Modifier.size(13.dp)
+                                                    )
+                                                }
+                                                Text(
+                                                    text = "Total gasto:",
+                                                    color = Color(0xFF94A3B8),
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    textAlign = TextAlign.Center
+                                                )
+                                            }
+                                            Text(
+                                                text = formatarMoedaLocal(totalGastos),
+                                                color = Color(0xFF34D399),
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 20.sp
+                                            )
+                                        }
+                                    }
                                 }
                             }
-                            CategoryExpensePieChart(
-                                data = categorySpendData,
-                                labelColor = textDim,
-                                centerColor = Color(0xFF0B1224),
-                                modifier = Modifier.fillMaxWidth()
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                text = "Filtre seus Gastos:",
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 16.sp,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .offset(y = (-2).dp),
+                                textAlign = TextAlign.Center
                             )
+                            val filtros = listOf(
+                                "TODOS" to "Todos",
+                                "IMPOSTOS" to "Impostos",
+                                "MAIS_CAROS" to "Mais altos",
+                                "MAIS_BARATOS" to "Mais baixos"
+                            )
+                            val centralizarFiltros = filtros.size <= 5
+                            val filtroScrollState = rememberScrollState()
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .horizontalScroll(filtroScrollState),
+                                    horizontalArrangement = if (centralizarFiltros) Arrangement.Center else Arrangement.spacedBy(32.dp)
+                                ) {
+                                    filtros.forEach { (key, label) ->
+                                        val selected = filtroGrafico == key
+                                        Surface(
+                                            modifier = Modifier
+                                                .padding(horizontal = 2.dp)
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .border(1.dp, Color.White.copy(alpha = 0.35f), RoundedCornerShape(8.dp))
+                                                .clickable { filtroGrafico = key },
+                                            color = if (selected) Color(0xFF1D4ED8) else Color(0xFF0B223F)
+                                        ) {
+                                        Text(
+                                            text = label,
+                                            color = Color.White,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                        )
+                                        }
+                                    }
+                                }
+                            }
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(14.dp),
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFF0B1224)),
+                                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f))
+                            ) {
+                                CategoryExpensePieChart(
+                                    data = categorySpendData,
+                                    labelColor = textDim,
+                                    centerColor = Color(0xFF0B1224),
+                                    minItems = TipoManutencao.values().size,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(12.dp)
+                                )
+                            }
                             Button(
                                 onClick = { showMecanicoVirtualScreen = true },
                                 modifier = Modifier.fillMaxWidth(),
@@ -759,132 +927,150 @@ fun ManutencaoScreen(
                             ) {
                                 Icon(Icons.Rounded.Build, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
                                 Spacer(Modifier.width(8.dp))
-                                Text("Abrir Mecanico inteligente", color = Color.White, fontWeight = FontWeight.SemiBold)
+                                Text("Abrir Zellu Mecanico", color = Color.White, fontWeight = FontWeight.SemiBold)
                             }
                         }
                     }
 
-                    Spacer(Modifier.height(16.dp))
+                    Spacer(Modifier.height(24.dp))
 
-                    Row(
+                    Card(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 4.dp)
-                            .padding(top = 38.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                            .padding(horizontal = 16.dp),
+                        shape = RoundedCornerShape(18.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF111827)),
+                        border = BorderStroke(1.dp, Color(0xFF23324D))
                     ) {
-                        IconButton(
-                            onClick = {
-                                categoryScrollScope.launch {
-                                    categoryScrollState.animateScrollBy(-200f)
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(42.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(
+                                            Brush.linearGradient(
+                                                colors = listOf(Color(0xFF1D4ED8), Color(0xFF60A5FA))
+                                            )
+                                        ),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(Icons.Rounded.NotificationsActive, null, tint = Color.White, modifier = Modifier.size(20.dp))
                                 }
-                            },
-                            modifier = Modifier
-                                .size(32.dp)
-                                .padding(start = 8.dp)
-                        ) {
-                            Icon(Icons.Rounded.ChevronLeft, contentDescription = "Anterior", tint = textDim)
-                        }
-                        Row(
-                            modifier = Modifier
-                                .weight(1f)
-                                .horizontalScroll(categoryScrollState)
-                                .padding(end = 12.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            val contagem = TipoManutencao.values().associateWith { tipo ->
-                                lembretesDoCarroAtual.count { it.tipo == tipo }
-                            }
-                            listOf(
-                                TipoManutencao.OLEO,
-                                TipoManutencao.MECANICA,
-                                TipoManutencao.BATERIA,
-                                TipoManutencao.FREIO,
-                                TipoManutencao.TEMPERATURA,
-                                TipoManutencao.LICENCIAMENTO,
-                                TipoManutencao.IPVA
-                            ).forEach { tipo ->
-                                MonitorIcon(
-                                    tipo = tipo,
-                                    cor = calcularCorStatusLocal(lembretesDoCarroAtual, tipo),
-                                    quantidade = contagem[tipo] ?: 0,
-                                    selected = filtroTipo == tipo,
-                                    onClick = {
-                                        filtroTipo = if (filtroTipo == tipo) null else tipo
-                                    },
-                                    containerSize = 56.dp,
-                                    boxSize = 48.dp,
-                                    cornerRadius = 12.dp,
-                                    iconSize = 18.dp,
-                                    labelSize = 10.sp
-                                )
-                            }
-                        }
-                        IconButton(
-                            onClick = {
-                                categoryScrollScope.launch {
-                                    categoryScrollState.animateScrollBy(200f)
+                                Column(modifier = Modifier.padding(start = 2.dp)) {
+                                    Text(
+                                        "Avisos e categorias",
+                                        color = textLight,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 16.sp
+                                    )
+                                    Text("Filtros e proximos avisos", color = textDim, fontSize = 12.sp)
                                 }
-                            },
-                            modifier = Modifier
-                                .size(32.dp)
-                                .padding(end = 8.dp)
-                        ) {
-                            Icon(Icons.Rounded.ChevronRight, contentDescription = "Próximo", tint = textDim)
-                        }
-                    }
-
-                    Spacer(Modifier.height(36.dp))
-
-                    // 5. LISTA DE LEMBRETES (MODIFICADA PARA USAR O NOVO CARD)
-                    Text(
-                        text = "Próximas Manutenções",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = textLight,
-                        modifier = Modifier.padding(start = 16.dp, bottom = 12.dp)
-                    )
-
-                    if (lembretesComBusca.isEmpty()) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(120.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(Icons.Default.CheckCircle, null, tint = textDim, modifier = Modifier.size(40.dp))
-                    Spacer(Modifier.height(22.dp))
-                                Text("Tudo em dia! ✅", color = textDim)
                             }
-                        }
-                    } else {
-                        val lembretesOrdenados = lembretesComBusca.sortedBy { dataParaOrdenacao(it) }
-                        Column(
-                            modifier = Modifier.padding(horizontal = 16.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            lembretesOrdenados.forEach { lembrete ->
-                                LembreteCardLocal(
-                                    lembrete = lembrete,
-                                    contato = listaContatos.find { it.id == lembrete.contatoId },
-                                    modeloCarro = carroAtual.modelo,
-                                    onDelete = {
-                                        NotificacaoHelper.cancelarNotificacao(context.applicationContext, lembrete.id)
-                                        todosLembretes = todosLembretes.filter { it.id != lembrete.id }
-                                    },
-                                    onAddPrestador = { showAddContatoDialog = true },
-                                    onClick = {
-                                        lembreteSelecionado = lembrete
-                                        contatoDetalheSelecionado = listaContatos.find { it.id == lembrete.contatoId }
-                                    },
-                                    statusLabel = textoStatusPrazoLocal(lembrete),
-                                    statusColor = calcularCorStatusLocal(lembretesDoCarroAtual, lembrete.tipo)
-                                )
+
+                            Spacer(Modifier.height(12.dp))
+                            Text(
+                                text = "Filte por categoria",
+                                color = textLight,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 16.sp,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .offset(y = (-2).dp)
+                                    .padding(top = 12.dp, bottom = 28.dp),
+                                textAlign = TextAlign.Center
+                            )
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(bottom = 16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .horizontalScroll(categoryScrollState),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    val contagem = TipoManutencao.values().associateWith { tipo ->
+                                        lembretesDoCarroAtual.count { it.tipo == tipo }
+                                    }
+                                    listOf(
+                                        TipoManutencao.OLEO,
+                                        TipoManutencao.MECANICA,
+                                        TipoManutencao.BATERIA,
+                                        TipoManutencao.FREIO,
+                                        TipoManutencao.TEMPERATURA,
+                                        TipoManutencao.LICENCIAMENTO,
+                                        TipoManutencao.IPVA
+                                    ).forEach { tipo ->
+                                        MonitorIcon(
+                                            tipo = tipo,
+                                            cor = calcularCorStatusLocal(lembretesDoCarroAtual, tipo),
+                                            quantidade = contagem[tipo] ?: 0,
+                                            selected = filtroTipo == tipo,
+                                            onClick = {
+                                                filtroTipo = if (filtroTipo == tipo) null else tipo
+                                            },
+                                            containerSize = 56.dp,
+                                            boxSize = 48.dp,
+                                            cornerRadius = 12.dp,
+                                            iconSize = 18.dp,
+                                            labelSize = 10.sp
+                                        )
+                                    }
+                                }
+                            }
+
+                            Spacer(Modifier.height(20.dp))
+
+                            if (lembretesComBusca.isEmpty()) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(120.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Icon(Icons.Default.CheckCircle, null, tint = textDim, modifier = Modifier.size(40.dp))
+                                        Spacer(Modifier.height(22.dp))
+                                        Text("Tudo em dia!", color = textDim)
+                                    }
+                                }
+                            } else {
+                                val lembretesOrdenados = lembretesComBusca.sortedBy { dataParaOrdenacao(it) }
+                                Column(
+                                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    lembretesOrdenados.forEach { lembrete ->
+                                        LembreteCardLocal(
+                                            lembrete = lembrete,
+                                            contato = listaContatos.find { it.id == lembrete.contatoId },
+                                            modeloCarro = carroAtual.modelo,
+                                            onDelete = {
+                                                NotificacaoHelper.cancelarNotificacao(context.applicationContext, lembrete.id)
+                                                todosLembretes = todosLembretes.filter { it.id != lembrete.id }
+                                            },
+                                            onAddPrestador = { showAddContatoDialog = true },
+                                            onClick = {
+                                                lembreteSelecionado = lembrete
+                                                contatoDetalheSelecionado = listaContatos.find { it.id == lembrete.contatoId }
+                                            },
+                                            statusLabel = textoStatusPrazoLocal(lembrete),
+                                            statusColor = calcularCorStatusLocal(lembretesDoCarroAtual, lembrete.tipo)
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
                     Spacer(Modifier.height(80.dp))
+
                 }
             }
         }
@@ -1001,20 +1187,6 @@ fun LembreteCardLocal(
                     )
                 )
         ) {
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .background(
-                        Brush.radialGradient(
-                            colors = listOf(
-                                statusColor.copy(alpha = 0.18f),
-                                Color.Transparent
-                            ),
-                            radius = 520f
-                        )
-                    )
-            )
-
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1100,7 +1272,8 @@ fun LembreteCardLocal(
                     modifier = Modifier
                         .fillMaxWidth()
                         .horizontalScroll(rememberScrollState()),
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
                 ) {
                     val dataOuKm = when {
                         lembrete.dataLimite.isNotBlank() -> lembrete.dataLimite
@@ -1108,38 +1281,42 @@ fun LembreteCardLocal(
                         else -> "Sem meta"
                     }
 
-                    // 1. Horário
-                    InfoMini(
-                        icon = Icons.Rounded.NotificationsActive,
-                        text = lembrete.horaAviso.ifBlank { "--:--" },
-                        tint = dim
-                    )
-
-                    Spacer(Modifier.width(12.dp))
-
-                    // 2. Data (Agora em segundo lugar)
+                    // 1. Data
                     InfoMini(
                         icon = Icons.Rounded.CalendarMonth,
                         text = dataOuKm,
-                        tint = dim
+                        tint = dim,
+                        iconTint = Color(0xFF60A5FA)
                     )
 
                     Spacer(Modifier.width(12.dp))
 
-                    // 3. Status/Prazo (Agora em terceiro lugar)
+                    // 2. Status/Prazo
+                    val statusIcon = when (statusLabel) {
+                        "No Prazo", "Hoje" -> Icons.Rounded.CheckCircle
+                        else -> Icons.Rounded.ErrorOutline
+                    }
+                    val statusIconColor = when (statusLabel) {
+                        "No Prazo", "Hoje" -> Color(0xFF10B981)
+                        "Urgente" -> Color(0xFFF59E0B)
+                        "Vencido" -> Color(0xFFEF4444)
+                        else -> Color(0xFF94A3B8)
+                    }
                     InfoMini(
-                        icon = Icons.Rounded.CalendarMonth,
+                        icon = statusIcon,
                         text = statusLabel,
-                        tint = dim
+                        tint = dim,
+                        iconTint = statusIconColor
                     )
 
                     Spacer(Modifier.width(12.dp))
 
-                    // 4. KM
+                    // 3. KM
                     InfoMini(
                         icon = Icons.Rounded.Speed,
-                        text = kmFormatado,
+                        text = "KM: $kmFormatado",
                         tint = dim,
+                        iconTint = Color(0xFF34D399),
                         ellipsize = false
                     )
                 }
@@ -1208,23 +1385,26 @@ private fun InfoMini(
     icon: ImageVector,
     text: String,
     tint: Color,
+    iconTint: Color = tint,
     ellipsize: Boolean = true
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .clip(RoundedCornerShape(6.dp))
-            .background(Color.White.copy(alpha = 0.04f))
-            .border(1.dp, Color.White.copy(alpha = 0.06f), RoundedCornerShape(6.dp))
+            .background(Color(0xFF0B1224))
+            .border(1.dp, Color.White.copy(alpha = 0.22f), RoundedCornerShape(6.dp))
+            .widthIn(min = 72.dp)
             .padding(horizontal = 6.dp, vertical = 4.dp)
     ) {
-        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(12.dp))
+        Icon(icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(12.dp))
         Spacer(Modifier.width(4.dp))
         Text(
             text = text,
-            color = tint,
+            color = Color.White,
             fontSize = 10.sp,
             fontWeight = FontWeight.SemiBold,
+            textAlign =  TextAlign.Center,
             maxLines = 1,
             overflow = if (ellipsize) TextOverflow.Ellipsis else TextOverflow.Clip
         )
@@ -1349,7 +1529,7 @@ fun CarroInfoScreen(
         .take(6)
     val documentos = listOf(
         TipoManutencao.IPVA to "IPVA",
-        TipoManutencao.LICENCIAMENTO to "Licenciamento"
+        TipoManutencao.LICENCIAMENTO to "Licença"
     ).map { (tipo, label) ->
         val ultimaData = lembretes
             .filter { it.tipo == tipo }
@@ -1584,20 +1764,68 @@ fun CategoryExpensePieChart(
     modifier: Modifier = Modifier,
     labelColor: Color = Color(0xFF94A3B8),
     emptyColor: Color = Color(0xFF334155),
-    centerColor: Color = Color(0xFF0B1224)
+    centerColor: Color = Color(0xFF0B1224),
+    minItems: Int = 0
 ) {
     val safeData =
         if (data.isEmpty()) listOf(CategorySpend(label = "Sem dados", valor = 0.0, color = emptyColor)) else data
     val totalValor = safeData.sumOf { it.valor }.coerceAtLeast(0.0)
     val hasData = totalValor > 0.0
-    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-            verticalAlignment = Alignment.CenterVertically
+    val progress = remember { Animatable(0f) }
+    LaunchedEffect(data) {
+        progress.snapTo(0f)
+        progress.animateTo(1f, animationSpec = tween(durationMillis = 900))
+    }
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(340.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Canvas(modifier = Modifier.size(140.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Grafico:",
+                    color = labelColor,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f),
+                    textAlign = TextAlign.Center
+                )
+                Text(
+                    text = "Categorias:",
+                    color = labelColor,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f),
+                    textAlign = TextAlign.Center
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Canvas(
+                    modifier = Modifier
+                        .weight(1f)
+                        .aspectRatio(1f)
+                ) {
                 var startAngle = -90f
+                val outerRadius = size.minDimension / 2f
+                val innerRadius = size.minDimension * 0.32f
+                val labelRadius = outerRadius + 12.dp.toPx()
+                val textPaint = Paint().apply {
+                    color = android.graphics.Color.WHITE
+                    textSize = 12.sp.toPx()
+                    textAlign = Paint.Align.CENTER
+                    isAntiAlias = true
+                }
                 if (!hasData) {
                     drawArc(
                         color = emptyColor,
@@ -1607,47 +1835,93 @@ fun CategoryExpensePieChart(
                     )
                 } else {
                     safeData.filter { it.valor > 0.0 }.forEach { item ->
-                        val sweep = ((item.valor / totalValor) * 360f).toFloat()
+                        val sweep = ((item.valor / totalValor) * 360f).toFloat() * progress.value
                         drawArc(
                             color = item.color,
                             startAngle = startAngle,
                             sweepAngle = sweep,
                             useCenter = true
                         )
+                        if (sweep > 0f) {
+                            val percent = ((item.valor / totalValor) * 100).toInt()
+                            if (percent > 0) {
+                                val midAngle = startAngle + sweep / 2f
+                                val radians = Math.toRadians(midAngle.toDouble())
+                                val x = center.x + (labelRadius * cos(radians)).toFloat()
+                                val y = center.y + (labelRadius * sin(radians)).toFloat() + (textPaint.textSize / 3f)
+                                drawContext.canvas.nativeCanvas.drawText("$percent%", x, y, textPaint)
+                            }
+                        }
                         startAngle += sweep
                     }
                 }
-                drawCircle(color = centerColor, radius = size.minDimension * 0.35f)
-            }
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.weight(1f)) {
+                drawCircle(color = centerColor, radius = size.minDimension * 0.32f)
+                }
+                VerticalDivider(
+                    color = Color.White.copy(alpha = 0.12f),
+                    thickness = 2.dp,
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .offset(y = (-6).dp)
+                )
+                val centralizarLegenda = safeData.size <= 5
+                Column(
+                    verticalArrangement = if (centralizarLegenda) Arrangement.Center else Arrangement.spacedBy(6.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .padding(top = 12.dp)
+                ) {
                 safeData.forEach { item ->
                     val dotColor = if (item.valor <= 0.0) emptyColor else item.color
+                    val percent = if (totalValor > 0.0) ((item.valor / totalValor) * 100).toInt() else 0
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(
                             modifier = Modifier
-                                .size(8.dp)
-                                .clip(CircleShape)
-                                .background(dotColor)
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            text = item.label,
-                            color = labelColor,
-                            fontSize = 10.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f)
-                        )
-                        Spacer(Modifier.width(8.dp))
+                                    .size(8.dp)
+                                    .clip(CircleShape)
+                                    .background(dotColor)
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                text = item.label,
+                                color = labelColor,
+                                fontSize = 12.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Spacer(Modifier.width(8.dp))
                         Text(
                             text = formatarMoedaLocal(item.valor),
-                            color = labelColor,
-                            fontSize = 10.sp,
+                            color = Color(0xFF34D399),
+                            fontSize = 12.sp,
                             maxLines = 1
                         )
                     }
                 }
+                if (safeData.isNotEmpty()) {
+                    Spacer(Modifier.height(2.dp))
+                    HorizontalDivider(color = Color.White.copy(alpha = 0.12f), thickness = 1.dp)
+                    Spacer(Modifier.height(0.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Total:", color = labelColor, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            text = formatarMoedaLocal(totalValor),
+                            color = Color(0xFF34D399),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+                val fillers = (minItems - safeData.size).coerceAtLeast(0)
+                repeat(fillers) { Spacer(Modifier.height(16.dp)) }
             }
+        }
         }
     }
 }
