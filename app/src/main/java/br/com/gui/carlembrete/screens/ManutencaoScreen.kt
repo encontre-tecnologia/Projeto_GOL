@@ -1,9 +1,9 @@
 package br.com.gui.carlembrete
 
 import android.app.Activity
+import android.graphics.Paint
 import android.content.Context
 import android.content.ContextWrapper
-import android.graphics.Paint
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
@@ -35,9 +35,11 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -58,8 +60,6 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import java.util.Locale
-import kotlin.math.cos
-import kotlin.math.sin
 
 // Função utilitária para encontrar a Activity
 private tailrec fun Context.findActivity(): Activity? = when (this) {
@@ -74,13 +74,15 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
 @Composable
 fun ManutencaoScreen(
     modifier: Modifier = Modifier,
-    context: Context = LocalContext.current
+    context: Context = LocalContext.current,
+    onLoaded: () -> Unit = {}
 ) {
     // ----------------- ESTADOS E VARIÁVEIS -----------------
     var listaCarros by remember { mutableStateOf<List<CarroInfo>>(emptyList()) }
     var listaContatos by remember { mutableStateOf<List<ContatoProfissional>>(emptyList()) }
     var todosLembretes by remember { mutableStateOf<List<Lembrete>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
+    var notifiedLoaded by remember { mutableStateOf(false) }
 
     // CORES DO TEMA (Azul Premium)
     val primaryDark = Color(0xFF0F172A)
@@ -102,6 +104,12 @@ fun ManutencaoScreen(
                 isLoading = false
                 NotificacaoHelper.reagendarExistentes(context.applicationContext, lembretes)
             }
+        }
+    }
+    LaunchedEffect(isLoading) {
+        if (!isLoading && !notifiedLoaded) {
+            notifiedLoaded = true
+            onLoaded()
         }
     }
 
@@ -276,7 +284,6 @@ fun ManutencaoScreen(
         )
         return
     }
-
 
     if (showPrivacidadeDialog) {
         PrivacidadeTermosDialog(onDismiss = { showPrivacidadeDialog = false })
@@ -744,126 +751,6 @@ fun ManutencaoScreen(
                                     Text("Gasto por categoria", color = textDim, fontSize = 12.sp)
                                 }
                             }
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .offset(y = 10.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(14.dp))
-                                        .background(
-                                            Brush.linearGradient(
-                                                colors = listOf(Color(0xFF0B1224), Color(0xFF0F1E3A))
-                                            )
-                                        )
-                                        .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(14.dp))
-                                        .padding(horizontal = 22.dp, vertical = 22.dp)
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .matchParentSize()
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.ShowChart,
-                                            contentDescription = null,
-                                            tint = Color.White.copy(alpha = 0.05f),
-                                            modifier = Modifier
-                                                .size(90.dp)
-                                                .align(Alignment.TopStart)
-                                                .offset(x = (-26).dp, y = (-22).dp)
-                                                .rotate(-18f)
-                                        )
-                                        Icon(
-                                            imageVector = Icons.Default.TrendingUp,
-                                            contentDescription = null,
-                                            tint = Color.White.copy(alpha = 0.04f),
-                                            modifier = Modifier
-                                                .size(80.dp)
-                                                .align(Alignment.TopEnd)
-                                                .offset(x = 26.dp, y = (-22).dp)
-                                                .rotate(20f)
-                                        )
-                                        Icon(
-                                            imageVector = Icons.Default.Savings,
-                                            contentDescription = null,
-                                            tint = Color.White.copy(alpha = 0.04f),
-                                            modifier = Modifier
-                                                .size(100.dp)
-                                                .align(Alignment.BottomStart)
-                                                .offset(x = (-26).dp, y = 26.dp)
-                                                .rotate(12f)
-                                        )
-                                        Icon(
-                                            imageVector = Icons.Default.Payments,
-                                            contentDescription = null,
-                                            tint = Color.White.copy(alpha = 0.04f),
-                                            modifier = Modifier
-                                                .size(110.dp)
-                                                .align(Alignment.BottomEnd)
-                                                .offset(x = 26.dp, y = 26.dp)
-                                                .rotate(-15f)
-                                        )
-                                    }
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.Center
-                                    ) {
-                                        Column(
-                                            modifier = Modifier.offset(x = (-4).dp),
-                                            horizontalAlignment = Alignment.CenterHorizontally
-                                        ) {
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                            ) {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .size(22.dp)
-                                                        .clip(RoundedCornerShape(6.dp))
-                                                        .background(Color(0xFF052E2B))
-                                                        .border(1.dp, Color(0xFF34D399).copy(alpha = 0.35f), RoundedCornerShape(6.dp)),
-                                                    contentAlignment = Alignment.Center
-                                                ) {
-                                                    Icon(
-                                                        imageVector = Icons.Rounded.Payments,
-                                                        contentDescription = null,
-                                                        tint = Color(0xFF34D399),
-                                                        modifier = Modifier.size(13.dp)
-                                                    )
-                                                }
-                                                Text(
-                                                    text = "Total gasto:",
-                                                    color = Color(0xFF94A3B8),
-                                                    fontSize = 12.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    textAlign = TextAlign.Center
-                                                )
-                                            }
-                                            Text(
-                                                text = formatarMoedaLocal(totalGastos),
-                                                color = Color(0xFF34D399),
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 20.sp
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                            Spacer(Modifier.height(4.dp))
-                            Text(
-                                text = "Filtre seus Gastos:",
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 16.sp,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .offset(y = (-2).dp),
-                                textAlign = TextAlign.Center
-                            )
                             val filtros = listOf(
                                 "TODOS" to "Todos",
                                 "IMPOSTOS" to "Impostos",
@@ -909,25 +796,29 @@ fun ManutencaoScreen(
                                 colors = CardDefaults.cardColors(containerColor = Color(0xFF0B1224)),
                                 border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f))
                             ) {
-                                CategoryExpensePieChart(
+                                CategoryExpenseChart(
                                     data = categorySpendData,
-                                    labelColor = textDim,
                                     centerColor = Color(0xFF0B1224),
-                                    minItems = TipoManutencao.values().size,
                                     modifier = Modifier
                                         .fillMaxWidth()
+                                        .height(180.dp)
                                         .padding(12.dp)
                                 )
                             }
-                            Button(
-                                onClick = { showMecanicoVirtualScreen = true },
+                            Card(
                                 modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(10.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1D4ED8))
+                                shape = RoundedCornerShape(14.dp),
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFF0B1224)),
+                                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f))
                             ) {
-                                Icon(Icons.Rounded.Build, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(8.dp))
-                                Text("Abrir Zellu Mecanico", color = Color.White, fontWeight = FontWeight.SemiBold)
+                                CategoryExpenseLegend(
+                                    data = categorySpendData,
+                                    labelColor = textDim,
+                                    minItems = TipoManutencao.values().size,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(16.dp)
+                                )
                             }
                         }
                     }
@@ -1450,7 +1341,6 @@ fun BadgeStatus(label: String, color: Color) {
     }
 }
 
-
 // ----------------- FUNÇÕES AUXILIARES DE ESTILO E LÓGICA -----------------
 
 fun getIconForType(tipo: TipoManutencao): ImageVector {
@@ -1529,7 +1419,7 @@ fun CarroInfoScreen(
         .take(6)
     val documentos = listOf(
         TipoManutencao.IPVA to "IPVA",
-        TipoManutencao.LICENCIAMENTO to "Licença"
+        TipoManutencao.LICENCIAMENTO to "Licenciamento"
     ).map { (tipo, label) ->
         val ultimaData = lembretes
             .filter { it.tipo == tipo }
@@ -1759,13 +1649,11 @@ data class CategorySpend(
 )
 
 @Composable
-fun CategoryExpensePieChart(
+fun CategoryExpenseChart(
     data: List<CategorySpend>,
     modifier: Modifier = Modifier,
-    labelColor: Color = Color(0xFF94A3B8),
     emptyColor: Color = Color(0xFF334155),
-    centerColor: Color = Color(0xFF0B1224),
-    minItems: Int = 0
+    centerColor: Color = Color(0xFF0B1224)
 ) {
     val safeData =
         if (data.isEmpty()) listOf(CategorySpend(label = "Sem dados", valor = 0.0, color = emptyColor)) else data
@@ -1776,153 +1664,183 @@ fun CategoryExpensePieChart(
         progress.snapTo(0f)
         progress.animateTo(1f, animationSpec = tween(durationMillis = 900))
     }
-    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(340.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-                verticalAlignment = Alignment.CenterVertically
+    val density = LocalDensity.current
+    BoxWithConstraints(modifier = modifier) {
+        val barCount = safeData.size.coerceAtLeast(1)
+        val spacingDp = 10.dp
+        val spacingPx = with(density) { spacingDp.toPx() }
+        val totalWidthPx = constraints.maxWidth.toFloat()
+        val totalSpacingPx = spacingPx * (barCount - 1)
+        val barWidthPx = ((totalWidthPx - totalSpacingPx) / barCount)
+            .coerceAtLeast(with(density) { 6.dp.toPx() })
+        val barWidthDp = with(density) { barWidthPx.toDp() }
+        val iconSize = 14.dp
+
+        Column(modifier = Modifier.fillMaxSize()) {
+            Canvas(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
             ) {
-                Text(
-                    text = "Grafico:",
-                    color = labelColor,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.weight(1f),
-                    textAlign = TextAlign.Center
-                )
-                Text(
-                    text = "Categorias:",
-                    color = labelColor,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.weight(1f),
-                    textAlign = TextAlign.Center
+                val maxValor = safeData.maxOfOrNull { it.valor }?.coerceAtLeast(0.0) ?: 0.0
+                val maxHeight = size.height * 0.85f
+                val baseY = size.height
+            val lowColor = Color(0xFF22C55E)
+            val midColor = Color(0xFFF59E0B)
+            val highColor = Color(0xFFEF4444)
+            val textPaint = Paint().apply {
+                color = android.graphics.Color.WHITE
+                textSize = 11.sp.toPx()
+                textAlign = Paint.Align.CENTER
+                isAntiAlias = true
+                typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
+            }
+            val gridSteps = 4
+            repeat(gridSteps + 1) { step ->
+                val y = baseY - (maxHeight / gridSteps) * step
+                val t = step.toFloat() / gridSteps.toFloat()
+                val baseColor = if (t <= 0.5f) {
+                    lerp(lowColor, midColor, t / 0.5f)
+                } else {
+                    lerp(midColor, highColor, (t - 0.5f) / 0.5f)
+                }
+                drawLine(
+                    color = baseColor.copy(alpha = 0.35f),
+                    start = Offset(0f, y),
+                    end = Offset(size.width, y),
+                    strokeWidth = 1.5.dp.toPx()
                 )
             }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Canvas(
-                    modifier = Modifier
-                        .weight(1f)
-                        .aspectRatio(1f)
-                ) {
-                var startAngle = -90f
-                val outerRadius = size.minDimension / 2f
-                val innerRadius = size.minDimension * 0.32f
-                val labelRadius = outerRadius + 12.dp.toPx()
-                val textPaint = Paint().apply {
-                    color = android.graphics.Color.WHITE
-                    textSize = 12.sp.toPx()
-                    textAlign = Paint.Align.CENTER
-                    isAntiAlias = true
-                }
                 if (!hasData) {
-                    drawArc(
+                    val barHeight = maxHeight * 0.4f
+                    val left = (size.width - barWidthPx) / 2f
+                    drawRoundRect(
                         color = emptyColor,
-                        startAngle = 0f,
-                        sweepAngle = 360f,
-                        useCenter = true
+                        topLeft = Offset(left, baseY - barHeight),
+                        size = androidx.compose.ui.geometry.Size(barWidthPx, barHeight),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(8.dp.toPx())
                     )
                 } else {
-                    safeData.filter { it.valor > 0.0 }.forEach { item ->
-                        val sweep = ((item.valor / totalValor) * 360f).toFloat() * progress.value
-                        drawArc(
+                    safeData.forEachIndexed { index, item ->
+                        val ratio = if (maxValor > 0.0) (item.valor / maxValor).toFloat() else 0f
+                        val barHeight = (maxHeight * ratio * progress.value).coerceAtLeast(4.dp.toPx())
+                        val left = index * (barWidthPx + spacingPx)
+                        drawRoundRect(
                             color = item.color,
-                            startAngle = startAngle,
-                            sweepAngle = sweep,
-                            useCenter = true
+                            topLeft = Offset(left, baseY - barHeight),
+                            size = androidx.compose.ui.geometry.Size(barWidthPx, barHeight),
+                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(8.dp.toPx())
                         )
-                        if (sweep > 0f) {
-                            val percent = ((item.valor / totalValor) * 100).toInt()
-                            if (percent > 0) {
-                                val midAngle = startAngle + sweep / 2f
-                                val radians = Math.toRadians(midAngle.toDouble())
-                                val x = center.x + (labelRadius * cos(radians)).toFloat()
-                                val y = center.y + (labelRadius * sin(radians)).toFloat() + (textPaint.textSize / 3f)
-                                drawContext.canvas.nativeCanvas.drawText("$percent%", x, y, textPaint)
-                            }
+                        val percent = if (totalValor > 0.0) ((item.valor / totalValor) * 100).toInt() else 0
+                        if (percent > 0) {
+                            val x = left + (barWidthPx / 2f)
+                            val y = (baseY - barHeight - 6.dp.toPx()).coerceAtLeast(textPaint.textSize)
+                            drawContext.canvas.nativeCanvas.drawText("$percent%", x, y, textPaint)
                         }
-                        startAngle += sweep
                     }
                 }
-                drawCircle(color = centerColor, radius = size.minDimension * 0.32f)
-                }
-                VerticalDivider(
-                    color = Color.White.copy(alpha = 0.12f),
-                    thickness = 2.dp,
-                    modifier = Modifier
-                        .fillMaxHeight()
-                        .offset(y = (-6).dp)
-                )
-                val centralizarLegenda = safeData.size <= 5
-                Column(
-                    verticalArrangement = if (centralizarLegenda) Arrangement.Center else Arrangement.spacedBy(6.dp),
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxHeight()
-                        .padding(top = 12.dp)
-                ) {
+            }
+            Spacer(Modifier.height(6.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(spacingDp)
+            ) {
                 safeData.forEach { item ->
-                    val dotColor = if (item.valor <= 0.0) emptyColor else item.color
-                    val percent = if (totalValor > 0.0) ((item.valor / totalValor) * 100).toInt() else 0
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                    .size(8.dp)
-                                    .clip(CircleShape)
-                                    .background(dotColor)
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                text = item.label,
-                                color = labelColor,
-                                fontSize = 12.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f)
-                            )
-                            Spacer(Modifier.width(8.dp))
-                        Text(
-                            text = formatarMoedaLocal(item.valor),
-                            color = Color(0xFF34D399),
-                            fontSize = 12.sp,
-                            maxLines = 1
-                        )
-                    }
-                }
-                if (safeData.isNotEmpty()) {
-                    Spacer(Modifier.height(2.dp))
-                    HorizontalDivider(color = Color.White.copy(alpha = 0.12f), thickness = 1.dp)
-                    Spacer(Modifier.height(0.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                    val tipo = TipoManutencao.values().firstOrNull { it.label == item.label }
+                    Box(
+                        modifier = Modifier.width(barWidthDp),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Text("Total:", color = labelColor, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                        Text(
-                            text = formatarMoedaLocal(totalValor),
-                            color = Color(0xFF34D399),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
-                        )
+                        if (tipo != null) {
+                            Icon(
+                                imageVector = tipo.getIcon(),
+                                contentDescription = null,
+                                tint = Color.White.copy(alpha = 0.7f),
+                                modifier = Modifier.size(iconSize)
+                            )
+                        }
                     }
                 }
-                val fillers = (minItems - safeData.size).coerceAtLeast(0)
-                repeat(fillers) { Spacer(Modifier.height(16.dp)) }
             }
         }
+    }
+}
+
+@Composable
+fun CategoryExpenseLegend(
+    data: List<CategorySpend>,
+    modifier: Modifier = Modifier,
+    labelColor: Color = Color(0xFF94A3B8),
+    emptyColor: Color = Color(0xFF334155),
+    minItems: Int = 0
+) {
+    val safeData =
+        if (data.isEmpty()) listOf(CategorySpend(label = "Sem dados", valor = 0.0, color = emptyColor)) else data
+    val totalValor = safeData.sumOf { it.valor }.coerceAtLeast(0.0)
+    val centralizarLegenda = safeData.size <= 5
+    Column(
+        modifier = modifier,
+        verticalArrangement = if (centralizarLegenda) Arrangement.Center else Arrangement.spacedBy(6.dp)
+    ) {
+        safeData.forEach { item ->
+            val dotColor = if (item.valor <= 0.0) emptyColor else item.color
+            val tipo = TipoManutencao.values().firstOrNull { it.label == item.label }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(dotColor)
+                )
+                Spacer(Modifier.width(8.dp))
+                if (tipo != null) {
+                    Icon(
+                        imageVector = tipo.getIcon(),
+                        contentDescription = null,
+                        tint = Color.White.copy(alpha = 0.7f),
+                        modifier = Modifier.size(12.dp)
+                    )
+                    Spacer(Modifier.width(6.dp))
+                }
+                Text(
+                    text = item.label,
+                    color = labelColor,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = formatarMoedaLocal(item.valor),
+                    color = Color(0xFF34D399),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1
+                )
+            }
         }
+        if (safeData.isNotEmpty()) {
+            Spacer(Modifier.height(2.dp))
+            HorizontalDivider(color = Color.White.copy(alpha = 0.12f), thickness = 1.dp)
+            Spacer(Modifier.height(0.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Total:", color = labelColor, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                Text(
+                    text = formatarMoedaLocal(totalValor),
+                    color = Color(0xFF34D399),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+        val fillers = (minItems - safeData.size).coerceAtLeast(0)
+        repeat(fillers) { Spacer(Modifier.height(16.dp)) }
     }
 }
 
