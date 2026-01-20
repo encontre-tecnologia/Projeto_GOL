@@ -19,6 +19,7 @@ import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
@@ -28,12 +29,17 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import br.com.gui.carlembrete.ui.theme.CarLembreteTheme
 import com.google.firebase.auth.FirebaseAuth
+import kotlinx.coroutines.delay
 import java.io.File
 import java.io.FileOutputStream
 import java.io.ObjectInputStream
@@ -100,6 +106,9 @@ class MainActivity : ComponentActivity() {
             CarLembreteTheme {
                 val auth = remember { FirebaseAuth.getInstance() }
                 var usuario by remember { mutableStateOf(auth.currentUser) }
+                var showLoading by remember { mutableStateOf(false) }
+                var loadingDoneSignal by remember { mutableIntStateOf(0) }
+                val loadingProgress = remember { Animatable(0f) }
                 DisposableEffect(Unit) {
                     val listener = FirebaseAuth.AuthStateListener { firebaseAuth ->
                         usuario = firebaseAuth.currentUser
@@ -107,12 +116,35 @@ class MainActivity : ComponentActivity() {
                     auth.addAuthStateListener(listener)
                     onDispose { auth.removeAuthStateListener(listener) }
                 }
+                LaunchedEffect(usuario) {
+                    if (usuario != null) {
+                        showLoading = true
+                        loadingProgress.snapTo(0f)
+                        loadingProgress.animateTo(0.9f, animationSpec = tween(durationMillis = 1200))
+                    } else {
+                        showLoading = false
+                    }
+                }
+                LaunchedEffect(loadingDoneSignal) {
+                    if (loadingDoneSignal > 0) {
+                        loadingProgress.animateTo(1f, animationSpec = tween(durationMillis = 400))
+                        delay(200)
+                        showLoading = false
+                    }
+                }
                 val baseBackground = if (usuario == null) Color.Black else Color(0xFF0F2A4A)
                 Surface(modifier = Modifier.fillMaxSize(), color = baseBackground) {
                     if (usuario == null) {
                         AuthScreen(onSignedIn = { })
                     } else {
-                        ManutencaoScreen()
+                        Box(modifier = Modifier.fillMaxSize()) {
+                                ManutencaoScreen(
+                                    onLoaded = { loadingDoneSignal++ }
+                                )
+                            if (showLoading) {
+                                LoadingScreen(progress = loadingProgress.value)
+                            }
+                        }
                     }
                 }
             }

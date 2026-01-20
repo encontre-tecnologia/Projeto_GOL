@@ -282,6 +282,7 @@ fun NotificacaoRapidaDialog(onDismiss: () -> Unit, onDisparar: () -> Unit) {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LembreteDetalhesDialog(
     lembrete: Lembrete,
@@ -294,10 +295,12 @@ fun LembreteDetalhesDialog(
     val context = LocalContext.current
     var isEditando by remember { mutableStateOf(false) }
     var titulo by remember { mutableStateOf(lembrete.titulo) }
+    var tipoSelecionado by remember { mutableStateOf(lembrete.tipo) }
     var dataAviso by remember { mutableStateOf(lembrete.dataLimite) }
     var horaAviso by remember { mutableStateOf(lembrete.horaAviso) }
     var kmLimite by remember { mutableStateOf(lembrete.kmLimite) }
     var valorTexto by remember { mutableStateOf(if (lembrete.valor > 0) lembrete.valor.toString() else "") }
+    var menuExpanded by remember { mutableStateOf(false) }
     val pecasDisponiveis = pecasSugestao
     var pecaSelecionada by remember {
         mutableStateOf(
@@ -313,6 +316,7 @@ fun LembreteDetalhesDialog(
 
     LaunchedEffect(lembrete) {
         titulo = lembrete.titulo
+        tipoSelecionado = lembrete.tipo
         dataAviso = lembrete.dataLimite
         horaAviso = lembrete.horaAviso
         kmLimite = lembrete.kmLimite
@@ -396,6 +400,44 @@ fun LembreteDetalhesDialog(
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true
                         )
+                        ExposedDropdownMenuBox(
+                            expanded = menuExpanded,
+                            onExpandedChange = { menuExpanded = !menuExpanded }
+                        ) {
+                            OutlinedTextField(
+                                value = tipoSelecionado.label,
+                                onValueChange = {},
+                                readOnly = true,
+                                label = { Text("Categoria") },
+                                modifier = Modifier.menuAnchor().fillMaxWidth(),
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = tipoSelecionado.getIcon(),
+                                        contentDescription = null,
+                                        tint = Color(0xFF3B82F6)
+                                    )
+                                },
+                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = menuExpanded) }
+                            )
+                            ExposedDropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                                TipoManutencao.values().forEach { t ->
+                                    DropdownMenuItem(
+                                        text = { Text(t.label) },
+                                        onClick = {
+                                            tipoSelecionado = t
+                                            menuExpanded = false
+                                        },
+                                        leadingIcon = {
+                                            Icon(
+                                                imageVector = t.getIcon(),
+                                                contentDescription = null,
+                                                tint = Color(0xFF3B82F6)
+                                            )
+                                        }
+                                    )
+                                }
+                            }
+                        }
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
                             OutlinedTextField(
                                 value = dataAviso,
@@ -502,6 +544,7 @@ fun LembreteDetalhesDialog(
                                         }
                                         val atualizado = lembrete.copy(
                                             titulo = titulo.ifBlank { lembrete.titulo },
+                                            tipo = tipoSelecionado,
                                             dataLimite = dataAviso.ifBlank { lembrete.dataLimite },
                                             horaAviso = horaAviso.ifBlank { lembrete.horaAviso },
                                             kmLimite = kmLimite,
