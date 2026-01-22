@@ -37,6 +37,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.RowScope
@@ -67,6 +68,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
@@ -376,7 +378,7 @@ fun LembreteDetalhesDialog(
                 ) {
                     Box(modifier = Modifier.fillMaxWidth()) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(lembrete.tipo.getIcon(), contentDescription = null, tint = Color(0xFF3B82F6))
+                            Icon(lembrete.tipo.getIcon(), contentDescription = null, tint = corCategoria(lembrete.tipo))
                             Spacer(Modifier.width(12.dp))
                             Column {
                                 Text(lembrete.titulo, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 20.sp)
@@ -415,7 +417,7 @@ fun LembreteDetalhesDialog(
                                     Icon(
                                         imageVector = tipoSelecionado.getIcon(),
                                         contentDescription = null,
-                                        tint = Color(0xFF3B82F6)
+                                        tint = corCategoria(tipoSelecionado)
                                     )
                                 },
                                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = menuExpanded) }
@@ -432,7 +434,7 @@ fun LembreteDetalhesDialog(
                                             Icon(
                                                 imageVector = t.getIcon(),
                                                 contentDescription = null,
-                                                tint = Color(0xFF3B82F6)
+                                                tint = corCategoria(t)
                                             )
                                         }
                                     )
@@ -606,6 +608,50 @@ private fun formatarKmTexto(texto: String): String {
     return NumberFormat.getIntegerInstance(Locale("pt", "BR")).format(value)
 }
 
+private fun filtrarTextosDetectados(linhas: List<String>): List<String> {
+    val regexSomenteDigitos = Regex("^\\d{1,6}$")
+    val regexViscosidade = Regex("\\b\\d{1,2}W-?\\d{2}\\b", RegexOption.IGNORE_CASE)
+    val regexCodigoAlfanumerico = Regex("\\b[A-Z]{2,}\\s?\\d{2,}\\b")
+    val termosGenericos = setOf(
+        "OLEO", "LUBRIFICANTE", "PARA", "MOTOR", "FLEX",
+        "SEMISSINTETICO", "SINTETICO", "MINERAL", "COMBUSTIVEL"
+    )
+    val termosEspecificacao = setOf(
+        "API", "SAE", "ILSAC", "SL", "SM", "SN", "SP", "CJ", "CF", "CI", "SJ"
+    )
+    return linhas
+        .map { it.trim().replace(Regex("\\s+"), " ") }
+        .filter { it.isNotBlank() }
+        .filter { !padraoUrlOuContato.containsMatchIn(it.uppercase(Locale.ROOT)) }
+        .filter { !isTextoPromocional(it) }
+        .filter { texto ->
+            if (texto.length < 4) return@filter false
+            if (regexSomenteDigitos.matches(texto)) return@filter false
+            val upper = texto.uppercase(Locale.ROOT)
+            val normalizado = upper.unaccent()
+            val tokens = normalizado.split(" ").filter { it.isNotBlank() }
+            if (!normalizado.contains("MOTOROIL")) {
+                val apenasGenerico = tokens.isNotEmpty() && tokens.all { it in termosGenericos }
+                val apenasEspecificacao = tokens.isNotEmpty() && tokens.all { it in termosEspecificacao }
+                if (apenasGenerico || apenasEspecificacao) return@filter false
+                if (normalizado.contains("OLEO PARA") || normalizado.contains("PARA MOTOR")) return@filter false
+            }
+            val letras = normalizado.count { it.isLetter() }
+            val digitos = normalizado.count { it.isDigit() }
+            val uppercaseRatio = if (letras > 0) normalizado.count { it.isUpperCase() }.toFloat() / letras else 0f
+            val pareceCodigo = regexCodigoAlfanumerico.containsMatchIn(normalizado) || regexViscosidade.containsMatchIn(normalizado)
+            if (!pareceCodigo && letras < 3) return@filter false
+            if (!pareceCodigo && digitos > letras * 2) return@filter false
+            if (!pareceCodigo && uppercaseRatio < 0.5f && letras < 4) return@filter false
+            val naoAlfanumericos = texto.count { !it.isLetterOrDigit() && !it.isWhitespace() }
+            if (naoAlfanumericos > 3) return@filter false
+            val charsSemEspaco = texto.filterNot { it.isWhitespace() }
+            val diversidade = charsSemEspaco.toSet().size
+            if (charsSemEspaco.length <= 6 && diversidade <= 2) return@filter false
+            true
+        }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SeletorPeca(
@@ -658,7 +704,6 @@ fun NovoAgendamentoDialog(
     var kmBase by remember { mutableStateOf(if (carroAtual.kmAtual > 0) carroAtual.kmAtual.toString() else "") }
     var valorInput by remember { mutableStateOf("") }
     var tipoSelecionado by remember { mutableStateOf(TipoManutencao.OLEO) }
-    var pecaSelecionada by remember { mutableStateOf("") }
     var contatosLista by remember { mutableStateOf(contatosDisponiveis) }
     var contatoSelecionado by remember { mutableStateOf<ContatoProfissional?>(null) }
     var listaItensDetectados by remember { mutableStateOf<List<ItemDetectado>>(emptyList()) }
@@ -675,6 +720,13 @@ fun NovoAgendamentoDialog(
     var etapaAtual by remember { mutableStateOf(1) }
     val descricaoFocusRequester = remember { FocusRequester() }
     var textosDetectados by remember { mutableStateOf<List<String>>(emptyList()) }
+    var showTextosDialog by remember { mutableStateOf(false) }
+    var textoSelecionadoDialog by remember { mutableStateOf<String?>(null) }
+    var showMarcaDialog by remember { mutableStateOf(false) }
+    var produtoSelecionadoDialog by remember { mutableStateOf<String?>(null) }
+    var marcaSelecionadaDialog by remember { mutableStateOf<String?>(null) }
+    var descricaoAntesDialog by remember { mutableStateOf("") }
+    var tipoAntesDialog by remember { mutableStateOf(TipoManutencao.OLEO) }
     var novoContatoNome by remember { mutableStateOf("") }
     var novoContatoTelefone by remember { mutableStateOf("") }
     val dataFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
@@ -789,11 +841,6 @@ fun adicionarContatoManual() {
         val kmAtualBase = kmBase.toIntOrNull() ?: 0
         if (kmAtualBase > carroAtual.kmAtual) onUpdateKmCarro(kmAtualBase)
         val dataAvisoStr = dataAviso
-        val pecaFinal = when {
-            pecaSelecionada == pecaOutraLabel -> descricao.trim()
-            pecaSelecionada.isBlank() -> descricao.trim()
-            else -> pecaSelecionada
-        }
         if (isModoLista) {
             val novosLembretes = listaItensDetectados.flatMap { item ->
                 val rep = maxOf(1, item.quantidade)
@@ -819,7 +866,7 @@ fun adicionarContatoManual() {
         } else if (descricao.isNotBlank()) {
             val novoLembrete = Lembrete(
                 titulo = descricao,
-                peca = pecaFinal,
+                peca = descricao.trim(),
                 dataLimite = dataAvisoStr,
                 kmLimite = (kmAtualBase + getKmAdicionalPorTipo(tipoSelecionado)).toString(),
                 tipo = tipoSelecionado,
@@ -837,7 +884,11 @@ fun adicionarContatoManual() {
     if (showCamera) {
         CameraCapturaDialog(onDismiss = { showCamera = false }, onFotoCapturada = { resultado ->
             fotoCaminho = resultado.arquivoFoto.absolutePath
-            textosDetectados = resultado.linhasReconhecidas.filter { it.isNotBlank() && !isTextoPromocional(it) && !padraoUrlOuContato.containsMatchIn(it.uppercase(Locale.ROOT)) }
+            textosDetectados = filtrarTextosDetectados(resultado.linhasReconhecidas)
+            textoSelecionadoDialog = null
+            showMarcaDialog = false
+            produtoSelecionadoDialog = null
+            marcaSelecionadaDialog = null
             if (resultado.itensEncontrados.isNotEmpty()) {
                 listaItensDetectados = resultado.itensEncontrados
                 isModoLista = true
@@ -851,6 +902,9 @@ fun adicionarContatoManual() {
                     descricao = "Produto (Foto Anexada)"
                 }
             }
+            descricaoAntesDialog = descricao
+            tipoAntesDialog = tipoSelecionado
+            showTextosDialog = textosDetectados.isNotEmpty() && !isModoLista
             if (resultado.kmDetectado != null && resultado.kmDetectado > 0) { kmDetectadoParaConfirmar = resultado.kmDetectado; showKmConfirmDialog = true }
             showCamera = false
         })
@@ -884,6 +938,222 @@ fun adicionarContatoManual() {
             }
         )
     }
+
+    if (showTextosDialog) {
+        val itensDialogo = textosDetectados
+            .distinct()
+            .filter { it.isNotBlank() }
+            .take(8)
+        val jaSelecionou = textoSelecionadoDialog != null
+        AlertDialog(
+            modifier = Modifier.border(dialogBorderStroke, dialogCornerShape),
+            shape = dialogCornerShape,
+            onDismissRequest = { showTextosDialog = false },
+            containerColor = Color(0xFF1E293B),
+            title = {
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier.align(Alignment.Center),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(
+                            Icons.Default.Inventory2,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(48.dp)
+                        )
+                        Text("Qual e o Produto?", color = Color.White, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, fontSize = 18.sp)
+                    }
+                    IconButton(
+                        onClick = { showTextosDialog = false },
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .size(36.dp)
+                    ) {
+                        Icon(Icons.Default.Close, contentDescription = "Fechar", tint = Color.White)
+                    }
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (itensDialogo.isEmpty()) {
+                        Text("Nenhum texto identificado na captura.", color = Color(0xFF94A3B8))
+                    } else {
+                        itensDialogo.forEach { texto ->
+                            val isSelected = textoSelecionadoDialog == texto
+                            val disabled = jaSelecionou && !isSelected
+                            val cardShape = RoundedCornerShape(12.dp)
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .alpha(if (disabled) 0.35f else 1f)
+                                    .clip(cardShape)
+                                    .clickable(
+                                        enabled = !disabled,
+                                        indication = null,
+                                        interactionSource = remember { MutableInteractionSource() }
+                                    ) {
+                                        textoSelecionadoDialog = texto
+                                        descricao = texto
+                                        tipoSelecionado = detectarTipoPeloTexto(texto)
+                                    },
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (isSelected) Color(0xFF1E293B) else Color(0xFF111827)
+                                ),
+                                shape = cardShape,
+                                border = if (isSelected) BorderStroke(1.dp, Color(0xFF334155)) else null
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        texto,
+                                        color = if (isSelected) Color.White else Color(0xFF94A3B8),
+                                        modifier = Modifier.weight(1f),
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    if (isSelected) {
+                                        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF10B981))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showTextosDialog = false
+                        produtoSelecionadoDialog = textoSelecionadoDialog
+                        marcaSelecionadaDialog = null
+                        textoSelecionadoDialog = null
+                        showMarcaDialog = true
+                    },
+                    enabled = textoSelecionadoDialog != null,
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6)),
+                    shape = RoundedCornerShape(6.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                ) { Text("Proximo", fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = {}
+        )
+    }
+
+    if (showMarcaDialog) {
+        val produtoSelecionado = produtoSelecionadoDialog
+        val itensDialogo = textosDetectados
+            .distinct()
+            .filter { it.isNotBlank() }
+            .filter { it != produtoSelecionado }
+            .take(8)
+        val jaSelecionou = marcaSelecionadaDialog != null
+        AlertDialog(
+            modifier = Modifier.border(dialogBorderStroke, dialogCornerShape),
+            shape = dialogCornerShape,
+            onDismissRequest = { showMarcaDialog = false },
+            containerColor = Color(0xFF1E293B),
+            title = {
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier.align(Alignment.Center),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(
+                            Icons.Default.LocalOffer,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(48.dp)
+                        )
+                        Text("Qual e a Marca do Produto?", color = Color.White, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, fontSize = 18.sp)
+                    }
+                    IconButton(
+                        onClick = { showMarcaDialog = false },
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .size(36.dp)
+                    ) {
+                        Icon(Icons.Default.Close, contentDescription = "Fechar", tint = Color.White)
+                    }
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (itensDialogo.isEmpty()) {
+                        Text("Nenhuma marca diferente foi identificada.", color = Color(0xFF94A3B8))
+                    } else {
+                        itensDialogo.forEach { texto ->
+                            val isSelected = marcaSelecionadaDialog == texto
+                            val disabled = jaSelecionou && !isSelected
+                            val cardShape = RoundedCornerShape(12.dp)
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .alpha(if (disabled) 0.35f else 1f)
+                                    .clip(cardShape)
+                                    .clickable(
+                                        enabled = !disabled,
+                                        indication = null,
+                                        interactionSource = remember { MutableInteractionSource() }
+                                    ) {
+                                        marcaSelecionadaDialog = texto
+                                    },
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (isSelected) Color(0xFF1E293B) else Color(0xFF111827)
+                                ),
+                                shape = cardShape,
+                                border = if (isSelected) BorderStroke(1.dp, Color(0xFF334155)) else null
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        texto,
+                                        color = if (isSelected) Color.White else Color(0xFF94A3B8),
+                                        modifier = Modifier.weight(1f),
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    if (isSelected) {
+                                        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF10B981))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val produto = produtoSelecionadoDialog
+                        val marca = marcaSelecionadaDialog
+                        if (!produto.isNullOrBlank() && !marca.isNullOrBlank()) {
+                            descricao = "$produto - $marca"
+                        }
+                        showMarcaDialog = false
+                        produtoSelecionadoDialog = null
+                        marcaSelecionadaDialog = null
+                    },
+                    enabled = marcaSelecionadaDialog != null,
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6)),
+                    shape = RoundedCornerShape(6.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                ) { Text("Concluir", fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = {}
+        )
+    }
+
     val podeAvancarEtapa1 = isModoLista || descricao.isNotBlank()
     val tituloEtapa = when (etapaAtual) {
         1 -> if (isModoLista) "Itens Detectados" else "Novo Aviso"
@@ -1015,11 +1285,18 @@ fun adicionarContatoManual() {
                             onClick = { showCamera = true },
                             modifier = Modifier.fillMaxWidth().height(48.dp),
                             shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = if (fotoCaminho != null) Color(0xFF10B981) else Color(0xFF3B82F6))
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (fotoCaminho != null) Color(0xFF10B981) else Color(0xFF3B82F6),
+                                contentColor = Color.White
+                            )
                         ) {
-                            Icon(if (fotoCaminho != null) Icons.Default.Check else Icons.Default.CameraAlt, null)
+                            Icon(
+                                if (fotoCaminho != null) Icons.Default.Check else Icons.Default.CameraAlt,
+                                null,
+                                tint = Color.White
+                            )
                             Spacer(Modifier.width(8.dp))
-                            Text(if (fotoCaminho != null) "Foto Anexada (Refazer)" else "Escanear Produto")
+                            Text(if (fotoCaminho != null) "Foto Anexada (Refazer)" else "Escanear Produto", color = Color.White)
                         }
 
                         if (isModoLista) {
@@ -1035,7 +1312,7 @@ fun adicionarContatoManual() {
                                             .padding(10.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Icon(item.tipo.getIcon(), null, tint = Color(0xFF3B82F6), modifier = Modifier.size(20.dp))
+                                        Icon(item.tipo.getIcon(), null, tint = corCategoria(item.tipo), modifier = Modifier.size(20.dp))
                                         Spacer(Modifier.width(10.dp))
                                         Column(modifier = Modifier.weight(1f)) {
                                             Text(item.nome, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
@@ -1057,7 +1334,7 @@ fun adicionarContatoManual() {
                                                             Icon(
                                                                 imageVector = item.tipo.getIcon(),
                                                                 contentDescription = null,
-                                                                tint = Color(0xFF94A3B8),
+                                                                tint = corCategoria(item.tipo),
                                                                 modifier = Modifier.size(12.dp)
                                                             )
                                                             Spacer(Modifier.width(4.dp))
@@ -1081,7 +1358,7 @@ fun adicionarContatoManual() {
                                                                     Icon(
                                                                         imageVector = tipo.getIcon(),
                                                                         contentDescription = null,
-                                                                        tint = Color(0xFF3B82F6)
+                                                                        tint = corCategoria(tipo)
                                                                     )
                                                                 }
                                                             )
@@ -1108,7 +1385,7 @@ fun adicionarContatoManual() {
                                 OutlinedTextField(
                                     value = descricao,
                                     onValueChange = { descricao = it },
-                                    label = { Text("O que foi feito?") },
+                                    label = { Text("Qual servico foi realizado?") },
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .focusRequester(descricaoFocusRequester),
@@ -1124,10 +1401,6 @@ fun adicionarContatoManual() {
                                         }
                                     }
                                 )
-                                SeletorPeca(
-                                    pecaSelecionada = pecaSelecionada,
-                                    onSelecionar = { pecaSelecionada = it }
-                                )
                                 ExposedDropdownMenuBox(expanded = menuExpanded, onExpandedChange = { menuExpanded = !menuExpanded }) {
                                     OutlinedTextField(
                                         value = tipoSelecionado.label,
@@ -1135,7 +1408,7 @@ fun adicionarContatoManual() {
                                         readOnly = true,
                                         label = { Text("Categoria") },
                                         modifier = Modifier.menuAnchor().fillMaxWidth(),
-                                        leadingIcon = { Icon(imageVector = tipoSelecionado.getIcon(), contentDescription = null, tint = Color(0xFF3B82F6)) },
+                                        leadingIcon = { Icon(imageVector = tipoSelecionado.getIcon(), contentDescription = null, tint = corCategoria(tipoSelecionado)) },
                                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = menuExpanded) },
                                         shape = RoundedCornerShape(12.dp)
                                     )
@@ -1144,7 +1417,7 @@ fun adicionarContatoManual() {
                                             DropdownMenuItem(
                                                 text = { Text(t.label) },
                                                 onClick = { tipoSelecionado = t; menuExpanded = false },
-                                                leadingIcon = { Icon(imageVector = t.getIcon(), contentDescription = null, tint = Color(0xFF3B82F6)) }
+                                                leadingIcon = { Icon(imageVector = t.getIcon(), contentDescription = null, tint = corCategoria(t)) }
                                             )
                                         }
                                     }
@@ -1152,21 +1425,6 @@ fun adicionarContatoManual() {
                             }
                         }
 
-                        if (textosDetectados.isNotEmpty()) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .border(BorderStroke(1.dp, Color(0xFF1E293B)), RoundedCornerShape(12.dp))
-                                    .background(Color(0xFF0F172A), RoundedCornerShape(12.dp))
-                                    .padding(12.dp)
-                            ) {
-                                Text("Textos capturados", color = Color.White, fontWeight = FontWeight.SemiBold)
-                                Spacer(Modifier.height(8.dp))
-                                textosDetectados.take(6).forEach { texto ->
-                                    Text("- $texto", color = Color(0xFF94A3B8), fontSize = 12.sp)
-                                }
-                            }
-                        }
                     }
                     2 -> {
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
