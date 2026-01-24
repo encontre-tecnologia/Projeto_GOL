@@ -695,7 +695,8 @@ fun NovoAgendamentoDialog(
     onUpdateKmCarro: (Int) -> Unit,
     autoAbrirCamera: Boolean = false,
     onAutoCameraConsumida: () -> Unit = {},
-    onAddContato: (ContatoProfissional) -> Unit = {}
+    onAddContato: (ContatoProfissional) -> Unit = {},
+    initialTipo: TipoManutencao = TipoManutencao.OLEO
 ) {
     val context = LocalContext.current
     val appContext = context.applicationContext
@@ -703,7 +704,7 @@ fun NovoAgendamentoDialog(
     var data by remember { mutableStateOf(LocalDate.now().format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))) }
     var kmBase by remember { mutableStateOf(if (carroAtual.kmAtual > 0) carroAtual.kmAtual.toString() else "") }
     var valorInput by remember { mutableStateOf("") }
-    var tipoSelecionado by remember { mutableStateOf(TipoManutencao.OLEO) }
+    var tipoSelecionado by remember { mutableStateOf(initialTipo) }
     var contatosLista by remember { mutableStateOf(contatosDisponiveis) }
     var contatoSelecionado by remember { mutableStateOf<ContatoProfissional?>(null) }
     var listaItensDetectados by remember { mutableStateOf<List<ItemDetectado>>(emptyList()) }

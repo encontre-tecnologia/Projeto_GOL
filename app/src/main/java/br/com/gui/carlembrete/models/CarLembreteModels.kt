@@ -318,7 +318,7 @@ enum class TipoManutencao(val label: String) {
     MECANICA("Mecânica"),
     FREIO("Freio/ABS"),
     TEMPERATURA("Temp."), // Mudado para ficar menor
-    LICENCIAMENTO("Licenciamento"),
+    LICENCIAMENTO("Licença"),
     IPVA("IPVA"),
 
     SEGURO("Seguro"),
