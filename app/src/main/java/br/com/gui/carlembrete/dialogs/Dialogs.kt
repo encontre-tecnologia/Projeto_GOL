@@ -1515,62 +1515,99 @@ fun adicionarContatoManual() {
                         )
                     }
                     else -> {
-                        Text("Vincule ou atualize o profissional que receber este aviso.", color = Color(0xFF94A3B8))
-                        if (contatosLista.isEmpty()) {
-                            Text("Nenhum profissional cadastrado. Adicione um abaixo.", color = Color(0xFF94A3B8), fontSize = 12.sp)
-                        } else {
-                            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                contatosLista.forEach { contato ->
-                                    Column(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .border(1.dp, if (contatoSelecionado == contato) Color(0xFF3B82F6) else Color.White.copy(alpha = 0.1f), RoundedCornerShape(12.dp))
-                                            .padding(12.dp)
-                                    ) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            RadioButton(
-                                                selected = contatoSelecionado == contato,
-                                                onClick = { contatoSelecionado = contato }
-                                            )
-                                            Spacer(Modifier.width(8.dp))
-                                            Column(modifier = Modifier.weight(1f)) {
-                                                Text(contato.nome, color = Color.White, fontWeight = FontWeight.SemiBold)
-                                                Text(contato.telefone, color = Color(0xFF94A3B8), fontSize = 12.sp)
-                                            }
-                                            TextButton(onClick = { enviarMensagemWhatsapp(contato) }) {
-                                                Text("Enviar mensagem")
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
+                            shape = RoundedCornerShape(14.dp),
+                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f))
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text("Adicionar novo profissional", color = Color.White, fontWeight = FontWeight.SemiBold)
+                                OutlinedTextField(
+                                    value = novoContatoNome,
+                                    onValueChange = { novoContatoNome = it },
+                                    label = { Text("Nome") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    singleLine = true,
+                                    shape = RoundedCornerShape(12.dp)
+                                )
+                                OutlinedTextField(
+                                    value = novoContatoTelefone,
+                                    onValueChange = { novoContatoTelefone = it },
+                                    label = { Text("Telefone") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    singleLine = true,
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                                    shape = RoundedCornerShape(12.dp)
+                                )
+                                Button(
+                                    onClick = ::adicionarContatoManual,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Icon(Icons.Default.PersonAdd, contentDescription = null)
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("Cadastrar profissional")
+                                }
+                            }
+                        }
+
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
+                            shape = RoundedCornerShape(14.dp),
+                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f))
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Text("Vincular profissional", color = Color.White, fontWeight = FontWeight.SemiBold)
+                                if (contatosLista.isEmpty()) {
+                                    Text("Nenhum profissional cadastrado. Adicione um acima.", color = Color(0xFF94A3B8), fontSize = 12.sp)
+                                } else {
+                                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                        contatosLista.forEach { contato ->
+                                            Card(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .border(1.dp, if (contatoSelecionado == contato) Color(0xFF3B82F6) else Color.White.copy(alpha = 0.08f), RoundedCornerShape(14.dp))
+                                                    .clickable { contatoSelecionado = contato },
+                                                colors = CardDefaults.cardColors(containerColor = Color(0xFF111827)),
+                                                shape = RoundedCornerShape(14.dp)
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.padding(12.dp),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(40.dp)
+                                                            .clip(CircleShape)
+                                                            .background(Color(0xFF1E293B)),
+                                                        contentAlignment = Alignment.Center
+                                                    ) {
+                                                        Icon(Icons.Default.Person, contentDescription = null, tint = Color.White)
+                                                    }
+                                                    Spacer(Modifier.width(12.dp))
+                                                    Column(modifier = Modifier.weight(1f)) {
+                                                        Text(contato.nome, color = Color.White, fontWeight = FontWeight.SemiBold)
+                                                        Text(contato.telefone, color = Color(0xFF94A3B8), fontSize = 12.sp)
+                                                    }
+                                                    if (contatoSelecionado == contato) {
+                                                        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF10B981))
+                                                    } else {
+                                                        Icon(Icons.Default.RadioButtonUnchecked, contentDescription = null, tint = Color(0xFF64748B))
+                                                    }
+                                                }
+                                                Spacer(Modifier.height(4.dp))
                                             }
                                         }
                                     }
                                 }
                             }
-                        }
-                        Divider(color = Color.White.copy(alpha = 0.2f))
-                        Text("Adicionar novo profissional", color = Color.White, fontWeight = FontWeight.SemiBold)
-                        OutlinedTextField(
-                            value = novoContatoNome,
-                            onValueChange = { novoContatoNome = it },
-                            label = { Text("Nome") },
-                            singleLine = true,
-                            shape = RoundedCornerShape(12.dp)
-                        )
-                        OutlinedTextField(
-                            value = novoContatoTelefone,
-                            onValueChange = { novoContatoTelefone = it },
-                            label = { Text("Telefone") },
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                            shape = RoundedCornerShape(12.dp)
-                        )
-                        Button(
-                            onClick = ::adicionarContatoManual,
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Icon(Icons.Default.PersonAdd, contentDescription = null)
-                            Spacer(Modifier.width(8.dp))
-                            Text("Cadastrar profissional")
                         }
                     }
                 }
@@ -1611,7 +1648,7 @@ fun adicionarContatoManual() {
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6)),
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.fillMaxWidth().height(48.dp)
-                        ) { Text(if (isModoLista) "Gerar avisos" else "Salvar Registro", fontSize = 16.sp) }
+                        ) { Text("Salvar Registro", fontSize = 16.sp) }
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             TextButton(onClick = { etapaAtual = 2 }) { Text("Voltar", color = Color.White) }
                         }
@@ -1802,4 +1839,117 @@ fun EditarCarroDialog(carroAtual: CarroInfo, titulo: String, onDismiss: () -> Un
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } }
     )
+}
+
+@Composable
+fun AbastecimentoDialog(onDismiss: () -> Unit) {
+    var precoGasolina by remember { mutableStateOf("") }
+    var valorAbastecido by remember { mutableStateOf("") }
+    val preco = precoGasolina.replace(",", ".").toDoubleOrNull()
+    val total = valorAbastecido.replace(",", ".").toDoubleOrNull()
+    val litros = if (preco != null && total != null && preco > 0) total / preco else null
+    val litrosTexto = litros?.let { String.format(Locale("pt", "BR"), "%.2f L", it) } ?: "--"
+    val gastoTexto = total?.let { formatarMoeda(it) } ?: "--"
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth(0.92f)
+                .wrapContentHeight()
+                .border(dialogBorderStroke, dialogCornerShape),
+            shape = dialogCornerShape,
+            color = Color(0xFF0F172A)
+        ) {
+            Column(
+                modifier = Modifier.padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(42.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Color(0xFF0B1224))
+                            .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(10.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.LocalGasStation,
+                            contentDescription = null,
+                            tint = Color(0xFF60A5FA),
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Column {
+                        Text("Adicionar abastecimento", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                        Text("Informe os valores para calcular os litros", color = Color(0xFF94A3B8), fontSize = 12.sp)
+                    }
+                }
+
+                OutlinedTextField(
+                    value = precoGasolina,
+                    onValueChange = { precoGasolina = it },
+                    label = { Text("Valor da gasolina (R$/L)") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    )
+                )
+
+                OutlinedTextField(
+                    value = valorAbastecido,
+                    onValueChange = { valorAbastecido = it },
+                    label = { Text("Valor abastecido (R$)") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    )
+                )
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color(0xFF111827))
+                        .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(12.dp))
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("Litros calculados", color = Color(0xFF94A3B8), fontSize = 12.sp)
+                        Text(litrosTexto, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("Gasto no posto", color = Color(0xFF94A3B8), fontSize = 12.sp)
+                        Text(gastoTexto, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    }
+                }
+
+                Button(
+                    onClick = onDismiss,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6)),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("Concluir", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
 }

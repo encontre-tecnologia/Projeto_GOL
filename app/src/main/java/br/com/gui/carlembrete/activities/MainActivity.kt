@@ -171,6 +171,7 @@ fun calcularProximaData(tipo: TipoManutencao, dataServico: LocalDate): String {
         TipoManutencao.TEMPERATURA -> 12L
         TipoManutencao.LICENCIAMENTO -> 12L
         TipoManutencao.IPVA -> 12L
+        TipoManutencao.SEGURO -> 12L
         TipoManutencao.OUTROS -> 3L
     }
     return dataServico.plusMonths(mesesParaAdicionar).format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))
@@ -185,6 +186,7 @@ fun getKmAdicionalPorTipo(tipo: TipoManutencao): Int {
         TipoManutencao.TEMPERATURA -> 30000
         TipoManutencao.LICENCIAMENTO -> 0
         TipoManutencao.IPVA -> 0
+        TipoManutencao.SEGURO -> 0
         TipoManutencao.OUTROS -> 5000
     }
 }

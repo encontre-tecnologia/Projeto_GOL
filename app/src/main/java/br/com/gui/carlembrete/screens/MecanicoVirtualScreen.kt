@@ -1,4 +1,4 @@
-package br.com.gui.carlembrete
+﻿package br.com.gui.carlembrete
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
@@ -539,7 +539,8 @@ private fun impactoSeNaoTrocar(tipo: TipoManutencao): String = when (tipo) {
     TipoManutencao.FREIO -> "Perda de freio (acidente)"
     TipoManutencao.TEMPERATURA -> "Motor fundido por calor"
     TipoManutencao.LICENCIAMENTO -> "Apreensao do veiculo"
-    TipoManutencao.IPVA -> "Bloqueio de documento"
+        TipoManutencao.IPVA -> "Bloqueio de documento"
+    TipoManutencao.SEGURO -> "Risco financeiro em caso de sinistro"
     TipoManutencao.OUTROS -> "Falhas inesperadas"
 }
 

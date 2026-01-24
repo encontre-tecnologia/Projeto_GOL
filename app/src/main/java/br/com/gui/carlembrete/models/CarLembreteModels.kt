@@ -1,4 +1,4 @@
-package br.com.gui.carlembrete
+﻿package br.com.gui.carlembrete
 
 import android.Manifest
 import android.app.Activity
@@ -59,6 +59,7 @@ import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.DirectionsCar
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material.icons.rounded.Payments
 import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.Thermostat
@@ -310,6 +311,8 @@ enum class TipoManutencao(val label: String) {
     TEMPERATURA("Temp."), // Mudado para ficar menor
     LICENCIAMENTO("Licenciamento"),
     IPVA("IPVA"),
+
+    SEGURO("Seguro"),
     OUTROS("Outros");
 
     fun getIcon(): ImageVector = when(this) {
@@ -320,6 +323,7 @@ enum class TipoManutencao(val label: String) {
         TEMPERATURA -> Icons.Rounded.Thermostat
         LICENCIAMENTO -> Icons.Rounded.Description
         IPVA -> Icons.Rounded.Payments
+        SEGURO -> Icons.Rounded.Shield
         OUTROS -> Icons.Rounded.Edit
     }
 }

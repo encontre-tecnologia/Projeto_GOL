@@ -1,4 +1,4 @@
-package br.com.gui.carlembrete
+﻿package br.com.gui.carlembrete
 
 import android.app.Activity
 import android.graphics.Paint
@@ -87,6 +87,7 @@ fun ManutencaoScreen(
     // CORES DO TEMA (Azul Premium)
     val primaryDark = Color(0xFF0F172A)
     val surfaceDark = Color(0xFF1E293B)
+    val topBarDark = Color(0xFF15223A)
     val accentBlue = Color(0xFF3B82F6)
     val textLight = Color(0xFFF1F5F9)
     val textDim = Color(0xFF94A3B8)
@@ -136,6 +137,7 @@ fun ManutencaoScreen(
     var showConfiguracoes by remember { mutableStateOf(false) }
     var showPrivacidadeDialog by remember { mutableStateOf(false) }
     var showMecanicoVirtualScreen by remember { mutableStateOf(false) }
+    var showAbastecimentoDialog by remember { mutableStateOf(false) }
 
     var showAnjoDaGuardaScreen by remember { mutableStateOf(false) }
     var showGaragemScreen by remember { mutableStateOf(false) }
@@ -259,6 +261,9 @@ fun ManutencaoScreen(
 
     if (showPrivacidadeDialog) {
         PrivacidadeTermosDialog(onDismiss = { showPrivacidadeDialog = false })
+    }
+    if (showAbastecimentoDialog) {
+        AbastecimentoDialog(onDismiss = { showAbastecimentoDialog = false })
     }
 
     BackHandler(enabled = showGaragemScreen) { showGaragemScreen = false }
@@ -480,7 +485,7 @@ fun ManutencaoScreen(
                                 Icon(Icons.Default.Menu, "Menu", tint = textLight)
                             }
                         },
-                        colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = primaryDark)
+                        colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = topBarDark)
                     )
                 }
             }
@@ -676,24 +681,6 @@ fun ManutencaoScreen(
                                 )
                             }
 
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                ActionButton(
-                                    icon = Icons.Default.DirectionsCar,
-                                    label = "Adicionar Veiculo",
-                                    modifier = Modifier.weight(1f),
-                                    onClick = { showAddCarDialog = true }
-                                )
-                                ActionButton(
-                                    icon = Icons.Rounded.Build,
-                                    label = "Zellu Mecanico",
-                                    modifier = Modifier.weight(1f),
-                                    onClick = { showMecanicoVirtualScreen = true }
-                                )
-                            }
-
                             // 4. BOTÃO "NOVO LEMBRETE"
                             Button(
                                 onClick = {
@@ -710,6 +697,70 @@ fun ManutencaoScreen(
                                 Icon(Icons.Default.Event, null, tint = Color.White)
                                 Spacer(Modifier.width(8.dp))
                                 Text("Novo Lembrete", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                    }
+
+                    Spacer(Modifier.height(16.dp))
+
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF0B1224)),
+                        border = BorderStroke(1.dp, Color(0xFF23324D))
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(44.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(Color(0xFF111827))
+                                        .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(12.dp))
+                                        .offset(y = (-4).dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.LocalGasStation,
+                                        contentDescription = null,
+                                        tint = Color(0xFF60A5FA),
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                }
+                                Spacer(Modifier.width(12.dp))
+                                Column {
+                                    Text(
+                                        text = "Abastecimento",
+                                        color = textLight,
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontSize = 14.sp
+                                    )
+                                    Text(
+                                        text = "Adicionar parada ao posto",
+                                        color = textDim,
+                                        fontSize = 12.sp
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.height(10.dp))
+                            Button(
+                                onClick = { showAbastecimentoDialog = true },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(44.dp),
+                                shape = RoundedCornerShape(10.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = accentBlue)
+                            ) {
+                                Text(
+                                    text = "Adicionar",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 13.sp
+                                )
                             }
                         }
                     }
@@ -749,7 +800,8 @@ fun ManutencaoScreen(
                                         TipoManutencao.FREIO,
                                         TipoManutencao.TEMPERATURA,
                                         TipoManutencao.LICENCIAMENTO,
-                                        TipoManutencao.IPVA
+                                        TipoManutencao.IPVA,
+                                        TipoManutencao.SEGURO
                                     ).forEach { tipo ->
                                         MonitorIcon(
                                             tipo = tipo,
@@ -1200,6 +1252,7 @@ fun getIconForType(tipo: TipoManutencao): ImageVector {
         TipoManutencao.FREIO -> Icons.Rounded.DiscFull
         TipoManutencao.TEMPERATURA -> Icons.Rounded.Thermostat
         TipoManutencao.LICENCIAMENTO, TipoManutencao.IPVA -> Icons.Rounded.Description
+        TipoManutencao.SEGURO -> Icons.Rounded.Shield
         else -> Icons.Rounded.Notifications
     }
 }
@@ -1210,6 +1263,7 @@ fun calcularCorStatusLocal(lembretes: List<Lembrete>, tipo: TipoManutencao): Col
         TipoManutencao.FREIO -> Color(0xFFEF4444) // Vermelho
         TipoManutencao.MECANICA -> Color(0xFFF59E0B) // Laranja
         TipoManutencao.LICENCIAMENTO -> Color(0xFF10B981) // Verde
+        TipoManutencao.SEGURO -> Color(0xFF22C55E) // Verde claro
         else -> Color(0xFF6366F1) // Roxo padrão
     }
 }
@@ -1242,6 +1296,7 @@ fun CarroInfoScreen(
 ) {
     val primaryDark = Color(0xFF0F172A)
     val surfaceDark = Color(0xFF1E293B)
+    val topBarDark = Color(0xFF15223A)
     val textLight = Color(0xFFF1F5F9)
     val textDim = Color(0xFF94A3B8)
     val totalGastos = lembretes.sumOf { it.valor }
@@ -1701,5 +1756,6 @@ fun corCategoria(tipo: TipoManutencao): Color = when (tipo) {
     TipoManutencao.TEMPERATURA -> Color(0xFFEF4444) // vermelho claro
     TipoManutencao.LICENCIAMENTO -> Color(0xFF22C55E) // verde claro
     TipoManutencao.IPVA -> Color(0xFF5B8DEF) // azul leve
+    TipoManutencao.SEGURO -> Color(0xFF10B981) // verde
     TipoManutencao.OUTROS -> Color(0xFF94A3B8)
 }
