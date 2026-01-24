@@ -1,6 +1,10 @@
-package br.com.gui.carlembrete
+﻿package br.com.gui.carlembrete
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -12,12 +16,15 @@ import androidx.compose.material.icons.filled.ArrowBackIosNew
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.Savings
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -62,6 +69,34 @@ fun MecanicoVirtualScreen(
 
     val proximosAvisos: List<Lembrete> = remember(lembretes) {
         lembretes.sortedBy { dataParaOrdenacao(it) }
+    }
+    var filtroGrafico by remember { mutableStateOf("TODOS") }
+    val gastosPorTipo = remember(lembretes) {
+        TipoManutencao.values()
+            .map { tipo -> tipo to lembretes.filter { it.tipo == tipo }.sumOf { it.valor } }
+            .associate { it.first to it.second }
+    }
+    val tiposSelecionados = when (filtroGrafico) {
+        "IMPOSTOS" -> listOf(TipoManutencao.LICENCIAMENTO, TipoManutencao.IPVA)
+        "MAIS_CAROS" -> gastosPorTipo.entries
+            .filter { it.value > 0.0 }
+            .sortedByDescending { it.value }
+            .take(3)
+            .map { it.key }
+        "MAIS_BARATOS" -> gastosPorTipo.entries
+            .filter { it.value > 0.0 }
+            .sortedBy { it.value }
+            .take(3)
+            .map { it.key }
+        else -> TipoManutencao.values().toList()
+    }
+    val categorySpendData = tiposSelecionados.map { tipo ->
+        val totalCategoria = gastosPorTipo[tipo] ?: 0.0
+        CategorySpend(
+            label = tipo.label,
+            valor = totalCategoria,
+            color = corCategoria(tipo)
+        )
     }
 
     Scaffold(
@@ -173,6 +208,112 @@ fun MecanicoVirtualScreen(
                         lineHeight = 18.sp,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center
                     )
+                }
+            }
+
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth(),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = surfaceDark),
+                border = BorderStroke(1.dp, Color(0xFF23324D))
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(42.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(
+                                    Brush.linearGradient(
+                                        colors = listOf(Color(0xFF1D4ED8), Color(0xFF60A5FA))
+                                    )
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.Payments, null, tint = Color.White, modifier = Modifier.size(20.dp))
+                        }
+                        Column(modifier = Modifier.padding(start = 2.dp)) {
+                            Text("Controle de gastos", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                            Text("Gasto por categoria", color = textDim, fontSize = 12.sp)
+                        }
+                    }
+                    val filtros = listOf(
+                        "TODOS" to "Todos",
+                        "IMPOSTOS" to "Impostos",
+                        "MAIS_CAROS" to "Mais altos",
+                        "MAIS_BARATOS" to "Mais baixos"
+                    )
+                    val centralizarFiltros = filtros.size <= 5
+                    val filtroScrollState = rememberScrollState()
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .weight(1f)
+                                .horizontalScroll(filtroScrollState),
+                            horizontalArrangement = if (centralizarFiltros) Arrangement.Center else Arrangement.spacedBy(32.dp)
+                        ) {
+                            filtros.forEach { (key, label) ->
+                                val selected = filtroGrafico == key
+                                Surface(
+                                    modifier = Modifier
+                                        .padding(horizontal = 2.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .border(1.dp, Color.White.copy(alpha = 0.35f), RoundedCornerShape(8.dp))
+                                        .clickable { filtroGrafico = key },
+                                    color = if (selected) Color(0xFF1D4ED8) else Color(0xFF0B223F)
+                                ) {
+                                    Text(
+                                        text = label,
+                                        color = Color.White,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF0B1224)),
+                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f))
+                    ) {
+                        CategoryExpenseChart(
+                            data = categorySpendData,
+                            centerColor = Color(0xFF0B1224),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(180.dp)
+                                .padding(12.dp)
+                        )
+                    }
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF0B1224)),
+                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f))
+                    ) {
+                        CategoryExpenseLegend(
+                            data = categorySpendData,
+                            labelColor = textDim,
+                            minItems = TipoManutencao.values().size,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp)
+                        )
+                    }
                 }
             }
 
@@ -398,7 +539,8 @@ private fun impactoSeNaoTrocar(tipo: TipoManutencao): String = when (tipo) {
     TipoManutencao.FREIO -> "Perda de freio (acidente)"
     TipoManutencao.TEMPERATURA -> "Motor fundido por calor"
     TipoManutencao.LICENCIAMENTO -> "Apreensao do veiculo"
-    TipoManutencao.IPVA -> "Bloqueio de documento"
+        TipoManutencao.IPVA -> "Bloqueio de documento"
+    TipoManutencao.SEGURO -> "Risco financeiro em caso de sinistro"
     TipoManutencao.OUTROS -> "Falhas inesperadas"
 }
 

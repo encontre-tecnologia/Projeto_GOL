@@ -1,126 +1,71 @@
 ﻿package br.com.gui.carlembrete
 
 import android.Manifest
-import android.app.Activity
-import android.app.DatePickerDialog
-import android.app.TimePickerDialog
-import android.content.ActivityNotFoundException
 import android.content.Context
-import android.content.ContextWrapper
-import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Matrix
-import android.net.Uri
-import android.speech.RecognizerIntent
 import android.util.Log
 import android.widget.Toast
-import java.net.URLEncoder
-import androidx.activity.compose.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.ImageProxy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
-import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
-import androidx.annotation.DrawableRes
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Image
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.BatteryAlert
-import androidx.compose.material.icons.rounded.Build
-import androidx.compose.material.icons.rounded.CalendarMonth
-import androidx.compose.material.icons.rounded.DirectionsCar
-import androidx.compose.material.icons.rounded.Edit
-import androidx.compose.material.icons.rounded.ErrorOutline
-import androidx.compose.material.icons.rounded.Speed
-import androidx.compose.material.icons.rounded.Thermostat
-import androidx.compose.material.icons.rounded.WaterDrop
+import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.FlashOff
+import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.RoundRect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.ClipOp // Importação corrigida
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ColorFilter
-import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
-import androidx.core.view.WindowCompat
-import androidx.core.view.WindowInsetsControllerCompat
-import br.com.gui.carlembrete.R
-import br.com.gui.carlembrete.ui.theme.CarLembreteTheme
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
-import java.io.ObjectInputStream
-import java.io.ObjectOutputStream
-import java.io.Serializable
 import java.text.Normalizer
-import java.text.NumberFormat
 import java.time.LocalDate
-import java.time.format.DateTimeFormatter
-import java.time.temporal.ChronoUnit
-import java.time.DayOfWeek
-import java.time.YearMonth
-import java.time.temporal.TemporalAdjusters
 import java.util.Locale
-import java.util.UUID
 import java.util.concurrent.Executors
 import kotlin.math.roundToInt
 
 private const val LER_NOTAS_HABILITADO = false
 
-/* ----------------- CÃ‚MERA INTELIGENTE ----------------- */
+/* ----------------- CÂMERA INTELIGENTE ----------------- */
 
 @Composable
 fun CameraCapturaDialog(onDismiss: () -> Unit, onFotoCapturada: (ResultadoCaptura) -> Unit) {
@@ -146,6 +91,7 @@ fun CameraCapturaDialog(onDismiss: () -> Unit, onFotoCapturada: (ResultadoCaptur
 
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+            // 1. Layer da Câmera (Preview)
             AndroidView(factory = { ctx ->
                 val previewView = PreviewView(ctx)
                 val executor = ContextCompat.getMainExecutor(ctx)
@@ -162,21 +108,88 @@ fun CameraCapturaDialog(onDismiss: () -> Unit, onFotoCapturada: (ResultadoCaptur
                 previewView
             }, modifier = Modifier.fillMaxSize())
 
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(vertical = 120.dp)
-                    .padding(horizontal = 40.dp),
-                contentAlignment = Alignment.Center
-            ) {
+            // 2. Layer da Máscara Escura e Borda Branca
+            BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                val larguraCorteDp = maxWidth * 0.85f
+                val alturaCorteDp = 280.dp
+                val cornerRadiusDp = 24.dp
+                val overlayColor = Color.Black.copy(alpha = 0.75f)
+
+                // Canvas desenha a máscara escura com o buraco no meio
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    // Convertendo DP para Pixels dentro do escopo de desenho (DrawScope)
+                    val larguraPx = larguraCorteDp.toPx()
+                    val alturaPx = alturaCorteDp.toPx()
+                    val cornerPx = cornerRadiusDp.toPx()
+
+                    // Calculando coordenadas para centralizar
+                    val left = (size.width - larguraPx) / 2
+                    val top = (size.height - alturaPx) / 2
+
+                    // Criando o caminho do retângulo arredondado (o "buraco")
+                    val rectPath = Path().apply {
+                        addRoundRect(
+                            RoundRect(
+                                rect = Rect(
+                                    offset = Offset(left, top),
+                                    size = Size(larguraPx, alturaPx)
+                                ),
+                                cornerRadius = CornerRadius(cornerPx)
+                            )
+                        )
+                    }
+
+                    // Cortando o buraco da camada escura
+                    // ClipOp.Difference garante que pintamos TUDO, MENOS o retângulo
+                    clipPath(rectPath, clipOp = ClipOp.Difference) {
+                        drawRect(color = overlayColor)
+                    }
+                }
+
+                // O QUADRADO BRANCO CENTRAL (Apenas a borda visual e animação)
                 Box(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .height(200.dp)
-                        .border(BorderStroke(2.dp, Color.White.copy(alpha = 0.7f)), RoundedCornerShape(16.dp))
-                )
+                        .width(larguraCorteDp)
+                        .height(alturaCorteDp)
+                        .align(Alignment.Center)
+                        .border(BorderStroke(3.dp, Color.White), RoundedCornerShape(cornerRadiusDp))
+                        .clip(RoundedCornerShape(cornerRadiusDp))
+                ) {
+                    // Animação do Scanner (Linha Verde)
+                    val lineHeight = 4.dp
+                    val anim = remember { Animatable(0f) }
+
+                    LaunchedEffect(Unit) {
+                        while (true) {
+                            anim.animateTo(
+                                targetValue = 1f,
+                                animationSpec = tween(durationMillis = 1800, easing = LinearEasing)
+                            )
+                            anim.snapTo(0f)
+                        }
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(lineHeight)
+                            .align(Alignment.TopCenter)
+                            .offset(y = (alturaCorteDp - lineHeight) * anim.value)
+                            .background(
+                                brush = Brush.horizontalGradient(
+                                    colors = listOf(
+                                        Color(0xFF22C55E).copy(alpha = 0.0f),
+                                        Color(0xFF22C55E).copy(alpha = 1f),
+                                        Color(0xFF22C55E).copy(alpha = 0.0f)
+                                    )
+                                )
+                            )
+                            .shadow(8.dp, spotColor = Color(0xFF22C55E))
+                    )
+                }
             }
 
+            // CONTROLES E BOTÕES
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -184,8 +197,20 @@ fun CameraCapturaDialog(onDismiss: () -> Unit, onFotoCapturada: (ResultadoCaptur
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.SpaceBetween
             ) {
-                Row(modifier = Modifier.fillMaxWidth().padding(top = 24.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                    IconButton(onClick = onDismiss, modifier = Modifier.background(Color.Black.copy(0.5f), CircleShape)) { Icon(Icons.Default.Close, "Fechar", tint = Color.White) }
+                // Topo: Botões de Fechar e Flash
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 40.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.background(Color.Black.copy(0.6f), CircleShape)
+                    ) {
+                        Icon(Icons.Default.Close, "Fechar", tint = Color.White)
+                    }
+
                     IconButton(
                         onClick = {
                             val hasPermission = ContextCompat.checkSelfPermission(
@@ -200,37 +225,65 @@ fun CameraCapturaDialog(onDismiss: () -> Unit, onFotoCapturada: (ResultadoCaptur
                                     lanternaLigada = !lanternaLigada
                                     Toast.makeText(context, "Não foi possível acessar o flash", Toast.LENGTH_SHORT).show()
                                 }
-                            } else {
-                                Toast.makeText(context, "Permita o uso da câmera para ativar o flash", Toast.LENGTH_SHORT).show()
                             }
                         },
-                        modifier = Modifier.background(Color.Black.copy(0.5f), CircleShape)
-                    ) { Icon(if (lanternaLigada) Icons.Default.FlashOn else Icons.Default.FlashOff, "Flash", tint = if (lanternaLigada) Color(0xFFF59E0B) else Color.White) }
+                        modifier = Modifier.background(Color.Black.copy(0.6f), CircleShape)
+                    ) {
+                        Icon(
+                            imageVector = if (lanternaLigada) Icons.Default.FlashOn else Icons.Default.FlashOff,
+                            contentDescription = "Flash",
+                            tint = if (lanternaLigada) Color(0xFFF59E0B) else Color.White
+                        )
+                    }
                 }
-                Box(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).background(Color.Black.copy(0.6f), RoundedCornerShape(16.dp)).padding(16.dp), contentAlignment = Alignment.Center) {
-                    if (isProcessing) { Row(verticalAlignment = Alignment.CenterVertically) { CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.White); Spacer(Modifier.width(16.dp)); Text("Processando captura...", color = Color.White) } }
-                    else { Text("Centralize o nome do produto dentro do retângulo para obter o melhor resultado.", color = Color.White, fontSize = 14.sp, textAlign = TextAlign.Center) }
-                }
-                Button(
-                    onClick = {
-                        if (!isProcessing) {
-                            isProcessing = true
-                            captureAndExtractItems(context, imageCapture!!) { resultado ->
-                                isProcessing = false
-                                onFotoCapturada(resultado)
-                            }
+
+                // Indicador de Processamento
+                if (isProcessing) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp)
+                            .background(Color.Black.copy(0.8f), RoundedCornerShape(16.dp))
+                            .padding(16.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.White, strokeWidth = 2.dp)
+                            Spacer(Modifier.width(16.dp))
+                            Text("Analisando imagem...", color = Color.White, fontWeight = FontWeight.Bold)
                         }
-                    },
-                    enabled = !isProcessing,
+                    }
+                }
+
+                // Botão de Captura
+                Box(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .height(56.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color(0xFF0F172A))
+                        .padding(bottom = 40.dp),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Icon(Icons.Default.CameraAlt, contentDescription = null)
-                    Spacer(Modifier.width(8.dp))
-                    Text(if (isProcessing) "Processando..." else "Escanear Produto", fontWeight = FontWeight.Bold)
+                    IconButton(
+                        onClick = {
+                            if (!isProcessing) {
+                                isProcessing = true
+                                captureAndExtractItems(context, imageCapture!!) { resultado ->
+                                    isProcessing = false
+                                    onFotoCapturada(resultado)
+                                }
+                            }
+                        },
+                        enabled = !isProcessing,
+                        modifier = Modifier
+                            .size(80.dp)
+                            .background(Color.White, CircleShape)
+                            .border(4.dp, Color(0xFFE2E8F0), CircleShape)
+                    ) {
+                        Icon(
+                            Icons.Default.CameraAlt,
+                            contentDescription = "Tirar foto",
+                            tint = Color.Black,
+                            modifier = Modifier.size(32.dp)
+                        )
+                    }
                 }
             }
         }
@@ -524,8 +577,6 @@ fun ImageProxy.toBitmap(): Bitmap {
     return android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
 }
 
-
-
 private fun contemSequenciaPromocional(texto: String): Boolean {
     val clean = texto.uppercase(Locale.ROOT).unaccent()
     val termosBloco = listOf("PROTEGE", "MANTEM", "MANTE", "LIMPO", "MOTOR")
@@ -620,4 +671,3 @@ private fun recortarAreaCentral(bitmap: Bitmap): Bitmap {
         alturaTarget.coerceAtMost(altura)
     )
 }
-
