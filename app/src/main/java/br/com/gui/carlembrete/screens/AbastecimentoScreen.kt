@@ -8,6 +8,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBackIosNew
+import androidx.compose.material.icons.filled.LocalGasStation
 import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.rounded.LocalGasStation
 import androidx.compose.material3.*
@@ -15,6 +16,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -37,6 +39,9 @@ import java.util.Locale
 fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
     val primaryDark = Color(0xFF0F172A)
     val surfaceDark = Color(0xFF1E293B)
+    val accentBlue = Color(0xFF3B82F6)
+    val accentGreen = Color(0xFF34D399)
+    val cardStroke = Color(0xFF1F2A44)
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var precoGasolina by remember { mutableStateOf("") }
@@ -51,6 +56,19 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
     val litrosTexto = litros?.let { String.format(Locale("pt", "BR"), "%.2f L", it) } ?: "--"
     val gastoTexto = total?.let { formatarMoeda(it) } ?: "--"
     val canSave = preco != null && total != null && preco > 0.0 && total > 0.0 && !isSaving
+    val fieldColors = OutlinedTextFieldDefaults.colors(
+        focusedTextColor = Color.White,
+        unfocusedTextColor = Color.White,
+        cursorColor = Color.White,
+        focusedBorderColor = Color(0xFF334155),
+        unfocusedBorderColor = Color(0xFF1F2A44),
+        focusedLabelColor = Color.White,
+        unfocusedLabelColor = Color(0xFF94A3B8),
+        focusedLeadingIconColor = Color(0xFFCBD5F5),
+        unfocusedLeadingIconColor = Color(0xFF94A3B8),
+        focusedContainerColor = Color(0xFF0F172A),
+        unfocusedContainerColor = Color(0xFF0F172A)
+    )
 
     LaunchedEffect(Unit) {
         abastecimentos = BancoDeDados.carregarAbastecimentos(context)
@@ -85,49 +103,57 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
                 .padding(horizontal = 20.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(18.dp)
         ) {
-            ElevatedCard(
+            Card(
                 colors = CardDefaults.cardColors(containerColor = Color(0xFF111827)),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                border = BorderStroke(1.dp, cardStroke)
             ) {
-                Row(
-                    modifier = Modifier.padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                Box(
+                    modifier = Modifier
+                        .background(
+                            Brush.horizontalGradient(
+                                listOf(Color(0xFF0B1224), Color(0xFF0F172A), Color(0xFF111827))
+                            )
+                        )
+                        .padding(16.dp)
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(72.dp)
-                            .clip(RoundedCornerShape(18.dp))
-                            .background(Color(0xFF0B1224))
-                            .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(18.dp)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.LocalGasStation,
-                            contentDescription = null,
-                            tint = Color(0xFF60A5FA),
-                            modifier = Modifier.size(36.dp)
-                        )
-                    }
-                    Spacer(Modifier.width(14.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            "Abastecimento",
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 20.sp
-                        )
-                        Text(
-                            "Registre o gasto e calcule os litros",
-                            color = Color(0xFF94A3B8),
-                            fontSize = 12.sp
-                        )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(64.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                                .border(1.dp, accentBlue, RoundedCornerShape(16.dp)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.LocalGasStation,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
+                        Spacer(Modifier.width(14.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "Abastecimento",
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 20.sp
+                            )
+                            Text(
+                                "Registre o gasto e calcule os litros",
+                                color = Color(0xFF94A3B8),
+                                fontSize = 12.sp
+                            )
+                        }
                     }
                 }
             }
 
-            ElevatedCard(
+            Card(
                 colors = CardDefaults.cardColors(containerColor = surfaceDark),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                border = BorderStroke(1.dp, cardStroke)
             ) {
                 Column(
                     modifier = Modifier.padding(24.dp),
@@ -147,16 +173,16 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
                             Icon(
                                 imageVector = Icons.Rounded.LocalGasStation,
                                 contentDescription = null,
-                                tint = Color(0xFF60A5FA)
+                                tint = Color(0xFFCBD5F5)
                             )
                         },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White
-                        )
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(58.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = fieldColors
                     )
                     OutlinedTextField(
                         value = valorAbastecido,
@@ -166,28 +192,31 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
                             Icon(
                                 imageVector = Icons.Default.Payments,
                                 contentDescription = null,
-                                tint = Color(0xFF34D399)
+                                tint = Color(0xFFCBD5F5)
                             )
                         },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White
-                        )
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(58.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = fieldColors
                     )
                     OutlinedTextField(
                         value = dataSelecionada.format(dateFormatter),
                         onValueChange = {},
                         readOnly = true,
                         label = { Text("Data do registro") },
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(58.dp),
+                        shape = RoundedCornerShape(14.dp),
                         leadingIcon = {
                             Icon(
                                 imageVector = Icons.Default.CalendarMonth,
                                 contentDescription = null,
-                                tint = Color.White
+                                tint = Color(0xFFCBD5F5)
                             )
                         },
                         trailingIcon = {
@@ -208,24 +237,30 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
                                 Icon(
                                     imageVector = Icons.Default.CalendarMonth,
                                     contentDescription = "Selecionar data",
-                                    tint = Color.White
+                                    tint = Color(0xFFCBD5F5)
                                 )
                             }
                         },
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White
-                        )
+                        colors = fieldColors
                     )
                 }
             }
 
-            ElevatedCard(
+            Card(
                 colors = CardDefaults.cardColors(containerColor = surfaceDark),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                border = BorderStroke(1.dp, cardStroke)
             ) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("Resumo", color = Color.White, fontWeight = FontWeight.Bold)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Icon(
+                            imageVector = Icons.Default.Payments,
+                            contentDescription = null,
+                            tint = accentGreen,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text("Resumo", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -233,13 +268,13 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
                         ResumoItem(
                             title = "Litros",
                             value = litrosTexto,
-                            accent = Color(0xFF60A5FA),
+                            accent = accentBlue,
                             modifier = Modifier.weight(1f)
                         )
                         ResumoItem(
                             title = "Gasto",
                             value = gastoTexto,
-                            accent = Color(0xFF34D399),
+                            accent = accentGreen,
                             modifier = Modifier.weight(1f)
                         )
                     }
@@ -276,7 +311,7 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(52.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6)),
+                colors = ButtonDefaults.buttonColors(containerColor = accentBlue),
                 shape = RoundedCornerShape(12.dp)
             ) {
                 Text(
