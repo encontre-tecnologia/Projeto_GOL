@@ -52,13 +52,13 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.BatteryAlert
+import androidx.compose.material.icons.rounded.BatteryChargingFull
 import androidx.compose.material.icons.rounded.Build
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.DirectionsCar
 import androidx.compose.material.icons.rounded.Edit
-import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.DiscFull
 import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material.icons.rounded.Payments
 import androidx.compose.material.icons.rounded.Speed
@@ -219,6 +219,7 @@ data class CarroInfo(
     val nome: String = "Novo Carro",
     val modelo: String = "Modelo 1.0",
     val marca: String = "",
+    val proprietario: String = "",
     val corArgb: Int = 0xFF3B82F6.toInt(),
     val kmAtual: Int = 0,
     val tipoVeiculo: TipoVeiculo = TipoVeiculo.CARRO
@@ -316,7 +317,7 @@ enum class TipoManutencao(val label: String) {
     OLEO("Óleo"),
     BATERIA("Bateria"),
     MECANICA("Mecânica"),
-    FREIO("Freio/ABS"),
+    FREIO("Freio"),
     TEMPERATURA("Temp."), // Mudado para ficar menor
     LICENCIAMENTO("Licença"),
     IPVA("IPVA"),
@@ -326,9 +327,9 @@ enum class TipoManutencao(val label: String) {
 
     fun getIcon(): ImageVector = when(this) {
         OLEO -> Icons.Rounded.WaterDrop
-        BATERIA -> Icons.Rounded.BatteryAlert
+        BATERIA -> Icons.Rounded.BatteryChargingFull
         MECANICA -> Icons.Rounded.Build
-        FREIO -> Icons.Rounded.ErrorOutline
+        FREIO -> Icons.Rounded.DiscFull
         TEMPERATURA -> Icons.Rounded.Thermostat
         LICENCIAMENTO -> Icons.Rounded.Description
         IPVA -> Icons.Rounded.Payments

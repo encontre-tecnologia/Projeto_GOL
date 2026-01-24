@@ -97,6 +97,7 @@ import br.com.gui.carlembrete.ui.theme.CarLembreteTheme
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -127,6 +128,10 @@ fun GaragemOverviewScreen(
 ) {
     var busca by remember { mutableStateOf("") }
     val buscaNormalizada = busca.trim().lowercase(Locale.getDefault())
+    val usuarioNome = FirebaseAuth.getInstance().currentUser?.displayName
+    val nomeMantedor = usuarioNome?.trim()?.ifBlank { null }
+        ?: FirebaseAuth.getInstance().currentUser?.email
+        ?: "Não informado"
     val carrosFiltrados = if (buscaNormalizada.isBlank()) {
         carros
     } else {
@@ -140,7 +145,7 @@ fun GaragemOverviewScreen(
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
-        containerColor = Color(0xFF0F2A4A),
+        containerColor = Color.Transparent,
         topBar = {
             TopAppBar(
                 title = {
@@ -156,130 +161,176 @@ fun GaragemOverviewScreen(
                         onClick = onDismiss,
                         modifier = Modifier.size(56.dp)
                     ) {
-                        Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar", tint = Color.White, modifier = Modifier.size(26.dp))
+                        Icon(
+                            Icons.Default.ArrowBackIosNew,
+                            contentDescription = "Voltar",
+                            tint = Color.White,
+                            modifier = Modifier.size(26.dp)
+                        )
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF0F2A4A))
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
             )
         }
     ) { innerPadding ->
-        if (carros.isEmpty()) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding)
-                    .padding(24.dp),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = Color(0xFF94A3B8), modifier = Modifier.size(56.dp))
-                Spacer(Modifier.height(12.dp))
-                Text("Nenhum veículo cadastrado", color = Color(0xFF94A3B8))
-            }
-        } else {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-                contentPadding = PaddingValues(vertical = 12.dp)
-            ) {
-                item {
-                    OutlinedTextField(
-                        value = busca,
-                        onValueChange = { busca = it },
-                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = Color(0xFF94A3B8)) },
-                        placeholder = { Text("Buscar veiculo") },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 24.dp),
-                        singleLine = true,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White,
-                            focusedBorderColor = Color(0xFF334155),
-                            unfocusedBorderColor = Color(0xFF1E293B),
-                            focusedContainerColor = Color(0xFF0B1324),
-                            unfocusedContainerColor = Color(0xFF0B1324),
-                            cursorColor = Color.White
-                        )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        listOf(Color(0xFF16233A), Color(0xFF121B30), Color(0xFF0F172A))
                     )
+                )
+        ) {
+            if (carros.isEmpty()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding)
+                        .padding(24.dp),
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(
+                        Icons.Default.DirectionsCar,
+                        contentDescription = null,
+                        tint = Color(0xFF94A3B8),
+                        modifier = Modifier.size(56.dp)
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Text("Nenhum veículo cadastrado", color = Color(0xFF94A3B8))
                 }
-                if (carrosFiltrados.isEmpty()) {
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    contentPadding = PaddingValues(vertical = 12.dp)
+                ) {
                     item {
-                        Column(
+                        OutlinedTextField(
+                            value = busca,
+                            onValueChange = { busca = it },
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Default.Search,
+                                    contentDescription = null,
+                                    tint = Color(0xFF94A3B8)
+                                )
+                            },
+                            placeholder = { Text("Buscar veiculo") },
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(24.dp),
-                            verticalArrangement = Arrangement.Center,
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Icon(Icons.Default.SearchOff, contentDescription = null, tint = Color(0xFF94A3B8), modifier = Modifier.size(48.dp))
-                            Spacer(Modifier.height(8.dp))
-                            Text("Nenhum veiculo encontrado", color = Color(0xFF94A3B8))
-                        }
+                                .padding(horizontal = 24.dp),
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White,
+                                focusedBorderColor = Color(0xFF334155),
+                                unfocusedBorderColor = Color(0xFF1E293B),
+                                focusedContainerColor = Color(0xFF0B1324),
+                                unfocusedContainerColor = Color(0xFF0B1324),
+                                cursorColor = Color.White
+                            )
+                        )
                     }
-                } else {
-                    items(carrosFiltrados) { carro ->
-                        val infoLinha = listOfNotNull(
-                            carro.marca.takeIf { it.isNotBlank() },
-                            carro.modelo.takeIf { it.isNotBlank() }
-                        ).joinToString(" - ").ifBlank { "Marca e modelo nao informados" }
-                        val kmTexto = if (carro.kmAtual > 0) "${carro.kmAtual} km" else "KM nao informado"
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 24.dp)
-                                .clickable { onSelecionar(carro) },
-                            shape = RoundedCornerShape(16.dp),
-                            colors = CardDefaults.cardColors(containerColor = Color(0xFF0B1324)),
-                            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
-                        ) {
-                            Row(
+                    if (carrosFiltrados.isEmpty()) {
+                        item {
+                            Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(16.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                                    .padding(24.dp),
+                                verticalArrangement = Arrangement.Center,
+                                horizontalAlignment = Alignment.CenterHorizontally
                             ) {
-                                val logoRes = carro.logoResOrNull()
-                                Box(
+                                Icon(
+                                    Icons.Default.SearchOff,
+                                    contentDescription = null,
+                                    tint = Color(0xFF94A3B8),
+                                    modifier = Modifier.size(48.dp)
+                                )
+                                Spacer(Modifier.height(8.dp))
+                                Text("Nenhum veiculo encontrado", color = Color(0xFF94A3B8))
+                            }
+                        }
+                    } else {
+                        items(carrosFiltrados) { carro ->
+                            val infoLinha = listOfNotNull(
+                                carro.marca.takeIf { it.isNotBlank() },
+                                carro.modelo.takeIf { it.isNotBlank() }
+                            ).joinToString(" - ").ifBlank { "Marca e modelo nao informados" }
+                            val kmTexto =
+                                if (carro.kmAtual > 0) "${carro.kmAtual} km" else "KM nao informado"
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 24.dp)
+                                    .clickable { onSelecionar(carro) },
+                                shape = RoundedCornerShape(16.dp),
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFF0B1324)),
+                                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+                            ) {
+                                Row(
                                     modifier = Modifier
-                                        .size(56.dp)
-                                        .clip(CircleShape)
-                                        .background(carro.getCorUI().copy(alpha = 0.35f)),
-                                    contentAlignment = Alignment.Center
+                                        .fillMaxWidth()
+                                        .padding(16.dp),
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    if (logoRes != null) {
-                                        Image(
-                                            painter = painterResource(id = logoRes),
-                                            contentDescription = carro.marca.ifBlank { "Logo do veiculo" },
-                                            modifier = Modifier.size(32.dp),
-                                            colorFilter = ColorFilter.tint(Color.White)
-                                        )
-                                    } else {
-                                        Icon(
-                                            Icons.Rounded.DirectionsCar,
-                                            contentDescription = null,
-                                            tint = Color.White,
-                                            modifier = Modifier.size(28.dp)
-                                        )
+                                    val logoRes = carro.logoResOrNull()
+                                    Box(
+                                        modifier = Modifier
+                                            .size(56.dp)
+                                            .clip(CircleShape)
+                                            .background(carro.getCorUI().copy(alpha = 0.35f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        if (logoRes != null) {
+                                            Image(
+                                                painter = painterResource(id = logoRes),
+                                                contentDescription = carro.marca.ifBlank { "Logo do veiculo" },
+                                                modifier = Modifier.size(32.dp),
+                                                colorFilter = ColorFilter.tint(Color.White)
+                                            )
+                                        } else {
+                                            Icon(
+                                                Icons.Rounded.DirectionsCar,
+                                                contentDescription = null,
+                                                tint = Color.White,
+                                                modifier = Modifier.size(28.dp)
+                                            )
+                                        }
                                     }
-                                }
-                                Spacer(Modifier.width(14.dp))
-                                Column(
-                                    modifier = Modifier.weight(1f),
-                                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    Text(
-                                        carro.nome.ifBlank { "Veiculo sem nome" },
-                                        color = Color.White,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 16.sp
+                                    Spacer(Modifier.width(14.dp))
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(
+                                carro.nome.ifBlank { "Veiculo sem nome" },
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 16.sp
+                            )
+                            Text(infoLinha, color = Color(0xFF94A3B8), fontSize = 13.sp)
+                            Text(
+                                text = "Proprietário: ${carro.proprietario.ifBlank { "Não informado" }}",
+                                color = Color(0xFFCBD5E1),
+                                fontSize = 12.sp
+                            )
+                            Text(
+                                text = "Mantedor: $nomeMantedor",
+                                color = Color(0xFF94A3B8),
+                                fontSize = 11.sp
+                            )
+                        }
+                                    Icon(
+                                        Icons.Default.ArrowForwardIos,
+                                        contentDescription = "Ver mais",
+                                        tint = Color(0xFF94A3B8),
+                                        modifier = Modifier.size(18.dp)
                                     )
-                                    Text(infoLinha, color = Color(0xFF94A3B8), fontSize = 13.sp)
-                                    Text(kmTexto, color = Color(0xFF94A3B8), fontSize = 12.sp)
                                 }
-                                Icon(Icons.Default.ArrowForwardIos, contentDescription = "Ver mais", tint = Color(0xFF94A3B8), modifier = Modifier.size(18.dp))
                             }
                         }
                     }

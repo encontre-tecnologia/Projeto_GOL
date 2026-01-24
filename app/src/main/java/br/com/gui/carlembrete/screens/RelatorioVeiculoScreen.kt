@@ -200,7 +200,8 @@ fun RelatorioVeiculoScreen(carroAtual: CarroInfo, lembretes: List<Lembrete>, onD
                     ) {
                         val infoModelo = listOf(carroAtual.marca, carroAtual.modelo).filter { it.isNotBlank() }.joinToString(" - ")
                         val proximaData = proximos.firstOrNull()?.second?.format(formatter) ?: "Sem agenda"
-                        val kmAtualText = if (carroAtual.kmAtual > 0) "${carroAtual.kmAtual} km" else "N├úo informado"
+                        val kmAtualText = if (carroAtual.kmAtual > 0) "${carroAtual.kmAtual} km" else "Não informado"
+                        val proprietarioText = carroAtual.proprietario.ifBlank { "Não informado" }
                         val textoPrimario = Color(0xFF0F172A)
                         val textoSecundario = Color(0xFF475569)
                         Box(
@@ -241,6 +242,9 @@ fun RelatorioVeiculoScreen(carroAtual: CarroInfo, lembretes: List<Lembrete>, onD
                                     VehicleStat(label = "Avisos ativos", value = lembretes.size.toString(), color = textoPrimario)
                                     VehicleStat(label = "Pr├│ximo servi├ºo", value = proximaData, color = textoPrimario)
                                 }
+                                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    VehicleStat(label = "Proprietário", value = proprietarioText, color = textoPrimario)
+                                }
                             }
                         }
                     }
@@ -266,7 +270,12 @@ fun RelatorioVeiculoScreen(carroAtual: CarroInfo, lembretes: List<Lembrete>, onD
                                                     .background(Color(0xFF16233B))
                                                     .border(2.dp, calcularCorStatus(lembretes, tipo).copy(alpha = 0.6f), CircleShape)
                                             ) {
-                                                Icon(tipo.getIcon(), contentDescription = tipo.label, tint = calcularCorStatus(lembretes, tipo), modifier = Modifier.size(26.dp))
+                                                TipoIcon(
+                                                    tipo = tipo,
+                                                    tint = calcularCorStatus(lembretes, tipo),
+                                                    size = 26.dp,
+                                                    textSize = 12.sp
+                                                )
                                             }
                                             if (quantidade > 0) {
                                                 Box(

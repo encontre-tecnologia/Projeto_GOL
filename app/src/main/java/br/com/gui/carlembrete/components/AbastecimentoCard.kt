@@ -1,33 +1,38 @@
-package br.com.gui.carlembrete
-
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CalendarMonth
+import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.DateRange
 import androidx.compose.material.icons.rounded.LocalGasStation
 import androidx.compose.material.icons.rounded.Timelapse
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
+import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
+
+// --- CORES (Mantendo o degradê elegante) ---
+private val GradientStart = Color(0xFF334155) // Slate 700
+private val GradientEnd = Color(0xFF1E293B)   // Slate 800
+
+private val AccentBlue = Color(0xFF3B82F6)
+private val TextWhite = Color(0xFFF8FAFC)
+private val TextGray = Color(0xFF94A3B8)
+private val SuccessGreen = Color(0xFF10B981)
+
+private val SurfaceHighlight = Color(0xFF000000).copy(alpha = 0.25f)
 
 @Composable
 fun AbastecimentoCard(
@@ -40,187 +45,209 @@ fun AbastecimentoCard(
     onHistorico: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val textLight = Color(0xFFF1F5F9)
-    val textDim = Color(0xFF94A3B8)
-    val accentBlue = Color(0xFF3B82F6)
-    val surfaceCard = Color(0xFF0B1224)
-    val cardStroke = Color(0xFF23324D)
-
-    Card(
-        modifier = modifier,
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = surfaceCard),
-        border = BorderStroke(1.dp, cardStroke)
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .shadow(
+                elevation = 8.dp,
+                shape = RoundedCornerShape(12.dp),
+                ambientColor = Color.Black.copy(alpha = 0.5f),
+                spotColor = Color.Black.copy(alpha = 0.5f)
+            )
     ) {
-        Column(
-            modifier = Modifier
-                .background(
-                    Brush.verticalGradient(
-                        listOf(Color(0xFF0B1224), Color(0xFF0F172A), Color(0xFF111827))
-                    )
-                )
-                .padding(14.dp)
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.Transparent)
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(46.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .border(1.dp, accentBlue, RoundedCornerShape(10.dp)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.LocalGasStation,
-                        contentDescription = null,
-                        tint = textLight,
-                        modifier = Modifier.size(22.dp)
-                    )
-                }
-                Spacer(Modifier.width(12.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "Abastecimento",
-                        color = textLight,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 14.sp
-                    )
-                    Text(
-                        text = "Previsao automatica da proxima parada",
-                        color = textDim,
-                        fontSize = 12.sp
-                    )
-                }
-            }
-
-            Spacer(Modifier.height(10.dp))
-
             Column(
                 modifier = Modifier
-                    .fillMaxWidth()
                     .clip(RoundedCornerShape(12.dp))
-                    .background(Brush.horizontalGradient(listOf(Color(0xFF0F172A), Color(0xFF111827))))
-                    .border(1.dp, Color(0xFF1E293B), RoundedCornerShape(12.dp))
-                    .padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                if (proximaData != null && diasAte != null) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(Color(0xFF0B1224))
-                            .border(1.dp, Color(0xFF1F2A44), RoundedCornerShape(10.dp))
-                            .padding(10.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text(
-                            "Proximo abastecimento",
-                            color = textDim,
-                            fontSize = 10.sp,
-                            textAlign = TextAlign.Center
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(GradientStart, GradientEnd)
                         )
+                    )
+                    .padding(20.dp)
+            ) {
+                // --- Cabeçalho ---
+                Row(verticalAlignment = Alignment.CenterVertically) {
+
+                    Surface(
+                        shape = CircleShape,
+                        // Fundo: Vidro transparente (Branco com 10% de opacidade)
+                        color = Color.White.copy(alpha = 0.1f),
+                        modifier = Modifier.size(48.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Rounded.LocalGasStation,
+                                contentDescription = null,
+                                // MUDANÇA AQUI: Branco puro para destaque total
+                                tint = Color.White,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(Modifier.width(16.dp))
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            proximaData.format(dateFormatter),
-                            color = Color(0xFF34D399),
+                            text = "Gestão de Combustível",
+                            color = TextWhite,
                             fontWeight = FontWeight.Bold,
                             fontSize = 16.sp
                         )
                         Text(
-                            "Em $diasAte dia(s)",
-                            color = textDim,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold
+                            text = "Previsão e custos",
+                            color = TextGray,
+                            fontSize = 12.sp
                         )
                     }
                 }
 
+                Spacer(Modifier.height(24.dp))
+
+                // --- Bloco de Previsão ---
+                if (proximaData != null && diasAte != null) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(SurfaceHighlight)
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column {
+                            Text(
+                                "Próximo Tanque",
+                                color = TextGray,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                text = proximaData.format(dateFormatter),
+                                color = TextWhite,
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 18.sp
+                            )
+                        }
+
+                        Surface(
+                            color = SuccessGreen.copy(alpha = 0.15f),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text(
+                                text = "Em $diasAte dias",
+                                color = SuccessGreen,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(16.dp))
+                }
+
+                // --- Grid de Custos ---
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    ResumoCustoItem(
-                        label = "Diario",
-                        value = custoDia?.let { formatarMoedaLocal(it) } ?: "--",
+                    CustoCompactoItem(
+                        label = "Diário",
+                        value = custoDia,
                         icon = Icons.Rounded.Timelapse,
-                        iconTint = Color(0xFF60A5FA),
+                        color = Color(0xFF60A5FA),
                         modifier = Modifier.weight(1f)
                     )
-                    ResumoCustoItem(
+                    Spacer(Modifier.width(8.dp))
+                    CustoCompactoItem(
                         label = "Semana",
-                        value = custoSemana?.let { formatarMoedaLocal(it) } ?: "--",
+                        value = custoSemana,
                         icon = Icons.Rounded.DateRange,
-                        iconTint = Color(0xFF34D399),
+                        color = Color(0xFF34D399),
                         modifier = Modifier.weight(1f)
                     )
-                    ResumoCustoItem(
-                        label = "Mes",
-                        value = custoMes?.let { formatarMoedaLocal(it) } ?: "--",
+                    Spacer(Modifier.width(8.dp))
+                    CustoCompactoItem(
+                        label = "Mês",
+                        value = custoMes,
                         icon = Icons.Rounded.CalendarMonth,
-                        iconTint = Color(0xFFF59E0B),
+                        color = Color(0xFFF59E0B),
                         modifier = Modifier.weight(1f)
                     )
                 }
-            }
 
-            Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(24.dp))
 
-            Button(
-                onClick = onHistorico,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(44.dp),
-                shape = RoundedCornerShape(10.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = accentBlue)
-            ) {
-                Text(
-                    text = "Ver historico de abastecimento",
-                    color = Color.White,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 13.sp
-                )
+                // --- Botão de Ação ---
+                Button(
+                    onClick = onHistorico,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(50.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = AccentBlue,
+                        contentColor = Color.White
+                    )
+                ) {
+                    Text(
+                        text = "Ver Histórico Completo",
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 14.sp
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Icon(
+                        imageVector = Icons.Rounded.ChevronRight,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
             }
         }
     }
 }
 
 @Composable
-private fun ResumoCustoItem(
+private fun CustoCompactoItem(
     label: String,
-    value: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    iconTint: Color,
+    value: Double?,
+    icon: ImageVector,
+    color: Color,
     modifier: Modifier = Modifier
 ) {
-    val textLight = Color(0xFFF1F5F9)
-    val textDim = Color(0xFF94A3B8)
     Column(
         modifier = modifier
-            .clip(RoundedCornerShape(10.dp))
-            .background(Color(0xFF0B1224))
-            .border(1.dp, Color(0xFF1F2A44), RoundedCornerShape(10.dp))
-            .padding(10.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+            .clip(RoundedCornerShape(12.dp))
+            .background(SurfaceHighlight)
+            .padding(vertical = 12.dp, horizontal = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
     ) {
-        Row(
-            modifier = Modifier.align(Alignment.CenterHorizontally),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = iconTint,
-                modifier = Modifier.size(14.dp)
-            )
-            Spacer(Modifier.width(6.dp))
-            Text(label, color = textDim, fontSize = 11.sp)
-        }
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = color,
+            modifier = Modifier.size(24.dp)
+        )
+        Spacer(Modifier.height(6.dp))
         Text(
-            value,
-            color = textLight,
+            text = label,
+            color = TextWhite,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium
+        )
+        Spacer(Modifier.height(2.dp))
+        Text(
+            text = value?.let { "R$ ${String.format("%.2f", it)}" } ?: "R$ 0,00",
+            color = TextWhite,
             fontWeight = FontWeight.Bold,
-            fontSize = 16.sp
+            fontSize = 13.sp
         )
     }
 }
