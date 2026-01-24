@@ -758,12 +758,13 @@ fun ManutencaoScreen(
                                 .clip(RoundedCornerShape(10.dp))
                                 .background(Color(0xFF111827))
                                 .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(10.dp))
-                                .padding(10.dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                                .padding(14.dp)
+                                .defaultMinSize(minHeight = 64.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Text("Consumo estimado", color = textLight, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
-                            Text("Por semana: -- km • -- L", color = textDim, fontSize = 11.sp)
-                            Text("No mês: -- km • -- L", color = textDim, fontSize = 11.sp)
+                            Text("Consumo estimado", color = textLight, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                            Text("Por semana: -- km • -- L", color = textDim, fontSize = 12.sp)
+                            Text("No mês: -- km • -- L", color = textDim, fontSize = 12.sp)
                         }
                         Spacer(Modifier.height(10.dp))
                         Button(
