@@ -419,7 +419,11 @@ private fun AvisoCardModerno(
                         .background(statusColor.copy(alpha = 0.15f)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(lembrete.tipo.getIcon(), contentDescription = null, tint = statusColor)
+                    TipoIcon(
+                        tipo = lembrete.tipo,
+                        tint = statusColor,
+                        size = 22.dp
+                    )
                 }
                 Spacer(Modifier.width(16.dp))
                 Column(modifier = Modifier.weight(1f)) {

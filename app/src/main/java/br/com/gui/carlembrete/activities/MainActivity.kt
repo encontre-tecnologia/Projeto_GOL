@@ -197,6 +197,7 @@ fun gerarResumoRelatorio(carro: CarroInfo, lembretes: List<Lembrete>): String {
     val builder = StringBuilder()
     builder.appendLine("Relatório do veículo")
     builder.appendLine("Nome: ${carro.nome}")
+    builder.appendLine("Proprietário: ${carro.proprietario.ifBlank { "Não informado" }}")
     builder.appendLine("Marca: ${carro.marca.ifBlank { "Não informada" }}")
     builder.appendLine("Modelo: ${carro.modelo}")
     builder.appendLine("Odômetro: ${if (carro.kmAtual > 0) "${carro.kmAtual} km" else "Não informado"}")
@@ -400,7 +401,7 @@ fun gerarPdfRelatorio(context: Context, carro: CarroInfo, lembretes: List<Lembre
         val proximoServico = proximos.firstOrNull()?.second?.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")) ?: "--"
 
         drawSectionTitle("IDENTIFICACAO DO VEICULO")
-        val boxHeight = 140f
+        val boxHeight = 180f
         ensureSpace(boxHeight)
         canvas.drawRect(marginX, y, marginX + contentWidth, y + boxHeight, cardBgPaint)
         canvas.drawRoundRect(android.graphics.RectF(marginX, y, marginX + contentWidth, y + boxHeight), 12f, 12f, cardBorderPaint)
@@ -411,10 +412,12 @@ fun gerarPdfRelatorio(context: Context, carro: CarroInfo, lembretes: List<Lembre
         drawKeyValue("Motor", fit(carro.modelo.ifBlank { "-" }, 26), rightX, rowY)
         drawKeyValue("Marca", carro.marca.ifBlank { "-" }, leftX, rowY + 42f)
         drawKeyValue("Tipo", carro.tipoVeiculo.label, rightX, rowY + 42f)
+        val proprietarioTexto = carro.proprietario.ifBlank { "-" }
+        drawKeyValue("Proprietario", fit(proprietarioTexto, 30), leftX, rowY + 78f)
         val odometroTexto = if (carro.kmAtual > 0) "${carro.kmAtual} km" else "Nao informado"
-        drawKeyValue("Odometro", odometroTexto, leftX, rowY + 78f)
+        drawKeyValue("Odometro", odometroTexto, rightX, rowY + 78f)
         val corHex = String.format(Locale.US, "#%08X", carro.corArgb)
-        drawKeyValue("Cor", corHex, rightX, rowY + 78f)
+        drawKeyValue("Cor", corHex, leftX, rowY + 114f)
         y += boxHeight + 24f
 
         drawSectionTitle("STATUS E SAUDE")

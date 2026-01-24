@@ -88,6 +88,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.draw.scale
+import kotlin.math.min
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -183,21 +185,12 @@ fun MonitorIcon(
                     .background(bg)
                     .border(2.dp, border, RoundedCornerShape(cornerRadius))
             ) {
-                if (tipo == TipoManutencao.FREIO) {
-                    Text(
-                        text = "ABS",
-                        color = cor,
-                        fontWeight = FontWeight.Black,
-                        fontSize = (labelSize.value + 2).sp
-                    )
-                } else {
-                    Icon(
-                        imageVector = tipo.getIcon(),
-                        contentDescription = tipo.label,
-                        tint = cor,
-                        modifier = Modifier.size(iconSize)
-                    )
-                }
+                TipoIcon(
+                    tipo = tipo,
+                    tint = cor,
+                    size = iconSize,
+                    textSize = (labelSize.value + 2).sp
+                )
             }
 
             Surface(
@@ -226,6 +219,40 @@ fun MonitorIcon(
             color = labelColor,
             fontSize = labelSize,
             fontWeight = FontWeight.SemiBold
+        )
+    }
+}
+
+@Composable
+fun TipoIcon(
+    tipo: TipoManutencao,
+    tint: Color,
+    size: Dp,
+    textSize: TextUnit = 12.sp
+) {
+    if (tipo == TipoManutencao.FREIO) {
+        val finalSize = (size.value * 0.5f).sp
+        Box(
+            modifier = Modifier.size(size),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "ABS",
+                color = tint,
+                fontWeight = FontWeight.Black,
+                fontSize = finalSize,
+                letterSpacing = (-0.6).sp,
+                maxLines = 1,
+                softWrap = false,
+                modifier = Modifier.scale(0.95f)
+            )
+        }
+    } else {
+        Icon(
+            imageVector = tipo.getIcon(),
+            contentDescription = tipo.label,
+            tint = tint,
+            modifier = Modifier.size(size)
         )
     }
 }
@@ -285,11 +312,10 @@ fun LembreteCard(
                             .border(1.dp, statusColor.copy(alpha = 0.7f), CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            lembrete.tipo.getIcon(),
-                            contentDescription = null,
+                        TipoIcon(
+                            tipo = lembrete.tipo,
                             tint = statusColor,
-                            modifier = Modifier.size(24.dp)
+                            size = 24.dp
                         )
                     }
                     Spacer(Modifier.width(12.dp))

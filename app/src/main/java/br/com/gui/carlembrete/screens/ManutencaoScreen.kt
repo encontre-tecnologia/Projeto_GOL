@@ -1,5 +1,9 @@
 ﻿package br.com.gui.carlembrete
 
+import AbastecimentoCard
+import AvisosCategoriasCard
+import CarroInfoCard
+import HistoricoAbastecimentoScreen
 import android.app.Activity
 import android.graphics.Paint
 import android.content.Context
@@ -89,9 +93,11 @@ fun ManutencaoScreen(
     var notifiedLoaded by remember { mutableStateOf(false) }
 
     // CORES DO TEMA (Azul Premium)
-    val primaryDark = Color(0xFF0F172A)
+    val primaryDark = Color(0xFF121B30)
     val surfaceDark = Color(0xFF1E293B)
-    val topBarDark = Color(0xFF15223A)
+    val fuelCardStart = Color(0xFF334155)
+    val fuelCardEnd = Color(0xFF1E293B)
+    val topBarDark = fuelCardStart
     val accentBlue = Color(0xFF3B82F6)
     val textLight = Color(0xFFF1F5F9)
     val textDim = Color(0xFF94A3B8)
@@ -229,6 +235,7 @@ fun ManutencaoScreen(
             val label: String,
             val icon: ImageVector,
             val color: Color,
+            val tipo: TipoManutencao? = null,
             val onClick: () -> Unit
         )
         val tiposAviso = listOf(
@@ -251,7 +258,8 @@ fun ManutencaoScreen(
             AvisoItem(
                 tipo.label,
                 tipo.getIcon(),
-                calcularCorStatusLocal(lembretesDoCarroAtual, tipo)
+                calcularCorStatusLocal(lembretesDoCarroAtual, tipo),
+                tipo = tipo
             ) {
                 showTipoAvisoDialog = false
                 iniciarCameraProduto = false
@@ -307,12 +315,21 @@ fun ManutencaoScreen(
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                                         ) {
-                                            Icon(
-                                                imageVector = icon,
-                                                contentDescription = null,
-                                                tint = iconTint,
-                                                modifier = Modifier.size(18.dp)
-                                            )
+                                            if (item.tipo != null) {
+                                                TipoIcon(
+                                                    tipo = item.tipo,
+                                                    tint = iconTint,
+                                                    size = 18.dp,
+                                                    textSize = 12.sp
+                                                )
+                                            } else {
+                                                Icon(
+                                                    imageVector = icon,
+                                                    contentDescription = null,
+                                                    tint = iconTint,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                            }
                                             Text(
                                                 label,
                                                 color = textLight,
@@ -485,14 +502,14 @@ fun ManutencaoScreen(
         drawerContent = {
             ModalDrawerSheet(
                 modifier = Modifier.width(300.dp),
-                drawerContainerColor = primaryDark,
+                drawerContainerColor = fuelCardEnd,
                 drawerContentColor = textLight
             ) {
                 // Cabeçalho do Drawer com Gradiente
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(Brush.verticalGradient(listOf(Color(0xFF1E3A8A), primaryDark)))
+                        .background(Brush.verticalGradient(listOf(fuelCardStart, fuelCardEnd)))
                         .padding(24.dp)
                 ) {
                     Column {
@@ -596,12 +613,12 @@ fun ManutencaoScreen(
         }
     ) {
         // ----------------- CONTEÚDO PRINCIPAL (SCAFFOLD) -----------------
-        Scaffold(
-            modifier = modifier,
-            containerColor = primaryDark,
-            topBar = {
-                if (showTopBar) {
-                    CenterAlignedTopAppBar(
+    Scaffold(
+        modifier = modifier,
+        containerColor = Color.Transparent,
+        topBar = {
+            if (showTopBar) {
+                CenterAlignedTopAppBar(
                         title = {
                             Text(
                                 "Zellu",
@@ -619,8 +636,17 @@ fun ManutencaoScreen(
                         colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = topBarDark)
                     )
                 }
-            }
-        ) { innerPadding ->
+        }
+    ) { innerPadding ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        listOf(Color(0xFF16233A), primaryDark, Color(0xFF0F172A))
+                    )
+                )
+        ) {
             if (isLoading) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(color = accentBlue)
@@ -632,7 +658,7 @@ fun ManutencaoScreen(
                         .fillMaxSize()
                         .verticalScroll(contentScrollState)
                 ) {
-                    Spacer(Modifier.height(10.dp))
+                    Spacer(Modifier.height(20.dp))
 
                     CarroInfoCard(
                         carroAtual = carroAtual,
@@ -704,6 +730,7 @@ fun ManutencaoScreen(
 
                     Spacer(Modifier.height(80.dp))
 
+                }
                 }
             }
         }
@@ -840,11 +867,10 @@ fun LembreteCardLocal(
                             .border(1.dp, statusColor.copy(alpha = 0.22f), RoundedCornerShape(10.dp)),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            imageVector = getIconForType(lembrete.tipo),
-                            contentDescription = null,
+                        TipoIcon(
+                            tipo = lembrete.tipo,
                             tint = statusColor,
-                            modifier = Modifier.size(22.dp)
+                            size = 22.dp
                         )
                     }
 
@@ -1086,19 +1112,6 @@ fun BadgeStatus(label: String, color: Color) {
 
 // ----------------- FUNÇÕES AUXILIARES DE ESTILO E LÓGICA -----------------
 
-fun getIconForType(tipo: TipoManutencao): ImageVector {
-    return when (tipo) {
-        TipoManutencao.OLEO -> Icons.Rounded.WaterDrop
-        TipoManutencao.MECANICA -> Icons.Rounded.Build
-        TipoManutencao.BATERIA -> Icons.Rounded.BatteryChargingFull
-        TipoManutencao.FREIO -> Icons.Rounded.DiscFull
-        TipoManutencao.TEMPERATURA -> Icons.Rounded.Thermostat
-        TipoManutencao.LICENCIAMENTO, TipoManutencao.IPVA -> Icons.Rounded.Description
-        TipoManutencao.SEGURO -> Icons.Rounded.Shield
-        else -> Icons.Rounded.Notifications
-    }
-}
-
 fun calcularCorStatusLocal(lembretes: List<Lembrete>, tipo: TipoManutencao): Color {
     return when (tipo) {
         TipoManutencao.OLEO -> Color(0xFF3B82F6) // Azul
@@ -1284,6 +1297,7 @@ fun CarroInfoScreen(
                             }
                         }
                         InfoRow("Modelo", carro.modelo.ifBlank { "Nao informado" }, textLight, textDim)
+                        InfoRow("Proprietario", carro.proprietario.ifBlank { "Nao informado" }, textLight, textDim)
                         InfoRow("Tipo", carro.tipoVeiculo.label, textLight, textDim)
                         InfoRow("KM atual", if (carro.kmAtual > 0) "${carro.kmAtual} km" else "Nao informado", textLight, textDim)
                     }
@@ -1437,10 +1451,13 @@ private fun calcularResumoAbastecimento(
         if (dias <= 0) null else atual.valorPago / dias.toDouble()
     }
 
-    val mediaLitros = litrosDiario.takeIf { it.isNotEmpty() }?.average()
-    val mediaCusto = custoDiario.takeIf { it.isNotEmpty() }?.average()
+    val mediaLitrosBase = litrosDiario.takeIf { it.isNotEmpty() }?.average()
+    val mediaCustoBase = custoDiario.takeIf { it.isNotEmpty() }?.average()
     val ultimo = entries.last()
-    val diasAte = mediaLitros?.takeIf { it > 0.0 }?.let { ceil(ultimo.litros / it).toLong() }
+    val fallbackDias = 30.0
+    val mediaLitros = mediaLitrosBase ?: (ultimo.litros / fallbackDias)
+    val mediaCusto = mediaCustoBase ?: (ultimo.valorPago / fallbackDias)
+    val diasAte = mediaLitros.takeIf { it > 0.0 }?.let { ceil(ultimo.litros / it).toLong() }
     val proximaData = diasAte?.let { ultimo.data.plusDays(it) }
 
     return AbastecimentoResumo(
@@ -1563,11 +1580,11 @@ fun CategoryExpenseChart(
                         contentAlignment = Alignment.Center
                     ) {
                         if (tipo != null) {
-                            Icon(
-                                imageVector = tipo.getIcon(),
-                                contentDescription = null,
+                            TipoIcon(
+                                tipo = tipo,
                                 tint = Color.White.copy(alpha = 0.7f),
-                                modifier = Modifier.size(iconSize)
+                                size = iconSize,
+                                textSize = 10.sp
                             )
                         }
                     }
@@ -1605,11 +1622,11 @@ fun CategoryExpenseLegend(
                 )
                 Spacer(Modifier.width(8.dp))
                 if (tipo != null) {
-                    Icon(
-                        imageVector = tipo.getIcon(),
-                        contentDescription = null,
+                    TipoIcon(
+                        tipo = tipo,
                         tint = Color.White.copy(alpha = 0.7f),
-                        modifier = Modifier.size(12.dp)
+                        size = 12.dp,
+                        textSize = 8.sp
                     )
                     Spacer(Modifier.width(6.dp))
                 }

@@ -77,6 +77,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -378,7 +379,11 @@ fun LembreteDetalhesDialog(
                 ) {
                     Box(modifier = Modifier.fillMaxWidth()) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(lembrete.tipo.getIcon(), contentDescription = null, tint = corCategoria(lembrete.tipo))
+                            TipoIcon(
+                                tipo = lembrete.tipo,
+                                tint = corCategoria(lembrete.tipo),
+                                size = 20.dp
+                            )
                             Spacer(Modifier.width(12.dp))
                             Column {
                                 Text(lembrete.titulo, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 20.sp)
@@ -414,10 +419,10 @@ fun LembreteDetalhesDialog(
                                 label = { Text("Categoria") },
                                 modifier = Modifier.menuAnchor().fillMaxWidth(),
                                 leadingIcon = {
-                                    Icon(
-                                        imageVector = tipoSelecionado.getIcon(),
-                                        contentDescription = null,
-                                        tint = corCategoria(tipoSelecionado)
+                                    TipoIcon(
+                                        tipo = tipoSelecionado,
+                                        tint = corCategoria(tipoSelecionado),
+                                        size = 18.dp
                                     )
                                 },
                                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = menuExpanded) }
@@ -431,10 +436,10 @@ fun LembreteDetalhesDialog(
                                             menuExpanded = false
                                         },
                                         leadingIcon = {
-                                            Icon(
-                                                imageVector = t.getIcon(),
-                                                contentDescription = null,
-                                                tint = corCategoria(t)
+                                            TipoIcon(
+                                                tipo = t,
+                                                tint = corCategoria(t),
+                                                size = 18.dp
                                             )
                                         }
                                     )
@@ -1313,7 +1318,11 @@ fun adicionarContatoManual() {
                                             .padding(10.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Icon(item.tipo.getIcon(), null, tint = corCategoria(item.tipo), modifier = Modifier.size(20.dp))
+                                        TipoIcon(
+                                            tipo = item.tipo,
+                                            tint = corCategoria(item.tipo),
+                                            size = 20.dp
+                                        )
                                         Spacer(Modifier.width(10.dp))
                                         Column(modifier = Modifier.weight(1f)) {
                                             Text(item.nome, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
@@ -1332,11 +1341,10 @@ fun adicionarContatoManual() {
                                                             .padding(horizontal = 8.dp, vertical = 2.dp)
                                                     ) {
                                                         Row(verticalAlignment = Alignment.CenterVertically) {
-                                                            Icon(
-                                                                imageVector = item.tipo.getIcon(),
-                                                                contentDescription = null,
+                                                            TipoIcon(
+                                                                tipo = item.tipo,
                                                                 tint = corCategoria(item.tipo),
-                                                                modifier = Modifier.size(12.dp)
+                                                                size = 12.dp
                                                             )
                                                             Spacer(Modifier.width(4.dp))
                                                             Text(item.tipo.label, color = Color(0xFF94A3B8), fontSize = 11.sp)
@@ -1356,10 +1364,10 @@ fun adicionarContatoManual() {
                                                                     tipoMenuItemId = null
                                                                 },
                                                                 leadingIcon = {
-                                                                    Icon(
-                                                                        imageVector = tipo.getIcon(),
-                                                                        contentDescription = null,
-                                                                        tint = corCategoria(tipo)
+                                                                    TipoIcon(
+                                                                        tipo = tipo,
+                                                                        tint = corCategoria(tipo),
+                                                                        size = 16.dp
                                                                     )
                                                                 }
                                                             )
@@ -1409,7 +1417,13 @@ fun adicionarContatoManual() {
                                         readOnly = true,
                                         label = { Text("Categoria") },
                                         modifier = Modifier.menuAnchor().fillMaxWidth(),
-                                        leadingIcon = { Icon(imageVector = tipoSelecionado.getIcon(), contentDescription = null, tint = corCategoria(tipoSelecionado)) },
+                                        leadingIcon = {
+                                            TipoIcon(
+                                                tipo = tipoSelecionado,
+                                                tint = corCategoria(tipoSelecionado),
+                                                size = 18.dp
+                                            )
+                                        },
                                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = menuExpanded) },
                                         shape = RoundedCornerShape(12.dp)
                                     )
@@ -1418,7 +1432,13 @@ fun adicionarContatoManual() {
                                             DropdownMenuItem(
                                                 text = { Text(t.label) },
                                                 onClick = { tipoSelecionado = t; menuExpanded = false },
-                                                leadingIcon = { Icon(imageVector = t.getIcon(), contentDescription = null, tint = corCategoria(t)) }
+                                                leadingIcon = {
+                                                    TipoIcon(
+                                                        tipo = t,
+                                                        tint = corCategoria(t),
+                                                        size = 18.dp
+                                                    )
+                                                }
                                             )
                                         }
                                     }
@@ -1667,8 +1687,10 @@ fun EditarCarroDialog(carroAtual: CarroInfo, titulo: String, onDismiss: () -> Un
     var nome by remember { mutableStateOf(carroAtual.nome) }
     var marca by remember { mutableStateOf(carroAtual.marca) }
     var modelo by remember { mutableStateOf(carroAtual.modelo) }
+    var proprietario by remember { mutableStateOf(carroAtual.proprietario) }
     var kmAtualStr by remember { mutableStateOf(if (carroAtual.kmAtual > 0) formatarKm(carroAtual.kmAtual) else "") }
     var tipoSelecionado by remember { mutableStateOf(carroAtual.tipoVeiculo) }
+    var corSelecionada by remember { mutableStateOf(carroAtual.corArgb) }
     var alvoVoz by remember { mutableStateOf("nome") }
     val speechLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
@@ -1750,6 +1772,17 @@ fun EditarCarroDialog(carroAtual: CarroInfo, titulo: String, onDismiss: () -> Un
                     )
                 )
                 Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = proprietario,
+                    onValueChange = { proprietario = it },
+                    label = { Text("Proprietario") },
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    )
+                )
+                Spacer(Modifier.height(8.dp))
                 var marcaExpanded by remember { mutableStateOf(false) }
                 val marcaLogo = logoResForMarca(marca)
                 ExposedDropdownMenuBox(expanded = marcaExpanded, onExpandedChange = { marcaExpanded = !marcaExpanded }) {
@@ -1822,6 +1855,61 @@ fun EditarCarroDialog(carroAtual: CarroInfo, titulo: String, onDismiss: () -> Un
                         unfocusedTextColor = Color.White
                     )
                 )
+                Spacer(Modifier.height(12.dp))
+                Text("Cor do carro", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                Spacer(Modifier.height(8.dp))
+                val cores = listOf(
+                    "Branco" to Color(0xFFFFFFFF),
+                    "Preto" to Color(0xFF0F172A),
+                    "Prata" to Color(0xFFC0C0C0),
+                    "Cinza" to Color(0xFF9CA3AF),
+                    "Vermelho" to Color(0xFFDC2626),
+                    "Azul" to Color(0xFF4F7DBE),
+                    "Marrom" to Color(0xFF7C3F00),
+                    "Bege" to Color(0xFFE7D7C1),
+                    "Verde" to Color(0xFF16A34A),
+                    "Amarelo" to Color(0xFFFACC15),
+                    "Laranja" to Color(0xFFF97316),
+                    "Roxo" to Color(0xFF6D5BD0),
+                    "Rosa" to Color(0xFFEC4899),
+                    "Dourado" to Color(0xFFC0841A),
+                    "Bordô" to Color(0xFF7F1D1D),
+                    "Turquesa" to Color(0xFF38BDF8),
+                    "Creme" to Color(0xFFF5F5DC)
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    cores.forEach { (label, cor) ->
+                        val selecionada = corSelecionada == cor.toArgb()
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(CircleShape)
+                                    .background(cor)
+                                    .border(
+                                        width = if (selecionada) 3.dp else 1.dp,
+                                        color = if (selecionada) Color.White else Color.White.copy(alpha = 0.2f),
+                                        shape = CircleShape
+                                    )
+                                    .clickable { corSelecionada = cor.toArgb() }
+                            )
+                            Text(
+                                text = label,
+                                color = Color(0xFF94A3B8),
+                                fontSize = 10.sp,
+                                maxLines = 1
+                            )
+                        }
+                    }
+                }
                 Spacer(Modifier.height(16.dp))
             }
         },
@@ -1832,6 +1920,8 @@ fun EditarCarroDialog(carroAtual: CarroInfo, titulo: String, onDismiss: () -> Un
                         nome = nome,
                         marca = marca,
                         modelo = modelo,
+                        proprietario = proprietario,
+                        corArgb = corSelecionada,
                         kmAtual = kmAtualStr.filter(Char::isDigit).toIntOrNull() ?: 0,
                         tipoVeiculo = tipoSelecionado
                     )
