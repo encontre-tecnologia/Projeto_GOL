@@ -26,6 +26,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -43,6 +44,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -137,7 +139,7 @@ fun ManutencaoScreen(
     var showConfiguracoes by remember { mutableStateOf(false) }
     var showPrivacidadeDialog by remember { mutableStateOf(false) }
     var showMecanicoVirtualScreen by remember { mutableStateOf(false) }
-    var showAbastecimentoDialog by remember { mutableStateOf(false) }
+    var showAbastecimentoScreen by remember { mutableStateOf(false) }
 
     var showAnjoDaGuardaScreen by remember { mutableStateOf(false) }
     var showGaragemScreen by remember { mutableStateOf(false) }
@@ -262,9 +264,6 @@ fun ManutencaoScreen(
     if (showPrivacidadeDialog) {
         PrivacidadeTermosDialog(onDismiss = { showPrivacidadeDialog = false })
     }
-    if (showAbastecimentoDialog) {
-        AbastecimentoDialog(onDismiss = { showAbastecimentoDialog = false })
-    }
 
     BackHandler(enabled = showGaragemScreen) { showGaragemScreen = false }
     if (showGaragemScreen) {
@@ -288,6 +287,12 @@ fun ManutencaoScreen(
             lembretes = lembretesDoCarroAtual,
             onDismiss = { showCarInfoScreen = false }
         )
+        return
+    }
+
+    BackHandler(enabled = showAbastecimentoScreen) { showAbastecimentoScreen = false }
+    if (showAbastecimentoScreen) {
+        AbastecimentoScreen(onDismiss = { showAbastecimentoScreen = false })
         return
     }
 
@@ -748,7 +753,7 @@ fun ManutencaoScreen(
                             }
                             Spacer(Modifier.height(10.dp))
                             Button(
-                                onClick = { showAbastecimentoDialog = true },
+                                onClick = { showAbastecimentoScreen = true },
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .height(44.dp),

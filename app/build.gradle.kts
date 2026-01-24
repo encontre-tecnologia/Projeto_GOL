@@ -66,6 +66,7 @@ dependencies {
     // Ícones
     implementation("androidx.compose.material:material-icons-extended:1.7.6")
     implementation(libs.androidx.ui.graphics)
+    implementation(libs.androidx.compose.foundation)
 
     // --- TESTES E RELATÓRIOS ---
     testImplementation(libs.junit)
