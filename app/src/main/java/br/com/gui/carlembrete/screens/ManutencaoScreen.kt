@@ -292,7 +292,7 @@ fun ManutencaoScreen(
 
     BackHandler(enabled = showAbastecimentoScreen) { showAbastecimentoScreen = false }
     if (showAbastecimentoScreen) {
-        AbastecimentoScreen(onDismiss = { showAbastecimentoScreen = false })
+        AbastecimentoScreen(carroId = carroAtual.id, onDismiss = { showAbastecimentoScreen = false })
         return
     }
 
@@ -744,19 +744,33 @@ fun ManutencaoScreen(
                                         fontWeight = FontWeight.SemiBold,
                                         fontSize = 14.sp
                                     )
-                                    Text(
-                                        text = "Adicionar parada ao posto",
-                                        color = textDim,
-                                        fontSize = 12.sp
-                                    )
-                                }
+                                Text(
+                                    text = "Adicionar parada ao posto",
+                                    color = textDim,
+                                    fontSize = 12.sp
+                                )
                             }
-                            Spacer(Modifier.height(10.dp))
-                            Button(
-                                onClick = { showAbastecimentoScreen = true },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(44.dp),
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color(0xFF111827))
+                                .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(10.dp))
+                                .padding(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text("Consumo estimado", color = textLight, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                            Text("Por semana: -- km • -- L", color = textDim, fontSize = 11.sp)
+                            Text("No mês: -- km • -- L", color = textDim, fontSize = 11.sp)
+                        }
+                        Spacer(Modifier.height(10.dp))
+                        Button(
+                            onClick = { showAbastecimentoScreen = true },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(44.dp),
                                 shape = RoundedCornerShape(10.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = accentBlue)
                             ) {

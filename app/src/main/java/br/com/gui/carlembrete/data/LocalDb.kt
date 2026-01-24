@@ -124,6 +124,7 @@ object BancoDeDados {
     private const val FILE_CARROS = "carros_v3.dat"
     private const val FILE_LEMBRETES = "lembretes_v3.dat"
     private const val FILE_CONTATOS = "contatos_v3.dat"
+    private const val FILE_ABASTECIMENTOS = "abastecimentos_v3.dat"
 
     fun salvarCarros(context: Context, lista: List<CarroInfo>) = salvar(context, FILE_CARROS, lista)
     fun carregarCarros(context: Context): List<CarroInfo>? = carregar<List<CarroInfo>>(context, FILE_CARROS)
@@ -134,6 +135,9 @@ object BancoDeDados {
 
     fun salvarContatos(context: Context, lista: List<ContatoProfissional>) = salvar(context, FILE_CONTATOS, lista)
     fun carregarContatos(context: Context): List<ContatoProfissional> = carregar<List<ContatoProfissional>>(context, FILE_CONTATOS) ?: emptyList()
+
+    fun salvarAbastecimentos(context: Context, lista: List<Abastecimento>) = salvar(context, FILE_ABASTECIMENTOS, lista)
+    fun carregarAbastecimentos(context: Context): List<Abastecimento> = carregar<List<Abastecimento>>(context, FILE_ABASTECIMENTOS) ?: emptyList()
 
     private fun <T> salvar(context: Context, fileName: String, data: T) { try { context.openFileOutput(fileName, Context.MODE_PRIVATE).use { fos -> ObjectOutputStream(fos).use { it.writeObject(data) } } } catch (e: Exception) { e.printStackTrace() } }
     private fun <T> carregar(context: Context, fileName: String): T? { val file = File(context.filesDir, fileName); if (!file.exists()) return null; return try { context.openFileInput(fileName).use { fis -> ObjectInputStream(fis).use { it.readObject() as T } } } catch (e: Exception) { e.printStackTrace(); null } }

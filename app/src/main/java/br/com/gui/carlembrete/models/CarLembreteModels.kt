@@ -303,6 +303,15 @@ data class ContatoProfissional(
     val tipoServico: String
 ) : Serializable
 
+data class Abastecimento(
+    val id: String = UUID.randomUUID().toString(),
+    val carroId: String,
+    val data: String,
+    val precoLitro: Double,
+    val valorPago: Double,
+    val litros: Double
+) : Serializable
+
 enum class TipoManutencao(val label: String) {
     OLEO("Óleo"),
     BATERIA("Bateria"),
