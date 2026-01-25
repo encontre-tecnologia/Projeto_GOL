@@ -177,7 +177,7 @@ fun AvisosCategoriasCard(
                 ) {
                     Column(modifier = Modifier.padding(start = 8.dp)) {
                         Text(
-                            text = if (filtroTipo != null) filtroTipo.label.uppercase() else "PRÃ“XIMOS LEMBRETES",
+                            text = if (filtroTipo != null) filtroTipo.label.uppercase() else "PROXIMOS LEMBRETES:",
                             color = TextWhite,
                             fontSize = 16.sp,
                             fontWeight = FontWeight.ExtraBold,
