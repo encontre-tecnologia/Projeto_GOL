@@ -3,7 +3,10 @@
 import android.util.Log
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -27,6 +30,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Divider
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -35,20 +39,25 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.firebase.auth.FirebaseAuth
@@ -72,10 +81,69 @@ fun ConfiguracoesScreen(
     val activity = (LocalContext.current as? android.app.Activity)
     val subscriptionManager = remember { SubscriptionManager(context) }
     val isSubscribed by subscriptionManager.isSubscribed.collectAsState()
+    var adminTapCount by remember { mutableStateOf(0) }
+    var showAdminDialog by remember { mutableStateOf(false) }
+    var adminPassword by remember { mutableStateOf("") }
+    var adminUnlocked by remember { mutableStateOf(false) }
 
     DisposableEffect(Unit) {
         subscriptionManager.connect()
         onDispose { subscriptionManager.disconnect() }
+    }
+
+    if (showAdminDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                showAdminDialog = false
+                adminPassword = ""
+            },
+            title = { Text("Admin", color = Color.White, fontWeight = FontWeight.Bold) },
+            text = {
+                TextField(
+                    value = adminPassword,
+                    onValueChange = { adminPassword = it },
+                    singleLine = true,
+                    placeholder = { Text("Senha", color = Color(0xFF94A3B8)) },
+                    visualTransformation = PasswordVisualTransformation(),
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = Color(0xFF111827),
+                        unfocusedContainerColor = Color(0xFF111827),
+                        disabledContainerColor = Color(0xFF111827),
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        cursorColor = Color.White,
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent
+                    )
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (adminPassword == "GUIMIN14") {
+                            adminUnlocked = true
+                        }
+                        showAdminDialog = false
+                        adminPassword = ""
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB))
+                ) {
+                    Text("OK", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(
+                    onClick = {
+                        showAdminDialog = false
+                        adminPassword = ""
+                    },
+                    border = BorderStroke(1.dp, Color(0xFF334155))
+                ) {
+                    Text("Cancelar", color = Color.White)
+                }
+            },
+            containerColor = Color(0xFF0F172A)
+        )
     }
 
     fun criarBackup() {
@@ -140,12 +208,37 @@ fun ConfiguracoesScreen(
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
-        containerColor = Color(0xFF0F2A4A),
+        containerColor = Color(0xFF070C18),
+        bottomBar = {
+            Divider(color = Color(0xFF334155), thickness = 1.dp)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp, bottom = 24.dp)
+                    .clickable(
+                        indication = null,
+                        interactionSource = remember { MutableInteractionSource() }
+                    ) {
+                        adminTapCount += 1
+                        if (adminTapCount >= 5) {
+                            adminTapCount = 0
+                            showAdminDialog = true
+                        }
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    "Versão 1.0.0",
+                    color = Color(0xFF475569),
+                    fontSize = 12.sp
+                )
+            }
+        },
         topBar = {
             TopAppBar(
                 title = {
                     Text(
-                        "Configura?Ãµes",
+                        "Configurações",
                         color = Color.White,
                         fontWeight = FontWeight.Bold,
                         style = MaterialTheme.typography.titleMedium
@@ -156,7 +249,7 @@ fun ConfiguracoesScreen(
                         Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar", tint = Color.White)
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF0F2A4A))
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF070C18))
             )
         }
     ) { innerPadding ->
@@ -167,12 +260,12 @@ fun ConfiguracoesScreen(
                 .verticalScroll(scrollState)
         ) {
 
-            // --- SEÃ‡ÃƒO 1: BACKUP E DADOS ---
-            SectionHeader(title = "BACKUP E SINCRONIZAÃ‡ÃƒO")
+            // --- SEÇÃO 1: BACKUP E DADOS ---
+            SectionHeader(title = "BACKUP E SINCRONIZAÇÃO")
 
             Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)) {
 
-                // Card de Venda (S? aparece se n?o for assinante)
+                // Card de Venda (Só aparece se não for assinante)
                 if (!isSubscribed) {
                     Card(
                         modifier = Modifier
@@ -202,7 +295,7 @@ fun ConfiguracoesScreen(
                                     fontSize = 18.sp
                                 )
                             }
-                            // Benef?cios compactos
+                            // Benefícios compactos
                             BeneficioItem("Backup seguro na nuvem")
                             BeneficioItem("Nunca perca seus dados")
 
@@ -218,7 +311,7 @@ fun ConfiguracoesScreen(
                         }
                     }
                 } else {
-                    // Feedback visual se j? for assinante
+                    // Feedback visual se já for assinante
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -231,8 +324,8 @@ fun ConfiguracoesScreen(
                     }
                 }
 
-                // BotÃµes de A??o (Backup e Restore)
-                // O texto agora ? limpo, sem "bloqueado"
+                // Botões de Ação (Backup e Restore)
+                // O texto agora é limpo, sem "bloqueado"
                 Button(
                     onClick = {
                         if (!isSubscribed) {
@@ -271,9 +364,9 @@ fun ConfiguracoesScreen(
                 }
             }
 
-            // --- SEÃ‡ÃƒO 2: NOTIFICAÃ‡Ã•ES ---
+            // --- SEÇÃO 2: NOTIFICAÇÕES ---
             Spacer(Modifier.height(16.dp))
-            SectionHeader(title = "NOTIFICAÃ‡Ã•ES")
+            SectionHeader(title = "NOTIFICAÇÕES")
 
             Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)) {
                 Text(
@@ -283,31 +376,27 @@ fun ConfiguracoesScreen(
                     modifier = Modifier.padding(bottom = 12.dp)
                 )
 
-                Button(
-                    onClick = onTestarNotificacao,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981))
-                ) {
-                    Icon(Icons.Default.NotificationsActive, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Testar Notificação", fontWeight = FontWeight.Bold)
+                if (adminUnlocked) {
+                    Button(
+                        onClick = onTestarNotificacao,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981))
+                    ) {
+                        Icon(Icons.Default.NotificationsActive, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Testar Notificação", fontWeight = FontWeight.Bold)
+                    }
                 }
             }
 
-            // --- RODAPÃ‰ ---
-            Spacer(Modifier.height(24.dp))
-            Text(
-                "Versão 1.0.0",
-                color = Color(0xFF475569),
-                fontSize = 12.sp,
-                modifier = Modifier.align(Alignment.CenterHorizontally).padding(bottom = 24.dp)
-            )
+            // --- RODAPÉ ---
+            Spacer(Modifier.height(16.dp))
         }
     }
 }
 
-// Componente Reutiliz?vel para o Cabe?alho da Se??o (Estilo Android Settings)
+// Componente Reutilizável para o Cabeçalho da Seção (Estilo Android Settings)
 @Composable
 fun SectionHeader(title: String) {
     Column(modifier = Modifier.fillMaxWidth()) {
@@ -338,4 +427,5 @@ fun BeneficioItem(texto: String) {
         Text(texto, color = Color(0xFFCBD5E1), fontSize = 13.sp)
     }
 }
+
 

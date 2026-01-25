@@ -1,4 +1,5 @@
-package br.com.gui.carlembrete
+﻿package br.com.gui.carlembrete
+
 
 import android.Manifest
 import android.app.Activity
@@ -66,14 +67,14 @@ class MainActivity : ComponentActivity() {
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { isGranted ->
-        if (!isGranted) Toast.makeText(this, "Permissão de câmera necessária", Toast.LENGTH_SHORT).show()
+        if (!isGranted) Toast.makeText(this, "Permiss�o de c�mera necess�ria", Toast.LENGTH_SHORT).show()
     }
 
     private val requestNotificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (!granted) {
-            Toast.makeText(this, "Ative as notificações para receber os avisos programados", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Ative as notifica��es para receber os avisos programados", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -108,6 +109,7 @@ class MainActivity : ComponentActivity() {
                 var usuario by remember { mutableStateOf(auth.currentUser) }
                 var showLoading by remember { mutableStateOf(false) }
                 var loadingDoneSignal by remember { mutableIntStateOf(0) }
+                var videoFinished by remember { mutableStateOf(false) }
                 val loadingProgress = remember { Animatable(0f) }
                 DisposableEffect(Unit) {
                     val listener = FirebaseAuth.AuthStateListener { firebaseAuth ->
@@ -119,14 +121,15 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(usuario) {
                     if (usuario != null) {
                         showLoading = true
+                        videoFinished = false
                         loadingProgress.snapTo(0f)
                         loadingProgress.animateTo(0.9f, animationSpec = tween(durationMillis = 1200))
                     } else {
                         showLoading = false
                     }
                 }
-                LaunchedEffect(loadingDoneSignal) {
-                    if (loadingDoneSignal > 0) {
+                LaunchedEffect(loadingDoneSignal, videoFinished) {
+                    if (loadingDoneSignal > 0 && videoFinished) {
                         loadingProgress.animateTo(1f, animationSpec = tween(durationMillis = 400))
                         delay(200)
                         showLoading = false
@@ -142,7 +145,10 @@ class MainActivity : ComponentActivity() {
                                     onLoaded = { loadingDoneSignal++ }
                                 )
                             if (showLoading) {
-                                LoadingScreen(progress = loadingProgress.value)
+                                LoadingScreen(
+                                    progress = loadingProgress.value,
+                                    onVideoFinished = { videoFinished = true }
+                                )
                             }
                         }
                     }
@@ -155,7 +161,7 @@ class MainActivity : ComponentActivity() {
 
 
 
-/* ----------------- UTILITÁRIOS & LÓGICA DE CÁLCULO ----------------- */
+/* ----------------- UTILIT�RIOS & L�GICA DE C�LCULO ----------------- */
 
 fun String.unaccent(): String {
     val temp = Normalizer.normalize(this, Normalizer.Form.NFD)
@@ -195,12 +201,12 @@ fun formatarMoeda(valor: Double): String = NumberFormat.getCurrencyInstance(Loca
 
 fun gerarResumoRelatorio(carro: CarroInfo, lembretes: List<Lembrete>): String {
     val builder = StringBuilder()
-    builder.appendLine("Relatório do veículo")
+    builder.appendLine("Relat�rio do ve�culo")
     builder.appendLine("Nome: ${carro.nome}")
-    builder.appendLine("Proprietário: ${carro.proprietario.ifBlank { "Não informado" }}")
-    builder.appendLine("Marca: ${carro.marca.ifBlank { "Não informada" }}")
+    builder.appendLine("Propriet�rio: ${carro.proprietario.ifBlank { "N�o informado" }}")
+    builder.appendLine("Marca: ${carro.marca.ifBlank { "N�o informada" }}")
     builder.appendLine("Modelo: ${carro.modelo}")
-    builder.appendLine("Odômetro: ${if (carro.kmAtual > 0) "${carro.kmAtual} km" else "Não informado"}")
+    builder.appendLine("Od�metro: ${if (carro.kmAtual > 0) "${carro.kmAtual} km" else "N�o informado"}")
     builder.appendLine()
     builder.appendLine("Avisos ativos: ${lembretes.size}")
     TipoManutencao.values().forEach { tipo ->
@@ -209,7 +215,7 @@ fun gerarResumoRelatorio(carro: CarroInfo, lembretes: List<Lembrete>): String {
     }
     if (lembretes.isNotEmpty()) {
         builder.appendLine()
-        builder.appendLine("Detalhes dos próximos serviços:")
+        builder.appendLine("Detalhes dos pr�ximos servi�os:")
         lembretes.sortedBy { it.dataLimite }.forEach { lembrete ->
             builder.appendLine("* ${lembrete.titulo} - Data: ${lembrete.dataLimite.ifBlank { "Sem data" }} - KM: ${lembrete.kmLimite.ifBlank { "-" }}")
         }
@@ -224,7 +230,7 @@ fun compartilharRelatorio(context: Context, texto: String) {
         type = "text/plain"
         putExtra(Intent.EXTRA_TEXT, texto)
     }
-    context.startActivity(Intent.createChooser(intent, "Compartilhar relatório"))
+    context.startActivity(Intent.createChooser(intent, "Compartilhar relat�rio"))
 }
 
 fun gerarPdfRelatorio(context: Context, carro: CarroInfo, lembretes: List<Lembrete>): Uri? {
@@ -321,7 +327,7 @@ fun gerarPdfRelatorio(context: Context, carro: CarroInfo, lembretes: List<Lembre
 
         fun drawHeader() {
             val titleCenterPaint = Paint(headerPaint).apply { textAlign = Paint.Align.CENTER }
-            canvas.drawText("RELATORIO TÉCNICO", pageInfo.pageWidth / 2f, 54f, titleCenterPaint)
+            canvas.drawText("RELATORIO T�CNICO", pageInfo.pageWidth / 2f, 54f, titleCenterPaint)
             val tituloCarro = buildString {
                 append(carro.nome)
                 val detalhes = listOf(carro.marca, carro.modelo).filter { it.isNotBlank() }.joinToString(" - ")
@@ -600,6 +606,7 @@ fun compartilharPdf(context: Context, uri: Uri) {
     }
     context.startActivity(Intent.createChooser(intent, "Compartilhar PDF"))
 }
+
 
 
 
