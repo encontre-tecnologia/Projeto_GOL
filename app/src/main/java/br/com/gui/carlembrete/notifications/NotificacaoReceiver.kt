@@ -142,6 +142,48 @@ object NotificacaoHelper {
         context.sendBroadcast(intent)
     }
 
+    fun agendarNotificacaoPorData(
+        context: Context,
+        id: String,
+        titulo: String,
+        descricao: String,
+        data: LocalDate,
+        hora: String = "09:00"
+    ) {
+        val dataFormatada = data.format(dateFormatter)
+        val triggerAt = calcularMillis(dataFormatada, hora) ?: return
+        if (triggerAt <= System.currentTimeMillis()) return
+
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !alarmManager.canScheduleExactAlarms()) {
+            Toast.makeText(context, "Ative alarmes exatos para receber notificacoes do carro.", Toast.LENGTH_LONG).show()
+            val intent = Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
+                this.data = Uri.parse("package:${context.packageName}")
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            runCatching { context.startActivity(intent) }
+            return
+        }
+
+        salvarHora(context, id, hora)
+        val intent = Intent(context, NotificacaoReceiver::class.java).apply {
+            putExtra(NotificacaoReceiver.EXTRA_ID, id)
+            putExtra(NotificacaoReceiver.EXTRA_TITULO, titulo)
+            putExtra(NotificacaoReceiver.EXTRA_DESCRICAO, descricao)
+        }
+        val pendingIntent = PendingIntent.getBroadcast(
+            context,
+            id.hashCode(),
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        try {
+            alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
+        } catch (ex: SecurityException) {
+            Toast.makeText(context, "Permissao de alarme exato negada. Ajuste nas configuracoes.", Toast.LENGTH_LONG).show()
+        }
+    }
+
     private fun salvarHora(context: Context, lembreteId: String, hora: String) {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit()

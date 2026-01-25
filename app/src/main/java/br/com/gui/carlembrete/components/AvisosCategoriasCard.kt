@@ -1,3 +1,4 @@
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -7,9 +8,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.EventNote
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Notifications
-import androidx.compose.material.icons.filled.EventNote
+import androidx.compose.material.icons.rounded.NotificationsOff
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -19,11 +21,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.material.icons.rounded.NotificationsOff
+import androidx.compose.material3.Divider
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -33,7 +35,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlin.math.min
 import br.com.gui.carlembrete.ContatoProfissional
 import br.com.gui.carlembrete.Lembrete
 import br.com.gui.carlembrete.TipoIcon
@@ -41,12 +42,12 @@ import br.com.gui.carlembrete.TipoManutencao
 import br.com.gui.carlembrete.dataParaOrdenacao
 import java.time.format.DateTimeFormatter
 
-// --- CORES ---
-private val GradientStart = Color(0xFF334155)
-private val GradientEnd = Color(0xFF1E293B)
+// --- CORES PADRONIZADAS ---
+private val CardBackgroundColor = Color(0xFF1E293B) // Slate 800 (Base Sólida)
+private val ItemBackgroundColor = Color(0xFF0F172A) // Slate 900 (Fundo dos itens)
+
 private val TextWhite = Color(0xFFF8FAFC)
 private val TextGray = Color(0xFF94A3B8)
-private val SurfaceDark = Color(0xFF0F172A)
 private val AccentBlue = Color(0xFF3B82F6)
 
 @Composable
@@ -70,42 +71,52 @@ fun AvisosCategoriasCard(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 8.dp) // Espaçamento externo na tela
-            .shadow(10.dp, RoundedCornerShape(12.dp), spotColor = Color.Black)
+            .shadow(
+                elevation = 12.dp,
+                shape = RoundedCornerShape(24.dp),
+                spotColor = Color.Black.copy(alpha = 0.4f)
+            )
     ) {
         Card(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+            shape = RoundedCornerShape(24.dp),
+            // COR SÓLIDA APLICADA AQUI
+            colors = CardDefaults.cardColors(containerColor = CardBackgroundColor),
             elevation = CardDefaults.cardElevation(0.dp)
         ) {
             Column(
                 modifier = Modifier
-                    .background(Brush.verticalGradient(listOf(GradientStart, GradientEnd)))
-                    .padding(vertical = 20.dp) // Apenas padding vertical no container principal
+                    .background(CardBackgroundColor) // Garante fundo sólido
+                    .padding(vertical = 24.dp)
                     .heightIn(min = 480.dp),
             ) {
 
                 // TÍTULO CATEGORIAS
                 Text(
-                    text = "CATEGORIAS",
+                    text = "FILTRAR POR CATEGORIA",
                     color = TextWhite,
-                    fontSize = 13.sp,
+                    fontSize = 14.sp,
                     fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(horizontal = 24.dp) // Alinhado com o conteúdo abaixo
+                    modifier = Modifier.padding(horizontal = 12.dp)
                 )
 
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(16.dp))
+
+                Divider(
+                    color = Color.Transparent,
+                    thickness = 1.dp,
+                    modifier = Modifier.padding(horizontal = 12.dp)
+                )
+
+                Spacer(Modifier.height(8.dp))
 
                 // LISTA DE FILTROS (Scroll Horizontal)
-                // Correção: Adicionei padding externo para a lista não bater nas bordas arredondadas
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp) // [FIX] Evita cortar nos cantos arredondados
                         .horizontalScroll(scrollState)
-                        .padding(horizontal = 4.dp), // Padding interno extra para o primeiro/ultimo item
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        .padding(horizontal = 12.dp), // Padding inicial correto
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     val contagem = TipoManutencao.values().associateWith { tipo ->
                         lembretesDoCarroAtual.count { it.tipo == tipo }
@@ -131,56 +142,62 @@ fun AvisosCategoriasCard(
                     }
                 }
 
-                Spacer(Modifier.height(24.dp))
+                Spacer(Modifier.height(8.dp))
 
-                // TÍTULO LISTA
+                Divider(
+                    color = Color.Transparent,
+                    thickness = 1.dp,
+                    modifier = Modifier.padding(horizontal = 12.dp)
+                )
+
+                Spacer(Modifier.height(28.dp))
+
+                // HEADER DA LISTA
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 24.dp),
+                        .padding(horizontal = 12.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
                         text = if (filtroTipo != null) filtroTipo.name else "PRÓXIMOS LEMBRETES",
                         color = TextWhite,
-                        fontSize = 13.sp,
+                        fontSize = 14.sp,
                         fontWeight = FontWeight.Bold
                     )
 
-                    // Contador
+                    // Contador (Badge)
                     if (lembretesComBusca.isNotEmpty()) {
-                        val badgeColor = filtroTipo?.let { statusColor(it).copy(alpha = 0.7f) } ?: SurfaceDark
                         Surface(
-                            color = badgeColor,
-                            shape = RoundedCornerShape(6.dp)
+                            color = if (filtroTipo != null) statusColor(filtroTipo) else AccentBlue,
+                            shape = CircleShape
                         ) {
                             Text(
                                 text = "${lembretesComBusca.size}",
                                 color = Color.White,
-                                fontSize = 10.sp,
+                                fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
                             )
                         }
                     }
                 }
 
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(16.dp))
 
-                // LISTA DE CARDS OU EMPTY STATE
+                // CONTEÚDO DA LISTA
                 if (lembretesComBusca.isEmpty()) {
                     EmptyStateView(TextGray)
                 } else {
                     Column(
-                        modifier = Modifier.padding(horizontal = 16.dp),
+                        modifier = Modifier.padding(horizontal = 12.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         lembretesComBusca.sortedBy { dataParaOrdenacao(it) }.forEach { lembrete ->
                             LembreteCardLocal(
                                 lembrete = lembrete,
                                 contato = listaContatos.find { it.id == lembrete.contatoId },
-                                statusLabel = statusLabel(lembrete),
                                 statusColor = statusColor(lembrete.tipo),
                                 onClick = { onOpenDetalhes(lembrete) }
                             )
@@ -192,22 +209,19 @@ fun AvisosCategoriasCard(
     }
 }
 
+// --- COMPONENTES AUXILIARES ---
+
 @Composable
 fun MonitorIcon(
     tipo: TipoManutencao,
     cor: Color,
     quantidade: Int,
     selected: Boolean,
-    onClick: () -> Unit,
-    containerSize: Dp = 60.dp,
-    boxSize: Dp = 50.dp,
-    cornerRadius: Dp = 14.dp,
-    iconSize: Dp = 20.dp,
-    labelSize: TextUnit = 10.sp
+    onClick: () -> Unit
 ) {
-    val backgroundColor = if (selected) cor else Color(0xFF0F172A).copy(alpha = 0.6f)
-    val contentColor = if (selected) Color.White else cor.copy(alpha = 0.9f)
-    val borderColor = if (selected) cor else Color.White.copy(alpha = 0.05f)
+    val backgroundColor = if (selected) cor else ItemBackgroundColor
+    val iconColor = if (selected) Color.White else cor
+    val borderColor = if (selected) cor else Color.White.copy(alpha = 0.1f)
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -216,56 +230,49 @@ fun MonitorIcon(
             interactionSource = remember { MutableInteractionSource() }
         ) { onClick() }
     ) {
-        // Box pai para permitir que o badge (offset) não seja cortado
         Box(
-            modifier = Modifier.size(boxSize),
-            contentAlignment = Alignment.BottomStart // Alinhamento base
+            modifier = Modifier.size(50.dp),
+            contentAlignment = Alignment.Center
         ) {
             Surface(
                 modifier = Modifier.fillMaxSize(),
-                shape = RoundedCornerShape(cornerRadius),
+                shape = RoundedCornerShape(8.dp),
                 color = backgroundColor,
-                border = androidx.compose.foundation.BorderStroke(1.dp, borderColor)
+                border = BorderStroke(1.dp, borderColor)
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     TipoIcon(
                         tipo = tipo,
-                        tint = contentColor,
-                        size = iconSize,
-                        textSize = (labelSize.value + 2).sp
+                        tint = iconColor,
+                        size = 24.dp
                     )
                 }
             }
 
-            // Badge (Contador)
+            // Badge flutuante para contagem
             if (quantidade > 0) {
                 Box(
                     modifier = Modifier
-                        .align(Alignment.TopEnd) // Alinha no topo à direita
-                        .offset(x = 4.dp, y = (-4).dp) // Move levemente para fora ("flutuando")
-                        .size(22.dp)
-                        .background(cor, CircleShape)
-                        .border(1.dp, Color.White.copy(alpha = 0.4f), CircleShape),
+                        .align(Alignment.TopEnd)
+                        .offset(x = 6.dp, y = (-6).dp)
+                        .size(24.dp)
+                        .background(Color.Red, CircleShape)
+                        .border(2.dp, CardBackgroundColor, CircleShape), // Borda da cor do fundo para "recortar" visualmente
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
                         text = "$quantidade",
                         color = Color.White,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.fillMaxSize().wrapContentSize(Alignment.Center)
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
                     )
                 }
             }
         }
-
-        Spacer(Modifier.height(6.dp))
-
-        // Label visível apenas se selecionado para limpar o visual
+        Spacer(Modifier.height(8.dp))
         Text(
             text = tipo.label,
-            color = TextWhite,
+            color = if(selected) TextWhite else TextGray,
             fontSize = 12.sp,
             fontWeight = FontWeight.Bold
         )
@@ -275,16 +282,10 @@ fun MonitorIcon(
 @Composable
 private fun MonitorAllIcon(
     selected: Boolean,
-    onClick: () -> Unit,
-    containerSize: Dp = 60.dp,
-    boxSize: Dp = 50.dp,
-    cornerRadius: Dp = 14.dp,
-    iconSize: Dp = 20.dp,
-    labelSize: TextUnit = 10.sp
+    onClick: () -> Unit
 ) {
-    val backgroundColor = if (selected) AccentBlue else Color(0xFF0F172A).copy(alpha = 0.6f)
-    val contentColor = if (selected) Color.White else TextWhite
-    val borderColor = if (selected) AccentBlue else Color.White.copy(alpha = 0.05f)
+    val backgroundColor = if (selected) AccentBlue else ItemBackgroundColor
+    val iconColor = if (selected) Color.White else TextGray
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -294,31 +295,30 @@ private fun MonitorAllIcon(
         ) { onClick() }
     ) {
         Box(
-            modifier = Modifier.size(boxSize),
-            contentAlignment = Alignment.BottomStart
+            modifier = Modifier.size(50.dp),
+            contentAlignment = Alignment.Center
         ) {
             Surface(
                 modifier = Modifier.fillMaxSize(),
-                shape = RoundedCornerShape(cornerRadius),
+                shape = RoundedCornerShape(8.dp),
                 color = backgroundColor,
-                border = androidx.compose.foundation.BorderStroke(1.dp, borderColor)
+                border = BorderStroke(1.dp, if(selected) AccentBlue else Color.White.copy(alpha = 0.1f))
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
                         imageVector = Icons.Rounded.Notifications,
                         contentDescription = "Todos",
-                        tint = contentColor,
-                        modifier = Modifier.size(iconSize)
+                        tint = iconColor,
+                        modifier = Modifier.size(24.dp)
                     )
                 }
             }
         }
-
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(8.dp))
         Text(
             text = "Todos",
-            color = TextWhite,
-            fontSize = labelSize,
+            color = if(selected) TextWhite else TextGray,
+            fontSize = 12.sp,
             fontWeight = FontWeight.Bold
         )
     }
@@ -328,149 +328,139 @@ private fun MonitorAllIcon(
 fun LembreteCardLocal(
     lembrete: Lembrete,
     contato: ContatoProfissional?,
-    statusLabel: String,
     statusColor: Color,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    onClick: () -> Unit
 ) {
     Card(
-        modifier = modifier
+        modifier = Modifier
             .fillMaxWidth()
             .clickable { onClick() },
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-        elevation = CardDefaults.cardElevation(0.dp) // Shadow removida, usando contraste
+        colors = CardDefaults.cardColors(containerColor = ItemBackgroundColor), // Fundo mais escuro para contraste
+        elevation = CardDefaults.cardElevation(0.dp)
     ) {
-        Row(modifier = Modifier.height(IntrinsicSize.Min)) {
-            // Faixa lateral
-            Box(
-                modifier = Modifier
-                    .fillMaxHeight()
-                    .width(4.dp)
-                    .background(statusColor)
-            )
-
-            Row(
-                modifier = Modifier
-                    .padding(16.dp)
-                    .weight(1f),
-                verticalAlignment = Alignment.CenterVertically
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Ícone com fundo suave
+            Surface(
+                shape = CircleShape,
+                color = statusColor.copy(alpha = 0.1f),
+                modifier = Modifier.size(44.dp)
             ) {
-                // Ícone circular
-                Surface(
-                    shape = CircleShape,
-                    color = statusColor.copy(alpha = 0.15f),
-                    modifier = Modifier.size(40.dp)
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        TipoIcon(
-                            tipo = lembrete.tipo,
-                            tint = statusColor,
-                            size = 20.dp
-                        )
-                    }
+                Box(contentAlignment = Alignment.Center) {
+                    TipoIcon(
+                        tipo = lembrete.tipo,
+                        tint = statusColor,
+                        size = 22.dp
+                    )
                 }
-
-                Spacer(Modifier.width(14.dp))
-
-                // Info Principal
-                Column(modifier = Modifier.weight(1f)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(
-                            text = lembrete.titulo,
-                            color = TextWhite,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 15.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f)
-                        )
-
-                        Spacer(Modifier.width(8.dp))
-
-                        // DATA CORRIGIDA
-                        val dataTexto = try {
-                            // Usando a função auxiliar que você já tem
-                            dataParaOrdenacao(lembrete).format(DateTimeFormatter.ofPattern("dd/MM"))
-                        } catch (e: Exception) {
-                            "--/--"
-                        }
-
-                        Text(
-                            text = dataTexto,
-                            color = TextGray,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-
-                    Spacer(Modifier.height(4.dp))
-
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (contato != null) {
-                            Icon(
-                                imageVector = Icons.Rounded.Person,
-                                contentDescription = null,
-                                tint = TextGray,
-                                modifier = Modifier.size(12.dp)
-                            )
-                            Spacer(Modifier.width(4.dp))
-                            Text(
-                                text = contato.nome,
-                                color = TextGray,
-                                fontSize = 12.sp,
-                                maxLines = 1
-                            )
-                        } else {
-                            Text(
-                                text = "Toque para ver detalhes",
-                                color = TextGray.copy(alpha = 0.5f),
-                                fontSize = 11.sp
-                            )
-                        }
-                    }
-                }
-
-                Spacer(Modifier.width(8.dp))
-
-                Icon(
-                    imageVector = Icons.Rounded.ChevronRight,
-                    contentDescription = null,
-                    tint = TextGray.copy(alpha = 0.5f),
-                    modifier = Modifier.size(20.dp)
-                )
             }
+
+            Spacer(Modifier.width(16.dp))
+
+            // Textos
+            Column(modifier = Modifier.weight(1f)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = lembrete.titulo,
+                        color = TextWhite,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 15.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+
+                    // Data formatada
+                    val dataFormatada = try {
+                        dataParaOrdenacao(lembrete).format(DateTimeFormatter.ofPattern("dd/MM"))
+                    } catch (e: Exception) { "--" }
+
+                    Text(
+                        text = dataFormatada,
+                        color = TextGray,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                Spacer(Modifier.height(4.dp))
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (contato != null) {
+                        Icon(
+                            Icons.Rounded.Person, null,
+                            tint = TextGray,
+                            modifier = Modifier.size(12.dp)
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            text = contato.nome,
+                            color = TextGray,
+                            fontSize = 12.sp
+                        )
+                    } else {
+                        Text(
+                            text = "Toque para ver detalhes",
+                            color = TextGray.copy(alpha = 0.5f),
+                            fontSize = 11.sp
+                        )
+                    }
+                }
+            }
+
+            Spacer(Modifier.width(8.dp))
+
+            Icon(
+                imageVector = Icons.Rounded.ChevronRight,
+                contentDescription = null,
+                tint = TextGray.copy(alpha = 0.4f),
+                modifier = Modifier.size(18.dp)
+            )
         }
     }
 }
 
 @Composable
-private fun EmptyStateView(textDim: Color) {
+private fun EmptyStateView(textColor: Color) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = 80.dp, bottom = 40.dp),
+            .padding(vertical = 60.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Icon(
-            imageVector = Icons.Default.EventNote,
-            contentDescription = null,
-            tint = textDim.copy(alpha = 0.3f),
-            modifier = Modifier.size(64.dp)
-        )
-        Spacer(Modifier.height(12.dp))
+        Box(
+            modifier = Modifier
+                .size(80.dp)
+                .background(textColor.copy(alpha = 0.05f), CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Default.EventNote,
+                contentDescription = null,
+                tint = textColor.copy(alpha = 0.3f),
+                modifier = Modifier.size(32.dp)
+            )
+        }
+        Spacer(Modifier.height(16.dp))
         Text(
-            text = "Cadastre seu primeiro aviso!",
-            color = textDim,
+            text = "Tudo em dia!",
+            color = TextWhite,
             fontSize = 16.sp,
-            textAlign = TextAlign.Center
+            fontWeight = FontWeight.Bold
+        )
+        Text(
+            text = "Nenhum lembrete para esta categoria.",
+            color = textColor,
+            fontSize = 14.sp
         )
     }
 }
-
-fun getIconForTipo(tipo: TipoManutencao): ImageVector = tipo.getIcon()
