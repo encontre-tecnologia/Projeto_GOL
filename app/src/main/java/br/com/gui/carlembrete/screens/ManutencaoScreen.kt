@@ -230,14 +230,8 @@ fun ManutencaoScreen(
             }
         )
     }
+    BackHandler(enabled = showTipoAvisoDialog) { showTipoAvisoDialog = false }
     if (showTipoAvisoDialog) {
-        data class AvisoItem(
-            val label: String,
-            val icon: ImageVector,
-            val color: Color,
-            val tipo: TipoManutencao? = null,
-            val onClick: () -> Unit
-        )
         val tiposAviso = listOf(
             TipoManutencao.OLEO,
             TipoManutencao.MECANICA,
@@ -267,89 +261,17 @@ fun ManutencaoScreen(
                 showAddLembreteDialog = true
             }
         }
-        AlertDialog(
-            onDismissRequest = { showTipoAvisoDialog = false },
-            containerColor = surfaceDark,
-            modifier = Modifier.fillMaxWidth(0.98f),
-            title = {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text("Tipo de aviso", color = Color.White, fontWeight = FontWeight.Bold)
-                    IconButton(onClick = { showTipoAvisoDialog = false }) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Fechar",
-                            tint = textDim
-                        )
-                    }
-                }
-            },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(
-                        "Escolha o tipo de aviso:",
-                        color = textDim,
-                        fontSize = 13.sp
-                    )
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        itensAviso.chunked(2).forEach { linha ->
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                linha.forEach { item ->
-                                    val label = item.label
-                                    val icon = item.icon
-                                    val onClick = item.onClick
-                                    val iconTint = item.color
-                                    val buttonModifier = Modifier
-                                        .weight(1f)
-                                        .height(60.dp)
-                                    OutlinedButton(
-                                        onClick = onClick,
-                                        border = BorderStroke(1.dp, Color(0xFF334155)),
-                                        shape = RoundedCornerShape(10.dp),
-                                        modifier = buttonModifier
-                                    ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                        ) {
-                                            if (item.tipo != null) {
-                                                TipoIcon(
-                                                    tipo = item.tipo,
-                                                    tint = iconTint,
-                                                    size = 18.dp,
-                                                    textSize = 12.sp
-                                                )
-                                            } else {
-                                                Icon(
-                                                    imageVector = icon,
-                                                    contentDescription = null,
-                                                    tint = iconTint,
-                                                    modifier = Modifier.size(18.dp)
-                                                )
-                                            }
-                                            Text(
-                                                label,
-                                                color = textLight,
-                                                fontWeight = FontWeight.SemiBold,
-                                                fontSize = 12.sp
-                                            )
-                                        }
-                                    }
-                                }
-                                if (linha.size == 1) {
-                                    Spacer(Modifier.weight(1f))
-                                }
-                            }
-                        }
-                    }
-                }
-            },
-            confirmButton = {},
-            dismissButton = {}
+        TipoAvisoScreen(
+            itensAviso = itensAviso,
+            backgroundBrush = Brush.verticalGradient(
+                listOf(Color(0xFF16233A), primaryDark, Color(0xFF0F172A))
+            ),
+            surfaceDark = surfaceDark,
+            textLight = textLight,
+            textDim = textDim,
+            onDismiss = { showTipoAvisoDialog = false }
         )
+        return
     }
     if (showTesteNotificacaoDialog) {
         NotificacaoRapidaDialog(
@@ -675,6 +597,7 @@ fun ManutencaoScreen(
                             iniciarCameraProduto = false
                             showTipoAvisoDialog = true
                         },
+                        nomeMantedor = nomeExibido,
                         textLight = textLight,
                         accentBlue = accentBlue
                     )
@@ -685,6 +608,20 @@ fun ManutencaoScreen(
                     val abastecimentoFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
                     val resumoAbastecimento = remember(abastecimentosDoCarro) {
                         calcularResumoAbastecimento(abastecimentosDoCarro, abastecimentoFormatter)
+                    }
+                    val proximaDataAbastecimento = resumoAbastecimento.proximaData
+                    LaunchedEffect(carroAtual.id, proximaDataAbastecimento) {
+                        val idNotificacao = "FUEL_${carroAtual.id}"
+                        NotificacaoHelper.cancelarNotificacao(context.applicationContext, idNotificacao)
+                        if (proximaDataAbastecimento != null) {
+                            NotificacaoHelper.agendarNotificacaoPorData(
+                                context = context.applicationContext,
+                                id = idNotificacao,
+                                titulo = "Abastecimento - ${carroAtual.nome}",
+                                descricao = "Necessario abastecer hoje.",
+                                data = proximaDataAbastecimento
+                            )
+                        }
                     }
 
                     AbastecimentoCard(
@@ -697,7 +634,7 @@ fun ManutencaoScreen(
                         onHistorico = { showHistoricoAbastecimentoScreen = true },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 8.dp)
+                            .padding(horizontal = 16.dp)
                     )
 
                     Spacer(Modifier.height(16.dp))
@@ -723,7 +660,10 @@ fun ManutencaoScreen(
                         },
                         statusLabel = { textoStatusPrazoLocal(it) },
                         statusColor = { tipo -> calcularCorStatusLocal(lembretesDoCarroAtual, tipo) },
-                        textDim = textDim
+                        textDim = textDim,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp)
                     )
 
                     Spacer(Modifier.height(24.dp))

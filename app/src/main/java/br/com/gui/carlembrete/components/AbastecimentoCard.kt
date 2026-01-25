@@ -14,7 +14,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -23,16 +22,16 @@ import androidx.compose.ui.unit.sp
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
-// --- CORES (Mantendo o degradê elegante) ---
-private val GradientStart = Color(0xFF334155) // Slate 700
-private val GradientEnd = Color(0xFF1E293B)   // Slate 800
+// --- CORES (Sólidas para consistência) ---
+private val CardBackgroundColor = Color(0xFF1E293B) // Slate 800 (Mesma do card do carro)
 
 private val AccentBlue = Color(0xFF3B82F6)
-private val TextWhite = Color(0xFFF8FAFC)
+private val TextWhite = Color(0xFFF1F5F9)
 private val TextGray = Color(0xFF94A3B8)
 private val SuccessGreen = Color(0xFF10B981)
 
-private val SurfaceHighlight = Color(0xFF000000).copy(alpha = 0.25f)
+// Fundo dos "cards internos" um pouco mais escuro para criar profundidade
+private val InnerCardBackground = Color(0xFF0F172A).copy(alpha = 0.5f)
 
 @Composable
 fun AbastecimentoCard(
@@ -49,49 +48,42 @@ fun AbastecimentoCard(
         modifier = modifier
             .fillMaxWidth()
             .shadow(
-                elevation = 8.dp,
-                shape = RoundedCornerShape(12.dp),
-                ambientColor = Color.Black.copy(alpha = 0.5f),
-                spotColor = Color.Black.copy(alpha = 0.5f)
+                elevation = 12.dp, // Sombra um pouco mais suave
+                shape = RoundedCornerShape(24.dp),
+                spotColor = Color.Black.copy(alpha = 0.4f)
             )
     ) {
         Card(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp),
+            shape = RoundedCornerShape(24.dp),
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.Transparent)
+            // Cor sólida aplicada aqui
+            colors = CardDefaults.cardColors(containerColor = CardBackgroundColor)
         ) {
             Column(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(GradientStart, GradientEnd)
-                        )
-                    )
-                    .padding(20.dp)
+                    .background(CardBackgroundColor)
+                    .padding(12.dp)
             ) {
                 // --- Cabeçalho ---
                 Row(verticalAlignment = Alignment.CenterVertically) {
-
                     Surface(
                         shape = CircleShape,
-                        // Fundo: Vidro transparente (Branco com 10% de opacidade)
-                        color = Color.White.copy(alpha = 0.1f),
+                        color = Color.White.copy(alpha = 0.08f), // Vidro sutil
                         modifier = Modifier.size(48.dp)
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Icon(
                                 imageVector = Icons.Rounded.LocalGasStation,
                                 contentDescription = null,
-                                // MUDANÇA AQUI: Branco puro para destaque total
-                                tint = Color.White,
+                                tint = AccentBlue, // Destaque em azul para combinar com o tema
                                 modifier = Modifier.size(24.dp)
                             )
                         }
                     }
 
                     Spacer(Modifier.width(16.dp))
+
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = "Gestão de Combustível",
@@ -100,7 +92,7 @@ fun AbastecimentoCard(
                             fontSize = 16.sp
                         )
                         Text(
-                            text = "Previsão e custos",
+                            text = "Previsão e custos médios",
                             color = TextGray,
                             fontSize = 12.sp
                         )
@@ -115,7 +107,7 @@ fun AbastecimentoCard(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(16.dp))
-                            .background(SurfaceHighlight)
+                            .background(InnerCardBackground) // Fundo interno mais escuro
                             .padding(16.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
@@ -125,7 +117,7 @@ fun AbastecimentoCard(
                                 "Próximo Tanque",
                                 color = TextGray,
                                 fontSize = 11.sp,
-                                fontWeight = FontWeight.Medium
+                                fontWeight = FontWeight.SemiBold
                             )
                             Spacer(Modifier.height(4.dp))
                             Text(
@@ -136,6 +128,7 @@ fun AbastecimentoCard(
                             )
                         }
 
+                        // Badge de dias
                         Surface(
                             color = SuccessGreen.copy(alpha = 0.15f),
                             shape = RoundedCornerShape(8.dp)
@@ -145,7 +138,7 @@ fun AbastecimentoCard(
                                 color = SuccessGreen,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 12.sp,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                             )
                         }
                     }
@@ -161,7 +154,7 @@ fun AbastecimentoCard(
                         label = "Diário",
                         value = custoDia,
                         icon = Icons.Rounded.Timelapse,
-                        color = Color(0xFF60A5FA),
+                        color = Color(0xFF60A5FA), // Blue 400
                         modifier = Modifier.weight(1f)
                     )
                     Spacer(Modifier.width(8.dp))
@@ -169,7 +162,7 @@ fun AbastecimentoCard(
                         label = "Semana",
                         value = custoSemana,
                         icon = Icons.Rounded.DateRange,
-                        color = Color(0xFF34D399),
+                        color = Color(0xFF34D399), // Emerald 400
                         modifier = Modifier.weight(1f)
                     )
                     Spacer(Modifier.width(8.dp))
@@ -177,7 +170,7 @@ fun AbastecimentoCard(
                         label = "Mês",
                         value = custoMes,
                         icon = Icons.Rounded.CalendarMonth,
-                        color = Color(0xFFF59E0B),
+                        color = Color(0xFFF59E0B), // Amber 500
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -189,16 +182,20 @@ fun AbastecimentoCard(
                     onClick = onHistorico,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(50.dp),
-                    shape = RoundedCornerShape(12.dp),
+                        .height(52.dp), // Botão ligeiramente mais alto
+                    shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = AccentBlue,
                         contentColor = Color.White
+                    ),
+                    elevation = ButtonDefaults.buttonElevation(
+                        defaultElevation = 4.dp,
+                        pressedElevation = 2.dp
                     )
                 ) {
                     Text(
                         text = "Ver Histórico Completo",
-                        fontWeight = FontWeight.SemiBold,
+                        fontWeight = FontWeight.Bold,
                         fontSize = 14.sp
                     )
                     Spacer(Modifier.width(8.dp))
@@ -223,9 +220,9 @@ private fun CustoCompactoItem(
 ) {
     Column(
         modifier = modifier
-            .clip(RoundedCornerShape(12.dp))
-            .background(SurfaceHighlight)
-            .padding(vertical = 12.dp, horizontal = 4.dp),
+            .clip(RoundedCornerShape(16.dp)) // Cantos mais arredondados
+            .background(InnerCardBackground)
+            .padding(vertical = 14.dp, horizontal = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
@@ -233,16 +230,16 @@ private fun CustoCompactoItem(
             imageVector = icon,
             contentDescription = null,
             tint = color,
-            modifier = Modifier.size(24.dp)
+            modifier = Modifier.size(22.dp)
         )
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(8.dp))
         Text(
             text = label,
-            color = TextWhite,
-            fontSize = 12.sp,
+            color = TextGray,
+            fontSize = 11.sp,
             fontWeight = FontWeight.Medium
         )
-        Spacer(Modifier.height(2.dp))
+        Spacer(Modifier.height(4.dp))
         Text(
             text = value?.let { "R$ ${String.format("%.2f", it)}" } ?: "R$ 0,00",
             color = TextWhite,
@@ -251,3 +248,7 @@ private fun CustoCompactoItem(
         )
     }
 }
+
+
+
+

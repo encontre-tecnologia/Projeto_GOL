@@ -40,15 +40,15 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 // --- PALETA ZELLU ---
-private val PrimaryDark = Color(0xFF0F172A) // Fundo da tela
-private val GradientStart = Color(0xFF334155) // Topo do Card
-private val GradientEnd = Color(0xFF1E293B)   // Base do Card
+private val PrimaryDark = Color(0xFF0F172A)
+private val GradientStart = Color(0xFF334155)
+private val GradientEnd = Color(0xFF1E293B)
 private val TextWhite = Color(0xFFF8FAFC)
 private val TextGray = Color(0xFF94A3B8)
 private val AccentBlue = Color(0xFF3B82F6)
 private val AccentGreen = Color(0xFF22C55E)
 private val AlertRed = Color(0xFFEF4444)
-private val SurfaceDark = Color(0xFF1E293B) // Para Dialogs
+private val SurfaceDark = Color(0xFF1E293B)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -60,7 +60,6 @@ fun HistoricoAbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
     var itemExcluir by remember { mutableStateOf<Abastecimento?>(null) }
     val formatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
 
-    // Carregar dados
     LaunchedEffect(Unit) {
         scope.launch {
             abastecimentos = withContext(Dispatchers.IO) {
@@ -73,7 +72,6 @@ fun HistoricoAbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
         abastecimentos.sortedByDescending { runCatching { LocalDate.parse(it.data, formatter) }.getOrNull() }
     }
 
-    // --- DIALOG DE EDIÇÃO ---
     if (itemEdicao != null) {
         DialogEditar(
             item = itemEdicao!!,
@@ -92,7 +90,6 @@ fun HistoricoAbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
         )
     }
 
-    // --- DIALOG DE EXCLUSÃO ---
     if (itemExcluir != null) {
         DialogExcluir(
             onDismiss = { itemExcluir = null },
@@ -114,53 +111,25 @@ fun HistoricoAbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
         containerColor = PrimaryDark,
         topBar = {
             TopAppBar(
-                title = {
-                    Text(
-                        "Histórico",
-                        color = TextWhite,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 20.sp
-                    )
-                },
+                title = { Text("Histórico", color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 20.sp) },
                 navigationIcon = {
                     IconButton(onClick = onDismiss) {
-                        Icon(
-                            imageVector = Icons.Rounded.ArrowBackIosNew,
-                            contentDescription = "Voltar",
-                            tint = TextWhite,
-                            modifier = Modifier.size(20.dp)
-                        )
+                        Icon(Icons.Rounded.ArrowBackIosNew, "Voltar", tint = TextWhite, modifier = Modifier.size(20.dp))
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = PrimaryDark)
             )
         }
     ) { innerPadding ->
-
         if (ordenados.isEmpty()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
-                contentAlignment = Alignment.Center
-            ) {
+            Box(Modifier.fillMaxSize().padding(innerPadding), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(
-                        imageVector = Icons.Rounded.LocalGasStation,
-                        contentDescription = null,
-                        tint = TextGray.copy(alpha = 0.3f),
-                        modifier = Modifier.size(60.dp)
-                    )
+                    Icon(Icons.Rounded.LocalGasStation, null, tint = TextGray.copy(alpha = 0.3f), modifier = Modifier.size(60.dp))
                     Spacer(Modifier.height(16.dp))
-                    Text(
-                        "Sem registros ainda",
-                        color = TextGray,
-                        fontSize = 16.sp
-                    )
+                    Text("Sem registros ainda", color = TextGray, fontSize = 16.sp)
                 }
             }
         } else {
-            // LazyColumn para performance e scroll suave
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
@@ -181,7 +150,6 @@ fun HistoricoAbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
     }
 }
 
-// --- COMPONENTE: ITEM DA TIMELINE ---
 @Composable
 fun TimelineItem(
     item: Abastecimento,
@@ -190,34 +158,40 @@ fun TimelineItem(
     onDelete: () -> Unit
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.Top // Alinhar ao topo para a linha descer
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(IntrinsicSize.Min),
+        verticalAlignment = Alignment.Top
     ) {
         // COLUNA DA LINHA DO TEMPO
         Column(
-            modifier = Modifier.width(24.dp),
+            modifier = Modifier
+                .width(32.dp)
+                .fillMaxHeight(),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Bolinha do topo
             Box(
                 modifier = Modifier
-                    .size(12.dp)
+                    .size(32.dp)
                     .clip(CircleShape)
                     .background(AccentBlue)
-                    .border(2.dp, PrimaryDark, CircleShape) // Borda para separar da linha
-            )
+                    .border(BorderStroke(2.dp, Color.White), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.LocalGasStation,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
 
-            // Linha conectora (se não for o último)
             if (!isLast) {
                 Box(
                     modifier = Modifier
                         .width(2.dp)
-                        .height(130.dp) // Altura fixa estimada ou weight(1f) se o pai tiver altura fixa
-                        .background(
-                            Brush.verticalGradient(
-                                colors = listOf(AccentBlue, Color.Transparent)
-                            )
-                        )
+                        .weight(1f)
+                        .background(AccentBlue)
                 )
             }
         }
@@ -227,8 +201,8 @@ fun TimelineItem(
         // CARD DE CONTEÚDO
         Box(
             modifier = Modifier
+                .padding(bottom = 24.dp)
                 .fillMaxWidth()
-                .padding(bottom = 24.dp) // Espaço entre os itens
                 .shadow(8.dp, RoundedCornerShape(20.dp), spotColor = Color.Black)
         ) {
             Card(
@@ -239,14 +213,9 @@ fun TimelineItem(
             ) {
                 Column(
                     modifier = Modifier
-                        .background(
-                            Brush.verticalGradient(
-                                colors = listOf(GradientStart, GradientEnd)
-                            )
-                        )
+                        .background(Brush.verticalGradient(colors = listOf(GradientStart, GradientEnd)))
                         .padding(16.dp)
                 ) {
-                    // Cabeçalho do Card (Data e Ações)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -256,27 +225,21 @@ fun TimelineItem(
                             Surface(
                                 color = AccentBlue.copy(alpha = 0.15f),
                                 shape = RoundedCornerShape(8.dp),
+                                border = BorderStroke(1.dp, AccentBlue.copy(alpha = 0.5f)),
                                 modifier = Modifier.size(32.dp)
                             ) {
                                 Box(contentAlignment = Alignment.Center) {
                                     Icon(
                                         imageVector = Icons.Rounded.CalendarMonth,
                                         contentDescription = null,
-                                        tint = AccentBlue,
+                                        tint = Color.White,
                                         modifier = Modifier.size(16.dp)
                                     )
                                 }
                             }
                             Spacer(Modifier.width(8.dp))
-                            Text(
-                                text = item.data,
-                                color = TextWhite,
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = 14.sp
-                            )
+                            Text(item.data, color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                         }
-
-                        // Botões de Ação
                         Row {
                             IconButton(onClick = onEdit, modifier = Modifier.size(32.dp)) {
                                 Icon(Icons.Rounded.Edit, null, tint = TextGray, modifier = Modifier.size(18.dp))
@@ -288,53 +251,22 @@ fun TimelineItem(
                     }
 
                     Spacer(Modifier.height(16.dp))
-
-                    // Linha Divisória
                     HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
-
                     Spacer(Modifier.height(16.dp))
 
-                    // Informações Principais
+                    // --- RODAPÉ COM INFORMAÇÕES INVERTIDAS ---
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Esquerda: Preço por Litro
-                        Column {
-                            Text(
-                                text = "Preço/Litro",
-                                color = TextGray,
-                                fontSize = 11.sp
-                            )
-                            Spacer(Modifier.height(2.dp))
-                            Text(
-                                text = formatarMoedaLocal(item.precoLitro),
-                                color = TextWhite.copy(alpha = 0.9f),
-                                fontWeight = FontWeight.Medium,
-                                fontSize = 14.sp
-                            )
-
-                            Spacer(Modifier.height(8.dp))
-
-                            // Litros abastecidos
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Rounded.WaterDrop, null, tint = TextGray, modifier = Modifier.size(12.dp))
-                                Spacer(Modifier.width(4.dp))
-                                Text(
-                                    text = String.format(Locale("pt", "BR"), "%.2f L", item.litros),
-                                    color = TextGray,
-                                    fontSize = 12.sp
-                                )
-                            }
-                        }
-
-                        // Direita: Valor Total (Destaque)
-                        Column(horizontalAlignment = Alignment.End) {
+                        // 1. ESQUERDA: TOTAL PAGO (Agora aqui e em Negrito)
+                        Column(horizontalAlignment = Alignment.Start) {
                             Text(
                                 text = "Total Pago",
                                 color = TextGray,
-                                fontSize = 11.sp
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold // <-- Texto em Negrito
                             )
                             Spacer(Modifier.height(4.dp))
                             Surface(
@@ -343,12 +275,25 @@ fun TimelineItem(
                                 border = BorderStroke(1.dp, AccentGreen.copy(alpha = 0.35f))
                             ) {
                                 Text(
-                                    text = formatarMoedaLocal(item.valorPago),
+                                    formatarMoedaLocal(item.valorPago),
                                     color = AccentGreen,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 18.sp,
                                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                                 )
+                            }
+                        }
+
+                        // 2. DIREITA: PREÇO/LITRO E LITROS (Moveram para cá)
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text("Preço/Litro", color = TextGray, fontSize = 11.sp)
+                            Spacer(Modifier.height(2.dp))
+                            Text(formatarMoedaLocal(item.precoLitro), color = TextWhite.copy(alpha = 0.9f), fontWeight = FontWeight.Medium, fontSize = 14.sp)
+                            Spacer(Modifier.height(8.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Rounded.WaterDrop, null, tint = TextGray, modifier = Modifier.size(12.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text(String.format(Locale("pt", "BR"), "%.2f L", item.litros), color = TextGray, fontSize = 12.sp)
                             }
                         }
                     }
@@ -358,7 +303,7 @@ fun TimelineItem(
     }
 }
 
-// --- DIALOGS (Mantendo o estilo escuro) ---
+// ... Dialogs mantidos iguais ...
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DialogEditar(
@@ -378,115 +323,65 @@ fun DialogEditar(
         title = { Text("Editar Abastecimento", color = TextWhite, fontWeight = FontWeight.Bold) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                // Campo Preço
                 OutlinedTextField(
                     value = precoTexto,
                     onValueChange = { precoTexto = it },
                     label = { Text("Preço por Litro") },
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = TextWhite,
-                        unfocusedTextColor = TextWhite,
-                        focusedBorderColor = AccentBlue,
-                        unfocusedBorderColor = TextGray.copy(alpha = 0.5f),
-                        focusedLabelColor = AccentBlue,
-                        unfocusedLabelColor = TextGray
+                        focusedTextColor = TextWhite, unfocusedTextColor = TextWhite,
+                        focusedBorderColor = AccentBlue, unfocusedBorderColor = TextGray.copy(alpha = 0.5f),
+                        focusedLabelColor = AccentBlue, unfocusedLabelColor = TextGray
                     ),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     modifier = Modifier.fillMaxWidth()
                 )
-
-                // Campo Total
                 OutlinedTextField(
                     value = totalTexto,
                     onValueChange = { totalTexto = it },
                     label = { Text("Total Pago (R$)") },
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = TextWhite,
-                        unfocusedTextColor = TextWhite,
-                        focusedBorderColor = AccentBlue,
-                        unfocusedBorderColor = TextGray.copy(alpha = 0.5f),
-                        focusedLabelColor = AccentBlue,
-                        unfocusedLabelColor = TextGray
+                        focusedTextColor = TextWhite, unfocusedTextColor = TextWhite,
+                        focusedBorderColor = AccentBlue, unfocusedBorderColor = TextGray.copy(alpha = 0.5f),
+                        focusedLabelColor = AccentBlue, unfocusedLabelColor = TextGray
                     ),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     modifier = Modifier.fillMaxWidth()
                 )
-
-                // Campo Data (Clickable)
                 OutlinedTextField(
                     value = dataSelecionada.format(formatter),
-                    onValueChange = {},
-                    readOnly = true,
+                    onValueChange = {}, readOnly = true,
                     label = { Text("Data") },
                     trailingIcon = { Icon(Icons.Rounded.Edit, null, tint = AccentBlue) },
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = TextWhite,
-                        unfocusedTextColor = TextWhite,
-                        focusedBorderColor = AccentBlue,
-                        unfocusedBorderColor = TextGray.copy(alpha = 0.5f),
-                        focusedLabelColor = AccentBlue,
-                        unfocusedLabelColor = TextGray
+                        focusedTextColor = TextWhite, unfocusedTextColor = TextWhite,
+                        focusedBorderColor = AccentBlue, unfocusedBorderColor = TextGray.copy(alpha = 0.5f),
+                        focusedLabelColor = AccentBlue, unfocusedLabelColor = TextGray
                     ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable {
-                            DatePickerDialog(
-                                context,
-                                { _, y, m, d -> dataSelecionada = LocalDate.of(y, m + 1, d) },
-                                dataSelecionada.year,
-                                dataSelecionada.monthValue - 1,
-                                dataSelecionada.dayOfMonth
-                            ).show()
-                        }
+                    modifier = Modifier.fillMaxWidth().clickable {
+                        DatePickerDialog(context, { _, y, m, d -> dataSelecionada = LocalDate.of(y, m + 1, d) }, dataSelecionada.year, dataSelecionada.monthValue - 1, dataSelecionada.dayOfMonth).show()
+                    }
                 )
             }
         },
         confirmButton = {
-            Button(
-                onClick = {
-                    val preco = precoTexto.replace(",", ".").toDoubleOrNull()
-                    val total = totalTexto.replace(",", ".").toDoubleOrNull()
-                    val litros = if (preco != null && total != null && preco > 0.0) total / preco else item.litros
-
-                    onConfirm(item.copy(
-                        data = dataSelecionada.format(formatter),
-                        precoLitro = preco ?: item.precoLitro,
-                        valorPago = total ?: item.valorPago,
-                        litros = litros
-                    ))
-                },
-                colors = ButtonDefaults.buttonColors(containerColor = AccentBlue)
-            ) {
-                Text("Salvar", color = TextWhite)
-            }
+            Button(onClick = {
+                val preco = precoTexto.replace(",", ".").toDoubleOrNull()
+                val total = totalTexto.replace(",", ".").toDoubleOrNull()
+                val litros = if (preco != null && total != null && preco > 0.0) total / preco else item.litros
+                onConfirm(item.copy(data = dataSelecionada.format(formatter), precoLitro = preco ?: item.precoLitro, valorPago = total ?: item.valorPago, litros = litros))
+            }, colors = ButtonDefaults.buttonColors(containerColor = AccentBlue)) { Text("Salvar", color = TextWhite) }
         },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancelar", color = TextGray)
-            }
-        }
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar", color = TextGray) } }
     )
 }
 
 @Composable
 fun DialogExcluir(onDismiss: () -> Unit, onConfirm: () -> Unit) {
     AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = SurfaceDark,
+        onDismissRequest = onDismiss, containerColor = SurfaceDark,
         title = { Text("Excluir Registro", color = TextWhite, fontWeight = FontWeight.Bold) },
         text = { Text("Tem certeza? O valor será removido dos cálculos mensais.", color = TextGray) },
-        confirmButton = {
-            Button(
-                onClick = onConfirm,
-                colors = ButtonDefaults.buttonColors(containerColor = AlertRed)
-            ) {
-                Text("Excluir", color = TextWhite)
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancelar", color = TextGray)
-            }
-        }
+        confirmButton = { Button(onClick = onConfirm, colors = ButtonDefaults.buttonColors(containerColor = AlertRed)) { Text("Excluir", color = TextWhite) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar", color = TextGray) } }
     )
 }
