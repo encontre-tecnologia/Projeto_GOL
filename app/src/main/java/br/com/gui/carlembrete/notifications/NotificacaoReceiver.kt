@@ -18,6 +18,7 @@ import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import br.com.gui.carlembrete.MainActivity
 
 class NotificacaoReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
