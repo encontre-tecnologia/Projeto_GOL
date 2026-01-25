@@ -294,6 +294,11 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
                         valorPago = totalValue,
                         litros = litrosCalculados
                     )
+                    val carroAtual = BancoDeDados.carregarCarros(context)
+                        ?.firstOrNull { it.id == carroId }
+                    if (carroAtual != null && AppPreferences.getFuelStartKm(context, carroId) == null) {
+                        AppPreferences.setFuelStartKm(context, carroId, carroAtual.kmAtual)
+                    }
                     val atualizada = abastecimentos + novo
                     isSaving = true
                     scope.launch {
