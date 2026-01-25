@@ -215,7 +215,7 @@ fun gerarResumoRelatorio(carro: CarroInfo, lembretes: List<Lembrete>): String {
     }
     if (lembretes.isNotEmpty()) {
         builder.appendLine()
-        builder.appendLine("Detalhes dos pr�ximos servi�os:")
+        builder.appendLine("Detalhes dos próximos serviçõs:")
         lembretes.sortedBy { it.dataLimite }.forEach { lembrete ->
             builder.appendLine("* ${lembrete.titulo} - Data: ${lembrete.dataLimite.ifBlank { "Sem data" }} - KM: ${lembrete.kmLimite.ifBlank { "-" }}")
         }

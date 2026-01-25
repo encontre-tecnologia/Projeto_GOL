@@ -1,4 +1,4 @@
-import androidx.compose.animation.animateColorAsState
+﻿import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -13,6 +13,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.EventNote
 import androidx.compose.material.icons.rounded.Message
 import androidx.compose.material.icons.rounded.Notifications
@@ -57,7 +58,7 @@ private val MoneyGreen = Color(0xFF10B981)
 
 private val dateFormatter = DateTimeFormatter.ofPattern("dd/MM")
 
-@OptIn(ExperimentalFoundationApi::class) // Necessário para remover o Overscroll
+@OptIn(ExperimentalFoundationApi::class) // NecessÃ¡rio para remover o Overscroll
 @Composable
 fun AvisosCategoriasCard(
     lembretesDoCarroAtual: List<Lembrete>,
@@ -94,47 +95,47 @@ fun AvisosCategoriasCard(
         ) {
             Column(
                 modifier = Modifier
-                    .background(CardBackgroundColor) // Cor sólida, sem degradê
-                    .padding(vertical = 24.dp),
+                    .background(CardBackgroundColor) // Cor sÃ³lida, sem degradÃª
+                    .padding(vertical = 12.dp),
             ) {
 
-                // --- TÍTULO DO CARD ---
+                // --- TÃTULO DO CARD ---
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 24.dp),
+                        .padding(horizontal = 12.dp)
+                        .padding(start = 8.dp)
+                        .padding(top = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
                         text = "CATEGORIAS",
-                        color = TextGray,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.2.sp
+                        color = TextWhite,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        letterSpacing = 0.5.sp
                     )
 
-                    if(lembretesDoCarroAtual.isNotEmpty()) {
-                        Text(
-                            text = "${lembretesDoCarroAtual.size} Total",
-                            color = TextGray.copy(alpha = 0.5f),
-                            fontSize = 10.sp
-                        )
-                    }
+                    Spacer(Modifier.width(1.dp))
                 }
 
                 Spacer(Modifier.height(16.dp))
 
                 // --- CARROSSEL DE FILTROS ---
-                // O CompositionLocalProvider aqui remove o efeito de "brilho/elástico" ao scrollar
+                // O CompositionLocalProvider aqui remove o efeito de "brilho/elÃ¡stico" ao scrollar
                 CompositionLocalProvider(LocalOverscrollConfiguration provides null) {
-                    Row(
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .horizontalScroll(scrollState)
-                            .padding(horizontal = 20.dp),
-                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                            .padding(horizontal = 12.dp)
                     ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(scrollState),
+                            horizontalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
                         val contagem = TipoManutencao.values().associateWith { tipo ->
                             lembretesDoCarroAtual.count { it.tipo == tipo }
                         }
@@ -160,43 +161,39 @@ fun AvisosCategoriasCard(
                                 onClick = { onFiltroTipoChange(if (filtroTipo == tipo) null else tipo) }
                             )
                         }
+                        }
                     }
                 }
 
                 Spacer(Modifier.height(32.dp))
 
-                // --- CABEÇALHO DA LISTA ---
+                // --- CABEÃ‡ALHO DA LISTA ---
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 24.dp),
+                        .padding(horizontal = 12.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column {
+                    Column(modifier = Modifier.padding(start = 8.dp)) {
                         Text(
-                            text = if (filtroTipo != null) filtroTipo.label.uppercase() else "PRÓXIMOS SERVIÇOS",
+                            text = if (filtroTipo != null) filtroTipo.label.uppercase() else "PRÃ“XIMOS LEMBRETES",
                             color = TextWhite,
                             fontSize = 16.sp,
                             fontWeight = FontWeight.ExtraBold,
                             letterSpacing = 0.5.sp
                         )
-                        Text(
-                            text = if(lembretesComBusca.isEmpty()) "Nada pendente" else "Sua lista de prioridades",
-                            color = TextGray,
-                            fontSize = 12.sp
-                        )
                     }
 
-                    if (lembretesComBusca.isNotEmpty()) {
+                    if (lembretesDoCarroAtual.isNotEmpty()) {
                         Surface(
-                            color = if (filtroTipo != null) statusColor(filtroTipo).copy(alpha = 0.2f) else AccentBlue.copy(alpha = 0.2f),
-                            shape = CircleShape,
-                            border = BorderStroke(1.dp, if (filtroTipo != null) statusColor(filtroTipo) else AccentBlue)
+                            color = AccentBlue.copy(alpha = 0.2f),
+                            shape = RoundedCornerShape(6.dp),
+                            border = BorderStroke(1.dp, AccentBlue)
                         ) {
                             Text(
-                                text = "${lembretesComBusca.size}",
-                                color = if (filtroTipo != null) statusColor(filtroTipo) else AccentBlue,
+                                text = "${lembretesDoCarroAtual.size}",
+                                color = Color.White,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
@@ -212,7 +209,7 @@ fun AvisosCategoriasCard(
                     EmptyStateView(TextGray)
                 } else {
                     Column(
-                        modifier = Modifier.padding(horizontal = 20.dp),
+                        modifier = Modifier.padding(horizontal = 12.dp),
                         verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
                         lembretesComBusca.sortedBy { dataParaOrdenacao(it) }.forEach { lembrete ->
@@ -220,7 +217,8 @@ fun AvisosCategoriasCard(
                                 lembrete = lembrete,
                                 contato = listaContatos.find { it.id == lembrete.contatoId },
                                 statusColor = statusColor(lembrete.tipo),
-                                onClick = { onOpenDetalhes(lembrete) }
+                                onClick = { onOpenDetalhes(lembrete) },
+                                onAddPrestador = onAddPrestador
                             )
                         }
                     }
@@ -235,7 +233,8 @@ fun LembreteCardLocal(
     lembrete: Lembrete,
     contato: ContatoProfissional?,
     statusColor: Color,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onAddPrestador: (Lembrete) -> Unit
 ) {
     val context = LocalContext.current
 
@@ -249,8 +248,7 @@ fun LembreteCardLocal(
 
     Card(
         modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onClick() },
+            .fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = ItemBackgroundColor),
         border = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f)),
@@ -261,7 +259,12 @@ fun LembreteCardLocal(
                 .fillMaxWidth()
                 .padding(16.dp)
         ) {
-            // Ícone + Texto Principal
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onClick() }
+            ) {
+            // Ãcone + Texto Principal
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Surface(
                     shape = CircleShape,
@@ -307,12 +310,14 @@ fun LembreteCardLocal(
                 }
             }
 
-            // Divisória sutil
+            // DivisÃ³ria sutil
             Spacer(Modifier.height(16.dp))
             Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color.White.copy(alpha = 0.05f)))
             Spacer(Modifier.height(16.dp))
 
-            // Rodapé: Valor e Botão
+            }
+
+            // RodapÃ©: Valor e BotÃ£o
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -338,14 +343,14 @@ fun LembreteCardLocal(
                         )
                         Text(
                             text = valorFormatado.replace("R$", "").trim(),
-                            color = TextWhite,
+                            color = MoneyGreen,
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
                 }
 
-                // Botão WhatsApp
+                // BotÃ£o WhatsApp
                 if (contato != null) {
                     Surface(
                         color = WhatsAppGreen.copy(alpha = 0.2f),
@@ -353,10 +358,13 @@ fun LembreteCardLocal(
                         modifier = Modifier
                             .clip(CircleShape)
                             .clickable {
+                                val dataFormatada = try {
+                                    dataParaOrdenacao(lembrete).format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))
+                                } catch (e: Exception) { lembrete.dataLimite.ifBlank { "--/--/----" } }
                                 abrirWhatsApp(
                                     context,
                                     contato.telefone,
-                                    "Olá, sobre o serviço *${lembrete.titulo}*..."
+                                    "Olá ${contato.nome}, tudo bem? Estou entrando em contato sobre o serviço *${lembrete.titulo}* do veículo ${lembrete.carroId}. A data prevista é *$dataFormatada* e o valor estimado é *${valorFormatado}*. Podemos agendar?"
                                 )
                             }
                     ) {
@@ -372,7 +380,7 @@ fun LembreteCardLocal(
                             )
                             Spacer(Modifier.width(8.dp))
                             Text(
-                                text = "Conversar",
+                                text = "Chamar no WhatsApp",
                                 color = WhatsAppGreen,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold
@@ -380,19 +388,39 @@ fun LembreteCardLocal(
                         }
                     }
                 } else {
-                    Text(
-                        text = "Sem contato",
-                        color = TextGray.copy(alpha = 0.4f),
-                        fontSize = 11.sp,
-                        fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
-                    )
+                    Surface(
+                        color = AccentBlue.copy(alpha = 0.15f),
+                        shape = CircleShape,
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .clickable { onAddPrestador(lembrete) }
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Add,
+                                contentDescription = "Adicionar contato",
+                                tint = AccentBlue,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                text = "Adicionar contato",
+                                color = AccentBlue,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
                 }
             }
         }
     }
 }
 
-// --- ÍCONES DE CATEGORIA ANIMADOS ---
+// --- ÃCONES DE CATEGORIA ANIMADOS ---
 
 @Composable
 fun MonitorIcon(
@@ -438,7 +466,7 @@ fun MonitorIcon(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .offset(x = 4.dp, y = (-2).dp)
-                        .size(22.dp)
+                        .size(24.dp)
                         .background(Color(0xFFEF4444), CircleShape)
                         .border(2.dp, CardBackgroundColor, CircleShape),
                     contentAlignment = Alignment.Center
@@ -446,7 +474,7 @@ fun MonitorIcon(
                     Text(
                         text = "$quantidade",
                         color = Color.White,
-                        fontSize = 11.sp,
+                        fontSize = 12.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
@@ -458,7 +486,7 @@ fun MonitorIcon(
         Text(
             text = tipo.label,
             color = if (selected) TextWhite else TextGray,
-            fontSize = 10.sp,
+            fontSize = 13.sp,
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
@@ -502,7 +530,7 @@ private fun MonitorAllIcon(selected: Boolean, onClick: () -> Unit) {
         Text(
             text = "Todos",
             color = if (selected) TextWhite else TextGray,
-            fontSize = 10.sp,
+            fontSize = 13.sp,
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
         )
     }
@@ -536,3 +564,5 @@ private fun EmptyStateView(textColor: Color) {
         Text("Nenhum aviso nessa categoria.", color = textColor, fontSize = 13.sp)
     }
 }
+
+

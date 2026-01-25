@@ -149,50 +149,45 @@ fun RelatorioVeiculoScreen(carroAtual: CarroInfo, lembretes: List<Lembrete>, onD
                     .fillMaxSize()
                     .background(Color(0xFF0F2A4A))
                     .padding(24.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(18.dp)
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    IconButton(
-                        onClick = onDismiss,
+                    Row(
                         modifier = Modifier
-                            .background(Color(0x441E293B), RoundedCornerShape(8.dp))
-                            .border(1.dp, Color.White.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
+                            .fillMaxWidth()
+                            .height(56.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar", tint = Color.White, modifier = Modifier.size(20.dp))
-                    }
-                    Spacer(Modifier.width(12.dp))
-                    Text(
-                        "Relat├│rio do ve├¡culo",
-                        color = Color.White,
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.weight(1f)
-                    )
-                    OutlinedButton(
-                        onClick = {
-                            val uri = gerarPdfRelatorio(context, carroAtual, lembretes)
-                            if (uri != null) {
-                                compartilharPdf(context, uri)
-                            } else {
-                                Toast.makeText(context, "N├úo foi poss├¡vel gerar o PDF", Toast.LENGTH_SHORT).show()
-                            }
-                        },
-                        shape = RoundedCornerShape(8.dp),
-                        border = BorderStroke(1.dp, Color.White),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                    ) {
-                        Icon(Icons.Default.PictureAsPdf, contentDescription = "Exportar PDF", tint = Color.White, modifier = Modifier.size(18.dp))
+                        IconButton(onClick = onDismiss) {
+                            Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar", tint = Color.White, modifier = Modifier.size(20.dp))
+                        }
                         Spacer(Modifier.width(6.dp))
-                        Text("PDF", color = Color.White, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "Detalhes do veículo",
+                            color = Color.White,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.weight(1f)
+                        )
+                        OutlinedButton(
+                            onClick = {
+                                val uri = gerarPdfRelatorio(context, carroAtual, lembretes)
+                                if (uri != null) {
+                                    compartilharPdf(context, uri)
+                                } else {
+                                    Toast.makeText(context, "N├úo foi poss├¡vel gerar o PDF", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            shape = RoundedCornerShape(8.dp),
+                            border = BorderStroke(1.dp, Color.White),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Icon(Icons.Default.PictureAsPdf, contentDescription = "Exportar PDF", tint = Color.White, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("PDF", color = Color.White, fontWeight = FontWeight.SemiBold)
+                        }
                     }
-                }
                 Spacer(Modifier.height(24.dp))
-                Column(
-                    modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(18.dp)
-                ) {
                     ElevatedCard(
                         modifier = Modifier.fillMaxWidth(),
                         colors = CardDefaults.cardColors(containerColor = Color.Transparent),
@@ -343,18 +338,7 @@ fun RelatorioVeiculoScreen(carroAtual: CarroInfo, lembretes: List<Lembrete>, onD
                         }
                     }
                 }
-                Spacer(Modifier.height(16.dp))
-                OutlinedButton(
-                    onClick = onDismiss,
-                    modifier = Modifier.fillMaxWidth(),
-                    border = BorderStroke(1.dp, Color.White),
-                    shape = RoundedCornerShape(8.dp),
-                    contentPadding = PaddingValues(vertical = 10.dp)
-                ) {
-                    Text("Fechar", color = Color.White, fontWeight = FontWeight.Bold)
-                }
             }
         }
     }
-}
 

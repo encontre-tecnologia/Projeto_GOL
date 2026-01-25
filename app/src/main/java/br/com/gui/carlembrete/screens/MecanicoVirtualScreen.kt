@@ -30,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -43,6 +44,7 @@ import kotlin.math.ceil
 @Composable
 fun MecanicoVirtualScreen(
     carro: CarroInfo,
+    abastecimentos: List<Abastecimento>,
     lembretes: List<Lembrete>,
     onDismiss: () -> Unit
 ) {
@@ -58,6 +60,17 @@ fun MecanicoVirtualScreen(
 
     val kmMesInput = remember { mutableStateOf("1200") }
     val kmMes = kmMesInput.value.toDoubleOrNull()?.coerceAtLeast(1.0) ?: 1200.0
+    val context = LocalContext.current
+
+    val totalGastoCombustivel = abastecimentos.sumOf { it.valorPago }
+    val gastoTotalTexto = if (totalGastoCombustivel > 0.0) formatarMoedaMV(totalGastoCombustivel) else "--"
+    val (tituloReputacao, _) = calcularReputacao(lembretes)
+    val corReputacao = when (tituloReputacao) {
+        "Excelente" -> Color(0xFF10B981)
+        "Crítica" -> Color(0xFFEF4444)
+        "Em atenção" -> Color(0xFFF59E0B)
+        else -> textDim
+    }
 
     // Calcula o valor total mensal necessario com base nos lembretes ativos
     val totalMensalParaGuardar = lembretes.fold(0.0) { total, lembrete ->
@@ -100,32 +113,7 @@ fun MecanicoVirtualScreen(
     }
 
     Scaffold(
-        containerColor = primaryDark,
-        topBar = {
-            CenterAlignedTopAppBar(
-                title = {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            "Mecanico Virtual",
-                            color = textLight,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            "Inteligencia Preditiva",
-                            color = accent,
-                            style = MaterialTheme.typography.labelSmall
-                        )
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar", tint = textLight)
-                    }
-                },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = primaryDark)
-            )
-        }
+        containerColor = primaryDark
     ) { innerPadding ->
         Column(
             modifier = Modifier
@@ -135,43 +123,25 @@ fun MecanicoVirtualScreen(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
-            Spacer(Modifier.height(8.dp))
-
-            // 1. CARD DE INPUT DE KM (Visual mais limpo)
-            Card(
-                colors = CardDefaults.cardColors(containerColor = surfaceDark),
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier.fillMaxWidth()
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp)
+                    .padding(horizontal = 0.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    modifier = Modifier.padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(40.dp)
-                            .clip(CircleShape)
-                            .background(accent.copy(alpha = 0.1f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(Icons.Default.Speed, contentDescription = null, tint = accent)
-                    }
-                    Spacer(Modifier.width(16.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Ritmo de Uso", color = textDim, style = MaterialTheme.typography.labelMedium)
-                        Text("KM Media / Mes", color = textLight, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
-                    }
-
-                    // Input Discreto
-                    BasicTextFieldCustom(
-                        value = kmMesInput.value,
-                        onValueChange = { if (it.length <= 6) kmMesInput.value = it.filter { ch -> ch.isDigit() } },
-                        color = textLight,
-                        accent = accent
-                    )
+                IconButton(onClick = onDismiss) {
+                    Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar", tint = textLight)
                 }
+                Text(
+                    "Gestor Financeiro",
+                    color = textLight,
+                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.titleMedium
+                )
             }
 
+            // 1. CARD DE INPUT DE KM (Visual mais limpo)
             // 2. DASHBOARD FINANCEIRO (Hero Section)
             Box(
                 modifier = Modifier
@@ -208,6 +178,46 @@ fun MecanicoVirtualScreen(
                         lineHeight = 18.sp,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center
                     )
+                }
+            }
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = surfaceDark),
+                border = BorderStroke(1.dp, Color(0xFF23324D))
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Info, contentDescription = null, tint = accent)
+                        Spacer(Modifier.width(10.dp))
+                        Text(
+                            "Resumo de uso",
+                            color = textLight,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 14.sp
+                        )
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        UsageStat(
+                            label = "Estado do veículo",
+                            value = tituloReputacao,
+                            textColor = textLight,
+                            dimColor = textDim,
+                            valueColor = corReputacao,
+                            modifier = Modifier.weight(1f)
+                        )
+                        UsageStat(
+                            label = "Total gasto gasolina",
+                            value = gastoTotalTexto,
+                            textColor = textLight,
+                            dimColor = textDim,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
                 }
             }
 
@@ -317,19 +327,6 @@ fun MecanicoVirtualScreen(
                 }
             }
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Divider(Modifier.width(4.dp).height(24.dp).clip(RoundedCornerShape(2.dp)), color = accent)
-                Spacer(Modifier.width(12.dp))
-                Text("Proximas Manutencoes", color = textLight, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            }
-
-            if (proximosAvisos.isEmpty()) {
-                EmptyStateCard(surfaceDark, textDim)
-            } else {
-                proximosAvisos.forEach { lembrete ->
-                    AvisoCardModerno(lembrete, surfaceDark, textLight, textDim, accent, success, warning, danger)
-                }
-            }
             Spacer(Modifier.height(40.dp))
         }
     }
@@ -518,6 +515,25 @@ private fun AvisoCardModerno(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun UsageStat(
+    label: String,
+    value: String,
+    textColor: Color,
+    dimColor: Color,
+    modifier: Modifier = Modifier,
+    valueColor: Color = textColor
+) {
+    Column(
+        modifier = modifier
+            .background(Color(0xFF0B1224), RoundedCornerShape(12.dp))
+            .padding(12.dp)
+    ) {
+        Text(label, color = dimColor, fontSize = 11.sp)
+        Text(value, color = valueColor, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 
