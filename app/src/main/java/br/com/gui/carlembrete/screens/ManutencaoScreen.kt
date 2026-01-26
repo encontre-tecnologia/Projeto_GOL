@@ -140,8 +140,8 @@ fun ManutencaoScreen(
     }
 
     // Estados de Controle de Interface
-    var showEditCarDialog by remember { mutableStateOf(false) }
-    var showAddCarDialog by remember { mutableStateOf(false) }
+    var showEditCarScreen by remember { mutableStateOf(false) }
+    var showAddCarScreen by remember { mutableStateOf(false) }
     var showAddLembreteDialog by remember { mutableStateOf(false) }
     var showTipoAvisoDialog by remember { mutableStateOf(false) }
     var tipoAvisoSelecionado by remember { mutableStateOf(TipoManutencao.OLEO) }
@@ -198,29 +198,30 @@ fun ManutencaoScreen(
         }
     }
 
-    // ----------------- DIÁLOGOS -----------------
-    if (showEditCarDialog) {
-        EditarCarroDialog(
+    // ----------------- TELAS DE VEÍCULO -----------------
+    BackHandler(enabled = showEditCarScreen) { showEditCarScreen = false }
+    if (showEditCarScreen) {
+        EditarCarroScreen(
             carroAtual = carroAtual,
-            titulo = "Editar Veículo",
-            onDismiss = { showEditCarDialog = false },
+            onDismiss = { showEditCarScreen = false },
             onSalvar = { carroEditado ->
                 listaCarros = listaCarros.map { if (it.id == carroAtual.id) carroEditado else it }
-                showEditCarDialog = false
+                showEditCarScreen = false
             }
         )
+        return
     }
-    if (showAddCarDialog) {
-        EditarCarroDialog(
-            carroAtual = CarroInfo(nome = "", modelo = ""),
-            titulo = "Novo Carro",
-            onDismiss = { showAddCarDialog = false },
+    BackHandler(enabled = showAddCarScreen) { showAddCarScreen = false }
+    if (showAddCarScreen) {
+        NovoCarroScreen(
+            onDismiss = { showAddCarScreen = false },
             onSalvar = { novoCarro ->
                 listaCarros = listaCarros + novoCarro
                 indiceCarroAtual = listaCarros.lastIndex
-                showAddCarDialog = false
+                showAddCarScreen = false
             }
         )
+        return
     }
     if (showAddContatoDialog) {
         NovoContatoDialog(
@@ -506,7 +507,7 @@ fun ManutencaoScreen(
                         drawerScope.launch { drawerState.close() }
                     }
                     DrawerMenuItem(Icons.Default.AddCircle, "Adicionar Veículo") {
-                        showAddCarDialog = true
+                        showAddCarScreen = true
                         drawerScope.launch { drawerState.close() }
                     }
 
@@ -633,7 +634,7 @@ fun ManutencaoScreen(
                             if (indiceCarroAtual < listaCarros.lastIndex) indiceCarroAtual++ else indiceCarroAtual = 0
                         },
                         onOpenCarInfo = { showCarInfoScreen = true },
-                        onEditCar = { showEditCarDialog = true },
+                        onEditCar = { showEditCarScreen = true },
                         onOpenRelatorio = { showCarInfoScreen = true },
                         onNovoLembrete = {
                             iniciarCameraProduto = false
@@ -1419,4 +1420,5 @@ fun corCategoria(tipo: TipoManutencao): Color = when (tipo) {
     TipoManutencao.SEGURO -> Color(0xFF10B981) // verde
     TipoManutencao.OUTROS -> Color(0xFF94A3B8)
 }
+
 
