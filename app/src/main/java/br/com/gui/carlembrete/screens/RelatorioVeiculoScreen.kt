@@ -209,9 +209,10 @@ fun RelatorioVeiculoScreen(carroAtual: CarroInfo, lembretes: List<Lembrete>, onD
                         ) {
                             Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                                    Image(
-                                        painter = painterResource(id = carroAtual.tipoIconRes()),
+                                    Icon(
+                                        imageVector = carroAtual.tipoIcon(),
                                         contentDescription = carroAtual.tipoVeiculo.label,
+                                        tint = textoPrimario,
                                         modifier = Modifier.size(150.dp)
                                     )
                                     Column(modifier = Modifier.weight(1f)) {
