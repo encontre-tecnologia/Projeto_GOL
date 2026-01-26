@@ -165,9 +165,10 @@ fun OnboardingScreen(onFinish: () -> Unit) {
                             ) {
                                 items(frotaTemporaria) { c ->
                                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                        Image(
-                                            painter = painterResource(id = c.tipoIconRes()),
+                                        Icon(
+                                            imageVector = c.tipoIcon(),
                                             contentDescription = c.tipoVeiculo.label,
+                                            tint = Color.White,
                                             modifier = Modifier.size(40.dp)
                                         )
                                         Spacer(Modifier.height(4.dp))
@@ -185,9 +186,10 @@ fun OnboardingScreen(onFinish: () -> Unit) {
                         Box(contentAlignment = Alignment.BottomCenter, modifier = Modifier.height(170.dp).width(160.dp)) {
                             Icon(imageVector = Icons.Default.Home, contentDescription = null, tint = Color(0xFF334155), modifier = Modifier.size(160.dp).align(Alignment.BottomCenter))
                             Box(modifier = Modifier.size(width = 38.dp, height = 58.dp).background(Color(0xFF4B5563), shape = RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp)).align(Alignment.BottomCenter).padding(bottom = 2.dp))
-                            Image(
-                                painter = painterResource(id = carroTipo.iconRes),
+                            Icon(
+                                imageVector = carroTipo.icon,
                                 contentDescription = carroTipo.label,
+                                tint = Color(0xFFCBD5E1),
                                 modifier = Modifier.size(100.dp).align(Alignment.BottomCenter).offset(y = (-4).dp)
                             )
                         }

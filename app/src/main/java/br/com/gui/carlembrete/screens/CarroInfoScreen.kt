@@ -202,7 +202,7 @@ fun CarroInfoScreen(
                         )
                     } else {
                         Icon(
-                            painter = painterResource(id = carro.tipoIconRes()),
+                            imageVector = carro.tipoIcon(),
                             contentDescription = null,
                             tint = textLight,
                             modifier = Modifier.fillMaxSize()
