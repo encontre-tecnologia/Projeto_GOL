@@ -148,6 +148,7 @@ fun EditarCarroScreen(
                     nome = if (nome.isNotBlank()) nome else carroAtual.nome,
                     modelo = if (modelo.isNotBlank()) modelo else carroAtual.modelo,
                     marca = marca.ifBlank { carroAtual.marca },
+                    tipoVeiculo = tipoSelecionado,
                     cor = corSelecionada,
                     accent = accentBlue
                 )
@@ -230,6 +231,20 @@ fun EditarCarroScreen(
                         "Triumph",
                         "Shineray"
                     )
+                    val marcasCaminhoneteLocal = listOf(
+                        "Toyota",
+                        "Chevrolet",
+                        "Ford",
+                        "Volkswagen",
+                        "Fiat",
+                        "Nissan",
+                        "Mitsubishi",
+                        "Ram",
+                        "Renault",
+                        "Jeep",
+                        "Honda",
+                        "Hyundai"
+                    )
                     val marcasTratorLocal = listOf(
                         "John Deere",
                         "Massey Ferguson",
@@ -244,11 +259,12 @@ fun EditarCarroScreen(
                     )
                     val marcasDisponiveis = when (tipoSelecionado) {
                         TipoVeiculo.BICICLETA -> marcasBicicletaLocal
+                        TipoVeiculo.CAMINHONETE -> marcasCaminhoneteLocal
                         TipoVeiculo.CAMINHAO -> marcasCaminhaoLocal
                         TipoVeiculo.MOTO -> marcasMotoLocal
                         TipoVeiculo.TRATOR -> marcasTratorLocal
                         else -> marcasSuportadas
-                    }
+                    }.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
                     LaunchedEffect(tipoSelecionado) {
                         if (marca.isNotBlank() && !marcasDisponiveis.contains(marca)) {
                             marca = ""
@@ -256,7 +272,7 @@ fun EditarCarroScreen(
                     }
 
                     var marcaExpanded by remember { mutableStateOf(false) }
-                    val marcaLogo = logoResForMarca(marca)
+                    val marcaLogo = logoResForMarca(marca, tipoSelecionado)
                     ExposedDropdownMenuBox(
                         expanded = marcaExpanded,
                         onExpandedChange = {
@@ -297,7 +313,7 @@ fun EditarCarroScreen(
                         )
                         ExposedDropdownMenu(expanded = marcaExpanded, onDismissRequest = { marcaExpanded = false }) {
                             marcasDisponiveis.forEach { marcaNome ->
-                                val res = logoResForMarca(marcaNome)
+                                val res = logoResForMarca(marcaNome, tipoSelecionado)
                                 DropdownMenuItem(
                                     text = {
                                         Row(
@@ -423,6 +439,7 @@ private fun EditHeroCard(
     nome: String,
     modelo: String,
     marca: String,
+    tipoVeiculo: TipoVeiculo,
     cor: Int,
     accent: Color
 ) {
@@ -442,7 +459,7 @@ private fun EditHeroCard(
                 .padding(16.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                val logoRes = logoResForMarca(marca)
+                val logoRes = logoResForMarca(marca, tipoVeiculo)
                 Box(
                     modifier = Modifier
                         .size(54.dp)

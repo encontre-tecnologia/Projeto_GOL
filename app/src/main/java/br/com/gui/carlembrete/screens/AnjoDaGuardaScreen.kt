@@ -232,6 +232,16 @@ fun AnjoDaGuardaScreen(onDismiss: () -> Unit) {
 
     val context = LocalContext.current
 
+    val activity = (context as? android.app.Activity)
+    val subscriptionManager = remember { SubscriptionManager(context) }
+    val isSubscribed by subscriptionManager.isSubscribed.collectAsState()
+
+    DisposableEffect(Unit) {
+        subscriptionManager.connect()
+        onDispose { subscriptionManager.disconnect() }
+    }
+
+
 
 
 
@@ -837,6 +847,59 @@ fun AnjoDaGuardaScreen(onDismiss: () -> Unit) {
             return@Scaffold
 
 
+
+        }
+
+
+        if (!isSubscribed) {
+
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding),
+                contentAlignment = Alignment.Center
+            ) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF111827)),
+                    shape = RoundedCornerShape(16.dp),
+                    border = BorderStroke(1.dp, Color(0xFF334155)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(20.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(Icons.Filled.Shield, contentDescription = null, tint = accentBlue, modifier = Modifier.size(36.dp))
+                        Text("Zellu Guardiao", color = textPrimary, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                        Text(
+                            "Ative o monitoramento premium com alertas inteligentes e protecao extra.",
+                            color = textSecondary,
+                            textAlign = TextAlign.Center,
+                            fontSize = 12.sp
+                        )
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                            Text("- Monitoramento em tempo real", color = Color(0xFFCBD5E1), fontSize = 12.sp)
+                            Text("- Alertas prioritarios", color = Color(0xFFCBD5E1), fontSize = 12.sp)
+                            Text("- Historico de eventos", color = Color(0xFFCBD5E1), fontSize = 12.sp)
+                        }
+                        Button(
+                            onClick = { if (activity != null) subscriptionManager.launchPurchaseFlow(activity) },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF59E0B), contentColor = Color.Black),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text("Assinar Premium", fontWeight = FontWeight.Bold)
+                        }
+                        TextButton(onClick = onDismiss) {
+                            Text("Voltar", color = textSecondary)
+                        }
+                    }
+                }
+            }
+            return@Scaffold
 
         }
 

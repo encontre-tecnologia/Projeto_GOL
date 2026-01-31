@@ -115,6 +115,6 @@ class SubscriptionManager(context: Context) : PurchasesUpdatedListener {
 
     companion object {
         // Troque pelo ID real da assinatura no Google Play
-        const val SUBSCRIPTION_PRODUCT_ID = "backup_premium_monthly"
+        const val SUBSCRIPTION_PRODUCT_ID = "carlembrete_premium_monthly"
     }
 }

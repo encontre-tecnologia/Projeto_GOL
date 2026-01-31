@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.io.File
 import java.io.Serializable
+import java.text.Normalizer
 import java.util.Locale
 import java.util.UUID
 
@@ -122,6 +123,16 @@ private val marcaLogoMap = mapOf(
     "agrale" to R.drawable.logo_agrale
 )
 
+private val marcasTratorSemLogo = setOf(
+    "caseih",
+    "newholland",
+    "valtra",
+    "voltra",
+    "johndeere",
+    "masseyferguson",
+    "masseyfergson"
+)
+
 enum class TipoVeiculo(val label: String, val icon: ImageVector) {
     BICICLETA("Bicicleta", Icons.Rounded.DirectionsBike),
     CARRETINHA("Carretinha", Icons.Rounded.Inventory2),
@@ -155,7 +166,7 @@ val marcasSuportadas = listOf(
     "Renault",
     "Toyota",
     "Volkswagen"
-)
+).map { it.trim() }.filter { it.isNotEmpty() }
 
 val marcasBicicleta = listOf(
     "Caloi",
@@ -195,15 +206,28 @@ data class CarroInfo(
 }
 
 @DrawableRes
-fun CarroInfo.logoResOrNull(): Int? = logoResForMarca(marca)
+fun CarroInfo.logoResOrNull(): Int? = logoResForMarca(marca, tipoVeiculo)
 
 fun CarroInfo.tipoIcon(): ImageVector = tipoVeiculo.icon
 
-private fun normalizarMarca(marca: String): String =
-    marca.trim().lowercase(Locale.getDefault()).replace(Regex("[^a-z0-9]"), "")
+private fun normalizarMarca(marca: String): String {
+    val semAcentos = Normalizer.normalize(marca.trim(), Normalizer.Form.NFD)
+        .replace(Regex("\\p{Mn}+"), "")
+        .lowercase(Locale.getDefault())
+    return semAcentos.replace(Regex("[^a-z0-9]"), "")
+}
 
 @DrawableRes
 fun logoResForMarca(marca: String): Int? = marcaLogoMap[normalizarMarca(marca)]
+
+@DrawableRes
+fun logoResForMarca(marca: String, tipoVeiculo: TipoVeiculo?): Int? {
+    val normalizada = normalizarMarca(marca)
+    if (tipoVeiculo == TipoVeiculo.TRATOR && normalizada in marcasTratorSemLogo) {
+        return null
+    }
+    return marcaLogoMap[normalizada]
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
