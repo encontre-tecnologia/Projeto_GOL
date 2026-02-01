@@ -1,5 +1,6 @@
 ﻿import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -43,7 +44,7 @@ import br.com.gui.carlembrete.tipoIcon
 
 // --- CORES ---
 // Cor sÃ³lida para o fundo do Card Principal (Uniforme)
-private val CardBackgroundColor = Color(0xFF1E293B) // Slate 800
+private val CardBackgroundColor = Color(0xFF2B3950) // mais claro
 private val TextWhite = Color(0xFFF1F5F9)
 private val TextGray = Color(0xFF94A3B8)
 private val AccentBlue = Color(0xFF3B82F6)
@@ -64,8 +65,8 @@ fun CarroInfoCard(
 ) {
     // Cores DinÃ¢micas baseadas no carro (Apenas para o card interno do carro)
     val baseColor = carroAtual.getCorUI()
-    val carDisplayGradientStart = lerp(Color(0xFF1E293B), baseColor, 0.3f)
-    val carDisplayGradientEnd = lerp(Color(0xFF020617), baseColor, 0.1f)
+    val carDisplayGradientStart = lerp(Color(0xFF1E293B), baseColor, 0.55f)
+    val carDisplayGradientEnd = lerp(Color(0xFF0B1224), baseColor, 0.35f)
 
     Box(
         modifier = modifier
@@ -103,6 +104,7 @@ fun CarroInfoCard(
                                 end = Offset(0f, Float.POSITIVE_INFINITY)
                             )
                         )
+                        .border(1.5.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(22.dp))
                         .clickable { onOpenCarInfo() }
                 ) {
                     // --- WATERMARKS (Background decorativo) ---
@@ -287,15 +289,6 @@ fun CarroInfoCard(
 fun DecoracoesDeFundo(color: Color) {
     Box(Modifier.fillMaxSize()) {
         Icon(
-            imageVector = Icons.Rounded.WaterDrop,
-            contentDescription = null,
-            tint = Color.White.copy(alpha = 0.03f),
-            modifier = Modifier
-                .size(140.dp)
-                .align(Alignment.TopStart)
-                .offset(x = (-30).dp, y = (-30).dp)
-        )
-        Icon(
             imageVector = Icons.Rounded.Build,
             contentDescription = null,
             tint = color.copy(alpha = 0.05f),
@@ -324,7 +317,7 @@ fun ActionGlassButton(
             containerColor = Color(0xFF334155).copy(alpha = 0.5f),
             contentColor = TextGray
         ),
-        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f)),
+        border = BorderStroke(1.5.dp, Color.White.copy(alpha = 0.2f)),
         elevation = ButtonDefaults.buttonElevation(0.dp)
     ) {
         Row(
@@ -335,13 +328,13 @@ fun ActionGlassButton(
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                modifier = Modifier.size(18.dp),
+                modifier = Modifier.size(20.dp),
                 tint = Color.White.copy(alpha = 0.8f)
             )
             Spacer(Modifier.width(8.dp))
             Text(
                 text = label,
-                fontSize = 13.sp,
+                fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = Color.White.copy(alpha = 0.8f),
                 maxLines = 1,

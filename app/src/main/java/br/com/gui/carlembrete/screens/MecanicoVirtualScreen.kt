@@ -84,13 +84,39 @@ fun MecanicoVirtualScreen(
         lembretes.sortedBy { dataParaOrdenacao(it) }
     }
     var filtroGrafico by remember { mutableStateOf("TODOS") }
-    val gastosPorTipo = remember(lembretes) {
-        TipoManutencao.values()
+    val categoriasDisponiveis = if (carro.tipoVeiculo == TipoVeiculo.BICICLETA) {
+        listOf(
+            TipoManutencao.CORRENTE,
+            TipoManutencao.LUBRIFICACAO,
+            TipoManutencao.PEDIVELA,
+            TipoManutencao.ACESSORIOS,
+            TipoManutencao.CONFORTO,
+            TipoManutencao.FREIO,
+            TipoManutencao.PNEU,
+            TipoManutencao.TRANSMISSAO,
+            TipoManutencao.REVISAO,
+            TipoManutencao.OUTROS
+        )
+    } else {
+        listOf(
+            TipoManutencao.OLEO,
+            TipoManutencao.MECANICA,
+            TipoManutencao.BATERIA,
+            TipoManutencao.FREIO,
+            TipoManutencao.PNEU,
+            TipoManutencao.LICENCIAMENTO,
+            TipoManutencao.IPVA,
+            TipoManutencao.SEGURO,
+            TipoManutencao.OUTROS
+        )
+    }
+    val gastosPorTipo = remember(lembretes, categoriasDisponiveis) {
+        categoriasDisponiveis
             .map { tipo -> tipo to lembretes.filter { it.tipo == tipo }.sumOf { it.valor } }
             .associate { it.first to it.second }
     }
     val tiposSelecionados = when (filtroGrafico) {
-        "IMPOSTOS" -> listOf(TipoManutencao.LICENCIAMENTO, TipoManutencao.IPVA)
+        "IMPOSTOS" -> listOf(TipoManutencao.LICENCIAMENTO, TipoManutencao.IPVA).filter { it in categoriasDisponiveis }
         "MAIS_CAROS" -> gastosPorTipo.entries
             .filter { it.value > 0.0 }
             .sortedByDescending { it.value }
@@ -101,7 +127,7 @@ fun MecanicoVirtualScreen(
             .sortedBy { it.value }
             .take(3)
             .map { it.key }
-        else -> TipoManutencao.values().toList()
+        else -> categoriasDisponiveis
     }
     val categorySpendData = tiposSelecionados.map { tipo ->
         val totalCategoria = gastosPorTipo[tipo] ?: 0.0
