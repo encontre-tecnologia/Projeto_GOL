@@ -23,6 +23,8 @@ class SubscriptionManager(context: Context) : PurchasesUpdatedListener {
 
     private var productDetails: ProductDetails? = null
 
+    private val _planTier = MutableStateFlow(PlanTier.FREE)
+    val planTier: StateFlow<PlanTier> = _planTier
     private val _isSubscribed = MutableStateFlow(false)
     val isSubscribed: StateFlow<Boolean> = _isSubscribed
 
@@ -96,12 +98,12 @@ class SubscriptionManager(context: Context) : PurchasesUpdatedListener {
     }
 
     private fun handlePurchases(purchases: List<Purchase>) {
-        var ativo = false
+        var hasPremium = false
         for (purchase in purchases) {
             if (purchase.purchaseState == Purchase.PurchaseState.PURCHASED &&
                 purchase.products.contains(SUBSCRIPTION_PRODUCT_ID)
             ) {
-                ativo = true
+                hasPremium = true
                 if (!purchase.isAcknowledged) {
                     val params = AcknowledgePurchaseParams.newBuilder()
                         .setPurchaseToken(purchase.purchaseToken)
@@ -110,11 +112,21 @@ class SubscriptionManager(context: Context) : PurchasesUpdatedListener {
                 }
             }
         }
-        _isSubscribed.value = ativo
+        val tier = when {
+            hasPremium -> PlanTier.PREMIUM
+            else -> PlanTier.FREE
+        }
+        _planTier.value = tier
+        _isSubscribed.value = tier != PlanTier.FREE
     }
 
     companion object {
         // Troque pelo ID real da assinatura no Google Play
         const val SUBSCRIPTION_PRODUCT_ID = "carlembrete_premium_monthly"
     }
+}
+
+enum class PlanTier(val productId: String) {
+    FREE(""),
+    PREMIUM(SubscriptionManager.SUBSCRIPTION_PRODUCT_ID)
 }

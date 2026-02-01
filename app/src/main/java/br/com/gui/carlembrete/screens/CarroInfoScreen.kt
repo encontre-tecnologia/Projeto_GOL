@@ -2,7 +2,6 @@
 
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -17,16 +16,19 @@ import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import br.com.gui.carlembrete.VehicleIcon
 import androidx.compose.ui.unit.sp
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
@@ -38,6 +40,7 @@ import kotlin.math.abs
 fun CarroInfoScreen(
     carro: CarroInfo,
     lembretes: List<Lembrete>,
+    isPremium: Boolean,
     onDismiss: () -> Unit
 ) {
     // --- CORES ORIGINAIS ---
@@ -49,6 +52,7 @@ fun CarroInfoScreen(
 
     val totalGastos = lembretes.sumOf { it.valor }
     val context = LocalContext.current
+    var showPremiumDialog by remember { mutableStateOf(false) }
 
     // Lógica de dados
     val proximo = lembretes.minByOrNull { dataParaOrdenacao(it) }?.let {
@@ -158,9 +162,15 @@ fun CarroInfoScreen(
                     )
                 }
 
+                val pdfAccent = if (isPremium) accentColor else Color(0xFFF59E0B)
+                val pdfContainer = if (isPremium) accentColor.copy(alpha = 0.15f) else Color(0xFFF59E0B).copy(alpha = 0.18f)
                 FilledTonalButton(
                     onClick = {
-                        val uri = gerarPdfRelatorio(context, carro, lembretes)
+                        if (!isPremium) {
+                            showPremiumDialog = true
+                            return@FilledTonalButton
+                        }
+                        val uri = gerarPdfRelatorio(context, carro, lembretes, isPremium)
                         if (uri != null) {
                             compartilharPdf(context, uri)
                         } else {
@@ -168,16 +178,30 @@ fun CarroInfoScreen(
                         }
                     },
                     colors = ButtonDefaults.filledTonalButtonColors(
-                        containerColor = accentColor.copy(alpha = 0.15f),
-                        contentColor = accentColor
+                        containerColor = pdfContainer,
+                        contentColor = pdfAccent
                     ),
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                     shape = RoundedCornerShape(12.dp)
                 ) {
                     Icon(Icons.Default.Print, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text("PDF", fontWeight = FontWeight.Bold)
+                    Text(if (isPremium) "PDF" else "PDF Premium", fontWeight = FontWeight.Bold)
                 }
+            }
+
+            if (showPremiumDialog) {
+                AlertDialog(
+                    onDismissRequest = { showPremiumDialog = false },
+                    title = { Text("Recurso Premium", color = Color(0xFFF59E0B), fontWeight = FontWeight.Bold) },
+                    text = { Text("PDF completo está disponível no Premium.", color = Color(0xFFCBD5E1)) },
+                    confirmButton = {
+                        TextButton(onClick = { showPremiumDialog = false }) {
+                            Text("Entendi", color = Color(0xFFF59E0B), fontWeight = FontWeight.Bold)
+                        }
+                    },
+                    containerColor = Color(0xFF0F172A)
+                )
             }
 
             // --- HERO SECTION (Carro) ---
@@ -187,30 +211,18 @@ fun CarroInfoScreen(
             ) {
                 Box(
                     contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .size(90.dp)
-                        .background(cardColor, CircleShape) // Fundo do ícone mais integrado
-                        .padding(18.dp)
+                    modifier = Modifier.size(90.dp)
                 ) {
-                    val logoRes = carro.logoResOrNull()
-                    if (logoRes != null) {
-                        Image(
-                            painter = painterResource(id = logoRes),
-                            contentDescription = null,
-                            modifier = Modifier.fillMaxSize(),
-                            colorFilter = ColorFilter.tint(textLight)
-                        )
-                    } else {
-                        Icon(
-                            imageVector = carro.tipoIcon(),
-                            contentDescription = null,
-                            tint = textLight,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    }
+                    val isBikeIcon = carro.tipoVeiculo == TipoVeiculo.BICICLETA
+                    VehicleIcon(
+                        tipoVeiculo = carro.tipoVeiculo,
+                        tint = if (isBikeIcon) Color.White else null,
+                        size = if (isBikeIcon) 88.dp else 360.dp,
+                        modifier = Modifier.fillMaxSize()
+                    )
                 }
 
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(0.dp))
 
                 Text(
                     text = carro.nome,

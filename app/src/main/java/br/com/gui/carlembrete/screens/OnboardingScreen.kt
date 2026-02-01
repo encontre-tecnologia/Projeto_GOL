@@ -85,6 +85,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import br.com.gui.carlembrete.VehicleIcon
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
@@ -134,6 +135,7 @@ fun OnboardingScreen(onFinish: () -> Unit) {
     var frotaTemporaria by remember { mutableStateOf(listOf<CarroInfo>()) }
     var contatosAdicionados by remember { mutableStateOf(listOf<ContatoProfissional>()) }
     var showContatoDialog by remember { mutableStateOf(false) }
+    val maxVehicles = 3
 
     if (showContatoDialog) NovoContatoDialog(onDismiss = { showContatoDialog = false }, onSalvar = { novo -> contatosAdicionados = contatosAdicionados + novo; scope.launch(Dispatchers.IO) { BancoDeDados.salvarContatos(context, contatosAdicionados) }; showContatoDialog = false })
 
@@ -165,11 +167,10 @@ fun OnboardingScreen(onFinish: () -> Unit) {
                             ) {
                                 items(frotaTemporaria) { c ->
                                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                        Icon(
-                                            imageVector = c.tipoIcon(),
-                                            contentDescription = c.tipoVeiculo.label,
+                                        VehicleIcon(
+                                            tipoVeiculo = c.tipoVeiculo,
                                             tint = Color.White,
-                                            modifier = Modifier.size(40.dp)
+                                            size = 40.dp
                                         )
                                         Spacer(Modifier.height(4.dp))
                                         Text(
@@ -186,11 +187,11 @@ fun OnboardingScreen(onFinish: () -> Unit) {
                         Box(contentAlignment = Alignment.BottomCenter, modifier = Modifier.height(170.dp).width(160.dp)) {
                             Icon(imageVector = Icons.Default.Home, contentDescription = null, tint = Color(0xFF334155), modifier = Modifier.size(160.dp).align(Alignment.BottomCenter))
                             Box(modifier = Modifier.size(width = 38.dp, height = 58.dp).background(Color(0xFF4B5563), shape = RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp)).align(Alignment.BottomCenter).padding(bottom = 2.dp))
-                            Icon(
-                                imageVector = carroTipo.icon,
-                                contentDescription = carroTipo.label,
+                            VehicleIcon(
+                                tipoVeiculo = carroTipo,
                                 tint = Color(0xFFCBD5E1),
-                                modifier = Modifier.size(100.dp).align(Alignment.BottomCenter).offset(y = (-4).dp)
+                                size = 100.dp,
+                                modifier = Modifier.align(Alignment.BottomCenter).offset(y = (-4).dp)
                             )
                         }
                         Spacer(Modifier.height(16.dp)); Text("Sua Garagem", style = MaterialTheme.typography.headlineMedium, color = Color.White, fontWeight = FontWeight.Bold)
@@ -219,7 +220,11 @@ fun OnboardingScreen(onFinish: () -> Unit) {
                                             colorFilter = ColorFilter.tint(Color.White)
                                         )
                                     } else {
-                                        Icon(Icons.Rounded.DirectionsCar, contentDescription = null, tint = Color(0xFF3B82F6))
+                                        VehicleIcon(
+                                            tipoVeiculo = carroTipo,
+                                            tint = Color(0xFF3B82F6),
+                                            size = 20.dp
+                                        )
                                     }
                                 }
                             )
@@ -241,7 +246,11 @@ fun OnboardingScreen(onFinish: () -> Unit) {
                                                     colorFilter = ColorFilter.tint(Color.White)
                                                 )
                                             } else {
-                                                Icon(Icons.Rounded.DirectionsCar, contentDescription = null)
+                                                VehicleIcon(
+                                                    tipoVeiculo = carroTipo,
+                                                    tint = Color.White,
+                                                    size = 18.dp
+                                                )
                                             }
                                         }
                                     )
@@ -274,6 +283,10 @@ fun OnboardingScreen(onFinish: () -> Unit) {
                         Spacer(Modifier.height(24.dp))
                         OutlinedButton(
                             onClick = {
+                                if (frotaTemporaria.size >= maxVehicles) {
+                                    Toast.makeText(context, "Limite de veículos do plano grátis atingido.", Toast.LENGTH_SHORT).show()
+                                    return@OutlinedButton
+                                }
                                 if (carroNome.isNotBlank() && carroModeloUnico.isNotBlank()) {
                                     val novo = CarroInfo(
                                         nome = carroNome,
@@ -306,6 +319,10 @@ fun OnboardingScreen(onFinish: () -> Unit) {
                                         tipoVeiculo = carroTipo
                                     )
                                     listaFinal = listaFinal + ultimo
+                                }
+                                if (listaFinal.size > maxVehicles) {
+                                    Toast.makeText(context, "Limite de veículos do plano grátis atingido.", Toast.LENGTH_SHORT).show()
+                                    listaFinal = listaFinal.take(maxVehicles)
                                 }
                                 val listaSalvar = if (listaFinal.isNotEmpty()) listaFinal else listOf(CarroInfo(nome = carroTipo.label, modelo = "Padrão", marca = "Marca", kmAtual = 0, tipoVeiculo = carroTipo))
                                 scope.launch(Dispatchers.IO) { BancoDeDados.salvarCarros(context, listaSalvar) }

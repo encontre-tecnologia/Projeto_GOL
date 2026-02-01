@@ -30,17 +30,14 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import br.com.gui.carlembrete.CarroInfo
-import br.com.gui.carlembrete.logoResOrNull
-import br.com.gui.carlembrete.tipoIcon
+import br.com.gui.carlembrete.VehicleIcon
 
 // --- CORES ---
 // Cor sÃ³lida para o fundo do Card Principal (Uniforme)
@@ -178,22 +175,12 @@ fun CarroInfoCard(
                                     )
                             )
 
-                            val logoRes = carroAtual.logoResOrNull()
-                            if (logoRes != null) {
-                                androidx.compose.foundation.Image(
-                                    painter = painterResource(id = logoRes),
-                                    contentDescription = null,
-                                    modifier = Modifier.size(80.dp),
-                                    colorFilter = ColorFilter.tint(TextWhite)
-                                )
-                            } else {
-                                Icon(
-                                    imageVector = carroAtual.tipoIcon(),
-                                    contentDescription = null,
-                                    tint = TextWhite,
-                                    modifier = Modifier.size(80.dp)
-                                )
-                            }
+                            val isBikeIcon = carroAtual.tipoVeiculo == br.com.gui.carlembrete.TipoVeiculo.BICICLETA
+                            VehicleIcon(
+                                tipoVeiculo = carroAtual.tipoVeiculo,
+                                tint = if (isBikeIcon) TextWhite else null,
+                                size = if (isBikeIcon) 88.dp else 210.dp
+                            )
                         }
 
                         // RODAPÃ‰ DO DISPLAY (Barra de Status Glassmorphic)

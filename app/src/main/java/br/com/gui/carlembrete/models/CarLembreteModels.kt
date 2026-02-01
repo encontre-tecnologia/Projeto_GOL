@@ -33,6 +33,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -77,65 +78,7 @@ data class Lembrete(
     val horaAviso: String = "09:00"
 ) : Serializable
 
-private val marcaLogoMap = mapOf(
-    "audi" to R.drawable.logo_audi,
-    "bmw" to R.drawable.logo_bmw,
-    "citroen" to R.drawable.logo_citroen,
-    "citroem" to R.drawable.logo_citroen,
-    "chevrolet" to R.drawable.logo_chevrolet,
-    "chevy" to R.drawable.logo_chevrolet,
-    "chevolet" to R.drawable.logo_chevrolet,
-    "fiat" to R.drawable.logo_fiat,
-    "ford" to R.drawable.logo_ford,
-    "honda" to R.drawable.logo_honda,
-    "hyundai" to R.drawable.logo_hyundai,
-    "jeep" to R.drawable.logo_jeep,
-    "kia" to R.drawable.logo_kia,
-    "lamborghini" to R.drawable.logo_lamborghini,
-    "mercedes" to R.drawable.logo_mercedes,
-    "mercedesbenz" to R.drawable.logo_mercedes,
-    "mitsubishi" to R.drawable.logo_mitsubishi,
-    "nissan" to R.drawable.logo_nissan,
-    "nissam" to R.drawable.logo_nissan,
-    "peugeot" to R.drawable.logo_peugeot,
-    "renault" to R.drawable.logo_renault,
-    "toyota" to R.drawable.logo_toyota,
-    "volkswagen" to R.drawable.logo_volkswagen,
-    "vw" to R.drawable.logo_volkswagen,
-    "daf" to R.drawable.logo_daf,
-    "ducati" to R.drawable.logo_ducati,
-    "iveco" to R.drawable.logo_iveco,
-    "man" to R.drawable.logo_man,
-    "scania" to R.drawable.logo_scania,
-    "harleydavidson" to R.drawable.logo_harleydavidson,
-    "kawasaki" to R.drawable.logo_kawasaki,
-    "royalenfield" to R.drawable.logo_royalenfield,
-    "triumph" to R.drawable.logo_triumph,
-    "suzuki" to R.drawable.logo_suzuki,
-    "volvo" to R.drawable.logo_volvo,
-    "yamaha" to R.drawable.logo_yamaha,
-    "ram" to R.drawable.logo_ram,
-    "johndeere" to R.drawable.logo_johndeere6,
-    "masseyferguson" to R.drawable.logo_masseyferguson,
-    "valtra" to R.drawable.logo_valtra,
-    "newholland" to R.drawable.logo_newholland,
-    "caseih" to R.drawable.logo_resourcecase,
-    "case" to R.drawable.logo_resourcecase,
-    "kubota" to R.drawable.logo_kubota,
-    "fendt" to R.drawable.logo_fendt,
-    "mahindra" to R.drawable.logo_mahindramahindra,
-    "agrale" to R.drawable.logo_agrale
-)
-
-private val marcasTratorSemLogo = setOf(
-    "caseih",
-    "newholland",
-    "valtra",
-    "voltra",
-    "johndeere",
-    "masseyferguson",
-    "masseyfergson"
-)
+// Logos removidos por segurança legal. Use ícones genéricos por tipo de veículo.
 
 enum class TipoVeiculo(val label: String, val icon: ImageVector) {
     BICICLETA("Bicicleta", Icons.Rounded.DirectionsBike),
@@ -209,10 +152,44 @@ data class CarroInfo(
     fun getCorUI(): Color = Color(corArgb)
 }
 
-@DrawableRes
-fun CarroInfo.logoResOrNull(): Int? = logoResForMarca(marca, tipoVeiculo)
-
 fun CarroInfo.tipoIcon(): ImageVector = tipoVeiculo.icon
+
+@DrawableRes
+fun TipoVeiculo.iconRes(): Int? = when (this) {
+    TipoVeiculo.CARRO -> R.drawable.ic_carro
+    TipoVeiculo.CAMINHAO -> R.drawable.ic_caminhao
+    TipoVeiculo.CAMINHONETE -> R.drawable.ic_camionete
+    TipoVeiculo.MOTO -> R.drawable.ic_moto
+    TipoVeiculo.CARRETINHA -> R.drawable.ic_carreta
+    TipoVeiculo.TRATOR -> R.drawable.ic_trator
+    else -> null
+}
+
+@Composable
+fun VehicleIcon(
+    tipoVeiculo: TipoVeiculo,
+    tint: Color? = null,
+    size: androidx.compose.ui.unit.Dp,
+    modifier: Modifier = Modifier,
+    contentDescription: String? = null
+) {
+    val res = tipoVeiculo.iconRes()
+    if (res != null) {
+        Image(
+            painter = painterResource(id = res),
+            contentDescription = contentDescription ?: tipoVeiculo.label,
+            modifier = modifier.size(size),
+            colorFilter = if (tint != null) ColorFilter.tint(tint) else null
+        )
+    } else {
+        Icon(
+            imageVector = tipoVeiculo.icon,
+            contentDescription = contentDescription ?: tipoVeiculo.label,
+            tint = tint ?: Color.Unspecified,
+            modifier = modifier.size(size)
+        )
+    }
+}
 
 private fun normalizarMarca(marca: String): String {
     val semAcentos = Normalizer.normalize(marca.trim(), Normalizer.Form.NFD)
@@ -222,16 +199,10 @@ private fun normalizarMarca(marca: String): String {
 }
 
 @DrawableRes
-fun logoResForMarca(marca: String): Int? = marcaLogoMap[normalizarMarca(marca)]
+fun logoResForMarca(marca: String): Int? = null
 
 @DrawableRes
-fun logoResForMarca(marca: String, tipoVeiculo: TipoVeiculo?): Int? {
-    val normalizada = normalizarMarca(marca)
-    if (tipoVeiculo == TipoVeiculo.TRATOR && normalizada in marcasTratorSemLogo) {
-        return null
-    }
-    return marcaLogoMap[normalizada]
-}
+fun logoResForMarca(marca: String, tipoVeiculo: TipoVeiculo?): Int? = null
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

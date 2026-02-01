@@ -85,6 +85,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import br.com.gui.carlembrete.VehicleIcon
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
@@ -120,9 +121,10 @@ import kotlin.math.roundToInt
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun RelatorioVeiculoScreen(carroAtual: CarroInfo, lembretes: List<Lembrete>, onDismiss: () -> Unit) {
+fun RelatorioVeiculoScreen(carroAtual: CarroInfo, lembretes: List<Lembrete>, isPremium: Boolean, onDismiss: () -> Unit) {
     val context = LocalContext.current
-    val resumo = remember(carroAtual, lembretes) { gerarResumoRelatorio(carroAtual, lembretes) }
+    val resumo = remember(carroAtual, lembretes, isPremium) { gerarResumoRelatorio(carroAtual, lembretes, isPremium) }
+    var showPremiumDialog by remember { mutableStateOf(false) }
     val resumoChip = remember(resumo) {
         resumo.lineSequence()
             .map { it.trim() }
@@ -169,9 +171,14 @@ fun RelatorioVeiculoScreen(carroAtual: CarroInfo, lembretes: List<Lembrete>, onD
                             fontWeight = FontWeight.Bold,
                             modifier = Modifier.weight(1f)
                         )
+                        val pdfAccent = if (isPremium) Color.White else Color(0xFFF59E0B)
                         OutlinedButton(
                             onClick = {
-                                val uri = gerarPdfRelatorio(context, carroAtual, lembretes)
+                                if (!isPremium) {
+                                    showPremiumDialog = true
+                                    return@OutlinedButton
+                                }
+                                val uri = gerarPdfRelatorio(context, carroAtual, lembretes, isPremium)
                                 if (uri != null) {
                                     compartilharPdf(context, uri)
                                 } else {
@@ -179,12 +186,12 @@ fun RelatorioVeiculoScreen(carroAtual: CarroInfo, lembretes: List<Lembrete>, onD
                                 }
                             },
                             shape = RoundedCornerShape(8.dp),
-                            border = BorderStroke(1.dp, Color.White),
+                            border = BorderStroke(1.dp, pdfAccent),
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                         ) {
-                            Icon(Icons.Default.PictureAsPdf, contentDescription = "Exportar PDF", tint = Color.White, modifier = Modifier.size(18.dp))
+                            Icon(Icons.Default.PictureAsPdf, contentDescription = "Exportar PDF", tint = pdfAccent, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(6.dp))
-                            Text("PDF", color = Color.White, fontWeight = FontWeight.SemiBold)
+                            Text(if (isPremium) "PDF" else "PDF Premium", color = pdfAccent, fontWeight = FontWeight.SemiBold)
                         }
                     }
                 Spacer(Modifier.height(24.dp))
@@ -209,11 +216,11 @@ fun RelatorioVeiculoScreen(carroAtual: CarroInfo, lembretes: List<Lembrete>, onD
                         ) {
                             Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                                    Icon(
-                                        imageVector = carroAtual.tipoIcon(),
-                                        contentDescription = carroAtual.tipoVeiculo.label,
-                                        tint = textoPrimario,
-                                        modifier = Modifier.size(150.dp)
+                                    val isBikeIcon = carroAtual.tipoVeiculo == TipoVeiculo.BICICLETA
+                                    VehicleIcon(
+                                        tipoVeiculo = carroAtual.tipoVeiculo,
+                                        tint = if (isBikeIcon) Color.White else null,
+                                        size = if (isBikeIcon) 88.dp else 210.dp
                                     )
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(carroAtual.nome, color = textoPrimario, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold)
@@ -337,6 +344,19 @@ fun RelatorioVeiculoScreen(carroAtual: CarroInfo, lembretes: List<Lembrete>, onD
                             Spacer(Modifier.height(8.dp))
                             Text("Sem manuten├º├Áes pendentes", color = Color(0xFF94A3B8))
                         }
+                    }
+                    if (showPremiumDialog) {
+                        AlertDialog(
+                            onDismissRequest = { showPremiumDialog = false },
+                            title = { Text("Recurso Premium", color = Color(0xFFF59E0B), fontWeight = FontWeight.Bold) },
+                            text = { Text("PDF completo está disponível no Premium.", color = Color(0xFFCBD5E1)) },
+                            confirmButton = {
+                                TextButton(onClick = { showPremiumDialog = false }) {
+                                    Text("Entendi", color = Color(0xFFF59E0B), fontWeight = FontWeight.Bold)
+                                }
+                            },
+                            containerColor = Color(0xFF0F172A)
+                        )
                     }
                 }
             }

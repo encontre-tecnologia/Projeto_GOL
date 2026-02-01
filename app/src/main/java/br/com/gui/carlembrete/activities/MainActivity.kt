@@ -213,7 +213,7 @@ fun getKmAdicionalPorTipo(tipo: TipoManutencao): Int {
 
 fun formatarMoeda(valor: Double): String = NumberFormat.getCurrencyInstance(Locale("pt", "BR")).format(valor)
 
-fun gerarResumoRelatorio(carro: CarroInfo, lembretes: List<Lembrete>): String {
+fun gerarResumoRelatorio(carro: CarroInfo, lembretes: List<Lembrete>, isPremium: Boolean): String {
     val builder = StringBuilder()
     builder.appendLine("Relat�rio do ve�culo")
     builder.appendLine("Nome: ${carro.nome}")
@@ -234,8 +234,10 @@ fun gerarResumoRelatorio(carro: CarroInfo, lembretes: List<Lembrete>): String {
             builder.appendLine("* ${lembrete.titulo} - Data: ${lembrete.dataLimite.ifBlank { "Sem data" }} - KM: ${lembrete.kmLimite.ifBlank { "-" }}")
         }
     }
-    builder.appendLine()
-    builder.appendLine("Gerado via CarLembrete")
+    if (!isPremium) {
+        builder.appendLine()
+        builder.appendLine("Gerado pelo Zellu")
+    }
     return builder.toString()
 }
 
@@ -247,7 +249,7 @@ fun compartilharRelatorio(context: Context, texto: String) {
     context.startActivity(Intent.createChooser(intent, "Compartilhar relat�rio"))
 }
 
-fun gerarPdfRelatorio(context: Context, carro: CarroInfo, lembretes: List<Lembrete>): Uri? {
+fun gerarPdfRelatorio(context: Context, carro: CarroInfo, lembretes: List<Lembrete>, isPremium: Boolean): Uri? {
     return try {
         val document = PdfDocument()
         val pageInfo = PdfDocument.PageInfo.Builder(595, 842, 1).create()
@@ -303,6 +305,12 @@ fun gerarPdfRelatorio(context: Context, carro: CarroInfo, lembretes: List<Lembre
             color = android.graphics.Color.parseColor("#94A3B8")
             isAntiAlias = true
         }
+        val watermarkPaint = Paint().apply {
+            textSize = 10f
+            color = android.graphics.Color.parseColor("#94A3B8")
+            textAlign = Paint.Align.CENTER
+            isAntiAlias = true
+        }
         val colorSuccess = android.graphics.Color.parseColor("#16A34A")
         val colorDanger = android.graphics.Color.parseColor("#DC2626")
         val accentColor = android.graphics.Color.parseColor("#2563EB")
@@ -331,6 +339,9 @@ fun gerarPdfRelatorio(context: Context, carro: CarroInfo, lembretes: List<Lembre
 
         fun ensureSpace(extra: Float) {
             if (y + extra > pageInfo.pageHeight - 40) {
+                if (!isPremium) {
+                    canvas.drawText("Gerado pelo Zellu", pageInfo.pageWidth / 2f, pageInfo.pageHeight - 24f, watermarkPaint)
+                }
                 document.finishPage(currentPage)
                 val nextPageInfo = PdfDocument.PageInfo.Builder(595, 842, document.pages.size + 1).create()
                 currentPage = document.startPage(nextPageInfo)
@@ -531,6 +542,9 @@ fun gerarPdfRelatorio(context: Context, carro: CarroInfo, lembretes: List<Lembre
             y += 8f
         }
 
+        if (!isPremium) {
+            canvas.drawText("Gerado pelo Zellu", pageInfo.pageWidth / 2f, pageInfo.pageHeight - 24f, watermarkPaint)
+        }
         document.finishPage(currentPage)
         val nextPageInfo = PdfDocument.PageInfo.Builder(595, 842, document.pages.size + 1).create()
         currentPage = document.startPage(nextPageInfo)
@@ -614,6 +628,9 @@ fun gerarPdfRelatorio(context: Context, carro: CarroInfo, lembretes: List<Lembre
             y += targetHeight
         }
 
+        if (!isPremium) {
+            canvas.drawText("Gerado pelo Zellu", pageInfo.pageWidth / 2f, pageInfo.pageHeight - 24f, watermarkPaint)
+        }
         document.finishPage(currentPage)
         val pdfFile = File(context.cacheDir, "relatorio_${System.currentTimeMillis()}.pdf")
         FileOutputStream(pdfFile).use { output -> document.writeTo(output) }

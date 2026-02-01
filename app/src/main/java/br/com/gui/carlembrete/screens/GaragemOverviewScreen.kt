@@ -85,6 +85,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import br.com.gui.carlembrete.VehicleIcon
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
@@ -277,7 +278,6 @@ fun GaragemOverviewScreen(
                                         .padding(16.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    val logoRes = carro.logoResOrNull()
                                     Box(
                                         modifier = Modifier
                                             .size(56.dp)
@@ -285,21 +285,11 @@ fun GaragemOverviewScreen(
                                             .background(carro.getCorUI().copy(alpha = 0.35f)),
                                         contentAlignment = Alignment.Center
                                     ) {
-                                        if (logoRes != null) {
-                                            Image(
-                                                painter = painterResource(id = logoRes),
-                                                contentDescription = carro.marca.ifBlank { "Logo do veiculo" },
-                                                modifier = Modifier.size(32.dp),
-                                                colorFilter = ColorFilter.tint(Color.White)
-                                            )
-                                        } else {
-                                            Icon(
-                                                Icons.Rounded.DirectionsCar,
-                                                contentDescription = null,
-                                                tint = Color.White,
-                                                modifier = Modifier.size(28.dp)
-                                            )
-                                        }
+                                        VehicleIcon(
+                                            tipoVeiculo = carro.tipoVeiculo,
+                                            tint = Color.White,
+                                            size = 28.dp
+                                        )
                                     }
                                     Spacer(Modifier.width(14.dp))
                         Column(
