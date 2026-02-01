@@ -3,6 +3,7 @@ package br.com.gui.carlembrete
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -203,6 +204,18 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
                         shape = RoundedCornerShape(14.dp),
                         colors = fieldColors
                     )
+                    val abrirDatePicker = {
+                        val dataAtual = dataSelecionada
+                        DatePickerDialog(
+                            context,
+                            { _, year, month, dayOfMonth ->
+                                dataSelecionada = LocalDate.of(year, month + 1, dayOfMonth)
+                            },
+                            dataAtual.year,
+                            dataAtual.monthValue - 1,
+                            dataAtual.dayOfMonth
+                        ).show()
+                    }
                     OutlinedTextField(
                         value = dataSelecionada.format(dateFormatter),
                         onValueChange = {},
@@ -210,7 +223,8 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
                         label = { Text("Data do registro") },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(58.dp),
+                            .height(58.dp)
+                            .clickable(onClick = abrirDatePicker),
                         shape = RoundedCornerShape(14.dp),
                         leadingIcon = {
                             Icon(
@@ -218,28 +232,6 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
                                 contentDescription = null,
                                 tint = Color(0xFFCBD5F5)
                             )
-                        },
-                        trailingIcon = {
-                            IconButton(
-                                onClick = {
-                                    val dataAtual = dataSelecionada
-                                    DatePickerDialog(
-                                        context,
-                                        { _, year, month, dayOfMonth ->
-                                            dataSelecionada = LocalDate.of(year, month + 1, dayOfMonth)
-                                        },
-                                        dataAtual.year,
-                                        dataAtual.monthValue - 1,
-                                        dataAtual.dayOfMonth
-                                    ).show()
-                                }
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.CalendarMonth,
-                                    contentDescription = "Selecionar data",
-                                    tint = Color(0xFFCBD5F5)
-                                )
-                            }
                         },
                         colors = fieldColors
                     )
