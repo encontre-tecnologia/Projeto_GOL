@@ -12,17 +12,21 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Agriculture
 import androidx.compose.material.icons.rounded.BatteryChargingFull
 import androidx.compose.material.icons.rounded.Build
+import androidx.compose.material.icons.rounded.Chair
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.DirectionsBike
 import androidx.compose.material.icons.rounded.DirectionsCar
 import androidx.compose.material.icons.rounded.DiscFull
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Inventory2
+import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.LocalShipping
 import androidx.compose.material.icons.rounded.Motorcycle
 import androidx.compose.material.icons.rounded.Payments
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material.icons.rounded.Thermostat
+import androidx.compose.material.icons.rounded.TireRepair
 import androidx.compose.material.icons.rounded.WaterDrop
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -194,7 +198,7 @@ val marcasCaminhao = listOf(
 
 data class CarroInfo(
     val id: String = UUID.randomUUID().toString(),
-    val nome: String = "Novo Carro",
+    val nome: String = "Novo Veículo",
     val modelo: String = "Modelo 1.0",
     val marca: String = "",
     val proprietario: String = "",
@@ -284,24 +288,44 @@ data class Abastecimento(
     val litros: Double
 ) : Serializable
 
+data class Pedalada(
+    val id: String = UUID.randomUUID().toString(),
+    val carroId: String,
+    val data: String,
+    val km: Double
+) : Serializable
+
 enum class TipoManutencao(val label: String) {
+    CORRENTE("Corrente"),
+    LUBRIFICACAO("Lubrificação"),
+    PEDIVELA("Pedivela"),
+    ACESSORIOS("Acessórios"),
+    CONFORTO("Conforto"),
+    PNEU("Pneu"),
+    TRANSMISSAO("Transmissão"),
+    REVISAO("Revisão"),
     OLEO("Óleo"),
     BATERIA("Bateria"),
     MECANICA("Mecânica"),
     FREIO("Freio"),
-    TEMPERATURA("Temp."), // Mudado para ficar menor
     LICENCIAMENTO("Licença"),
     IPVA("IPVA"),
-
     SEGURO("Seguro"),
     OUTROS("Outros");
 
     fun getIcon(): ImageVector = when(this) {
+        CORRENTE -> Icons.Rounded.Link
+        LUBRIFICACAO -> Icons.Rounded.WaterDrop
+        PEDIVELA -> Icons.Rounded.DirectionsBike
+        ACESSORIOS -> Icons.Rounded.Inventory2
+        CONFORTO -> Icons.Rounded.Chair
+        PNEU -> Icons.Rounded.TireRepair
+        TRANSMISSAO -> Icons.Rounded.Settings
+        REVISAO -> Icons.Rounded.Description
         OLEO -> Icons.Rounded.WaterDrop
         BATERIA -> Icons.Rounded.BatteryChargingFull
         MECANICA -> Icons.Rounded.Build
         FREIO -> Icons.Rounded.DiscFull
-        TEMPERATURA -> Icons.Rounded.Thermostat
         LICENCIAMENTO -> Icons.Rounded.Description
         IPVA -> Icons.Rounded.Payments
         SEGURO -> Icons.Rounded.Shield

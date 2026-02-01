@@ -171,10 +171,11 @@ fun EditarCarroScreen(
                         modifier = Modifier.fillMaxWidth()
                     )
 
+                    val motorLabel = if (tipoSelecionado == TipoVeiculo.BICICLETA) "Aro" else "Motor"
                     OutlinedTextField(
                         value = modelo,
                         onValueChange = { modelo = it },
-                        label = { Text("Motor") },
+                        label = { Text(motorLabel) },
                         singleLine = true,
                         trailingIcon = {
                             IconButton(onClick = ::iniciarCapturaVozMotor) {
@@ -486,7 +487,8 @@ private fun EditHeroCard(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Rounded.Speed, null, tint = accent, modifier = Modifier.size(14.dp))
                         Spacer(Modifier.width(6.dp))
-                        Text(modelo.ifBlank { "Motor" }, color = Color.White.copy(alpha = 0.8f), fontSize = 12.sp)
+                        val modeloFallback = if (tipoVeiculo == TipoVeiculo.BICICLETA) "Aro" else "Motor"
+                        Text(modelo.ifBlank { modeloFallback }, color = Color.White.copy(alpha = 0.8f), fontSize = 12.sp)
                     }
                 }
             }

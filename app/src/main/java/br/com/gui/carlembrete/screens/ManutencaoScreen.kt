@@ -1,6 +1,7 @@
 ﻿package br.com.gui.carlembrete
 
 import AbastecimentoCard
+import BikeDistanceCard
 import AvisosCategoriasCard
 import CarroInfoCard
 import HistoricoAbastecimentoScreen
@@ -89,6 +90,7 @@ fun ManutencaoScreen(
     var listaContatos by remember { mutableStateOf<List<ContatoProfissional>>(emptyList()) }
     var todosLembretes by remember { mutableStateOf<List<Lembrete>>(emptyList()) }
     var abastecimentos by remember { mutableStateOf<List<Abastecimento>>(emptyList()) }
+    var pedaladas by remember { mutableStateOf<List<Pedalada>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
     var notifiedLoaded by remember { mutableStateOf(false) }
 
@@ -109,11 +111,13 @@ fun ManutencaoScreen(
             val contatos = BancoDeDados.carregarContatos(context)
             val lembretes = BancoDeDados.carregarLembretes(context)
             val abastecimentosDb = BancoDeDados.carregarAbastecimentos(context)
+            val pedaladasDb = BancoDeDados.carregarPedaladas(context)
             withContext(Dispatchers.Main) {
                 listaCarros = carros
                 listaContatos = contatos
                 todosLembretes = lembretes
                 abastecimentos = abastecimentosDb
+                pedaladas = pedaladasDb
                 isLoading = false
                 NotificacaoHelper.reagendarExistentes(context.applicationContext, lembretes)
             }
@@ -154,6 +158,8 @@ fun ManutencaoScreen(
     var showMecanicoVirtualScreen by remember { mutableStateOf(false) }
     var showAbastecimentoScreen by remember { mutableStateOf(false) }
     var showHistoricoAbastecimentoScreen by remember { mutableStateOf(false) }
+    var showBikeDistanceRegister by remember { mutableStateOf(false) }
+    var showBikeDistanceHistory by remember { mutableStateOf(false) }
 
     var showAnjoDaGuardaScreen by remember { mutableStateOf(false) }
     var showGaragemScreen by remember { mutableStateOf(false) }
@@ -242,28 +248,46 @@ fun ManutencaoScreen(
     }
     BackHandler(enabled = showTipoAvisoDialog) { showTipoAvisoDialog = false }
     if (showTipoAvisoDialog) {
-        val tiposAviso = listOf(
-            TipoManutencao.OLEO,
-            TipoManutencao.MECANICA,
-            TipoManutencao.FREIO,
-            TipoManutencao.BATERIA,
-            TipoManutencao.TEMPERATURA,
-            TipoManutencao.LICENCIAMENTO,
-            TipoManutencao.IPVA,
-            TipoManutencao.SEGURO,
-            TipoManutencao.OUTROS
-        )
-        val itensAviso = listOf(
+        val isBike = carroAtual.tipoVeiculo == TipoVeiculo.BICICLETA
+        val tiposAviso = if (isBike) {
+            listOf(
+                TipoManutencao.CORRENTE,
+                TipoManutencao.LUBRIFICACAO,
+                TipoManutencao.PEDIVELA,
+                TipoManutencao.ACESSORIOS,
+                TipoManutencao.CONFORTO,
+                TipoManutencao.FREIO,
+                TipoManutencao.PNEU,
+                TipoManutencao.TRANSMISSAO,
+                TipoManutencao.REVISAO,
+                TipoManutencao.OUTROS
+            )
+        } else {
+            listOf(
+                TipoManutencao.OLEO,
+                TipoManutencao.MECANICA,
+                TipoManutencao.FREIO,
+                TipoManutencao.BATERIA,
+                TipoManutencao.PNEU,
+                TipoManutencao.LICENCIAMENTO,
+                TipoManutencao.IPVA,
+                TipoManutencao.SEGURO,
+                TipoManutencao.OUTROS
+            )
+        }
+        val itensAviso = (if (isBike) emptyList() else listOf(
             AvisoItem("Gasolina", Icons.Rounded.LocalGasStation, accentBlue) {
                 showTipoAvisoDialog = false
                 showAbastecimentoScreen = true
             }
-        ) + tiposAviso.map { tipo ->
+        )) + tiposAviso.map { tipo ->
+            val label = if (isBike && tipo == TipoManutencao.REVISAO) "Peças" else tipo.label
             AvisoItem(
-                tipo.label,
+                label,
                 tipo.getIcon(),
                 calcularCorStatusLocal(lembretesDoCarroAtual, tipo),
-                tipo = tipo
+                tipo = tipo,
+                iconOverride = if (isBike && tipo == TipoManutencao.FREIO) Icons.Rounded.DirectionsBike else null
             ) {
                 showTipoAvisoDialog = false
                 iniciarCameraProduto = false
@@ -365,9 +389,24 @@ fun ManutencaoScreen(
         HistoricoAbastecimentoScreen(carroId = carroAtual.id, onDismiss = { showHistoricoAbastecimentoScreen = false })
         return
     }
+    BackHandler(enabled = showBikeDistanceRegister) { showBikeDistanceRegister = false }
+    if (showBikeDistanceRegister) {
+        BikeDistanceScreen(carroId = carroAtual.id, onDismiss = { showBikeDistanceRegister = false })
+        return
+    }
+    BackHandler(enabled = showBikeDistanceHistory) { showBikeDistanceHistory = false }
+    if (showBikeDistanceHistory) {
+        BikeDistanceHistoryScreen(carroId = carroAtual.id, onDismiss = { showBikeDistanceHistory = false })
+        return
+    }
     LaunchedEffect(showAbastecimentoScreen) {
         if (!showAbastecimentoScreen) {
             abastecimentos = withContext(Dispatchers.IO) { BancoDeDados.carregarAbastecimentos(context) }
+        }
+    }
+    LaunchedEffect(showBikeDistanceRegister, showBikeDistanceHistory) {
+        if (!showBikeDistanceRegister && !showBikeDistanceHistory) {
+            pedaladas = withContext(Dispatchers.IO) { BancoDeDados.carregarPedaladas(context) }
         }
     }
 
@@ -502,7 +541,7 @@ fun ManutencaoScreen(
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold
                     )
-                    DrawerMenuItem(Icons.Rounded.DirectionsCar, "Minha Garagem") {
+                    DrawerMenuItem(Icons.Rounded.DirectionsCar, "Meus Veículos") {
                         showGaragemScreen = true
                         drawerScope.launch { drawerState.close() }
                     }
@@ -647,41 +686,113 @@ fun ManutencaoScreen(
 
                     Spacer(Modifier.height(16.dp))
 
-                    val abastecimentosDoCarro = abastecimentos.filter { it.carroId == carroAtual.id }
-                    val abastecimentoFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
-                    val resumoAbastecimento = remember(abastecimentosDoCarro) {
-                        calcularResumoAbastecimento(abastecimentosDoCarro, abastecimentoFormatter)
-                    }
-                    val proximaDataAbastecimento = resumoAbastecimento.proximaData
-                    LaunchedEffect(carroAtual.id, proximaDataAbastecimento) {
-                        val idNotificacao = "FUEL_${carroAtual.id}"
-                        NotificacaoHelper.cancelarNotificacao(context.applicationContext, idNotificacao)
-                        if (proximaDataAbastecimento != null) {
-                            NotificacaoHelper.agendarNotificacaoPorData(
-                                context = context.applicationContext,
-                                id = idNotificacao,
-                                titulo = "Abastecimento - ${carroAtual.nome}",
-                                descricao = "Necessario abastecer hoje.",
-                                data = proximaDataAbastecimento
-                            )
+                    if (carroAtual.tipoVeiculo != TipoVeiculo.BICICLETA) {
+                        val abastecimentosDoCarro = abastecimentos.filter { it.carroId == carroAtual.id }
+                        val abastecimentoFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
+                        val resumoAbastecimento = remember(abastecimentosDoCarro) {
+                            calcularResumoAbastecimento(abastecimentosDoCarro, abastecimentoFormatter)
                         }
+                        val proximaDataAbastecimento = resumoAbastecimento.proximaData
+                        LaunchedEffect(carroAtual.id, proximaDataAbastecimento) {
+                            val idNotificacao = "FUEL_${carroAtual.id}"
+                            NotificacaoHelper.cancelarNotificacao(context.applicationContext, idNotificacao)
+                            if (proximaDataAbastecimento != null) {
+                                NotificacaoHelper.agendarNotificacaoPorData(
+                                    context = context.applicationContext,
+                                    id = idNotificacao,
+                                    titulo = "Abastecimento - ${carroAtual.nome}",
+                                    descricao = "Necessario abastecer hoje.",
+                                    data = proximaDataAbastecimento
+                                )
+                            }
+                        }
+
+                        AbastecimentoCard(
+                            proximaData = resumoAbastecimento.proximaData,
+                            diasAte = resumoAbastecimento.diasAte,
+                            custoDia = resumoAbastecimento.mediaCustoDia,
+                            custoSemana = resumoAbastecimento.custoSemana,
+                            custoMes = resumoAbastecimento.custoMes,
+                            dateFormatter = abastecimentoFormatter,
+                            onHistorico = { showHistoricoAbastecimentoScreen = true },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp)
+                        )
+
+                        Spacer(Modifier.height(16.dp))
+                    } else {
+                        val formatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
+                        val pedaladasDoCarro = pedaladas.filter { it.carroId == carroAtual.id }
+                        val hoje = LocalDate.now()
+                        val inicioSemana = hoje.with(java.time.temporal.TemporalAdjusters.previousOrSame(java.time.DayOfWeek.MONDAY))
+                        val inicioMes = hoje.withDayOfMonth(1)
+                        val kmHoje = pedaladasDoCarro.sumOf { item ->
+                            runCatching { LocalDate.parse(item.data, formatter) }.getOrNull()
+                                ?.takeIf { it == hoje }
+                                ?.let { item.km } ?: 0.0
+                        }
+                        val kmSemana = pedaladasDoCarro.sumOf { item ->
+                            runCatching { LocalDate.parse(item.data, formatter) }.getOrNull()
+                                ?.takeIf { !it.isBefore(inicioSemana) && !it.isAfter(hoje) }
+                                ?.let { item.km } ?: 0.0
+                        }
+                        val kmMes = pedaladasDoCarro.sumOf { item ->
+                            runCatching { LocalDate.parse(item.data, formatter) }.getOrNull()
+                                ?.takeIf { !it.isBefore(inicioMes) && !it.isAfter(hoje) }
+                                ?.let { item.km } ?: 0.0
+                        }
+                        val kmTotal = pedaladasDoCarro.sumOf { it.km }
+                        BikeDistanceCard(
+                            kmHoje = kmHoje,
+                            kmSemana = kmSemana,
+                            kmMes = kmMes,
+                            kmTotal = kmTotal,
+                            onRegistrar = { showBikeDistanceRegister = true },
+                            onHistorico = { showBikeDistanceHistory = true },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp)
+                        )
+                        Spacer(Modifier.height(16.dp))
                     }
 
-                    AbastecimentoCard(
-                        proximaData = resumoAbastecimento.proximaData,
-                        diasAte = resumoAbastecimento.diasAte,
-                        custoDia = resumoAbastecimento.mediaCustoDia,
-                        custoSemana = resumoAbastecimento.custoSemana,
-                        custoMes = resumoAbastecimento.custoMes,
-                        dateFormatter = abastecimentoFormatter,
-                        onHistorico = { showHistoricoAbastecimentoScreen = true },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp)
-                    )
-
-                    Spacer(Modifier.height(16.dp))
-
+                    val categoriasDisponiveis = if (carroAtual.tipoVeiculo == TipoVeiculo.BICICLETA) {
+                        listOf(
+                            TipoManutencao.CORRENTE,
+                            TipoManutencao.LUBRIFICACAO,
+                            TipoManutencao.PEDIVELA,
+                            TipoManutencao.ACESSORIOS,
+                            TipoManutencao.CONFORTO,
+                            TipoManutencao.FREIO,
+                            TipoManutencao.PNEU,
+                            TipoManutencao.TRANSMISSAO,
+                            TipoManutencao.REVISAO,
+                            TipoManutencao.OUTROS
+                        )
+                    } else {
+                        listOf(
+                            TipoManutencao.OLEO,
+                            TipoManutencao.MECANICA,
+                            TipoManutencao.BATERIA,
+                            TipoManutencao.FREIO,
+                            TipoManutencao.PNEU,
+                            TipoManutencao.LICENCIAMENTO,
+                            TipoManutencao.IPVA,
+                            TipoManutencao.SEGURO,
+                            TipoManutencao.OUTROS
+                        )
+                    }
+                    val iconOverrides = if (carroAtual.tipoVeiculo == TipoVeiculo.BICICLETA) {
+                        mapOf(TipoManutencao.FREIO to Icons.Rounded.DirectionsBike)
+                    } else {
+                        emptyMap()
+                    }
+                    val labelOverrides = if (carroAtual.tipoVeiculo == TipoVeiculo.BICICLETA) {
+                        mapOf(TipoManutencao.REVISAO to "Peças")
+                    } else {
+                        emptyMap()
+                    }
                     AvisosCategoriasCard(
                         lembretesDoCarroAtual = lembretesDoCarroAtual,
                         lembretesComBusca = lembretesComBusca,
@@ -689,6 +800,9 @@ fun ManutencaoScreen(
                         modeloCarro = carroAtual.nome,
                         filtroTipo = filtroTipo,
                         onFiltroTipoChange = { filtroTipo = it },
+                        categoriasDisponiveis = categoriasDisponiveis,
+                        iconOverrides = iconOverrides,
+                        labelOverrides = labelOverrides,
                         onDelete = { lembrete ->
                             NotificacaoHelper.cancelarNotificacao(context.applicationContext, lembrete.id)
                             todosLembretes = todosLembretes.filter { it.id != lembrete.id }
@@ -1097,6 +1211,14 @@ fun BadgeStatus(label: String, color: Color) {
 
 fun calcularCorStatusLocal(lembretes: List<Lembrete>, tipo: TipoManutencao): Color {
     return when (tipo) {
+        TipoManutencao.CORRENTE -> Color(0xFF22C55E) // verde
+        TipoManutencao.LUBRIFICACAO -> Color(0xFF14B8A6) // verde-azulado
+        TipoManutencao.PEDIVELA -> Color(0xFF0EA5E9) // azul
+        TipoManutencao.ACESSORIOS -> Color(0xFFF97316) // laranja
+        TipoManutencao.CONFORTO -> Color(0xFFEAB308) // amarelo
+        TipoManutencao.PNEU -> Color(0xFFF59E0B) // laranja
+        TipoManutencao.TRANSMISSAO -> Color(0xFF60A5FA) // azul claro
+        TipoManutencao.REVISAO -> Color(0xFF8B5CF6) // roxo
         TipoManutencao.OLEO -> Color(0xFF3B82F6) // Azul
         TipoManutencao.FREIO -> Color(0xFFEF4444) // Vermelho
         TipoManutencao.MECANICA -> Color(0xFFF59E0B) // Laranja
@@ -1410,11 +1532,18 @@ fun CategoryExpenseLegend(
 }
 
 fun corCategoria(tipo: TipoManutencao): Color = when (tipo) {
+    TipoManutencao.CORRENTE -> Color(0xFF22C55E)
+    TipoManutencao.LUBRIFICACAO -> Color(0xFF14B8A6)
+    TipoManutencao.PEDIVELA -> Color(0xFF0EA5E9)
+    TipoManutencao.ACESSORIOS -> Color(0xFFF97316)
+    TipoManutencao.CONFORTO -> Color(0xFFEAB308)
+    TipoManutencao.PNEU -> Color(0xFFF59E0B)
+    TipoManutencao.TRANSMISSAO -> Color(0xFF60A5FA)
+    TipoManutencao.REVISAO -> Color(0xFF8B5CF6)
     TipoManutencao.OLEO -> Color(0xFF3B82F6) // azul
     TipoManutencao.BATERIA -> Color(0xFF16A34A) // verde
     TipoManutencao.MECANICA -> Color(0xFF60A5FA) // azul claro
     TipoManutencao.FREIO -> Color(0xFFDC2626) // vermelho
-    TipoManutencao.TEMPERATURA -> Color(0xFFEF4444) // vermelho claro
     TipoManutencao.LICENCIAMENTO -> Color(0xFF22C55E) // verde claro
     TipoManutencao.IPVA -> Color(0xFF5B8DEF) // azul leve
     TipoManutencao.SEGURO -> Color(0xFF10B981) // verde

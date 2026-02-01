@@ -33,6 +33,7 @@ import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -139,8 +140,13 @@ fun CarroInfoCard(
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
+                                val subtitulo = if (carroAtual.tipoVeiculo == br.com.gui.carlembrete.TipoVeiculo.BICICLETA) {
+                                    "Aro: ${carroAtual.modelo.ifBlank { "Nao informado" }}"
+                                } else {
+                                    carroAtual.modelo.ifBlank { "Padrao" }
+                                }
                                 Text(
-                                    text = carroAtual.modelo.ifBlank { "Padrao" },
+                                    text = subtitulo,
                                     fontSize = 14.sp,
                                     color = TextWhite.copy(alpha = 0.8f),
                                     fontWeight = FontWeight.Medium
@@ -209,19 +215,23 @@ fun CarroInfoCard(
                                 )
                             }
 
-                            // Separador vertical
-                            Box(modifier = Modifier.width(1.dp).height(12.dp).background(TextWhite.copy(0.2f)))
+                            if (carroAtual.tipoVeiculo != br.com.gui.carlembrete.TipoVeiculo.BICICLETA) {
+                                // Separador vertical
+                                Box(modifier = Modifier.width(1.dp).height(12.dp).background(TextWhite.copy(0.2f)))
+                            }
 
-                            // Info KM
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Rounded.Speed, null, tint = baseColor, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(6.dp))
-                                Text(
-                                    text = if (carroAtual.kmAtual > 0) "${carroAtual.kmAtual} KM" else "--",
-                                    color = TextWhite.copy(0.9f),
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
+                            if (carroAtual.tipoVeiculo != br.com.gui.carlembrete.TipoVeiculo.BICICLETA) {
+                                // Info KM
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Rounded.Speed, null, tint = baseColor, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(
+                                        text = if (carroAtual.kmAtual > 0) "${carroAtual.kmAtual} KM" else "--",
+                                        color = TextWhite.copy(0.9f),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
                             }
                         }
                     }
@@ -240,7 +250,7 @@ fun CarroInfoCard(
                     )
                     ActionGlassButton(
                         icon = Icons.Rounded.Description,
-                        label = "RelatÃ³rio",
+                        label = "Relatório",
                         modifier = Modifier.weight(1f),
                         onClick = onOpenRelatorio
                     )
@@ -319,7 +329,8 @@ fun ActionGlassButton(
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.Center
+            horizontalArrangement = Arrangement.Center,
+            modifier = Modifier.fillMaxWidth()
         ) {
             Icon(
                 imageVector = icon,
@@ -332,7 +343,10 @@ fun ActionGlassButton(
                 text = label,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold,
-                color = Color.White.copy(alpha = 0.8f)
+                color = Color.White.copy(alpha = 0.8f),
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }

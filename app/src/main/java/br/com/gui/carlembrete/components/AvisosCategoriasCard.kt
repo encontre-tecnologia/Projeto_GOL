@@ -31,6 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -67,6 +68,9 @@ fun AvisosCategoriasCard(
     modeloCarro: String,
     filtroTipo: TipoManutencao?,
     onFiltroTipoChange: (TipoManutencao?) -> Unit,
+    categoriasDisponiveis: List<TipoManutencao>,
+    iconOverrides: Map<TipoManutencao, ImageVector> = emptyMap(),
+    labelOverrides: Map<TipoManutencao, String> = emptyMap(),
     onDelete: (Lembrete) -> Unit,
     onAddPrestador: (Lembrete) -> Unit,
     onOpenDetalhes: (Lembrete) -> Unit,
@@ -136,7 +140,7 @@ fun AvisosCategoriasCard(
                                 .horizontalScroll(scrollState),
                             horizontalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
-                        val contagem = TipoManutencao.values().associateWith { tipo ->
+                        val contagem = categoriasDisponiveis.associateWith { tipo ->
                             lembretesDoCarroAtual.count { it.tipo == tipo }
                         }
 
@@ -146,11 +150,9 @@ fun AvisosCategoriasCard(
                         )
 
                         // Ordena: tipos com mais itens aparecem primeiro
-                        val categoriasOrdenadas = listOf(
-                            TipoManutencao.OLEO, TipoManutencao.MECANICA, TipoManutencao.BATERIA,
-                            TipoManutencao.FREIO, TipoManutencao.TEMPERATURA, TipoManutencao.LICENCIAMENTO,
-                            TipoManutencao.IPVA, TipoManutencao.SEGURO
-                        ).sortedByDescending { contagem[it] ?: 0 }
+                        val categoriasOrdenadas = categoriasDisponiveis
+                            .filter { it != TipoManutencao.OUTROS }
+                            .sortedByDescending { contagem[it] ?: 0 }
 
                         categoriasOrdenadas.forEach { tipo ->
                             MonitorIcon(
@@ -158,7 +160,21 @@ fun AvisosCategoriasCard(
                                 cor = statusColor(tipo),
                                 quantidade = contagem[tipo] ?: 0,
                                 selected = filtroTipo == tipo,
-                                onClick = { onFiltroTipoChange(if (filtroTipo == tipo) null else tipo) }
+                                onClick = { onFiltroTipoChange(if (filtroTipo == tipo) null else tipo) },
+                                iconOverride = iconOverrides[tipo],
+                                labelOverride = labelOverrides[tipo]
+                            )
+                        }
+                        if (categoriasDisponiveis.contains(TipoManutencao.OUTROS)) {
+                            val tipo = TipoManutencao.OUTROS
+                            MonitorIcon(
+                                tipo = tipo,
+                                cor = statusColor(tipo),
+                                quantidade = contagem[tipo] ?: 0,
+                                selected = filtroTipo == tipo,
+                                onClick = { onFiltroTipoChange(if (filtroTipo == tipo) null else tipo) },
+                                iconOverride = iconOverrides[tipo],
+                                labelOverride = labelOverrides[tipo]
                             )
                         }
                         }
@@ -176,8 +192,9 @@ fun AvisosCategoriasCard(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.padding(start = 8.dp)) {
+                        val tituloFiltro = labelOverrides[filtroTipo] ?: filtroTipo?.label
                         Text(
-                            text = if (filtroTipo != null) filtroTipo.label.uppercase() else "PROXIMOS LEMBRETES:",
+                            text = if (tituloFiltro != null) tituloFiltro.uppercase() else "PROXIMOS LEMBRETES:",
                             color = TextWhite,
                             fontSize = 16.sp,
                             fontWeight = FontWeight.ExtraBold,
@@ -428,7 +445,9 @@ fun MonitorIcon(
     cor: Color,
     quantidade: Int,
     selected: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    iconOverride: ImageVector? = null,
+    labelOverride: String? = null
 ) {
     val animatedColor by animateColorAsState(
         targetValue = if (selected) cor else SurfaceHighlight,
@@ -437,6 +456,7 @@ fun MonitorIcon(
     )
 
     val iconColor = if (selected) Color.White else TextGray
+    val labelText = labelOverride ?: tipo.label
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -458,7 +478,16 @@ fun MonitorIcon(
                     ),
                 contentAlignment = Alignment.Center
             ) {
-                TipoIcon(tipo = tipo, tint = iconColor, size = 26.dp)
+                if (iconOverride != null) {
+                    Icon(
+                        imageVector = iconOverride,
+                        contentDescription = labelText,
+                        tint = iconColor,
+                        modifier = Modifier.size(26.dp)
+                    )
+                } else {
+                    TipoIcon(tipo = tipo, tint = iconColor, size = 26.dp)
+                }
             }
 
             if (quantidade > 0) {
@@ -484,7 +513,7 @@ fun MonitorIcon(
         Spacer(Modifier.height(8.dp))
 
         Text(
-            text = tipo.label,
+            text = labelText,
             color = if (selected) TextWhite else TextGray,
             fontSize = 13.sp,
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,

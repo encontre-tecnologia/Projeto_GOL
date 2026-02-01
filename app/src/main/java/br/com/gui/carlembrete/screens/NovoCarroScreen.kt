@@ -163,10 +163,11 @@ fun NovoCarroScreen(
                         modifier = Modifier.fillMaxWidth()
                     )
 
+                    val motorLabel = if (tipoSelecionado == TipoVeiculo.BICICLETA) "Aro" else "Motor"
                     OutlinedTextField(
                         value = modelo,
                         onValueChange = { modelo = it },
-                        label = { Text("Motor") },
+                        label = { Text(motorLabel) },
                         singleLine = true,
                         trailingIcon = {
                             IconButton(onClick = ::iniciarCapturaVozMotor) {
