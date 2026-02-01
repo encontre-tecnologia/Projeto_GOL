@@ -553,13 +553,20 @@ fun VerticalDivider(
 
 // --- FUNCOES DE LOGICA DE NEGOCIO (Mantidas para integridade) ---
 private fun impactoSeNaoTrocar(tipo: TipoManutencao): String = when (tipo) {
+    TipoManutencao.CORRENTE -> "Desgaste e risco de quebra da corrente"
+    TipoManutencao.LUBRIFICACAO -> "Atrito elevado e desgaste acelerado"
+    TipoManutencao.PEDIVELA -> "Folgas e perda de eficiência na pedalada"
+    TipoManutencao.ACESSORIOS -> "Falhas ou quebras de itens adicionais"
+    TipoManutencao.CONFORTO -> "Desgaste de itens que afetam o conforto"
+    TipoManutencao.PNEU -> "Perda de aderência e risco de furo"
+    TipoManutencao.TRANSMISSAO -> "Trocas de marcha imprecisas"
+    TipoManutencao.REVISAO -> "Falhas gerais e desgaste acumulado"
     TipoManutencao.OLEO -> "Desgaste severo do motor"
     TipoManutencao.BATERIA -> "Falha na partida (pane)"
     TipoManutencao.MECANICA -> "Quebras maiores e guincho"
     TipoManutencao.FREIO -> "Perda de freio (acidente)"
-    TipoManutencao.TEMPERATURA -> "Motor fundido por calor"
     TipoManutencao.LICENCIAMENTO -> "Apreensao do veiculo"
-        TipoManutencao.IPVA -> "Bloqueio de documento"
+    TipoManutencao.IPVA -> "Bloqueio de documento"
     TipoManutencao.SEGURO -> "Risco financeiro em caso de sinistro"
     TipoManutencao.OUTROS -> "Falhas inesperadas"
 }

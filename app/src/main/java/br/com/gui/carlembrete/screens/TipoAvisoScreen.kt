@@ -41,6 +41,7 @@ data class AvisoItem(
     val icon: ImageVector,
     val color: Color,
     val tipo: TipoManutencao? = null,
+    val iconOverride: ImageVector? = null,
     val onClick: () -> Unit
 )
 
@@ -143,19 +144,26 @@ fun TipoAvisoScreen(
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                                         ) {
-                                            if (item.tipo != null) {
+                                            if (item.iconOverride != null) {
+                                                Icon(
+                                                    imageVector = item.iconOverride,
+                                                    contentDescription = null,
+                                                    tint = item.color,
+                                                    modifier = Modifier.size(24.dp)
+                                                )
+                                            } else if (item.tipo != null) {
                                                 TipoIcon(
                                                     tipo = item.tipo,
                                                     tint = item.color,
-                                                size = 24.dp,
-                                                textSize = 15.sp
+                                                    size = 24.dp,
+                                                    textSize = 15.sp
                                                 )
                                             } else {
                                                 Icon(
                                                     imageVector = item.icon,
                                                     contentDescription = null,
                                                     tint = item.color,
-                                                modifier = Modifier.size(24.dp)
+                                                    modifier = Modifier.size(24.dp)
                                                 )
                                             }
                                             Text(

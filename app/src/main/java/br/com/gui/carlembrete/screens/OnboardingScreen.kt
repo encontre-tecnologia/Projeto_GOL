@@ -156,7 +156,7 @@ fun OnboardingScreen(onFinish: () -> Unit) {
                     }
                     2 -> {
                         if (frotaTemporaria.isNotEmpty()) {
-                            Text("Carros Adicionados:", style = MaterialTheme.typography.labelMedium, color = Color(0xFF94A3B8))
+                            Text("Veículos Adicionados:", style = MaterialTheme.typography.labelMedium, color = Color(0xFF94A3B8))
                             Spacer(Modifier.height(8.dp))
                             LazyRow(
                                 horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -249,7 +249,14 @@ fun OnboardingScreen(onFinish: () -> Unit) {
                             }
                         }
                         Spacer(Modifier.height(8.dp))
-                        OutlinedTextField(value = carroModeloUnico, onValueChange = { carroModeloUnico = it }, label = { Text("Modelo e Motor") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                        val modeloLabel = if (carroTipo == TipoVeiculo.BICICLETA) "Aro" else "Modelo e Motor"
+                        OutlinedTextField(
+                            value = carroModeloUnico,
+                            onValueChange = { carroModeloUnico = it },
+                            label = { Text(modeloLabel) },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true
+                        )
                         Spacer(Modifier.height(8.dp))
                         OutlinedTextField(
                             value = carroKm,
@@ -285,14 +292,14 @@ fun OnboardingScreen(onFinish: () -> Unit) {
                             },
                             modifier = Modifier.fillMaxWidth(),
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF3B82F6))
-                        ) { Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(8.dp)); Text("Adicionar Outro Carro") }
+                        ) { Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(8.dp)); Text("Adicionar Outro Veículo") }
                         Spacer(Modifier.height(8.dp))
                         Button(
                             onClick = {
                                 var listaFinal = frotaTemporaria
                                 if (carroNome.isNotBlank() || carroModeloUnico.isNotBlank() || carroMarca.isNotBlank()) {
                                     val ultimo = CarroInfo(
-                                        nome = if(carroNome.isBlank()) "Carro" else carroNome,
+                                        nome = if(carroNome.isBlank()) carroTipo.label else carroNome,
                                         modelo = carroModeloUnico,
                                         marca = carroMarca,
                                         kmAtual = carroKm.toIntOrNull() ?: 0,
@@ -300,7 +307,7 @@ fun OnboardingScreen(onFinish: () -> Unit) {
                                     )
                                     listaFinal = listaFinal + ultimo
                                 }
-                                val listaSalvar = if (listaFinal.isNotEmpty()) listaFinal else listOf(CarroInfo(nome = "Meu Carro", modelo = "Padrão", marca = "Marca", kmAtual = 0))
+                                val listaSalvar = if (listaFinal.isNotEmpty()) listaFinal else listOf(CarroInfo(nome = carroTipo.label, modelo = "Padrão", marca = "Marca", kmAtual = 0, tipoVeiculo = carroTipo))
                                 scope.launch(Dispatchers.IO) { BancoDeDados.salvarCarros(context, listaSalvar) }
                                 step = 3
                             },

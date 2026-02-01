@@ -2,6 +2,8 @@
 
 import android.util.Log
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -45,6 +47,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -60,11 +63,23 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.firestore.FirebaseFirestore
+import androidx.work.Constraints
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
+import com.google.android.gms.auth.api.signin.GoogleSignIn
+import com.google.android.gms.auth.api.signin.GoogleSignInAccount
+import com.google.android.gms.auth.api.signin.GoogleSignInOptions
+import com.google.android.gms.common.api.ApiException
+import com.google.android.gms.common.api.Scope
+import com.google.api.services.drive.DriveScopes
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.text.SimpleDateFormat
+import java.util.Locale
+import java.util.concurrent.TimeUnit
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -85,7 +100,112 @@ fun ConfiguracoesScreen(
     var showAdminDialog by remember { mutableStateOf(false) }
     var adminPassword by remember { mutableStateOf("") }
     var adminUnlocked by remember { mutableStateOf(false) }
+    var lastBackupTime by remember { mutableStateOf(0L) }
+    var backupInterval by remember { mutableStateOf(BackupInterval.OFF) }
+    val driveScope = remember { Scope(DriveScopes.DRIVE_APPDATA) }
+    val googleSignInClient = remember {
+        GoogleSignIn.getClient(
+            context,
+            GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+                .requestEmail()
+                .requestScopes(driveScope)
+                .build()
+        )
+    }
+    val driveBackupManager = remember { DriveBackupManager(context) }
+    var pendingBackupAction by remember { mutableStateOf<BackupAction?>(null) }
 
+    LaunchedEffect(Unit) {
+        lastBackupTime = getLastBackupTime(context)
+        backupInterval = getBackupInterval(context)
+        scheduleBackupWork(context, backupInterval)
+    }
+
+    fun criarBackup(account: GoogleSignInAccount) {
+        scope.launch(Dispatchers.IO) {
+            try {
+                BancoDeDados.salvarCarros(context, carros)
+                BancoDeDados.salvarLembretes(context, lembretes)
+                BancoDeDados.salvarContatos(context, contatos)
+                val payload = BackupPayload(carros, lembretes, contatos)
+                driveBackupManager.uploadBackup(payload, account)
+                withContext(Dispatchers.Main) {
+                    val now = System.currentTimeMillis()
+                    setLastBackupTime(context, now)
+                    lastBackupTime = now
+                    Toast.makeText(context, "Backup enviado com sucesso!", Toast.LENGTH_SHORT).show()
+                }
+            } catch (err: Exception) {
+                Log.e("Backup", "Falha ao enviar backup", err)
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(context, "Falha ao enviar: ${err.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
+    fun recuperarBackup(account: GoogleSignInAccount) {
+        scope.launch(Dispatchers.IO) {
+            try {
+                val payload = driveBackupManager.downloadBackup(account)
+                if (payload == null) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(context, "Nenhum backup encontrado no Drive.", Toast.LENGTH_SHORT).show()
+                    }
+                    return@launch
+                }
+                BancoDeDados.salvarCarros(context, payload.carros)
+                BancoDeDados.salvarLembretes(context, payload.lembretes)
+                BancoDeDados.salvarContatos(context, payload.contatos)
+                NotificacaoHelper.reagendarExistentes(context.applicationContext, payload.lembretes)
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(context, "Dados restaurados com sucesso!", Toast.LENGTH_SHORT).show()
+                }
+            } catch (err: Exception) {
+                Log.e("Backup", "Falha ao obter backup", err)
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(context, "Erro ao restaurar: ${err.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
+    val driveLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
+        try {
+            val account = task.getResult(ApiException::class.java)
+            if (account == null || !GoogleSignIn.hasPermissions(account, driveScope)) {
+                Toast.makeText(context, "Permissao do Drive nao concedida.", Toast.LENGTH_SHORT).show()
+                pendingBackupAction = null
+                return@rememberLauncherForActivityResult
+            }
+            when (pendingBackupAction) {
+                BackupAction.BACKUP -> criarBackup(account)
+                BackupAction.RESTORE -> recuperarBackup(account)
+                null -> {}
+            }
+        } catch (_: ApiException) {
+            Toast.makeText(context, "Falha ao autenticar com Google.", Toast.LENGTH_SHORT).show()
+    } finally {
+        pendingBackupAction = null
+    }
+}
+
+
+    fun executarBackup(action: BackupAction) {
+        val account = GoogleSignIn.getLastSignedInAccount(context)
+        if (account != null && GoogleSignIn.hasPermissions(account, driveScope)) {
+            when (action) {
+                BackupAction.BACKUP -> criarBackup(account)
+                BackupAction.RESTORE -> recuperarBackup(account)
+            }
+        } else {
+            pendingBackupAction = action
+            driveLauncher.launch(googleSignInClient.signInIntent)
+        }
+    }
     DisposableEffect(Unit) {
         subscriptionManager.connect()
         onDispose { subscriptionManager.disconnect() }
@@ -146,66 +266,6 @@ fun ConfiguracoesScreen(
         )
     }
 
-    fun criarBackup() {
-        val usuario = FirebaseAuth.getInstance().currentUser
-        if (usuario == null) {
-            Toast.makeText(context, "Faça login para criar backup", Toast.LENGTH_SHORT).show()
-            return
-        }
-        scope.launch(Dispatchers.IO) {
-            BancoDeDados.salvarCarros(context, carros)
-            BancoDeDados.salvarLembretes(context, lembretes)
-            BancoDeDados.salvarContatos(context, contatos)
-            val payload = BackupPayload(carros, lembretes, contatos).toMap()
-            val ref = FirebaseFirestore.getInstance()
-                .collection("backups")
-                .document(usuario.uid)
-            ref.set(payload).addOnSuccessListener {
-                Toast.makeText(context, "Backup enviado com sucesso!", Toast.LENGTH_SHORT).show()
-            }.addOnFailureListener { err ->
-                Log.e("Backup", "Falha ao enviar backup", err)
-                Toast.makeText(context, "Falha ao enviar: ${err.message}", Toast.LENGTH_LONG).show()
-            }
-        }
-    }
-
-    fun recuperarBackup() {
-        val usuario = FirebaseAuth.getInstance().currentUser
-        if (usuario == null) {
-            Toast.makeText(context, "Faça login para recuperar backup", Toast.LENGTH_SHORT).show()
-            return
-        }
-        val ref = FirebaseFirestore.getInstance()
-            .collection("backups")
-            .document(usuario.uid)
-        ref.get().addOnSuccessListener { snapshot ->
-            if (!snapshot.exists()) {
-                Toast.makeText(context, "Nenhum backup encontrado na nuvem.", Toast.LENGTH_SHORT).show()
-                return@addOnSuccessListener
-            }
-            val data = snapshot.data ?: emptyMap()
-            scope.launch(Dispatchers.IO) {
-                try {
-                    val payload = backupPayloadFromMap(data)
-                    BancoDeDados.salvarCarros(context, payload.carros)
-                    BancoDeDados.salvarLembretes(context, payload.lembretes)
-                    BancoDeDados.salvarContatos(context, payload.contatos)
-                    NotificacaoHelper.reagendarExistentes(context.applicationContext, payload.lembretes)
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(context, "Dados restaurados com sucesso!", Toast.LENGTH_SHORT).show()
-                    }
-                } catch (_: Exception) {
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(context, "Erro ao processar backup.", Toast.LENGTH_SHORT).show()
-                    }
-                }
-            }
-        }.addOnFailureListener { err ->
-            Log.e("Backup", "Falha ao obter backup", err)
-            Toast.makeText(context, "Erro de conexão: ${err.message}", Toast.LENGTH_LONG).show()
-        }
-    }
-
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         containerColor = Color(0xFF070C18),
@@ -261,7 +321,7 @@ fun ConfiguracoesScreen(
         ) {
 
             // --- SEÇÃO 1: BACKUP E DADOS ---
-            SectionHeader(title = "BACKUP E SINCRONIZAÇÃO")
+            SectionHeader(title = "PLANO PREMIUM")
 
             Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)) {
 
@@ -289,15 +349,17 @@ fun ConfiguracoesScreen(
                                 Icon(Icons.Default.Star, null, tint = Color(0xFFF59E0B), modifier = Modifier.size(24.dp))
                                 Spacer(Modifier.width(8.dp))
                                 Text(
-                                    "CarLembrete Pro",
+                                    "CarLembrete Premium",
                                     color = Color.White,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 18.sp
                                 )
                             }
                             // Benefícios compactos
-                            BeneficioItem("Backup seguro na nuvem")
-                            BeneficioItem("Nunca perca seus dados")
+                            BeneficioItem("Zellu Guardião sempre ativo")
+                            BeneficioItem("Alertas inteligentes automáticos")
+                            BeneficioItem("OCR avançado com sugestões")
+                            BeneficioItem("Relatórios completos em 1 toque")
 
                             Button(
                                 onClick = {
@@ -306,8 +368,13 @@ fun ConfiguracoesScreen(
                                 modifier = Modifier.fillMaxWidth(),
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF59E0B), contentColor = Color.Black)
                             ) {
-                                Text("Assinar por R$ 9,90/mês", fontWeight = FontWeight.Bold)
+                                Text("Assinar por R$ 19,90/mês", fontWeight = FontWeight.Bold)
                             }
+                            Text(
+                                "7 dias grátis para testar",
+                                color = Color(0xFFCBD5E1),
+                                fontSize = 12.sp
+                            )
                         }
                     }
                 } else {
@@ -320,19 +387,17 @@ fun ConfiguracoesScreen(
                     ) {
                         Icon(Icons.Default.CheckCircle, null, tint = Color(0xFF10B981))
                         Spacer(Modifier.width(8.dp))
-                        Text("Sua assinatura está ativa.", color = Color(0xFF10B981), fontSize = 14.sp)
+                        Text("Sua assinatura Premium está ativa.", color = Color(0xFF10B981), fontSize = 14.sp)
                     }
                 }
 
                 // Botões de Ação (Backup e Restore)
-                // O texto agora é limpo, sem "bloqueado"
+                SectionHeader(title = "BACKUP GRATUITO")
+
+                Spacer(Modifier.height(12.dp))
                 Button(
                     onClick = {
-                        if (!isSubscribed) {
-                            Toast.makeText(context, "Funcionalidade exclusiva Pro!", Toast.LENGTH_SHORT).show()
-                        } else {
-                            criarBackup()
-                        }
+                        executarBackup(BackupAction.BACKUP)
                     },
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
@@ -347,11 +412,7 @@ fun ConfiguracoesScreen(
 
                 OutlinedButton(
                     onClick = {
-                        if (!isSubscribed) {
-                            Toast.makeText(context, "Funcionalidade exclusiva Pro!", Toast.LENGTH_SHORT).show()
-                        } else {
-                            recuperarBackup()
-                        }
+                        executarBackup(BackupAction.RESTORE)
                     },
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
@@ -361,6 +422,59 @@ fun ConfiguracoesScreen(
                     Icon(Icons.Default.CloudDownload, null, modifier = Modifier.size(20.dp))
                     Spacer(Modifier.width(8.dp))
                     Text("Restaurar Backup", fontWeight = FontWeight.Bold)
+                }
+
+                Spacer(Modifier.height(12.dp))
+                val lastBackupLabel = if (lastBackupTime > 0L) {
+                    SimpleDateFormat("dd/MM/yyyy HH:mm", Locale("pt", "BR")).format(lastBackupTime)
+                } else {
+                    "Nenhum backup ainda"
+                }
+                Text(
+                    "Último backup: $lastBackupLabel",
+                    color = Color(0xFF94A3B8),
+                    fontSize = 12.sp
+                )
+
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    "Agendar backup automático",
+                    color = Color(0xFFCBD5E1),
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 12.sp
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    BackupIntervalButton(
+                        label = "Desligado",
+                        selected = backupInterval == BackupInterval.OFF,
+                        onClick = {
+                            backupInterval = BackupInterval.OFF
+                            setBackupInterval(context, backupInterval)
+                            scheduleBackupWork(context, backupInterval)
+                        },
+                        modifier = Modifier.weight(1f)
+                    )
+                    BackupIntervalButton(
+                        label = "Semanal",
+                        selected = backupInterval == BackupInterval.WEEKLY,
+                        onClick = {
+                            backupInterval = BackupInterval.WEEKLY
+                            setBackupInterval(context, backupInterval)
+                            scheduleBackupWork(context, backupInterval)
+                        },
+                        modifier = Modifier.weight(1f)
+                    )
+                    BackupIntervalButton(
+                        label = "Mensal",
+                        selected = backupInterval == BackupInterval.MONTHLY,
+                        onClick = {
+                            backupInterval = BackupInterval.MONTHLY
+                            setBackupInterval(context, backupInterval)
+                            scheduleBackupWork(context, backupInterval)
+                        },
+                        modifier = Modifier.weight(1f)
+                    )
                 }
             }
 
@@ -396,6 +510,11 @@ fun ConfiguracoesScreen(
     }
 }
 
+private enum class BackupAction {
+    BACKUP,
+    RESTORE
+}
+
 // Componente Reutilizável para o Cabeçalho da Seção (Estilo Android Settings)
 @Composable
 fun SectionHeader(title: String) {
@@ -425,6 +544,46 @@ fun BeneficioItem(texto: String) {
         )
         Spacer(Modifier.width(8.dp))
         Text(texto, color = Color(0xFFCBD5E1), fontSize = 13.sp)
+    }
+}
+
+private fun scheduleBackupWork(context: android.content.Context, interval: BackupInterval) {
+    val workManager = WorkManager.getInstance(context)
+    if (interval == BackupInterval.OFF) {
+        workManager.cancelUniqueWork("drive_backup")
+        return
+    }
+    val days = if (interval == BackupInterval.WEEKLY) 7L else 30L
+    val constraints = Constraints.Builder()
+        .setRequiredNetworkType(NetworkType.CONNECTED)
+        .build()
+    val request = PeriodicWorkRequestBuilder<DriveBackupWorker>(days, TimeUnit.DAYS)
+        .setConstraints(constraints)
+        .build()
+    workManager.enqueueUniquePeriodicWork(
+        "drive_backup",
+        ExistingPeriodicWorkPolicy.UPDATE,
+        request
+    )
+}
+
+@Composable
+private fun BackupIntervalButton(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Button(
+        onClick = onClick,
+        modifier = modifier.height(40.dp),
+        shape = RoundedCornerShape(10.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = if (selected) Color(0xFF2563EB) else Color(0xFF1F2937),
+            contentColor = Color.White
+        )
+    ) {
+        Text(label, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 

@@ -40,6 +40,17 @@ android {
     buildFeatures {
         compose = true
     }
+    packaging {
+        resources {
+            excludes += setOf(
+                "META-INF/DEPENDENCIES",
+                "META-INF/NOTICE",
+                "META-INF/NOTICE.txt",
+                "META-INF/LICENSE",
+                "META-INF/LICENSE.txt"
+            )
+        }
+    }
     sourceSets {
         getByName("main") {
             res.srcDir("src/main/res-carlogos")
@@ -101,5 +112,15 @@ dependencies {
 
     // Google Play Billing
     implementation("com.android.billingclient:billing-ktx:6.1.0")
+
+    // Google Drive (App Folder) backup
+    implementation("com.google.api-client:google-api-client-android:2.2.0")
+    implementation("com.google.api-client:google-api-client-gson:2.2.0")
+    implementation("com.google.apis:google-api-services-drive:v3-rev20230815-2.0.0")
+    implementation("com.google.http-client:google-http-client-android:1.43.3")
+    implementation("com.google.code.gson:gson:2.11.0")
+
+    // WorkManager (agendamento de backup)
+    implementation("androidx.work:work-runtime-ktx:2.9.1")
 }
 

@@ -150,7 +150,7 @@ fun GaragemOverviewScreen(
             TopAppBar(
                 title = {
                     Text(
-                        "Minha garagem",
+                        "Meus veículos",
                         color = Color.White,
                         fontWeight = FontWeight.Bold,
                         style = MaterialTheme.typography.titleMedium

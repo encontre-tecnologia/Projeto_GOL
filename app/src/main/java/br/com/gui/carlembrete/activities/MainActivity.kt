@@ -170,11 +170,18 @@ fun String.unaccent(): String {
 
 fun calcularProximaData(tipo: TipoManutencao, dataServico: LocalDate): String {
     val mesesParaAdicionar = when (tipo) {
+        TipoManutencao.CORRENTE -> 3L
+        TipoManutencao.LUBRIFICACAO -> 2L
+        TipoManutencao.PEDIVELA -> 6L
+        TipoManutencao.ACESSORIOS -> 12L
+        TipoManutencao.CONFORTO -> 12L
+        TipoManutencao.PNEU -> 6L
+        TipoManutencao.TRANSMISSAO -> 6L
+        TipoManutencao.REVISAO -> 12L
         TipoManutencao.OLEO -> 6L
         TipoManutencao.BATERIA -> 24L
         TipoManutencao.FREIO -> 12L
         TipoManutencao.MECANICA -> 6L
-        TipoManutencao.TEMPERATURA -> 12L
         TipoManutencao.LICENCIAMENTO -> 12L
         TipoManutencao.IPVA -> 12L
         TipoManutencao.SEGURO -> 12L
@@ -185,11 +192,18 @@ fun calcularProximaData(tipo: TipoManutencao, dataServico: LocalDate): String {
 
 fun getKmAdicionalPorTipo(tipo: TipoManutencao): Int {
     return when (tipo) {
+        TipoManutencao.CORRENTE -> 1500
+        TipoManutencao.LUBRIFICACAO -> 500
+        TipoManutencao.PEDIVELA -> 2000
+        TipoManutencao.ACESSORIOS -> 0
+        TipoManutencao.CONFORTO -> 0
+        TipoManutencao.PNEU -> 3000
+        TipoManutencao.TRANSMISSAO -> 5000
+        TipoManutencao.REVISAO -> 10000
         TipoManutencao.OLEO -> 10000
         TipoManutencao.BATERIA -> 40000
         TipoManutencao.FREIO -> 20000
         TipoManutencao.MECANICA -> 10000
-        TipoManutencao.TEMPERATURA -> 30000
         TipoManutencao.LICENCIAMENTO -> 0
         TipoManutencao.IPVA -> 0
         TipoManutencao.SEGURO -> 0
@@ -327,7 +341,7 @@ fun gerarPdfRelatorio(context: Context, carro: CarroInfo, lembretes: List<Lembre
 
         fun drawHeader() {
             val titleCenterPaint = Paint(headerPaint).apply { textAlign = Paint.Align.CENTER }
-            canvas.drawText("RELATORIO T�CNICO", pageInfo.pageWidth / 2f, 54f, titleCenterPaint)
+            canvas.drawText("RELATORIO TÊCNICO", pageInfo.pageWidth / 2f, 54f, titleCenterPaint)
             val tituloCarro = buildString {
                 append(carro.nome)
                 val detalhes = listOf(carro.marca, carro.modelo).filter { it.isNotBlank() }.joinToString(" - ")
@@ -407,7 +421,8 @@ fun gerarPdfRelatorio(context: Context, carro: CarroInfo, lembretes: List<Lembre
         val proximoServico = proximos.firstOrNull()?.second?.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")) ?: "--"
 
         drawSectionTitle("IDENTIFICACAO DO VEICULO")
-        val boxHeight = 180f
+        val isBike = carro.tipoVeiculo == TipoVeiculo.BICICLETA
+        val boxHeight = if (isBike) 150f else 180f
         ensureSpace(boxHeight)
         canvas.drawRect(marginX, y, marginX + contentWidth, y + boxHeight, cardBgPaint)
         canvas.drawRoundRect(android.graphics.RectF(marginX, y, marginX + contentWidth, y + boxHeight), 12f, 12f, cardBorderPaint)
@@ -415,15 +430,25 @@ fun gerarPdfRelatorio(context: Context, carro: CarroInfo, lembretes: List<Lembre
         val rightX = marginX + contentWidth / 2 + 10f
         val rowY = y + 24f
         drawKeyValue("Nome", fit(carro.nome, 30), leftX, rowY)
-        drawKeyValue("Motor", fit(carro.modelo.ifBlank { "-" }, 26), rightX, rowY)
-        drawKeyValue("Marca", carro.marca.ifBlank { "-" }, leftX, rowY + 42f)
-        drawKeyValue("Tipo", carro.tipoVeiculo.label, rightX, rowY + 42f)
         val proprietarioTexto = carro.proprietario.ifBlank { "-" }
-        drawKeyValue("Proprietario", fit(proprietarioTexto, 30), leftX, rowY + 78f)
-        val odometroTexto = if (carro.kmAtual > 0) "${carro.kmAtual} km" else "Nao informado"
-        drawKeyValue("Odometro", odometroTexto, rightX, rowY + 78f)
-        val corHex = String.format(Locale.US, "#%08X", carro.corArgb)
-        drawKeyValue("Cor", corHex, leftX, rowY + 114f)
+        if (isBike) {
+            val aroTexto = carro.modelo.ifBlank { "-" }
+            drawKeyValue("Aro", fit(aroTexto, 26), rightX, rowY)
+            drawKeyValue("Marca", carro.marca.ifBlank { "-" }, leftX, rowY + 42f)
+            drawKeyValue("Tipo", carro.tipoVeiculo.label, rightX, rowY + 42f)
+            drawKeyValue("Proprietario", fit(proprietarioTexto, 30), leftX, rowY + 78f)
+            val corTexto = corNomePorArgb(carro.corArgb)
+            drawKeyValue("Cor", corTexto, rightX, rowY + 78f)
+        } else {
+            drawKeyValue("Motor", fit(carro.modelo.ifBlank { "-" }, 26), rightX, rowY)
+            drawKeyValue("Marca", carro.marca.ifBlank { "-" }, leftX, rowY + 42f)
+            drawKeyValue("Tipo", carro.tipoVeiculo.label, rightX, rowY + 42f)
+            drawKeyValue("Proprietario", fit(proprietarioTexto, 30), leftX, rowY + 78f)
+            val odometroTexto = if (carro.kmAtual > 0) "${carro.kmAtual} km" else "Nao informado"
+            drawKeyValue("Odometro", odometroTexto, rightX, rowY + 78f)
+            val corTexto = String.format(Locale.US, "#%08X", carro.corArgb)
+            drawKeyValue("Cor", corTexto, leftX, rowY + 114f)
+        }
         y += boxHeight + 24f
 
         drawSectionTitle("STATUS E SAUDE")
@@ -460,49 +485,51 @@ fun gerarPdfRelatorio(context: Context, carro: CarroInfo, lembretes: List<Lembre
         canvas.drawText(saudeLabel, leftX, saudeBaseline, saudePaint)
         y += statusBoxHeight + 34f
 
-        drawSectionTitle("DOCUMENTACAO")
-        val documentos = listOf(
-            TipoManutencao.IPVA to "IPVA",
-            TipoManutencao.LICENCIAMENTO to "Licenciamento"
-        ).map { (tipo, label) ->
-            val ultimaData = lembretes
-                .filter { it.tipo == tipo }
-                .map { dataParaOrdenacao(it) }
-                .filter { it != LocalDate.MAX }
-                .maxOrNull()
-            val status = when {
-                ultimaData == null -> "Nao informado"
-                !ultimaData.isBefore(LocalDate.now()) -> "Em dia"
-                else -> "Vencido"
-            }
-            Triple(label, status, ultimaData?.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")) ?: "--")
-        }
-        val docsVazios = documentos.all { it.second == "Nao informado" }
-        val docsCardHeight = if (docsVazios) 70f else 70f + (documentos.size * 18f)
-        drawCard(docsCardHeight) { topY ->
-            var rowY = topY + 28f
-            if (docsVazios) {
-                val avisoPaint = Paint(bodyPaint).apply {
-                    color = colorDanger
-                    textSize = 13f
-                    textAlign = Paint.Align.CENTER
+        if (carro.tipoVeiculo != TipoVeiculo.BICICLETA) {
+            drawSectionTitle("DOCUMENTACAO")
+            val documentos = listOf(
+                TipoManutencao.IPVA to "IPVA",
+                TipoManutencao.LICENCIAMENTO to "Licenciamento"
+            ).map { (tipo, label) ->
+                val ultimaData = lembretes
+                    .filter { it.tipo == tipo }
+                    .map { dataParaOrdenacao(it) }
+                    .filter { it != LocalDate.MAX }
+                    .maxOrNull()
+                val status = when {
+                    ultimaData == null -> "Nao informado"
+                    !ultimaData.isBefore(LocalDate.now()) -> "Em dia"
+                    else -> "Vencido"
                 }
-                canvas.drawText("Veiculo sem documentacao", marginX + (contentWidth / 2), rowY + 6f, avisoPaint)
-            } else {
-                documentos.forEach { (label, status, data) ->
-                    canvas.drawText(label, marginX + 16f, rowY, valuePaint)
-                    val dateCenterPaint = Paint(bodyPaint).apply { textAlign = Paint.Align.CENTER }
-                    canvas.drawText("Venc: $data", marginX + (contentWidth / 2), rowY, dateCenterPaint)
-                    val statusPaint = Paint(valuePaint).apply {
-                        color = if (status == "Em dia") colorSuccess else colorDanger
-                        textAlign = Paint.Align.RIGHT
+                Triple(label, status, ultimaData?.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")) ?: "--")
+            }
+            val docsVazios = documentos.all { it.second == "Nao informado" }
+            val docsCardHeight = if (docsVazios) 70f else 70f + (documentos.size * 18f)
+            drawCard(docsCardHeight) { topY ->
+                var rowY = topY + 28f
+                if (docsVazios) {
+                    val avisoPaint = Paint(bodyPaint).apply {
+                        color = colorDanger
+                        textSize = 13f
+                        textAlign = Paint.Align.CENTER
                     }
-                    canvas.drawText(status, marginX + contentWidth - 16f, rowY, statusPaint)
-                    rowY += 22f
+                    canvas.drawText("Veiculo sem documentacao", marginX + (contentWidth / 2), rowY + 6f, avisoPaint)
+                } else {
+                    documentos.forEach { (label, status, data) ->
+                        canvas.drawText(label, marginX + 16f, rowY, valuePaint)
+                        val dateCenterPaint = Paint(bodyPaint).apply { textAlign = Paint.Align.CENTER }
+                        canvas.drawText("Venc: $data", marginX + (contentWidth / 2), rowY, dateCenterPaint)
+                        val statusPaint = Paint(valuePaint).apply {
+                            color = if (status == "Em dia") colorSuccess else colorDanger
+                            textAlign = Paint.Align.RIGHT
+                        }
+                        canvas.drawText(status, marginX + contentWidth - 16f, rowY, statusPaint)
+                        rowY += 22f
+                    }
                 }
             }
+            y += 8f
         }
-        y += 8f
 
         document.finishPage(currentPage)
         val nextPageInfo = PdfDocument.PageInfo.Builder(595, 842, document.pages.size + 1).create()
@@ -607,6 +634,28 @@ fun compartilharPdf(context: Context, uri: Uri) {
     context.startActivity(Intent.createChooser(intent, "Compartilhar PDF"))
 }
 
+private fun corNomePorArgb(argb: Int): String {
+    val cores = listOf(
+        "Branco" to 0xFFFFFFFF.toInt(),
+        "Preto" to 0xFF0F172A.toInt(),
+        "Prata" to 0xFFC0C0C0.toInt(),
+        "Cinza" to 0xFF9CA3AF.toInt(),
+        "Vermelho" to 0xFFDC2626.toInt(),
+        "Azul" to 0xFF4F7DBE.toInt(),
+        "Marrom" to 0xFF7C3F00.toInt(),
+        "Bege" to 0xFFE7D7C1.toInt(),
+        "Verde" to 0xFF16A34A.toInt(),
+        "Amarelo" to 0xFFFACC15.toInt(),
+        "Laranja" to 0xFFF97316.toInt(),
+        "Roxo" to 0xFF6D5BD0.toInt(),
+        "Rosa" to 0xFFEC4899.toInt(),
+        "Dourado" to 0xFFC0841A.toInt(),
+        "Bordô" to 0xFF7F1D1D.toInt(),
+        "Turquesa" to 0xFF38BDF8.toInt(),
+        "Creme" to 0xFFF5F5DC.toInt()
+    )
+    return cores.firstOrNull { it.second == argb }?.first ?: "Personalizada"
+}
 
 
 

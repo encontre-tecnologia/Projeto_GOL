@@ -12,17 +12,21 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Agriculture
 import androidx.compose.material.icons.rounded.BatteryChargingFull
 import androidx.compose.material.icons.rounded.Build
+import androidx.compose.material.icons.rounded.Chair
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.DirectionsBike
 import androidx.compose.material.icons.rounded.DirectionsCar
 import androidx.compose.material.icons.rounded.DiscFull
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Inventory2
+import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.LocalShipping
 import androidx.compose.material.icons.rounded.Motorcycle
 import androidx.compose.material.icons.rounded.Payments
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material.icons.rounded.Thermostat
+import androidx.compose.material.icons.rounded.TireRepair
 import androidx.compose.material.icons.rounded.WaterDrop
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -36,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.io.File
 import java.io.Serializable
+import java.text.Normalizer
 import java.util.Locale
 import java.util.UUID
 
@@ -122,6 +127,16 @@ private val marcaLogoMap = mapOf(
     "agrale" to R.drawable.logo_agrale
 )
 
+private val marcasTratorSemLogo = setOf(
+    "caseih",
+    "newholland",
+    "valtra",
+    "voltra",
+    "johndeere",
+    "masseyferguson",
+    "masseyfergson"
+)
+
 enum class TipoVeiculo(val label: String, val icon: ImageVector) {
     BICICLETA("Bicicleta", Icons.Rounded.DirectionsBike),
     CARRETINHA("Carretinha", Icons.Rounded.Inventory2),
@@ -155,7 +170,7 @@ val marcasSuportadas = listOf(
     "Renault",
     "Toyota",
     "Volkswagen"
-)
+).map { it.trim() }.filter { it.isNotEmpty() }
 
 val marcasBicicleta = listOf(
     "Caloi",
@@ -183,7 +198,7 @@ val marcasCaminhao = listOf(
 
 data class CarroInfo(
     val id: String = UUID.randomUUID().toString(),
-    val nome: String = "Novo Carro",
+    val nome: String = "Novo Veículo",
     val modelo: String = "Modelo 1.0",
     val marca: String = "",
     val proprietario: String = "",
@@ -195,15 +210,28 @@ data class CarroInfo(
 }
 
 @DrawableRes
-fun CarroInfo.logoResOrNull(): Int? = logoResForMarca(marca)
+fun CarroInfo.logoResOrNull(): Int? = logoResForMarca(marca, tipoVeiculo)
 
 fun CarroInfo.tipoIcon(): ImageVector = tipoVeiculo.icon
 
-private fun normalizarMarca(marca: String): String =
-    marca.trim().lowercase(Locale.getDefault()).replace(Regex("[^a-z0-9]"), "")
+private fun normalizarMarca(marca: String): String {
+    val semAcentos = Normalizer.normalize(marca.trim(), Normalizer.Form.NFD)
+        .replace(Regex("\\p{Mn}+"), "")
+        .lowercase(Locale.getDefault())
+    return semAcentos.replace(Regex("[^a-z0-9]"), "")
+}
 
 @DrawableRes
 fun logoResForMarca(marca: String): Int? = marcaLogoMap[normalizarMarca(marca)]
+
+@DrawableRes
+fun logoResForMarca(marca: String, tipoVeiculo: TipoVeiculo?): Int? {
+    val normalizada = normalizarMarca(marca)
+    if (tipoVeiculo == TipoVeiculo.TRATOR && normalizada in marcasTratorSemLogo) {
+        return null
+    }
+    return marcaLogoMap[normalizada]
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -260,24 +288,44 @@ data class Abastecimento(
     val litros: Double
 ) : Serializable
 
+data class Pedalada(
+    val id: String = UUID.randomUUID().toString(),
+    val carroId: String,
+    val data: String,
+    val km: Double
+) : Serializable
+
 enum class TipoManutencao(val label: String) {
+    CORRENTE("Corrente"),
+    LUBRIFICACAO("Lubrificação"),
+    PEDIVELA("Pedivela"),
+    ACESSORIOS("Acessórios"),
+    CONFORTO("Conforto"),
+    PNEU("Pneu"),
+    TRANSMISSAO("Transmissão"),
+    REVISAO("Revisão"),
     OLEO("Óleo"),
     BATERIA("Bateria"),
     MECANICA("Mecânica"),
     FREIO("Freio"),
-    TEMPERATURA("Temp."), // Mudado para ficar menor
     LICENCIAMENTO("Licença"),
     IPVA("IPVA"),
-
     SEGURO("Seguro"),
     OUTROS("Outros");
 
     fun getIcon(): ImageVector = when(this) {
+        CORRENTE -> Icons.Rounded.Link
+        LUBRIFICACAO -> Icons.Rounded.WaterDrop
+        PEDIVELA -> Icons.Rounded.DirectionsBike
+        ACESSORIOS -> Icons.Rounded.Inventory2
+        CONFORTO -> Icons.Rounded.Chair
+        PNEU -> Icons.Rounded.TireRepair
+        TRANSMISSAO -> Icons.Rounded.Settings
+        REVISAO -> Icons.Rounded.Description
         OLEO -> Icons.Rounded.WaterDrop
         BATERIA -> Icons.Rounded.BatteryChargingFull
         MECANICA -> Icons.Rounded.Build
         FREIO -> Icons.Rounded.DiscFull
-        TEMPERATURA -> Icons.Rounded.Thermostat
         LICENCIAMENTO -> Icons.Rounded.Description
         IPVA -> Icons.Rounded.Payments
         SEGURO -> Icons.Rounded.Shield

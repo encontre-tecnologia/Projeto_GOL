@@ -163,10 +163,11 @@ fun NovoCarroScreen(
                         modifier = Modifier.fillMaxWidth()
                     )
 
+                    val motorLabel = if (tipoSelecionado == TipoVeiculo.BICICLETA) "Aro" else "Motor"
                     OutlinedTextField(
                         value = modelo,
                         onValueChange = { modelo = it },
-                        label = { Text("Motor") },
+                        label = { Text(motorLabel) },
                         singleLine = true,
                         trailingIcon = {
                             IconButton(onClick = ::iniciarCapturaVozMotor) {
@@ -223,6 +224,20 @@ fun NovoCarroScreen(
                         "Triumph",
                         "Shineray"
                     )
+                    val marcasCaminhoneteLocal = listOf(
+                        "Toyota",
+                        "Chevrolet",
+                        "Ford",
+                        "Volkswagen",
+                        "Fiat",
+                        "Nissan",
+                        "Mitsubishi",
+                        "Ram",
+                        "Renault",
+                        "Jeep",
+                        "Honda",
+                        "Hyundai"
+                    )
                     val marcasTratorLocal = listOf(
                         "John Deere",
                         "Massey Ferguson",
@@ -237,12 +252,13 @@ fun NovoCarroScreen(
                     )
                     val marcasDisponiveis = when (tipoSelecionado) {
                         TipoVeiculo.BICICLETA -> marcasBicicletaLocal
+                        TipoVeiculo.CAMINHONETE -> marcasCaminhoneteLocal
                         TipoVeiculo.CAMINHAO -> marcasCaminhaoLocal
                         TipoVeiculo.MOTO -> marcasMotoLocal
                         TipoVeiculo.TRATOR -> marcasTratorLocal
                         null -> emptyList()
                         else -> marcasSuportadas
-                    }
+                    }.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
                     LaunchedEffect(tipoSelecionado) {
                         if (marca.isNotBlank() && !marcasDisponiveis.contains(marca)) {
                             marca = ""
@@ -250,7 +266,7 @@ fun NovoCarroScreen(
                     }
 
                     var marcaExpanded by remember { mutableStateOf(false) }
-                    val marcaLogo = logoResForMarca(marca)
+                    val marcaLogo = logoResForMarca(marca, tipoSelecionado)
                     ExposedDropdownMenuBox(
                         expanded = marcaExpanded,
                         onExpandedChange = {
@@ -291,7 +307,7 @@ fun NovoCarroScreen(
                         )
                         ExposedDropdownMenu(expanded = marcaExpanded, onDismissRequest = { marcaExpanded = false }) {
                             marcasDisponiveis.forEach { marcaNome ->
-                                val res = logoResForMarca(marcaNome)
+                                val res = logoResForMarca(marcaNome, tipoSelecionado)
                                 DropdownMenuItem(
                                     text = {
                                         Row(

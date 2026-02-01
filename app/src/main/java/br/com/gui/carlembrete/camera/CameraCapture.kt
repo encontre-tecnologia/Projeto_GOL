@@ -566,7 +566,7 @@ internal fun detectarTipoPeloTexto(texto: String): TipoManutencao {
         listOf("OLEO", "LUBRAX", "LUBRIFICANTE", "20W", "15W", "5W").any { normalized.contains(it) } -> TipoManutencao.OLEO
         listOf("BATERIA", "MBR", "AMP", "12V", "VOLTS").any { normalized.contains(it) } -> TipoManutencao.BATERIA
         listOf("FREIO", "PASTILHA", "ABS").any { normalized.contains(it) } -> TipoManutencao.FREIO
-        listOf("AR COND", "AR-COND", "CLIMA", "REFRIG").any { normalized.contains(it) } -> TipoManutencao.TEMPERATURA
+        listOf("AR COND", "AR-COND", "CLIMA", "REFRIG").any { normalized.contains(it) } -> TipoManutencao.MECANICA
         listOf("FILTRO", "CORREIA", "VELA", "INJECAO", "PNEU").any { normalized.contains(it) } -> TipoManutencao.MECANICA
         else -> TipoManutencao.OUTROS
     }

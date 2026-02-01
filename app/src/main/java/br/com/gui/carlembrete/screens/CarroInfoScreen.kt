@@ -286,18 +286,20 @@ fun CarroInfoScreen(
                     InfoRowModern("Proprietário", carro.proprietario.ifBlank { "--" }, textDim, textLight)
                 }
 
-                // Seção Documentos
-                ContentSection(
-                    title = "Situação Legal",
-                    icon = Icons.Outlined.Description,
-                    cardColor = cardColor,
-                    titleColor = textLight
-                ) {
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        documentos.forEach { (label, status, color) ->
-                            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
-                                Text(label, style = MaterialTheme.typography.labelSmall, color = textDim)
-                                Text(status, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = color)
+                // Seção Documentos (apenas para veículos com documentação)
+                if (carro.tipoVeiculo != TipoVeiculo.BICICLETA) {
+                    ContentSection(
+                        title = "Situação Legal",
+                        icon = Icons.Outlined.Description,
+                        cardColor = cardColor,
+                        titleColor = textLight
+                    ) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            documentos.forEach { (label, status, color) ->
+                                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
+                                    Text(label, style = MaterialTheme.typography.labelSmall, color = textDim)
+                                    Text(status, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = color)
+                                }
                             }
                         }
                     }
