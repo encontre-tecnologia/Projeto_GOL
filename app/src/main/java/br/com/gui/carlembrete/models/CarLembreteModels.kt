@@ -60,6 +60,7 @@ data class ResultadoCaptura(
     val arquivoFoto: File,
     val itensEncontrados: List<ItemDetectado>,
     val kmDetectado: Int?,
+    val qrCodeUrl: String? = null,
     val sugestoesProduto: List<String> = emptyList(),
     val linhasReconhecidas: List<String> = emptyList()
 )
@@ -75,7 +76,9 @@ data class Lembrete(
     val tipo: TipoManutencao,
     val valor: Double = 0.0,
     val fotoPath: String? = null,
-    val horaAviso: String = "09:00"
+    val horaAviso: String = "09:00",
+    val estabelecimentoNome: String = "",
+    val estabelecimentoEndereco: String = ""
 ) : Serializable
 
 // Logos removidos por segurança legal. Use ícones genéricos por tipo de veículo.

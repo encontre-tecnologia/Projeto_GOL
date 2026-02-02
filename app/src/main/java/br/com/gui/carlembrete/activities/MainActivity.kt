@@ -107,7 +107,7 @@ class MainActivity : ComponentActivity() {
             CarLembreteTheme {
                 val auth = remember { FirebaseAuth.getInstance() }
                 var usuario by remember { mutableStateOf(auth.currentUser) }
-                var showLoading by remember { mutableStateOf(false) }
+                var showLoading by remember { mutableStateOf(usuario != null) }
                 var loadingDoneSignal by remember { mutableIntStateOf(0) }
                 var videoFinished by remember { mutableStateOf(false) }
                 val loadingProgress = remember { Animatable(0f) }
