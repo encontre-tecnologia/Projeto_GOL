@@ -1,6 +1,7 @@
 ﻿package br.com.gui.carlembrete
 
 import AbastecimentoCard
+
 import BikeDistanceCard
 import AvisosCategoriasCard
 import CarroInfoCard
@@ -161,6 +162,7 @@ fun ManutencaoScreen(
     var showBikeDistanceRegister by remember { mutableStateOf(false) }
     var showBikeDistanceHistory by remember { mutableStateOf(false) }
     var showIpvaMultasScreen by remember { mutableStateOf(false) }
+    var showShareVehicleScreen by remember { mutableStateOf(false) }
 
     var showAnjoDaGuardaScreen by remember { mutableStateOf(false) }
     var showGaragemScreen by remember { mutableStateOf(false) }
@@ -358,16 +360,29 @@ fun ManutencaoScreen(
     }
     BackHandler(enabled = showIpvaMultasScreen) { showIpvaMultasScreen = false }
     if (showIpvaMultasScreen) {
-        IpvaMultasScreen(onDismiss = { showIpvaMultasScreen = false })
+        IpvaMultasScreen(
+            carroAtual = carroAtual,
+            onDismiss = { showIpvaMultasScreen = false }
+        )
+        return
+    }
+    BackHandler(enabled = showShareVehicleScreen) { showShareVehicleScreen = false }
+    if (showShareVehicleScreen) {
+        ShareVehicleScreen(
+            carroAtual = carroAtual,
+            onDismiss = { showShareVehicleScreen = false }
+        )
         return
     }
 
     BackHandler(enabled = showMecanicoVirtualScreen) { showMecanicoVirtualScreen = false }
     if (showMecanicoVirtualScreen) {
         MecanicoVirtualScreen(
-            carro = carroAtual,
-            abastecimentos = abastecimentos.filter { it.carroId == carroAtual.id },
-            lembretes = lembretesDoCarroAtual,
+            carros = listaCarros,
+            abastecimentos = abastecimentos,
+            lembretes = todosLembretes,
+            isPremium = isSubscribed,
+            onPremiumRequired = { activity?.let { subscriptionManager.launchPurchaseFlow(it) } },
             onDismiss = { showMecanicoVirtualScreen = false }
         )
         return
@@ -380,7 +395,7 @@ fun ManutencaoScreen(
         AlertDialog(
             onDismissRequest = { showPremiumDialog = false },
             title = { Text("Recurso Premium", color = Color(0xFFF59E0B), fontWeight = FontWeight.Bold) },
-            text = { Text("Assine o Premium para usar OCR, Zellu Guardião, PDF e backup automático.", color = Color(0xFFCBD5E1)) },
+            text = { Text("Assine o Premium para usar OCR, PDF e backup automático.", color = Color(0xFFCBD5E1)) },
             confirmButton = {
                 Button(
                     onClick = {
@@ -687,6 +702,14 @@ fun ManutencaoScreen(
                         }
                         drawerScope.launch { drawerState.close() }
                     }
+                    DrawerMenuItem(Icons.Default.Share, "Compartilhar Veículo") {
+                        if (planTier == PlanTier.FREE) {
+                            showPremiumDialog = true
+                        } else {
+                            showShareVehicleScreen = true
+                        }
+                        drawerScope.launch { drawerState.close() }
+                    }
 
                     Spacer(Modifier.height(8.dp))
                     Text(
@@ -716,11 +739,7 @@ fun ManutencaoScreen(
                         drawerScope.launch { drawerState.close() }
                     }
                     DrawerMenuItem(Icons.Default.Shield, "Zello Guardião") {
-                        if (isSubscribed) {
-                            showAnjoDaGuardaScreen = true
-                        } else {
-                            showPremiumDialog = true
-                        }
+                        showAnjoDaGuardaScreen = true
                         drawerScope.launch { drawerState.close() }
                     }
 
@@ -952,6 +971,8 @@ fun ManutencaoScreen(
                     AvisosCategoriasCard(
                         lembretesDoCarroAtual = lembretesDoCarroAtual,
                         lembretesComBusca = lembretesComBusca,
+                        buscaTexto = buscaTexto,
+                        onBuscar = { buscaTexto = it },
                         listaContatos = listaContatos,
                         modeloCarro = carroAtual.nome,
                         filtroTipo = filtroTipo,
@@ -1456,9 +1477,9 @@ private fun calcularResumoAbastecimento(
         )
     }
 
-    val litrosDiario = entries.windowed(2).mapNotNull { (anterior, atual) ->
+    val diasEntreAbastecimentos = entries.windowed(2).mapNotNull { (anterior, atual) ->
         val dias = ChronoUnit.DAYS.between(anterior.data, atual.data)
-        if (dias <= 0) null else atual.litros / dias.toDouble()
+        if (dias <= 0) null else dias.toDouble()
     }
 
     val custoDiario = entries.windowed(2).mapNotNull { (anterior, atual) ->
@@ -1466,13 +1487,13 @@ private fun calcularResumoAbastecimento(
         if (dias <= 0) null else atual.valorPago / dias.toDouble()
     }
 
-    val mediaLitrosBase = litrosDiario.takeIf { it.isNotEmpty() }?.average()
+    val mediaDiasBase = diasEntreAbastecimentos.takeIf { it.isNotEmpty() }?.average()
     val mediaCustoBase = custoDiario.takeIf { it.isNotEmpty() }?.average()
     val ultimo = entries.last()
-    val fallbackDias = 30.0
-    val mediaLitros = mediaLitrosBase ?: (ultimo.litros / fallbackDias)
-    val mediaCusto = mediaCustoBase ?: (ultimo.valorPago / fallbackDias)
-    val diasAte = mediaLitros.takeIf { it > 0.0 }?.let { ceil(ultimo.litros / it).toLong() }
+    val fallbackDias = 7.0
+    val mediaDias = mediaDiasBase ?: fallbackDias
+    val mediaCusto = mediaCustoBase ?: (ultimo.valorPago / mediaDias)
+    val diasAte = mediaDias.takeIf { it > 0.0 }?.let { ceil(it).toLong() }
     val proximaData = diasAte?.let { ultimo.data.plusDays(it) }
 
     return AbastecimentoResumo(

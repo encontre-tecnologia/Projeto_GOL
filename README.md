@@ -53,7 +53,7 @@ O aplicativo centraliza informacoes de veiculos, lembretes de manutencao, profis
 - **Interface moderna**
   - UI em Jetpack Compose (Material 3), com foco em produtividade no dia a dia.
 
-- **Zellu Guardiao (premium)**
+- **Zellu Guardiao**
   - Monitoramento com alertas inteligentes (beta/expansao).
 
 ---
@@ -107,7 +107,7 @@ Este projeto aplica conceitos modernos de desenvolvimento Android (Modern Androi
 - Historico basico
 - Backup manual
 - OCR limitado: 3 scans por mes
-- Sem Guardiao, sem backup automatico e sem PDF
+- Sem backup automatico e sem PDF
 
 **Zellu Premium**
 - Tudo do Free

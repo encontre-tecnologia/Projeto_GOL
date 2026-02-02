@@ -124,7 +124,6 @@ import kotlin.math.roundToInt
 fun RelatorioVeiculoScreen(carroAtual: CarroInfo, lembretes: List<Lembrete>, isPremium: Boolean, onDismiss: () -> Unit) {
     val context = LocalContext.current
     val resumo = remember(carroAtual, lembretes, isPremium) { gerarResumoRelatorio(carroAtual, lembretes, isPremium) }
-    var showPremiumDialog by remember { mutableStateOf(false) }
     val resumoChip = remember(resumo) {
         resumo.lineSequence()
             .map { it.trim() }
@@ -171,13 +170,9 @@ fun RelatorioVeiculoScreen(carroAtual: CarroInfo, lembretes: List<Lembrete>, isP
                             fontWeight = FontWeight.Bold,
                             modifier = Modifier.weight(1f)
                         )
-                        val pdfAccent = if (isPremium) Color.White else Color(0xFFF59E0B)
+                        val pdfAccent = Color.White
                         OutlinedButton(
                             onClick = {
-                                if (!isPremium) {
-                                    showPremiumDialog = true
-                                    return@OutlinedButton
-                                }
                                 val uri = gerarPdfRelatorio(context, carroAtual, lembretes, isPremium)
                                 if (uri != null) {
                                     compartilharPdf(context, uri)
@@ -191,7 +186,7 @@ fun RelatorioVeiculoScreen(carroAtual: CarroInfo, lembretes: List<Lembrete>, isP
                         ) {
                             Icon(Icons.Default.PictureAsPdf, contentDescription = "Exportar PDF", tint = pdfAccent, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(6.dp))
-                            Text(if (isPremium) "PDF" else "PDF Premium", color = pdfAccent, fontWeight = FontWeight.SemiBold)
+                            Text("PDF", color = pdfAccent, fontWeight = FontWeight.SemiBold)
                         }
                     }
                 Spacer(Modifier.height(24.dp))
@@ -344,19 +339,6 @@ fun RelatorioVeiculoScreen(carroAtual: CarroInfo, lembretes: List<Lembrete>, isP
                             Spacer(Modifier.height(8.dp))
                             Text("Sem manuten├º├Áes pendentes", color = Color(0xFF94A3B8))
                         }
-                    }
-                    if (showPremiumDialog) {
-                        AlertDialog(
-                            onDismissRequest = { showPremiumDialog = false },
-                            title = { Text("Recurso Premium", color = Color(0xFFF59E0B), fontWeight = FontWeight.Bold) },
-                            text = { Text("PDF completo está disponível no Premium.", color = Color(0xFFCBD5E1)) },
-                            confirmButton = {
-                                TextButton(onClick = { showPremiumDialog = false }) {
-                                    Text("Entendi", color = Color(0xFFF59E0B), fontWeight = FontWeight.Bold)
-                                }
-                            },
-                            containerColor = Color(0xFF0F172A)
-                        )
                     }
                 }
             }

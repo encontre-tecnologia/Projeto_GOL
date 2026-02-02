@@ -1,10 +1,9 @@
-﻿package br.com.gui.carlembrete
+package br.com.gui.carlembrete
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -16,8 +15,10 @@ import androidx.compose.material.icons.filled.ArrowBackIosNew
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Payments
+import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Savings
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -30,12 +31,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+import java.time.YearMonth
 import java.time.temporal.ChronoUnit
 import java.util.Locale
 import kotlin.math.ceil
@@ -43,9 +50,11 @@ import kotlin.math.ceil
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MecanicoVirtualScreen(
-    carro: CarroInfo,
+    carros: List<CarroInfo>,
     abastecimentos: List<Abastecimento>,
     lembretes: List<Lembrete>,
+    isPremium: Boolean,
+    onPremiumRequired: () -> Unit,
     onDismiss: () -> Unit
 ) {
     // Paleta de Cores Modernizada
@@ -61,14 +70,16 @@ fun MecanicoVirtualScreen(
     val kmMesInput = remember { mutableStateOf("1200") }
     val kmMes = kmMesInput.value.toDoubleOrNull()?.coerceAtLeast(1.0) ?: 1200.0
     val context = LocalContext.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
 
     val totalGastoCombustivel = abastecimentos.sumOf { it.valorPago }
     val gastoTotalTexto = if (totalGastoCombustivel > 0.0) formatarMoedaMV(totalGastoCombustivel) else "--"
     val (tituloReputacao, _) = calcularReputacao(lembretes)
     val corReputacao = when (tituloReputacao) {
         "Excelente" -> Color(0xFF10B981)
-        "Crítica" -> Color(0xFFEF4444)
-        "Em atenção" -> Color(0xFFF59E0B)
+        "Critica" -> Color(0xFFEF4444)
+        "Em atencao" -> Color(0xFFF59E0B)
         else -> textDim
     }
 
@@ -83,60 +94,13 @@ fun MecanicoVirtualScreen(
     val proximosAvisos: List<Lembrete> = remember(lembretes) {
         lembretes.sortedBy { dataParaOrdenacao(it) }
     }
-    var filtroGrafico by remember { mutableStateOf("TODOS") }
-    val categoriasDisponiveis = if (carro.tipoVeiculo == TipoVeiculo.BICICLETA) {
-        listOf(
-            TipoManutencao.CORRENTE,
-            TipoManutencao.LUBRIFICACAO,
-            TipoManutencao.PEDIVELA,
-            TipoManutencao.ACESSORIOS,
-            TipoManutencao.CONFORTO,
-            TipoManutencao.FREIO,
-            TipoManutencao.PNEU,
-            TipoManutencao.TRANSMISSAO,
-            TipoManutencao.REVISAO,
-            TipoManutencao.OUTROS
-        )
-    } else {
-        listOf(
-            TipoManutencao.OLEO,
-            TipoManutencao.MECANICA,
-            TipoManutencao.BATERIA,
-            TipoManutencao.FREIO,
-            TipoManutencao.PNEU,
-            TipoManutencao.LICENCIAMENTO,
-            TipoManutencao.IPVA,
-            TipoManutencao.SEGURO,
-            TipoManutencao.OUTROS
-        )
-    }
-    val gastosPorTipo = remember(lembretes, categoriasDisponiveis) {
-        categoriasDisponiveis
-            .map { tipo -> tipo to lembretes.filter { it.tipo == tipo }.sumOf { it.valor } }
-            .associate { it.first to it.second }
-    }
-    val tiposSelecionados = when (filtroGrafico) {
-        "IMPOSTOS" -> listOf(TipoManutencao.LICENCIAMENTO, TipoManutencao.IPVA).filter { it in categoriasDisponiveis }
-        "MAIS_CAROS" -> gastosPorTipo.entries
-            .filter { it.value > 0.0 }
-            .sortedByDescending { it.value }
-            .take(3)
-            .map { it.key }
-        "MAIS_BARATOS" -> gastosPorTipo.entries
-            .filter { it.value > 0.0 }
-            .sortedBy { it.value }
-            .take(3)
-            .map { it.key }
-        else -> categoriasDisponiveis
-    }
-    val categorySpendData = tiposSelecionados.map { tipo ->
-        val totalCategoria = gastosPorTipo[tipo] ?: 0.0
-        CategorySpend(
-            label = tipo.label,
-            valor = totalCategoria,
-            color = corCategoria(tipo)
-        )
-    }
+    val formatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
+    val currentMonth = YearMonth.now()
+    val gastoPorVeiculo = carros.associate { carro ->
+        val gastoManutencao = lembretes.filter { it.carroId == carro.id }.sumOf { it.valor }
+        val gastoCombustivel = abastecimentos.filter { it.carroId == carro.id }.sumOf { it.valorPago }
+        carro to (gastoManutencao + gastoCombustivel)
+    }.entries.sortedByDescending { it.value }
 
     Scaffold(
         containerColor = primaryDark
@@ -160,11 +124,34 @@ fun MecanicoVirtualScreen(
                     Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar", tint = textLight)
                 }
                 Text(
-                    "Gestor Financeiro",
+                    "Gestor Financeiro (Frota)",
                     color = textLight,
                     fontWeight = FontWeight.Bold,
-                    style = MaterialTheme.typography.titleMedium
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.weight(1f)
                 )
+                OutlinedButton(
+                    onClick = {
+                        val uri = gerarPdfFinanceiro(context, carros, abastecimentos, lembretes)
+                        if (uri != null) {
+                            compartilharPdf(context, uri)
+                        }
+                    },
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.5f)),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = Color.White
+                    ),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Icon(
+                        Icons.Default.PictureAsPdf,
+                        contentDescription = "Relatorio financeiro em PDF",
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text("PDF", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                }
             }
 
             // 1. CARD DE INPUT DE KM (Visual mais limpo)
@@ -229,7 +216,7 @@ fun MecanicoVirtualScreen(
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         UsageStat(
-                            label = "Estado do veículo",
+                            label = "Estado da frota",
                             value = tituloReputacao,
                             textColor = textLight,
                             dimColor = textDim,
@@ -237,7 +224,7 @@ fun MecanicoVirtualScreen(
                             modifier = Modifier.weight(1f)
                         )
                         UsageStat(
-                            label = "Total gasto gasolina",
+                            label = "Total gasto combustivel",
                             value = gastoTotalTexto,
                             textColor = textLight,
                             dimColor = textDim,
@@ -248,8 +235,7 @@ fun MecanicoVirtualScreen(
             }
 
             Card(
-                modifier = Modifier
-                    .fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(20.dp),
                 colors = CardDefaults.cardColors(containerColor = surfaceDark),
                 border = BorderStroke(1.dp, Color(0xFF23324D))
@@ -258,97 +244,102 @@ fun MecanicoVirtualScreen(
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
+                    Text("Gastos por veiculo", color = textLight, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    var buscaVeiculo by remember { mutableStateOf("") }
+                    var termoBusca by remember { mutableStateOf("") }
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(42.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(
-                                    Brush.linearGradient(
-                                        colors = listOf(Color(0xFF1D4ED8), Color(0xFF60A5FA))
-                                    )
-                                ),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(Icons.Default.Payments, null, tint = Color.White, modifier = Modifier.size(20.dp))
-                        }
-                        Column(modifier = Modifier.padding(start = 2.dp)) {
-                            Text("Controle de gastos", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                            Text("Gasto por categoria", color = textDim, fontSize = 12.sp)
-                        }
-                    }
-                    val filtros = listOf(
-                        "TODOS" to "Todos",
-                        "IMPOSTOS" to "Impostos",
-                        "MAIS_CAROS" to "Mais altos",
-                        "MAIS_BARATOS" to "Mais baixos"
-                    )
-                    val centralizarFiltros = filtros.size <= 5
-                    val filtroScrollState = rememberScrollState()
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(
+                        SearchTextField(
+                            value = buscaVeiculo,
+                            onValueChange = { buscaVeiculo = it },
+                            placeholder = "Buscar veiculo",
+                            textColor = textLight,
+                            placeholderColor = textDim,
+                            borderColor = Color.White.copy(alpha = 0.55f),
                             modifier = Modifier
-                                .weight(1f)
-                                .horizontalScroll(filtroScrollState),
-                            horizontalArrangement = if (centralizarFiltros) Arrangement.Center else Arrangement.spacedBy(32.dp)
+                                .weight(0.75f)
+                                .height(46.dp)
+                        )
+                        OutlinedButton(
+                            onClick = { termoBusca = buscaVeiculo; keyboardController?.hide(); focusManager.clearFocus() },
+                            border = BorderStroke(1.dp, Color.White),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = Color(0xFF3B82F6),
+                                contentColor = Color.White
+                            ),
+                            contentPadding = PaddingValues(0.dp),
+                            shape = CircleShape,
+                            modifier = Modifier.size(40.dp)
                         ) {
-                            filtros.forEach { (key, label) ->
-                                val selected = filtroGrafico == key
-                                Surface(
-                                    modifier = Modifier
-                                        .padding(horizontal = 2.dp)
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .border(1.dp, Color.White.copy(alpha = 0.35f), RoundedCornerShape(8.dp))
-                                        .clickable { filtroGrafico = key },
-                                    color = if (selected) Color(0xFF1D4ED8) else Color(0xFF0B223F)
-                                ) {
-                                    Text(
-                                        text = label,
-                                        color = Color.White,
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                                    )
-                                }
-                            }
+                            Icon(Icons.Default.Search, contentDescription = "Buscar", modifier = Modifier.size(22.dp))
                         }
                     }
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(14.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFF0B1224)),
-                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f))
-                    ) {
-                        CategoryExpenseChart(
-                            data = categorySpendData,
-                            centerColor = Color(0xFF0B1224),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(180.dp)
-                                .padding(12.dp)
-                        )
-                    }
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(14.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFF0B1224)),
-                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f))
-                    ) {
-                        CategoryExpenseLegend(
-                            data = categorySpendData,
-                            labelColor = textDim,
-                            minItems = TipoManutencao.values().size,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp)
-                        )
+                    if (gastoPorVeiculo.isEmpty()) {
+                        Text("Nenhum gasto registrado.", color = textDim, fontSize = 12.sp)
+                    } else {
+                        val filtro = termoBusca.trim().lowercase(Locale.getDefault())
+                        val gastoFiltrado = if (filtro.isBlank()) {
+                            gastoPorVeiculo
+                        } else {
+                            gastoPorVeiculo.filter { (carro, _) ->
+                                listOf(carro.nome, carro.marca, carro.modelo, carro.tipoVeiculo.label)
+                                    .any { it.lowercase(Locale.getDefault()).contains(filtro) }
+                            }
+                        }
+                        if (gastoFiltrado.isEmpty()) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 16.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Icon(
+                                    Icons.Default.SearchOff,
+                                    contentDescription = null,
+                                    tint = textDim.copy(alpha = 0.6f),
+                                    modifier = Modifier.size(28.dp)
+                                )
+                                Spacer(Modifier.height(6.dp))
+                                Text("Nenhum veiculo encontrado", color = textDim, fontSize = 12.sp)
+                            }
+                        } else {
+                            gastoFiltrado.forEach { (carro, total) ->
+                            val abastecimentosCarro = abastecimentos.filter { it.carroId == carro.id }
+                            val lembretesCarro = lembretes.filter { it.carroId == carro.id }
+                            val combustivelMesCarro = abastecimentosCarro.filter {
+                                val data = try { LocalDate.parse(it.data, formatter) } catch (_: Exception) { null }
+                                data != null && YearMonth.from(data) == currentMonth
+                            }.sumOf { it.valorPago }
+                            val manutencoesMesCarro = lembretesCarro.mapNotNull { lembrete ->
+                                val data = try { LocalDate.parse(lembrete.dataLimite, formatter) } catch (_: Exception) { null }
+                                data?.let { lembrete to it }
+                            }.filter { (_, data) ->
+                                YearMonth.from(data) == currentMonth
+                            }.sumOf { (lembrete, _) -> lembrete.valor }
+                            val manutencoesFuturasCarro = lembretesCarro.mapNotNull { lembrete ->
+                                val data = try { LocalDate.parse(lembrete.dataLimite, formatter) } catch (_: Exception) { null }
+                                data?.let { lembrete to it }
+                            }.filter { (_, data) ->
+                                data.isAfter(LocalDate.now())
+                            }.sumOf { (lembrete, _) -> lembrete.valor }
+                            VehicleSpendCard(
+                                carro = carro,
+                                total = total,
+                                combustivelMes = combustivelMesCarro,
+                                manutencoesMes = manutencoesMesCarro,
+                                manutencoesFuturas = manutencoesFuturasCarro,
+                                textLight = textLight,
+                                textDim = textDim,
+                                accent = accent,
+                                warning = warning,
+                                danger = danger,
+                                success = success
+                            )
+                            }
+                        }
                     }
                 }
             }
@@ -470,8 +461,8 @@ private fun AvisoCardModerno(
                 // Tag de Valor Total
                 if (lembrete.valor > 0) {
                     Surface(
-                        color = backgroundColor.copy(alpha = 0.5f), // Darker shade
-                        border = androidx.compose.foundation.BorderStroke(1.dp, dimColor.copy(alpha = 0.2f)),
+                        color = backgroundColor.copy(alpha = 0.5f),
+                        border = BorderStroke(1.dp, dimColor.copy(alpha = 0.2f)),
                         shape = RoundedCornerShape(8.dp)
                     ) {
                         Text(
@@ -581,10 +572,10 @@ fun VerticalDivider(
 private fun impactoSeNaoTrocar(tipo: TipoManutencao): String = when (tipo) {
     TipoManutencao.CORRENTE -> "Desgaste e risco de quebra da corrente"
     TipoManutencao.LUBRIFICACAO -> "Atrito elevado e desgaste acelerado"
-    TipoManutencao.PEDIVELA -> "Folgas e perda de eficiência na pedalada"
+    TipoManutencao.PEDIVELA -> "Folgas e perda de eficiencia na pedalada"
     TipoManutencao.ACESSORIOS -> "Falhas ou quebras de itens adicionais"
     TipoManutencao.CONFORTO -> "Desgaste de itens que afetam o conforto"
-    TipoManutencao.PNEU -> "Perda de aderência e risco de furo"
+    TipoManutencao.PNEU -> "Perda de aderencia e risco de furo"
     TipoManutencao.TRANSMISSAO -> "Trocas de marcha imprecisas"
     TipoManutencao.REVISAO -> "Falhas gerais e desgaste acumulado"
     TipoManutencao.OLEO -> "Desgaste severo do motor"
@@ -612,7 +603,39 @@ fun EmptyStateCard(surfaceColor: Color, dimColor: Color) {
     }
 }
 
-private fun formatarMoedaMV(valor: Double): String {
+fun formatarMoedaMV(valor: Double): String {
     return java.text.NumberFormat.getCurrencyInstance(Locale("pt", "BR")).format(valor)
 }
+
+@Composable
+private fun SearchTextField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String,
+    textColor: Color,
+    placeholderColor: Color,
+    borderColor: Color,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(8.dp))
+            .border(1.dp, borderColor, RoundedCornerShape(8.dp))
+            .padding(horizontal = 12.dp),
+        contentAlignment = Alignment.CenterStart
+    ) {
+        androidx.compose.foundation.text.BasicTextField(
+            value = value,
+            onValueChange = onValueChange,
+            singleLine = true,
+            cursorBrush = SolidColor(Color.White),
+            textStyle = TextStyle(color = textColor, fontSize = 13.sp),
+            modifier = Modifier.fillMaxWidth()
+        )
+        if (value.isEmpty()) {
+            Text(placeholder, color = placeholderColor, fontSize = 13.sp)
+        }
+    }
+}
+
 

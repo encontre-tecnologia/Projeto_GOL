@@ -101,7 +101,7 @@ fun CarroInfoCard(
                                 end = Offset(0f, Float.POSITIVE_INFINITY)
                             )
                         )
-                        .border(1.5.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(22.dp))
+                        .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(22.dp))
                         .clickable { onOpenCarInfo() }
                 ) {
                     // --- WATERMARKS (Background decorativo) ---

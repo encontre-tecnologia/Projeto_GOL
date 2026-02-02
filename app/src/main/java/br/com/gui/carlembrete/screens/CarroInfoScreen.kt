@@ -52,7 +52,6 @@ fun CarroInfoScreen(
 
     val totalGastos = lembretes.sumOf { it.valor }
     val context = LocalContext.current
-    var showPremiumDialog by remember { mutableStateOf(false) }
 
     // Lógica de dados
     val proximo = lembretes.minByOrNull { dataParaOrdenacao(it) }?.let {
@@ -162,14 +161,10 @@ fun CarroInfoScreen(
                     )
                 }
 
-                val pdfAccent = if (isPremium) accentColor else Color(0xFFF59E0B)
-                val pdfContainer = if (isPremium) accentColor.copy(alpha = 0.15f) else Color(0xFFF59E0B).copy(alpha = 0.18f)
+                val pdfAccent = accentColor
+                val pdfContainer = accentColor.copy(alpha = 0.15f)
                 FilledTonalButton(
                     onClick = {
-                        if (!isPremium) {
-                            showPremiumDialog = true
-                            return@FilledTonalButton
-                        }
                         val uri = gerarPdfRelatorio(context, carro, lembretes, isPremium)
                         if (uri != null) {
                             compartilharPdf(context, uri)
@@ -186,22 +181,8 @@ fun CarroInfoScreen(
                 ) {
                     Icon(Icons.Default.Print, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text(if (isPremium) "PDF" else "PDF Premium", fontWeight = FontWeight.Bold)
+                    Text("PDF", fontWeight = FontWeight.Bold)
                 }
-            }
-
-            if (showPremiumDialog) {
-                AlertDialog(
-                    onDismissRequest = { showPremiumDialog = false },
-                    title = { Text("Recurso Premium", color = Color(0xFFF59E0B), fontWeight = FontWeight.Bold) },
-                    text = { Text("PDF completo está disponível no Premium.", color = Color(0xFFCBD5E1)) },
-                    confirmButton = {
-                        TextButton(onClick = { showPremiumDialog = false }) {
-                            Text("Entendi", color = Color(0xFFF59E0B), fontWeight = FontWeight.Bold)
-                        }
-                    },
-                    containerColor = Color(0xFF0F172A)
-                )
             }
 
             // --- HERO SECTION (Carro) ---

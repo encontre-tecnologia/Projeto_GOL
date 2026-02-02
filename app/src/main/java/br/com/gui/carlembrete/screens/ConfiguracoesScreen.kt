@@ -384,7 +384,6 @@ fun ConfiguracoesScreen(
                                 )
                             }
                             // Benefícios compactos
-                            BeneficioItem("Zellu Guardião sempre ativo")
                             BeneficioItem("Backup automático no Google Drive")
                             BeneficioItem("OCR ilimitado com sugestões")
                             BeneficioItem("PDF completo em 1 toque")
