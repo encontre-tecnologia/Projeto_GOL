@@ -102,6 +102,8 @@ dependencies {
 
     // Inteligência Artificial (Google ML Kit - OCR)
     implementation("com.google.android.gms:play-services-mlkit-text-recognition:19.0.0")
+    implementation("com.google.mlkit:barcode-scanning:17.3.0")
+    implementation("org.jsoup:jsoup:1.15.4")
 
     // Permissões
     implementation("com.google.accompanist:accompanist-permissions:0.34.0")

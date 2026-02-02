@@ -53,8 +53,9 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import com.google.mlkit.vision.common.InputImage
-import com.google.mlkit.vision.text.TextRecognition
-import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import com.google.mlkit.vision.barcode.BarcodeScannerOptions
+import com.google.mlkit.vision.barcode.BarcodeScanning
+import com.google.mlkit.vision.barcode.common.Barcode
 import java.io.File
 import java.io.FileOutputStream
 import java.text.Normalizer
@@ -64,6 +65,7 @@ import java.util.concurrent.Executors
 import kotlin.math.roundToInt
 
 private const val LER_NOTAS_HABILITADO = false
+private const val CAMERA_QR_TAG = "ZelluQrParser"
 
 /* ----------------- CÂMERA INTELIGENTE ----------------- */
 
@@ -302,94 +304,159 @@ private fun captureAndExtractItems(context: Context, imageCapture: ImageCapture,
             val arquivo = File(context.filesDir, "servico_scan_${System.currentTimeMillis()}.jpg")
             FileOutputStream(arquivo).use { out -> bitmapFocado.compress(Bitmap.CompressFormat.JPEG, 80, out) }
 
-            val inputImage = InputImage.fromBitmap(bitmapFocado, 0)
-            val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+            // Para QR Code, analisamos a imagem inteira (não o recorte central),
+            // pois o código pode estar fora da área focada.
+            val inputImage = InputImage.fromBitmap(bitmapRotacionado, 0)
+            val options = BarcodeScannerOptions.Builder()
+                .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
+                .build()
+            val scanner = BarcodeScanning.getClient(options)
+            val inputImageSemRotacao = InputImage.fromBitmap(bitmapBuffer, 0)
+            val inputImageFocado = InputImage.fromBitmap(bitmapFocado, 0)
 
-            recognizer.process(inputImage).addOnSuccessListener { visionText ->
-                val linhas = visionText.textBlocks.flatMap { it.lines }
-                val linhasInfo = linhas.map {
-                    val box = it.boundingBox
-                    val area = if (box != null) box.width().coerceAtLeast(1) * box.height().coerceAtLeast(1) else 0
-                    LinhaOCR(corrigirCaracteresVisuais(it.text), area, box?.height() ?: 0)
-                }
-                val sugestoesProduto = sugerirProdutosParaAviso(linhasInfo, visionText.text)
-                val itensEncontrados = mutableListOf<ItemDetectado>()
-                var kmDetectado: Int? = null
-
-                if (LER_NOTAS_HABILITADO) {
-                    var lendoObservacoes = false
-                    val regexData = Regex("\\b(\\d{2})/(\\d{2})/(\\d{2,4})\\b")
-                    var dataServico = LocalDate.now()
-                    val matchData = regexData.find(visionText.text)
-                    if (matchData != null) {
-                        try {
-                            var ano = matchData.groupValues[3]
-                            if (ano.length == 2) ano = "20$ano"
-                            dataServico = LocalDate.of(ano.toInt(), matchData.groupValues[2].toInt(), matchData.groupValues[1].toInt())
-                        } catch (e: Exception) {}
-                    }
-
-                    val regexKm = Regex("(?i)(?:KM|ODOMETRO|HODOMETRO)[\\s:.]*(\\d{1,3}(?:[.,]\\d{3})*)")
-                    val matchKm = regexKm.find(visionText.text)
-                    if (matchKm != null) kmDetectado = matchKm.groupValues[1].replace(".", "").replace(",", "").toIntOrNull()
-
-                    val keywordsServico = listOf("OLEO", "FILTRO", "ALINHAMENTO", "BALANCEAMENTO", "PASTILHA", "DISCO", "FREIO", "BATERIA", "SUSPENSAO", "PNEU", "RODIZIO", "LUBRAX", "HIGIENIZACAO", "REVISAO", "CORREIA", "LAMPADA", "FLUIDO", "ADITIVO", "AR-CONDICIONADO", "ELETRICO", "INJECAO", "VELA")
-                    val regexViscosidade = Regex("\\b\\d{1,2}W-?\\d{2}\\b", RegexOption.IGNORE_CASE)
-                    val regexPrecoParaRemocao = Regex("(R\\$|\\$)?\\s*\\d{1,4}(?:[.,]\\d{3})*[.,]\\d{2}")
-                    val keywordsIgnorar = listOf("PLACA", "VEICULO", "CARRO", "MODELO", "KM", "ODOMETRO", "DATA", "CLIENTE", "CPF", "CNPJ", "TOTAL", "VALOR", "PAGAMENTO", "TELEFONE", "ENDERECO", "ENTRADA", "SAIDA", "NOME", "IE:", "CEP", "NOTA", "TESTE", "TESTADO", "DIAGNOSTICO")
-
-                    for (linhaObj in linhas) {
-                        val linhaRaw = linhaObj.text
-                        val linhaNormalizada = linhaRaw.uppercase().unaccent()
-
-                        if (linhaNormalizada.contains("OBSERVACOES") || linhaNormalizada.contains("OBS:") || linhaNormalizada.contains("CHECK") || linhaNormalizada.contains("RESUMO") || linhaNormalizada.contains("ITENS REVISADOS")) { lendoObservacoes = true; continue }
-                        if (lendoObservacoes) continue
-
-                        val linhaSemPreco = linhaRaw.replace(regexPrecoParaRemocao, "").replace(Regex("\\.{2,}"), " ").trim()
-                        val partesDaLinha = linhaSemPreco.split(Regex("[,+/]"))
-
-                        for (parte in partesDaLinha) {
-                            val parteUpper = parte.uppercase().trim()
-                            val parteNormalizada = parteUpper.unaccent()
-                            val deveIgnorar = keywordsIgnorar.any { parteNormalizada.contains(it) }
-
-                            if (!deveIgnorar && parteNormalizada.length > 2) {
-                                val contemServico = keywordsServico.any { parteNormalizada.contains(it) }
-                                val contemViscosidade = regexViscosidade.containsMatchIn(parteUpper)
-
-                                if (contemServico || contemViscosidade) {
-                                    var nomeLimpo = parte.replace(Regex("^[\\d-]{1,3}\\s"), "").replace(Regex("[\\[\\(][xX*][\\]\\)]"), "").trim()
-                                    val tipo = when {
-                                        parteNormalizada.contains("ALINHAMENTO") || parteNormalizada.contains("BALANCEAMENTO") || parteNormalizada.contains("SUSPENSAO") || parteNormalizada.contains("PNEU") -> TipoManutencao.MECANICA
-                                        parteNormalizada.contains("OLEO") || parteNormalizada.contains("FILTRO") || parteNormalizada.contains("LUBRAX") || contemViscosidade -> TipoManutencao.OLEO
-                                        parteNormalizada.contains("FREIO") || parteNormalizada.contains("PASTILHA") || parteNormalizada.contains("DISCO") -> TipoManutencao.FREIO
-                                        parteNormalizada.contains("BATERIA") || parteNormalizada.contains("ELETRICO") || parteNormalizada.contains("LAMPADA") -> TipoManutencao.BATERIA
-                                        parteNormalizada.contains("AR-CONDICIONADO") || parteNormalizada.contains("HIGIENIZACAO") -> TipoManutencao.OUTROS
-                                        parteNormalizada.contains("CORREIA") || parteNormalizada.contains("VELA") || parteNormalizada.contains("INJECAO") -> TipoManutencao.MECANICA
-                                        else -> TipoManutencao.OUTROS
-                                    }
-                                    val dataFuturaItem = calcularProximaData(tipo, dataServico)
-                                    if (nomeLimpo.isNotBlank() && itensEncontrados.none { it.nome == nomeLimpo }) {
-                                        val quantidadeItem = extrairQuantidadeDaParte(parteUpper) ?: 1
-                                        itensEncontrados.add(ItemDetectado(nome = nomeLimpo, tipo = tipo, quantidade = quantidadeItem, dataFutura = dataFuturaItem))
-                                    }
-                                }
-                            }
+            scanner.process(inputImage)
+                .addOnSuccessListener { barcodes ->
+                    val qrUrl = barcodes
+                        .firstOrNull { it.format == Barcode.FORMAT_QR_CODE }
+                        ?.rawValue
+                        ?.takeIf { it.isNotBlank() }
+                        ?: barcodes
+                            .firstOrNull { it.format == Barcode.FORMAT_QR_CODE }
+                            ?.displayValue
+                        ?.trim()
+                        ?.takeIf { it.isNotBlank() }
+                    Log.i(CAMERA_QR_TAG, "Passo1 - barcodes=${barcodes.size} qrUrl=$qrUrl")
+                    if (!qrUrl.isNullOrBlank()) {
+                        ContextCompat.getMainExecutor(context).execute {
+                            onResult(
+                                ResultadoCaptura(
+                                    arquivoFoto = arquivo,
+                                    itensEncontrados = emptyList(),
+                                    kmDetectado = null,
+                                    qrCodeUrl = qrUrl,
+                                    sugestoesProduto = emptyList(),
+                                    linhasReconhecidas = emptyList()
+                                )
+                            )
+                            image.close()
                         }
+                        scanner.close()
+                        return@addOnSuccessListener
                     }
-                    if (itensEncontrados.isEmpty()) {
-                        itensEncontrados.add(ItemDetectado(nome = "Serviço Detectado (Editar)", tipo = TipoManutencao.OUTROS, valor = 0.0, dataFutura = calcularProximaData(TipoManutencao.OUTROS, dataServico)))
-                    }
-                }
 
-                val itensParaRetorno = if (LER_NOTAS_HABILITADO) itensEncontrados else emptyList()
-                val kmParaRetorno = if (LER_NOTAS_HABILITADO) kmDetectado else null
-                val linhasReconhecidas = linhasInfo.map { it.texto }
-                ContextCompat.getMainExecutor(context).execute { onResult(ResultadoCaptura(arquivo, itensParaRetorno, kmParaRetorno, sugestoesProduto, linhasReconhecidas)); image.close() }
-            }.addOnFailureListener {
-                val itensFallback = if (LER_NOTAS_HABILITADO) listOf(ItemDetectado(nome = "Novo Serviço", tipo = TipoManutencao.OUTROS, dataFutura = calcularProximaData(TipoManutencao.OUTROS, LocalDate.now()))) else emptyList()
-                ContextCompat.getMainExecutor(context).execute { onResult(ResultadoCaptura(arquivo, itensFallback, null, emptyList(), emptyList())); image.close() }
-            }
+                    scanner.process(inputImageSemRotacao)
+                        .addOnSuccessListener { barcodesSemRotacao ->
+                            val qrUrlSemRotacao = barcodesSemRotacao
+                                .firstOrNull { it.format == Barcode.FORMAT_QR_CODE }
+                                ?.rawValue
+                                ?.takeIf { it.isNotBlank() }
+                                ?: barcodesSemRotacao
+                                    .firstOrNull { it.format == Barcode.FORMAT_QR_CODE }
+                                    ?.displayValue
+                                ?.trim()
+                                ?.takeIf { it.isNotBlank() }
+                            Log.i(
+                                CAMERA_QR_TAG,
+                                "Passo2 (sem rotacao) - barcodes=${barcodesSemRotacao.size} qrUrl=$qrUrlSemRotacao"
+                            )
+                            if (!qrUrlSemRotacao.isNullOrBlank()) {
+                                ContextCompat.getMainExecutor(context).execute {
+                                    onResult(
+                                        ResultadoCaptura(
+                                            arquivoFoto = arquivo,
+                                            itensEncontrados = emptyList(),
+                                            kmDetectado = null,
+                                            qrCodeUrl = qrUrlSemRotacao,
+                                            sugestoesProduto = emptyList(),
+                                            linhasReconhecidas = emptyList()
+                                        )
+                                    )
+                                    image.close()
+                                }
+                                scanner.close()
+                                return@addOnSuccessListener
+                            }
+
+                            scanner.process(inputImageFocado)
+                                .addOnSuccessListener { barcodesFoco ->
+                                    val qrUrlFoco = barcodesFoco
+                                        .firstOrNull { it.format == Barcode.FORMAT_QR_CODE }
+                                        ?.rawValue
+                                        ?.takeIf { it.isNotBlank() }
+                                        ?: barcodesFoco
+                                            .firstOrNull { it.format == Barcode.FORMAT_QR_CODE }
+                                            ?.displayValue
+                                        ?.trim()
+                                        ?.takeIf { it.isNotBlank() }
+                                    Log.i(CAMERA_QR_TAG, "Passo3 (foco) - barcodes=${barcodesFoco.size} qrUrl=$qrUrlFoco")
+                                    ContextCompat.getMainExecutor(context).execute {
+                                        onResult(
+                                            ResultadoCaptura(
+                                                arquivoFoto = arquivo,
+                                                itensEncontrados = emptyList(),
+                                                kmDetectado = null,
+                                                qrCodeUrl = qrUrlFoco,
+                                                sugestoesProduto = emptyList(),
+                                                linhasReconhecidas = emptyList()
+                                            )
+                                        )
+                                        image.close()
+                                    }
+                                    scanner.close()
+                                }
+                                .addOnFailureListener { erroFoco ->
+                                    Log.e(CAMERA_QR_TAG, "Falha no passo3 QR", erroFoco)
+                                    ContextCompat.getMainExecutor(context).execute {
+                                        onResult(
+                                            ResultadoCaptura(
+                                                arquivoFoto = arquivo,
+                                                itensEncontrados = emptyList(),
+                                                kmDetectado = null,
+                                                qrCodeUrl = null,
+                                                sugestoesProduto = emptyList(),
+                                                linhasReconhecidas = emptyList()
+                                            )
+                                        )
+                                        image.close()
+                                    }
+                                    scanner.close()
+                                }
+                        }
+                        .addOnFailureListener { erroSemRotacao ->
+                            Log.e(CAMERA_QR_TAG, "Falha no passo2 QR", erroSemRotacao)
+                            ContextCompat.getMainExecutor(context).execute {
+                                onResult(
+                                    ResultadoCaptura(
+                                        arquivoFoto = arquivo,
+                                        itensEncontrados = emptyList(),
+                                        kmDetectado = null,
+                                        qrCodeUrl = null,
+                                        sugestoesProduto = emptyList(),
+                                        linhasReconhecidas = emptyList()
+                                    )
+                                )
+                                image.close()
+                            }
+                            scanner.close()
+                        }
+                }
+                .addOnFailureListener { erro ->
+                    Log.e(CAMERA_QR_TAG, "Falha no passo1 QR", erro)
+                    ContextCompat.getMainExecutor(context).execute {
+                        onResult(
+                            ResultadoCaptura(
+                                arquivoFoto = arquivo,
+                                itensEncontrados = emptyList(),
+                                kmDetectado = null,
+                                qrCodeUrl = null,
+                                sugestoesProduto = emptyList(),
+                                linhasReconhecidas = emptyList()
+                            )
+                        )
+                        image.close()
+                    }
+                    scanner.close()
+                }
         }
         override fun onError(exception: ImageCaptureException) {}
     })
