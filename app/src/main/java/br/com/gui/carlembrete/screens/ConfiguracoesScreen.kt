@@ -95,9 +95,10 @@ fun ConfiguracoesScreen(
     val scope = rememberCoroutineScope()
     val activity = (LocalContext.current as? android.app.Activity)
     val subscriptionManager = remember { SubscriptionManager(context) }
-    val isSubscribed by subscriptionManager.isSubscribed.collectAsState()
+    val planTier by subscriptionManager.planTier.collectAsState()
     var adminTapCount by remember { mutableStateOf(0) }
     var showAdminDialog by remember { mutableStateOf(false) }
+    var showPremiumDialog by remember { mutableStateOf(false) }
     var adminPassword by remember { mutableStateOf("") }
     var adminUnlocked by remember { mutableStateOf(false) }
     var lastBackupTime by remember { mutableStateOf(0L) }
@@ -265,6 +266,33 @@ fun ConfiguracoesScreen(
             containerColor = Color(0xFF0F172A)
         )
     }
+    if (showPremiumDialog) {
+        AlertDialog(
+            onDismissRequest = { showPremiumDialog = false },
+            title = { Text("Recurso Premium", color = Color(0xFFF59E0B), fontWeight = FontWeight.Bold) },
+            text = { Text("Assine o Premium para ativar backup automático.", color = Color(0xFFCBD5E1)) },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showPremiumDialog = false
+                        if (activity != null) subscriptionManager.launchPurchaseFlow(activity)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF59E0B))
+                ) {
+                    Text("Assinar Premium", color = Color.Black, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(
+                    onClick = { showPremiumDialog = false },
+                    border = BorderStroke(1.dp, Color(0xFFF59E0B))
+                ) {
+                    Text("Agora não", color = Color(0xFFF59E0B))
+                }
+            },
+            containerColor = Color(0xFF0F172A)
+        )
+    }
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
@@ -326,7 +354,7 @@ fun ConfiguracoesScreen(
             Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)) {
 
                 // Card de Venda (Só aparece se não for assinante)
-                if (!isSubscribed) {
+                if (planTier == PlanTier.FREE) {
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -349,17 +377,16 @@ fun ConfiguracoesScreen(
                                 Icon(Icons.Default.Star, null, tint = Color(0xFFF59E0B), modifier = Modifier.size(24.dp))
                                 Spacer(Modifier.width(8.dp))
                                 Text(
-                                    "CarLembrete Premium",
+                                    "Zellu Premium",
                                     color = Color.White,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 18.sp
                                 )
                             }
                             // Benefícios compactos
-                            BeneficioItem("Zellu Guardião sempre ativo")
-                            BeneficioItem("Alertas inteligentes automáticos")
-                            BeneficioItem("OCR avançado com sugestões")
-                            BeneficioItem("Relatórios completos em 1 toque")
+                            BeneficioItem("Backup automático no Google Drive")
+                            BeneficioItem("OCR ilimitado com sugestões")
+                            BeneficioItem("PDF completo em 1 toque")
 
                             Button(
                                 onClick = {
@@ -379,6 +406,7 @@ fun ConfiguracoesScreen(
                     }
                 } else {
                     // Feedback visual se já for assinante
+                    val planoLabel = "Premium"
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -387,7 +415,7 @@ fun ConfiguracoesScreen(
                     ) {
                         Icon(Icons.Default.CheckCircle, null, tint = Color(0xFF10B981))
                         Spacer(Modifier.width(8.dp))
-                        Text("Sua assinatura Premium está ativa.", color = Color(0xFF10B981), fontSize = 14.sp)
+                        Text("Sua assinatura $planoLabel está ativa.", color = Color(0xFF10B981), fontSize = 14.sp)
                     }
                 }
 
@@ -459,9 +487,13 @@ fun ConfiguracoesScreen(
                         label = "Semanal",
                         selected = backupInterval == BackupInterval.WEEKLY,
                         onClick = {
-                            backupInterval = BackupInterval.WEEKLY
-                            setBackupInterval(context, backupInterval)
-                            scheduleBackupWork(context, backupInterval)
+                            if (planTier == PlanTier.FREE) {
+                                showPremiumDialog = true
+                            } else {
+                                backupInterval = BackupInterval.WEEKLY
+                                setBackupInterval(context, backupInterval)
+                                scheduleBackupWork(context, backupInterval)
+                            }
                         },
                         modifier = Modifier.weight(1f)
                     )
@@ -469,9 +501,13 @@ fun ConfiguracoesScreen(
                         label = "Mensal",
                         selected = backupInterval == BackupInterval.MONTHLY,
                         onClick = {
-                            backupInterval = BackupInterval.MONTHLY
-                            setBackupInterval(context, backupInterval)
-                            scheduleBackupWork(context, backupInterval)
+                            if (planTier == PlanTier.FREE) {
+                                showPremiumDialog = true
+                            } else {
+                                backupInterval = BackupInterval.MONTHLY
+                                setBackupInterval(context, backupInterval)
+                                scheduleBackupWork(context, backupInterval)
+                            }
                         },
                         modifier = Modifier.weight(1f)
                     )

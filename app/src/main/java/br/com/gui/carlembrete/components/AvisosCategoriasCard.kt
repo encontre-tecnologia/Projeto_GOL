@@ -15,24 +15,33 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.EventNote
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.rounded.Message
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -48,7 +57,7 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 // --- CORES & FORMATADORES ---
-private val CardBackgroundColor = Color(0xFF1E293B)
+private val CardBackgroundColor = Color(0xFF2B3950)
 private val ItemBackgroundColor = Color(0xFF0F172A)
 private val SurfaceHighlight = Color(0xFF334155)
 private val TextWhite = Color(0xFFF8FAFC)
@@ -64,6 +73,8 @@ private val dateFormatter = DateTimeFormatter.ofPattern("dd/MM")
 fun AvisosCategoriasCard(
     lembretesDoCarroAtual: List<Lembrete>,
     lembretesComBusca: List<Lembrete>,
+    buscaTexto: String,
+    onBuscar: (String) -> Unit,
     listaContatos: List<ContatoProfissional>,
     modeloCarro: String,
     filtroTipo: TipoManutencao?,
@@ -80,6 +91,12 @@ fun AvisosCategoriasCard(
     modifier: Modifier = Modifier
 ) {
     val scrollState = rememberScrollState()
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
+    var buscaLocal by remember { mutableStateOf(buscaTexto) }
+    androidx.compose.runtime.LaunchedEffect(buscaTexto) {
+        if (buscaLocal != buscaTexto) buscaLocal = buscaTexto
+    }
 
     // Container Pai com Sombra
     Box(
@@ -220,6 +237,43 @@ fun AvisosCategoriasCard(
                 }
 
                 Spacer(Modifier.height(16.dp))
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    SearchTextFieldLocal(
+                        value = buscaLocal,
+                        onValueChange = { buscaLocal = it },
+                        placeholder = "Buscar lembrete",
+                        textColor = TextWhite,
+                        placeholderColor = TextGray,
+                        borderColor = Color.White.copy(alpha = 0.55f),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(44.dp)
+                    )
+                    OutlinedButton(
+                        onClick = {
+                            onBuscar(buscaLocal)
+                            keyboardController?.hide()
+                            focusManager.clearFocus()
+                        },
+                        border = BorderStroke(1.dp, Color.White),
+                        colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
+                            containerColor = AccentBlue,
+                            contentColor = Color.White
+                        ),
+                        contentPadding = PaddingValues(0.dp),
+                        shape = CircleShape,
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Icon(Icons.Default.Search, contentDescription = "Buscar", modifier = Modifier.size(20.dp))
+                    }
+                }
 
                 // --- LISTA DE LEMBRETES ---
                 if (lembretesComBusca.isEmpty()) {
@@ -591,6 +645,37 @@ private fun EmptyStateView(textColor: Color) {
         Spacer(Modifier.height(16.dp))
         Text("Tudo 100%!", color = TextWhite, fontSize = 15.sp, fontWeight = FontWeight.Bold)
         Text("Nenhum aviso nessa categoria.", color = textColor, fontSize = 13.sp)
+    }
+}
+
+@Composable
+private fun SearchTextFieldLocal(
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String,
+    textColor: Color,
+    placeholderColor: Color,
+    borderColor: Color,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(8.dp))
+            .border(1.dp, borderColor, RoundedCornerShape(8.dp))
+            .padding(horizontal = 12.dp),
+        contentAlignment = Alignment.CenterStart
+    ) {
+        androidx.compose.foundation.text.BasicTextField(
+            value = value,
+            onValueChange = onValueChange,
+            singleLine = true,
+            cursorBrush = SolidColor(Color.White),
+            textStyle = TextStyle(color = textColor, fontSize = 13.sp),
+            modifier = Modifier.fillMaxWidth()
+        )
+        if (value.isEmpty()) {
+            Text(placeholder, color = placeholderColor, fontSize = 13.sp)
+        }
     }
 }
 

@@ -1,4 +1,5 @@
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -23,7 +24,7 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
 // --- CORES (Sólidas para consistência) ---
-private val CardBackgroundColor = Color(0xFF1E293B) // Slate 800 (Mesma do card do carro)
+private val CardBackgroundColor = Color(0xFF2B3950) // Igual ao card pai com degradê
 
 private val AccentBlue = Color(0xFF3B82F6)
 private val TextWhite = Color(0xFFF1F5F9)
@@ -69,14 +70,14 @@ fun AbastecimentoCard(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Surface(
                         shape = CircleShape,
-                        color = Color.White.copy(alpha = 0.08f), // Vidro sutil
+                        color = Color.White.copy(alpha = 0.14f), // Circulo mais claro
                         modifier = Modifier.size(48.dp)
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Icon(
                                 imageVector = Icons.Rounded.LocalGasStation,
                                 contentDescription = null,
-                                tint = AccentBlue, // Destaque em azul para combinar com o tema
+                                tint = Color.White,
                                 modifier = Modifier.size(24.dp)
                             )
                         }
@@ -108,6 +109,7 @@ fun AbastecimentoCard(
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(16.dp))
                             .background(InnerCardBackground) // Fundo interno mais escuro
+                            .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(16.dp))
                             .padding(16.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
@@ -218,10 +220,12 @@ private fun CustoCompactoItem(
     color: Color,
     modifier: Modifier = Modifier
 ) {
+    val labelClean = label.trimEnd('.')
     Column(
         modifier = modifier
             .clip(RoundedCornerShape(16.dp)) // Cantos mais arredondados
             .background(InnerCardBackground)
+            .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(16.dp))
             .padding(vertical = 14.dp, horizontal = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
@@ -230,21 +234,21 @@ private fun CustoCompactoItem(
             imageVector = icon,
             contentDescription = null,
             tint = color,
-            modifier = Modifier.size(22.dp)
+            modifier = Modifier.size(26.dp)
         )
         Spacer(Modifier.height(8.dp))
         Text(
-            text = label,
-            color = TextGray,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Medium
+            text = labelClean,
+            color = Color.White,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold
         )
         Spacer(Modifier.height(4.dp))
         Text(
             text = value?.let { "R$ ${String.format("%.2f", it)}" } ?: "R$ 0,00",
-            color = TextWhite,
+            color = SuccessGreen,
             fontWeight = FontWeight.Bold,
-            fontSize = 13.sp
+            fontSize = 14.sp
         )
     }
 }

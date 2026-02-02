@@ -213,7 +213,7 @@ fun getKmAdicionalPorTipo(tipo: TipoManutencao): Int {
 
 fun formatarMoeda(valor: Double): String = NumberFormat.getCurrencyInstance(Locale("pt", "BR")).format(valor)
 
-fun gerarResumoRelatorio(carro: CarroInfo, lembretes: List<Lembrete>): String {
+fun gerarResumoRelatorio(carro: CarroInfo, lembretes: List<Lembrete>, isPremium: Boolean): String {
     val builder = StringBuilder()
     builder.appendLine("Relat�rio do ve�culo")
     builder.appendLine("Nome: ${carro.nome}")
@@ -234,8 +234,10 @@ fun gerarResumoRelatorio(carro: CarroInfo, lembretes: List<Lembrete>): String {
             builder.appendLine("* ${lembrete.titulo} - Data: ${lembrete.dataLimite.ifBlank { "Sem data" }} - KM: ${lembrete.kmLimite.ifBlank { "-" }}")
         }
     }
-    builder.appendLine()
-    builder.appendLine("Gerado via CarLembrete")
+    if (!isPremium) {
+        builder.appendLine()
+        builder.appendLine("Gerado pelo Zellu")
+    }
     return builder.toString()
 }
 
@@ -247,7 +249,7 @@ fun compartilharRelatorio(context: Context, texto: String) {
     context.startActivity(Intent.createChooser(intent, "Compartilhar relat�rio"))
 }
 
-fun gerarPdfRelatorio(context: Context, carro: CarroInfo, lembretes: List<Lembrete>): Uri? {
+fun gerarPdfRelatorio(context: Context, carro: CarroInfo, lembretes: List<Lembrete>, isPremium: Boolean): Uri? {
     return try {
         val document = PdfDocument()
         val pageInfo = PdfDocument.PageInfo.Builder(595, 842, 1).create()
@@ -303,6 +305,12 @@ fun gerarPdfRelatorio(context: Context, carro: CarroInfo, lembretes: List<Lembre
             color = android.graphics.Color.parseColor("#94A3B8")
             isAntiAlias = true
         }
+        val watermarkPaint = Paint().apply {
+            textSize = 10f
+            color = android.graphics.Color.parseColor("#94A3B8")
+            textAlign = Paint.Align.CENTER
+            isAntiAlias = true
+        }
         val colorSuccess = android.graphics.Color.parseColor("#16A34A")
         val colorDanger = android.graphics.Color.parseColor("#DC2626")
         val accentColor = android.graphics.Color.parseColor("#2563EB")
@@ -331,6 +339,9 @@ fun gerarPdfRelatorio(context: Context, carro: CarroInfo, lembretes: List<Lembre
 
         fun ensureSpace(extra: Float) {
             if (y + extra > pageInfo.pageHeight - 40) {
+                if (!isPremium) {
+                    canvas.drawText("Gerado pelo Zellu", pageInfo.pageWidth / 2f, pageInfo.pageHeight - 24f, watermarkPaint)
+                }
                 document.finishPage(currentPage)
                 val nextPageInfo = PdfDocument.PageInfo.Builder(595, 842, document.pages.size + 1).create()
                 currentPage = document.startPage(nextPageInfo)
@@ -531,6 +542,9 @@ fun gerarPdfRelatorio(context: Context, carro: CarroInfo, lembretes: List<Lembre
             y += 8f
         }
 
+        if (!isPremium) {
+            canvas.drawText("Gerado pelo Zellu", pageInfo.pageWidth / 2f, pageInfo.pageHeight - 24f, watermarkPaint)
+        }
         document.finishPage(currentPage)
         val nextPageInfo = PdfDocument.PageInfo.Builder(595, 842, document.pages.size + 1).create()
         currentPage = document.startPage(nextPageInfo)
@@ -614,6 +628,9 @@ fun gerarPdfRelatorio(context: Context, carro: CarroInfo, lembretes: List<Lembre
             y += targetHeight
         }
 
+        if (!isPremium) {
+            canvas.drawText("Gerado pelo Zellu", pageInfo.pageWidth / 2f, pageInfo.pageHeight - 24f, watermarkPaint)
+        }
         document.finishPage(currentPage)
         val pdfFile = File(context.cacheDir, "relatorio_${System.currentTimeMillis()}.pdf")
         FileOutputStream(pdfFile).use { output -> document.writeTo(output) }
@@ -621,6 +638,219 @@ fun gerarPdfRelatorio(context: Context, carro: CarroInfo, lembretes: List<Lembre
         FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", pdfFile)
     } catch (e: Exception) {
         Log.e("PDF", "Erro ao gerar PDF", e)
+        null
+    }
+}
+
+fun gerarPdfFinanceiro(
+    context: Context,
+    carros: List<CarroInfo>,
+    abastecimentos: List<Abastecimento>,
+    lembretes: List<Lembrete>
+): Uri? {
+    return try {
+        val document = PdfDocument()
+        val pageInfo = PdfDocument.PageInfo.Builder(595, 842, 1).create()
+        var currentPage = document.startPage(pageInfo)
+        var canvas = currentPage.canvas
+        val titlePaint = Paint().apply {
+            textSize = 22f
+            color = android.graphics.Color.BLACK
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            isAntiAlias = true
+        }
+        val subtitlePaint = Paint().apply {
+            textSize = 12f
+            color = android.graphics.Color.DKGRAY
+            isAntiAlias = true
+        }
+        val sectionPaint = Paint().apply {
+            textSize = 13f
+            color = android.graphics.Color.BLACK
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            isAntiAlias = true
+        }
+        val labelPaint = Paint().apply {
+            textSize = 10.5f
+            color = android.graphics.Color.parseColor("#475569")
+            isAntiAlias = true
+        }
+        val valuePaint = Paint().apply {
+            textSize = 12.5f
+            color = android.graphics.Color.BLACK
+            isAntiAlias = true
+        }
+        val valueBoldPaint = Paint().apply {
+            textSize = 12.5f
+            color = android.graphics.Color.BLACK
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            isAntiAlias = true
+        }
+        val dividerPaint = Paint().apply {
+            strokeWidth = 1.2f
+            color = android.graphics.Color.parseColor("#CBD5E1")
+            isAntiAlias = true
+        }
+        val cardBgPaint = Paint().apply { color = android.graphics.Color.parseColor("#F8FAFC") }
+        val cardBorderPaint = Paint().apply {
+            color = android.graphics.Color.parseColor("#E2E8F0")
+            style = Paint.Style.STROKE
+            strokeWidth = 1.2f
+            isAntiAlias = true
+        }
+        val accentPaint = Paint().apply { color = android.graphics.Color.parseColor("#2563EB") }
+        val marginX = 36f
+        val contentWidth = pageInfo.pageWidth - marginX * 2
+        var y = 72f
+
+        fun fit(text: String, maxChars: Int): String =
+            if (text.length <= maxChars) text else text.take(maxChars - 3) + "..."
+
+        fun ensureSpace(extra: Float) {
+            if (y + extra > pageInfo.pageHeight - 40) {
+                document.finishPage(currentPage)
+                val nextPageInfo = PdfDocument.PageInfo.Builder(595, 842, document.pages.size + 1).create()
+                currentPage = document.startPage(nextPageInfo)
+                canvas = currentPage.canvas
+                y = 72f
+            }
+        }
+
+        fun drawHeader() {
+            canvas.drawColor(android.graphics.Color.WHITE)
+            canvas.drawRect(0f, 0f, pageInfo.pageWidth.toFloat(), 6f, accentPaint)
+            val titleCenterPaint = Paint(titlePaint).apply { textAlign = Paint.Align.CENTER }
+            canvas.drawText("RELATORIO FINANCEIRO", pageInfo.pageWidth / 2f, 48f, titleCenterPaint)
+            val subtitleCenterPaint = Paint(subtitlePaint).apply { textAlign = Paint.Align.CENTER }
+            canvas.drawText(
+                "Gerado em ${LocalDate.now().format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))}",
+                pageInfo.pageWidth / 2f,
+                70f,
+                subtitleCenterPaint
+            )
+            canvas.drawLine(marginX, 84f, pageInfo.pageWidth - marginX, 84f, dividerPaint)
+        }
+
+        fun drawSectionTitle(title: String) {
+            ensureSpace(24f)
+            canvas.drawText(title, marginX, y, sectionPaint)
+            y += 8f
+            canvas.drawLine(marginX, y, pageInfo.pageWidth - marginX, y, dividerPaint)
+            y += 14f
+        }
+
+        fun drawCard(height: Float, content: (Float) -> Unit) {
+            ensureSpace(height + 10f)
+            val rect = android.graphics.RectF(marginX, y, marginX + contentWidth, y + height)
+            canvas.drawRoundRect(rect, 12f, 12f, cardBgPaint)
+            canvas.drawRoundRect(rect, 12f, 12f, cardBorderPaint)
+            content(y)
+            y += height + 20f
+        }
+
+        drawHeader()
+        y = 108f
+
+        val totalManutencao = lembretes.sumOf { it.valor }
+        val totalCombustivel = abastecimentos.sumOf { it.valorPago }
+        val totalGeral = totalManutencao + totalCombustivel
+        val formatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
+
+        drawSectionTitle("RESUMO GERAL")
+        drawCard(88f) { topY ->
+            val colLeft = marginX + 14f
+            val colRight = marginX + contentWidth / 2f + 8f
+            fun drawRow(label: String, value: String, x: Float, rowY: Float, bold: Boolean = false) {
+                canvas.drawText(label.uppercase(Locale.getDefault()), x, rowY, labelPaint)
+                canvas.drawText(value, x, rowY + 18f, if (bold) valueBoldPaint else valuePaint)
+            }
+            drawRow("Total geral", formatarMoeda(totalGeral), colLeft, topY + 22f, true)
+            drawRow("Total manutencao", formatarMoeda(totalManutencao), colRight, topY + 22f)
+            drawRow("Total combustivel", formatarMoeda(totalCombustivel), colLeft, topY + 56f)
+        }
+
+        drawCard(58f) { topY ->
+            val colLeft = marginX + 14f
+            val colRight = marginX + contentWidth / 2f + 8f
+            canvas.drawText("VEICULOS CADASTRADOS", colLeft, topY + 22f, labelPaint)
+            canvas.drawText(carros.size.toString(), colLeft, topY + 36f, valueBoldPaint)
+            canvas.drawText("LEMBRETES ATIVOS", colRight, topY + 22f, labelPaint)
+            canvas.drawText(lembretes.size.toString(), colRight, topY + 36f, valueBoldPaint)
+        }
+
+        y += 10f
+        drawSectionTitle("GASTOS POR VEICULO")
+
+        val gastoPorVeiculo = carros.associate { carro ->
+            val gastoManutencao = lembretes.filter { it.carroId == carro.id }.sumOf { it.valor }
+            val gastoComb = abastecimentos.filter { it.carroId == carro.id }.sumOf { it.valorPago }
+            carro to (gastoManutencao + gastoComb)
+        }.entries.sortedByDescending { it.value }
+
+        if (gastoPorVeiculo.isEmpty()) {
+            canvas.drawText("Nenhum gasto registrado.", marginX, y, labelPaint)
+            y += 16f
+        } else {
+            val totalPaint = Paint(valuePaint).apply { textAlign = Paint.Align.RIGHT }
+            val tipoPaint = Paint(labelPaint).apply { textAlign = Paint.Align.RIGHT }
+            gastoPorVeiculo.forEach { (carro, total) ->
+                ensureSpace(40f)
+                val nome = fit(carro.nome.ifBlank { "Veiculo" }, 24)
+                val gastoComb = abastecimentos.filter { it.carroId == carro.id }.sumOf { it.valorPago }
+                val detalheExtra = if (carro.tipoVeiculo == TipoVeiculo.BICICLETA) {
+                    carro.modelo.ifBlank { "" }.let { if (it.isBlank()) "" else "Aro: $it" }
+                } else {
+                    carro.modelo.ifBlank { "" }.let { if (it.isBlank()) "" else "Motor: $it" }
+                }
+                val kmTexto = if (carro.kmAtual > 0) "KM: ${carro.kmAtual}" else ""
+                val combustivelTexto = if (gastoComb > 0.0) "Comb: ${formatarMoeda(gastoComb)}" else ""
+                val detalhes = listOf(carro.marca, detalheExtra, kmTexto, combustivelTexto)
+                    .filter { it.isNotBlank() }
+                    .joinToString(" • ")
+                val detalheTexto = if (detalhes.isBlank()) "Sem detalhes" else fit(detalhes, 28)
+                canvas.drawText(nome, marginX, y + 6f, valueBoldPaint)
+                canvas.drawText(detalheTexto, marginX, y + 20f, labelPaint)
+                canvas.drawText(formatarMoeda(total), pageInfo.pageWidth - marginX, y + 12f, totalPaint)
+                canvas.drawText(carro.tipoVeiculo.label, pageInfo.pageWidth - marginX, y + 24f, tipoPaint)
+                y += 40f
+                canvas.drawLine(marginX, y - 8f, pageInfo.pageWidth - marginX, y - 8f, dividerPaint)
+            }
+        }
+
+        // Rodape com banner
+        val bannerBitmap = try {
+            context.assets.open("ZelluBanner.png").use { BitmapFactory.decodeStream(it) }
+        } catch (_: Exception) {
+            null
+        }
+        if (bannerBitmap != null) {
+            val maxWidth = contentWidth * 0.55f
+            val scale = maxWidth / bannerBitmap.width.toFloat()
+            val targetWidth = bannerBitmap.width * scale
+            val targetHeight = bannerBitmap.height * scale
+            ensureSpace(targetHeight + 20f)
+            val left = (pageInfo.pageWidth - targetWidth) / 2f
+            canvas.drawBitmap(
+                Bitmap.createScaledBitmap(
+                    bannerBitmap,
+                    targetWidth.toInt(),
+                    targetHeight.toInt(),
+                    true
+                ),
+                left,
+                y,
+                null
+            )
+            y += targetHeight + 10f
+        }
+
+        document.finishPage(currentPage)
+        val pdfFile = File(context.cacheDir, "relatorio_financeiro_${System.currentTimeMillis()}.pdf")
+        FileOutputStream(pdfFile).use { output -> document.writeTo(output) }
+        document.close()
+        FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", pdfFile)
+    } catch (e: Exception) {
+        Log.e("PDF", "Erro ao gerar PDF financeiro", e)
         null
     }
 }

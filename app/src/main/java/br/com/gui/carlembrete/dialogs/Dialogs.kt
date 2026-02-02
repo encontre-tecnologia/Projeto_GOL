@@ -97,6 +97,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import br.com.gui.carlembrete.R
+import br.com.gui.carlembrete.VehicleIcon
 import br.com.gui.carlembrete.ui.theme.CarLembreteTheme
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
@@ -123,6 +124,7 @@ import java.util.concurrent.Executors
 import kotlin.math.roundToInt
 
 private const val pecaOutraLabel = "Outra (digitar)"
+private const val OCR_FREE_LIMIT = 3
 private val pecasSugestao = listOf(
     "Óleo do motor",
     "Filtro de óleo",
@@ -701,10 +703,13 @@ fun NovoAgendamentoDialog(
     autoAbrirCamera: Boolean = false,
     onAutoCameraConsumida: () -> Unit = {},
     onAddContato: (ContatoProfissional) -> Unit = {},
-    initialTipo: TipoManutencao = TipoManutencao.OLEO
+    initialTipo: TipoManutencao = TipoManutencao.OLEO,
+    planTier: PlanTier,
+    onRequestPremium: () -> Unit
 ) {
     val context = LocalContext.current
     val appContext = context.applicationContext
+    val isPremium = planTier != PlanTier.FREE
     var descricao by remember { mutableStateOf("") }
     var data by remember { mutableStateOf(LocalDate.now().format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))) }
     var kmBase by remember { mutableStateOf(if (carroAtual.kmAtual > 0) carroAtual.kmAtual.toString() else "") }
@@ -746,9 +751,22 @@ fun NovoAgendamentoDialog(
         }
     }
 
+    fun tentarAbrirCamera() {
+        if (isPremium) {
+            showCamera = true
+            return
+        }
+        if (AppPreferences.canUseOcr(context, OCR_FREE_LIMIT)) {
+            showCamera = true
+        } else {
+            Toast.makeText(context, "Limite de OCR do plano grátis atingido.", Toast.LENGTH_SHORT).show()
+            onRequestPremium()
+        }
+    }
+
     LaunchedEffect(autoAbrirCamera) {
         if (autoAbrirCamera) {
-            showCamera = true
+            tentarAbrirCamera()
             onAutoCameraConsumida()
         }
     }
@@ -889,6 +907,9 @@ fun adicionarContatoManual() {
 
     if (showCamera) {
         CameraCapturaDialog(onDismiss = { showCamera = false }, onFotoCapturada = { resultado ->
+            if (!isPremium) {
+                AppPreferences.incrementOcrCount(context)
+            }
             fotoCaminho = resultado.arquivoFoto.absolutePath
             textosDetectados = filtrarTextosDetectados(resultado.linhasReconhecidas)
             textoSelecionadoDialog = null
@@ -1288,7 +1309,7 @@ fun adicionarContatoManual() {
                 when (etapaAtual) {
                     1 -> {
                         Button(
-                            onClick = { showCamera = true },
+                            onClick = { tentarAbrirCamera() },
                             modifier = Modifier.fillMaxWidth().height(48.dp),
                             shape = RoundedCornerShape(12.dp),
                             colors = ButtonDefaults.buttonColors(
@@ -1797,12 +1818,19 @@ fun EditarCarroDialog(carroAtual: CarroInfo, titulo: String, onDismiss: () -> Un
                             .fillMaxWidth(),
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = marcaExpanded) },
                         leadingIcon = {
+                            val tipoLocal = tipoSelecionado
                             if (marcaLogo != null) {
                                 Image(
                                     painter = painterResource(marcaLogo),
                                     contentDescription = marca,
                                     modifier = Modifier.size(24.dp),
                                     colorFilter = ColorFilter.tint(Color.White)
+                                )
+                            } else if (tipoLocal != null) {
+                                VehicleIcon(
+                                    tipoVeiculo = tipoLocal,
+                                    tint = Color(0xFF3B82F6),
+                                    size = 20.dp
                                 )
                             } else {
                                 Icon(Icons.Rounded.DirectionsCar, contentDescription = null, tint = Color(0xFF3B82F6))
@@ -1831,7 +1859,16 @@ fun EditarCarroDialog(carroAtual: CarroInfo, titulo: String, onDismiss: () -> Un
                                             colorFilter = ColorFilter.tint(Color.White)
                                         )
                                     } else {
-                                        Icon(Icons.Rounded.DirectionsCar, contentDescription = null)
+                                        val tipoLocal = tipoSelecionado
+                                        if (tipoLocal != null) {
+                                            VehicleIcon(
+                                                tipoVeiculo = tipoLocal,
+                                                tint = Color.White,
+                                                size = 18.dp
+                                            )
+                                        } else {
+                                            Icon(Icons.Rounded.DirectionsCar, contentDescription = null)
+                                        }
                                     }
                                 }
                             )

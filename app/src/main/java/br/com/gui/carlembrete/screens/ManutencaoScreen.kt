@@ -1,6 +1,7 @@
 ﻿package br.com.gui.carlembrete
 
 import AbastecimentoCard
+
 import BikeDistanceCard
 import AvisosCategoriasCard
 import CarroInfoCard
@@ -160,6 +161,8 @@ fun ManutencaoScreen(
     var showHistoricoAbastecimentoScreen by remember { mutableStateOf(false) }
     var showBikeDistanceRegister by remember { mutableStateOf(false) }
     var showBikeDistanceHistory by remember { mutableStateOf(false) }
+    var showIpvaMultasScreen by remember { mutableStateOf(false) }
+    var showShareVehicleScreen by remember { mutableStateOf(false) }
 
     var showAnjoDaGuardaScreen by remember { mutableStateOf(false) }
     var showGaragemScreen by remember { mutableStateOf(false) }
@@ -194,6 +197,13 @@ fun ManutencaoScreen(
     val contentScrollState = rememberScrollState()
     val showTopBar by remember { derivedStateOf { contentScrollState.value <= 12 } }
     val activity = remember(context) { context.findActivity() }
+    val subscriptionManager = remember { SubscriptionManager(context) }
+    val planTier by subscriptionManager.planTier.collectAsState()
+    val isSubscribed by subscriptionManager.isSubscribed.collectAsState()
+    var showPremiumDialog by remember { mutableStateOf(false) }
+    var showPremiumInfo by remember { mutableStateOf(false) }
+    val vehicleLimit = if (planTier == PlanTier.FREE) 3 else Int.MAX_VALUE
+    val lembreteLimit = if (planTier == PlanTier.FREE) 15 else Int.MAX_VALUE
 
     // Configuração da Barra de Status (Cor escura)
     SideEffect {
@@ -202,6 +212,10 @@ fun ManutencaoScreen(
             window.statusBarColor = android.graphics.Color.parseColor("#0F172A")
             WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightStatusBars = false
         }
+    }
+    DisposableEffect(Unit) {
+        subscriptionManager.connect()
+        onDispose { subscriptionManager.disconnect() }
     }
 
     // ----------------- TELAS DE VEÍCULO -----------------
@@ -222,9 +236,15 @@ fun ManutencaoScreen(
         NovoCarroScreen(
             onDismiss = { showAddCarScreen = false },
             onSalvar = { novoCarro ->
-                listaCarros = listaCarros + novoCarro
-                indiceCarroAtual = listaCarros.lastIndex
-                showAddCarScreen = false
+                if (listaCarros.size >= vehicleLimit) {
+                    Toast.makeText(context, "Limite de veículos do plano grátis atingido.", Toast.LENGTH_SHORT).show()
+                    showPremiumDialog = true
+                    showAddCarScreen = false
+                } else {
+                    listaCarros = listaCarros + novoCarro
+                    indiceCarroAtual = listaCarros.lastIndex
+                    showAddCarScreen = false
+                }
             }
         )
         return
@@ -338,13 +358,31 @@ fun ManutencaoScreen(
         AnjoDaGuardaScreen(onDismiss = { showAnjoDaGuardaScreen = false })
         return
     }
+    BackHandler(enabled = showIpvaMultasScreen) { showIpvaMultasScreen = false }
+    if (showIpvaMultasScreen) {
+        IpvaMultasScreen(
+            carroAtual = carroAtual,
+            onDismiss = { showIpvaMultasScreen = false }
+        )
+        return
+    }
+    BackHandler(enabled = showShareVehicleScreen) { showShareVehicleScreen = false }
+    if (showShareVehicleScreen) {
+        ShareVehicleScreen(
+            carroAtual = carroAtual,
+            onDismiss = { showShareVehicleScreen = false }
+        )
+        return
+    }
 
     BackHandler(enabled = showMecanicoVirtualScreen) { showMecanicoVirtualScreen = false }
     if (showMecanicoVirtualScreen) {
         MecanicoVirtualScreen(
-            carro = carroAtual,
-            abastecimentos = abastecimentos.filter { it.carroId == carroAtual.id },
-            lembretes = lembretesDoCarroAtual,
+            carros = listaCarros,
+            abastecimentos = abastecimentos,
+            lembretes = todosLembretes,
+            isPremium = isSubscribed,
+            onPremiumRequired = { activity?.let { subscriptionManager.launchPurchaseFlow(it) } },
             onDismiss = { showMecanicoVirtualScreen = false }
         )
         return
@@ -352,6 +390,103 @@ fun ManutencaoScreen(
 
     if (showPrivacidadeDialog) {
         PrivacidadeTermosDialog(onDismiss = { showPrivacidadeDialog = false })
+    }
+    if (showPremiumDialog) {
+        AlertDialog(
+            onDismissRequest = { showPremiumDialog = false },
+            title = { Text("Recurso Premium", color = Color(0xFFF59E0B), fontWeight = FontWeight.Bold) },
+            text = { Text("Assine o Premium para usar OCR, PDF e backup automático.", color = Color(0xFFCBD5E1)) },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showPremiumDialog = false
+                        activity?.let { subscriptionManager.launchPurchaseFlow(it) }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF59E0B))
+                ) {
+                    Text("Assinar Premium", color = Color.Black, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(
+                    onClick = { showPremiumDialog = false },
+                    border = BorderStroke(1.dp, Color(0xFFF59E0B))
+                ) {
+                    Text("Agora não", color = Color(0xFFF59E0B))
+                }
+            },
+            containerColor = Color(0xFF0F172A)
+        )
+    }
+    if (showPremiumInfo) {
+        AlertDialog(
+            onDismissRequest = { showPremiumInfo = false },
+            title = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(
+                        painterResource(id = R.drawable.ic_diamond_alt),
+                        contentDescription = null,
+                        tint = Color.Unspecified,
+                        modifier = Modifier.size(64.dp)
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text("Zellu Premium", color = Color(0xFFF59E0B), fontWeight = FontWeight.Bold, fontSize = 22.sp)
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Desbloqueie recursos avançados:", color = Color(0xFFCBD5E1))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Shield, contentDescription = null, tint = Color(0xFFF59E0B))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Zellu Guardião", color = Color(0xFFCBD5E1))
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.CloudUpload, contentDescription = null, tint = Color(0xFFF59E0B))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Backup automático no Google Drive", color = Color(0xFFCBD5E1))
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.CameraAlt, contentDescription = null, tint = Color(0xFFF59E0B))
+                        Spacer(Modifier.width(8.dp))
+                        Text("OCR ilimitado", color = Color(0xFFCBD5E1))
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.PictureAsPdf, contentDescription = null, tint = Color(0xFFF59E0B))
+                        Spacer(Modifier.width(8.dp))
+                        Text("PDF completo", color = Color(0xFFCBD5E1))
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = Color(0xFFF59E0B))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Veículos ilimitados", color = Color(0xFFCBD5E1))
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showPremiumInfo = false
+                        activity?.let { subscriptionManager.launchPurchaseFlow(it) }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF59E0B))
+                ) {
+                    Text("Assinar Premium", color = Color.Black, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(
+                    onClick = { showPremiumInfo = false },
+                    border = BorderStroke(1.dp, Color(0xFFF59E0B))
+                ) {
+                    Text("Agora não", color = Color(0xFFF59E0B))
+                }
+            },
+            containerColor = Color(0xFF162235)
+        )
     }
 
     BackHandler(enabled = showGaragemScreen) { showGaragemScreen = false }
@@ -374,6 +509,7 @@ fun ManutencaoScreen(
         CarroInfoScreen(
             carro = carroAtual,
             lembretes = lembretesDoCarroAtual,
+            isPremium = planTier != PlanTier.FREE,
             onDismiss = { showCarInfoScreen = false }
         )
         return
@@ -420,16 +556,26 @@ fun ManutencaoScreen(
             contatosDisponiveis = listaContatos,
             onDismiss = { showAddLembreteDialog = false; iniciarCameraProduto = false },
             onConfirm = { novo ->
-                todosLembretes = todosLembretes + novo.copy(carroId = carroAtual.id)
-                showAddLembreteDialog = false
-                iniciarCameraProduto = false
+                if (todosLembretes.size + 1 > lembreteLimit) {
+                    Toast.makeText(context, "Limite de lembretes do plano grátis atingido.", Toast.LENGTH_SHORT).show()
+                    showPremiumDialog = true
+                } else {
+                    todosLembretes = todosLembretes + novo.copy(carroId = carroAtual.id)
+                    showAddLembreteDialog = false
+                    iniciarCameraProduto = false
+                }
             },
             onMultiConfirm = { novosItens ->
                 val novosLembretes = novosItens.map { it.copy(carroId = carroAtual.id) }
-                todosLembretes = todosLembretes + novosLembretes
-                showAddLembreteDialog = false
-                iniciarCameraProduto = false
-                Toast.makeText(context, "${novosLembretes.size} itens salvos!", Toast.LENGTH_SHORT).show()
+                if (todosLembretes.size + novosLembretes.size > lembreteLimit) {
+                    Toast.makeText(context, "Limite de lembretes do plano grátis atingido.", Toast.LENGTH_SHORT).show()
+                    showPremiumDialog = true
+                } else {
+                    todosLembretes = todosLembretes + novosLembretes
+                    showAddLembreteDialog = false
+                    iniciarCameraProduto = false
+                    Toast.makeText(context, "${novosLembretes.size} itens salvos!", Toast.LENGTH_SHORT).show()
+                }
             },
             onUpdateKmCarro = { novoKm -> listaCarros = listaCarros.map { if (it.id == carroAtual.id) it.copy(kmAtual = novoKm) else it } },
             autoAbrirCamera = iniciarCameraProduto,
@@ -437,7 +583,9 @@ fun ManutencaoScreen(
             onAddContato = { novo ->
                 listaContatos = listaContatos + novo
             },
-            initialTipo = tipoAvisoSelecionado
+            initialTipo = tipoAvisoSelecionado,
+            planTier = planTier,
+            onRequestPremium = { showPremiumDialog = true }
         )
         return
     }
@@ -546,7 +694,20 @@ fun ManutencaoScreen(
                         drawerScope.launch { drawerState.close() }
                     }
                     DrawerMenuItem(Icons.Default.AddCircle, "Adicionar Veículo") {
-                        showAddCarScreen = true
+                        if (listaCarros.size >= vehicleLimit) {
+                            Toast.makeText(context, "Limite de veículos do plano grátis atingido.", Toast.LENGTH_SHORT).show()
+                            showPremiumDialog = true
+                        } else {
+                            showAddCarScreen = true
+                        }
+                        drawerScope.launch { drawerState.close() }
+                    }
+                    DrawerMenuItem(Icons.Default.Share, "Compartilhar Veículo") {
+                        if (planTier == PlanTier.FREE) {
+                            showPremiumDialog = true
+                        } else {
+                            showShareVehicleScreen = true
+                        }
                         drawerScope.launch { drawerState.close() }
                     }
 
@@ -559,6 +720,10 @@ fun ManutencaoScreen(
                     )
                     DrawerMenuItem(Icons.Default.Payments, "Gestor Financeiro") {
                         showMecanicoVirtualScreen = true
+                        drawerScope.launch { drawerState.close() }
+                    }
+                    DrawerMenuItem(Icons.Default.Gavel, "IPVA e Multas") {
+                        showIpvaMultasScreen = true
                         drawerScope.launch { drawerState.close() }
                     }
 
@@ -635,6 +800,16 @@ fun ManutencaoScreen(
                         navigationIcon = {
                             IconButton(onClick = { drawerScope.launch { drawerState.open() } }) {
                                 Icon(Icons.Default.Menu, "Menu", tint = textLight)
+                            }
+                        },
+                        actions = {
+                            IconButton(onClick = { showPremiumInfo = true }) {
+                                Icon(
+                                    painterResource(id = R.drawable.ic_diamond_alt),
+                                    contentDescription = "Premium",
+                                    tint = Color.Unspecified,
+                                    modifier = Modifier.size(28.dp)
+                                )
                             }
                         },
                         colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = topBarDark)
@@ -796,6 +971,8 @@ fun ManutencaoScreen(
                     AvisosCategoriasCard(
                         lembretesDoCarroAtual = lembretesDoCarroAtual,
                         lembretesComBusca = lembretesComBusca,
+                        buscaTexto = buscaTexto,
+                        onBuscar = { buscaTexto = it },
                         listaContatos = listaContatos,
                         modeloCarro = carroAtual.nome,
                         filtroTipo = filtroTipo,
@@ -1300,9 +1477,9 @@ private fun calcularResumoAbastecimento(
         )
     }
 
-    val litrosDiario = entries.windowed(2).mapNotNull { (anterior, atual) ->
+    val diasEntreAbastecimentos = entries.windowed(2).mapNotNull { (anterior, atual) ->
         val dias = ChronoUnit.DAYS.between(anterior.data, atual.data)
-        if (dias <= 0) null else atual.litros / dias.toDouble()
+        if (dias <= 0) null else dias.toDouble()
     }
 
     val custoDiario = entries.windowed(2).mapNotNull { (anterior, atual) ->
@@ -1310,13 +1487,13 @@ private fun calcularResumoAbastecimento(
         if (dias <= 0) null else atual.valorPago / dias.toDouble()
     }
 
-    val mediaLitrosBase = litrosDiario.takeIf { it.isNotEmpty() }?.average()
+    val mediaDiasBase = diasEntreAbastecimentos.takeIf { it.isNotEmpty() }?.average()
     val mediaCustoBase = custoDiario.takeIf { it.isNotEmpty() }?.average()
     val ultimo = entries.last()
-    val fallbackDias = 30.0
-    val mediaLitros = mediaLitrosBase ?: (ultimo.litros / fallbackDias)
-    val mediaCusto = mediaCustoBase ?: (ultimo.valorPago / fallbackDias)
-    val diasAte = mediaLitros.takeIf { it > 0.0 }?.let { ceil(ultimo.litros / it).toLong() }
+    val fallbackDias = 7.0
+    val mediaDias = mediaDiasBase ?: fallbackDias
+    val mediaCusto = mediaCustoBase ?: (ultimo.valorPago / mediaDias)
+    val diasAte = mediaDias.takeIf { it > 0.0 }?.let { ceil(it).toLong() }
     val proximaData = diasAte?.let { ultimo.data.plusDays(it) }
 
     return AbastecimentoResumo(

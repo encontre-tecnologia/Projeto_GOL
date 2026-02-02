@@ -46,6 +46,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import br.com.gui.carlembrete.VehicleIcon
 import androidx.compose.ui.unit.sp
 import java.text.NumberFormat
 import java.util.Locale
@@ -288,17 +289,30 @@ fun NovoCarroScreen(
                                 .fillMaxWidth(),
                             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = marcaExpanded) },
                             enabled = tipoSelecionadoConfirmado,
-                            leadingIcon = if (marcaLogo != null) {
-                                {
-                                    Image(
-                                        painter = painterResource(marcaLogo),
-                                        contentDescription = marca,
-                                        modifier = Modifier.size(24.dp),
-                                        colorFilter = ColorFilter.tint(Color.White)
-                                    )
+                            leadingIcon = run {
+                                val tipoLocal = tipoSelecionado
+                                when {
+                                    marcaLogo != null -> {
+                                        {
+                                            Image(
+                                                painter = painterResource(marcaLogo),
+                                                contentDescription = marca,
+                                                modifier = Modifier.size(24.dp),
+                                                colorFilter = ColorFilter.tint(Color.White)
+                                            )
+                                        }
+                                    }
+                                    tipoLocal != null -> {
+                                        {
+                                            VehicleIcon(
+                                                tipoVeiculo = tipoLocal,
+                                                tint = Color.White,
+                                                size = 24.dp
+                                            )
+                                        }
+                                    }
+                                    else -> null
                                 }
-                            } else {
-                                null
                             },
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedTextColor = Color.White,
@@ -333,12 +347,21 @@ fun NovoCarroScreen(
                                                             colorFilter = ColorFilter.tint(Color.White)
                                                         )
                                                     } else {
-                                                        Icon(
-                                                            imageVector = tipoSelecionado?.icon ?: Icons.Rounded.DirectionsCar,
-                                                            contentDescription = null,
-                                                            tint = Color.White,
-                                                            modifier = Modifier.size(16.dp)
-                                                        )
+                                                        val tipoLocal = tipoSelecionado
+                                                        if (tipoLocal != null) {
+                                                            VehicleIcon(
+                                                                tipoVeiculo = tipoLocal,
+                                                                tint = Color.White,
+                                                                size = 16.dp
+                                                            )
+                                                        } else {
+                                                            Icon(
+                                                                imageVector = Icons.Rounded.DirectionsCar,
+                                                                contentDescription = null,
+                                                                tint = Color.White,
+                                                                modifier = Modifier.size(16.dp)
+                                                            )
+                                                        }
                                                     }
                                                 }
                                                 Spacer(Modifier.width(10.dp))

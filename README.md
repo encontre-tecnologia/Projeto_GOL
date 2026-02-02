@@ -7,23 +7,24 @@
 ![Compose](https://img.shields.io/badge/Jetpack%20Compose-M3-4285F4?logo=android&logoColor=white)
 ![Platform](https://img.shields.io/badge/Platform-Android-3DDC84?logo=android&logoColor=white)
 
-> **Organize a manutencao da sua frota com simplicidade e automacao.**
+> **Organize a manutencao de qualquer veiculo com simplicidade e automacao.**
 
 ## Descricao breve
 
-O **Zellu** e um app Android nativo para gerenciamento de manutencoes veiculares. Ele combina registro manual com leitura automatica por camera (OCR) para reduzir digitacao e acelerar o cadastro de avisos.
+O **Zellu** e um app Android nativo para gerenciamento de manutencoes veiculares (carro, moto, caminhonete, caminhao, trator e bicicleta). Ele combina registro manual com leitura automatica por camera (OCR) para reduzir digitacao e acelerar o cadastro de avisos.
 
 ## O que e o app
 
-O aplicativo centraliza informacoes de veiculos, lembretes de manutencao e profissionais de apoio. O fluxo principal guia o usuario por etapas: cadastrar o servico, definir data/quilometragem e vincular um profissional responsavel. Quando ha foto, o app tenta extrair informacoes automaticamente para preencher campos.
+O aplicativo centraliza informacoes de veiculos, lembretes de manutencao, profissionais de apoio e historicos de gastos. O fluxo principal guia o usuario por etapas: cadastrar o servico, definir data/quilometragem e vincular um profissional responsavel. Quando ha foto, o app tenta extrair informacoes automaticamente para preencher campos.
 
 ---
 
 ## Funcionalidades (detalhadas)
 
 - **Cadastro de veiculos**
-  - Registro de dados essenciais (apelido, marca, modelo, km atual).
+  - Registro de dados essenciais (apelido, marca, modelo/aro, km atual).
   - Visualizacao organizada por veiculo e status.
+  - Suporte a bicicleta, carro, moto, caminhonete, caminhao e trator.
 
 - **Captura inteligente por camera (OCR)**
   - Leitura de texto em fotos para sugerir itens de manutencao.
@@ -34,6 +35,7 @@ O aplicativo centraliza informacoes de veiculos, lembretes de manutencao e profi
   - Criacao de lembretes por data e/ou quilometragem.
   - Categorias de manutencao com cores e icones padronizados.
   - Fluxo por etapas para evitar erros e acelerar o cadastro.
+  - Categorias adaptadas para bicicleta (corrente, lubrificacao, pedivela, acessorios, conforto, pneu, transmissao, pecas, etc.).
 
 - **Vinculo com profissional**
   - Selecionar profissional responsavel pelo aviso.
@@ -43,8 +45,16 @@ O aplicativo centraliza informacoes de veiculos, lembretes de manutencao e profi
   - Exportacao do historico do veiculo em PDF.
   - Consulta de eventos anteriores para auditoria e controle.
 
+- **Distancia pedalada (bike)**
+  - Registro manual de km pedalado.
+  - Resumo por dia, semana, mes e total.
+  - Historico separado por bicicleta.
+
 - **Interface moderna**
   - UI em Jetpack Compose (Material 3), com foco em produtividade no dia a dia.
+
+- **Zellu Guardiao**
+  - Monitoramento com alertas inteligentes (beta/expansao).
 
 ---
 
@@ -56,6 +66,7 @@ Este projeto aplica conceitos modernos de desenvolvimento Android (Modern Androi
 - **UI Toolkit:** [Jetpack Compose](https://developer.android.com/jetbrains/compose)
 - **Camera:** [CameraX](https://developer.android.com/training/camerax) (para captura de notas/painel)
 - **IA / Machine Learning:** [Google ML Kit](https://developers.google.com/ml-kit) (reconhecimento de texto/OCR)
+- **Billing:** Google Play Billing (assinaturas)
 - **Qualidade de Codigo:**
   - [JUnit 4](https://junit.org/junit4/) (testes unitarios)
   - [Allure Report](https://github.com/allure-framework/allure-java) (relatorios visuais)
@@ -86,6 +97,26 @@ Este projeto aplica conceitos modernos de desenvolvimento Android (Modern Androi
    Selecione o modulo `app` e clique em **Run**.
 
 ---
+
+## Planos (status atual)
+
+**Zellu Free (Gratis)**
+- Ate 3 veiculos
+- Ate 15 lembretes ativos
+- Lembretes manuais (data e/ou km)
+- Historico basico
+- Backup manual
+- OCR limitado: 3 scans por mes
+- Sem backup automatico e sem PDF
+
+**Zellu Premium**
+- Tudo do Free
+- OCR ilimitado
+- Backup automatico no Google Drive
+- Restaurar com 1 toque
+- Guardiao (alertas inteligentes)
+- Relatorios completos em PDF
+- Ate 5 veiculos
 
 ## Testes e Qualidade
 
