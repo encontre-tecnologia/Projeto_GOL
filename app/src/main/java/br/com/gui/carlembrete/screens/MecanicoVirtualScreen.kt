@@ -15,6 +15,7 @@ import androidx.compose.material.icons.filled.ArrowBackIosNew
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.LocalGasStation
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Savings
 import androidx.compose.material.icons.filled.Search
@@ -96,6 +97,16 @@ fun MecanicoVirtualScreen(
     }
     val formatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
     val currentMonth = YearMonth.now()
+    val gastoCombustivelMesFrota = abastecimentos.filter {
+        runCatching { LocalDate.parse(it.data, formatter) }.getOrNull()?.let { d ->
+            YearMonth.from(d) == currentMonth
+        } ?: false
+    }.sumOf { it.valorPago }
+    val abastecimentosUltimos30Dias = abastecimentos.count {
+        runCatching { LocalDate.parse(it.data, formatter) }.getOrNull()?.let { d ->
+            !d.isBefore(LocalDate.now().minusDays(30))
+        } ?: false
+    }
     val gastoPorVeiculo = carros.associate { carro ->
         val gastoManutencao = lembretes.filter { it.carroId == carro.id }.sumOf { it.valor }
         val gastoCombustivel = abastecimentos.filter { it.carroId == carro.id }.sumOf { it.valorPago }
@@ -190,6 +201,47 @@ fun MecanicoVirtualScreen(
                         fontSize = 13.sp,
                         lineHeight = 18.sp,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+                }
+            }
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = surfaceDark),
+                border = BorderStroke(1.dp, Color(0xFF23324D))
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.LocalGasStation, contentDescription = null, tint = Color.White)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Gestao de combustivel (Frota)", color = textLight, fontWeight = FontWeight.SemiBold)
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        UsageStat(
+                            label = "Total geral",
+                            value = gastoTotalTexto,
+                            textColor = textLight,
+                            dimColor = textDim,
+                            valueColor = warning,
+                            modifier = Modifier.weight(1f)
+                        )
+                        UsageStat(
+                            label = "No mes",
+                            value = formatarMoedaMV(gastoCombustivelMesFrota),
+                            textColor = textLight,
+                            dimColor = textDim,
+                            valueColor = accent,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    Text(
+                        "Registros nos ultimos 30 dias: $abastecimentosUltimos30Dias",
+                        color = textDim,
+                        fontSize = 12.sp
                     )
                 }
             }

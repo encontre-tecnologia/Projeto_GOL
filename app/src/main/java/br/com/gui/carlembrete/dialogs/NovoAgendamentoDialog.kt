@@ -733,104 +733,40 @@ fun adicionarContatoManual() {
         2 -> "Detalhes do Registro"
         else -> "Profissional Responsavel"
     }
+    val pageGradient = Brush.verticalGradient(
+        colors = listOf(Color(0xFF0B1220), Color(0xFF111827), Color(0xFF0F172A))
+    )
+    val surfaceCardColor = Color(0xFF111827)
+    val accentBlue = Color(0xFF3B82F6)
 
     Scaffold(
-        containerColor = Color(0xFF0F172A),
+        containerColor = Color.Transparent,
         topBar = {
             TopAppBar(
-                title = { Text(tituloEtapa, color = Color.White, fontWeight = FontWeight.Bold) },
+                title = {
+                    Text(tituloEtapa, color = Color.White, fontWeight = FontWeight.Bold)
+                },
                 navigationIcon = {
                     IconButton(onClick = onDismiss) {
                         Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar", tint = Color.White)
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF0F172A))
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = Color(0xFF0B1220).copy(alpha = 0.92f)
+                )
             )
         }
     ) { innerPadding ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(pageGradient)
+        ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            val totalEtapas = 3
-            val etapaAtualNumero = etapaAtual.coerceIn(1, totalEtapas)
-            val etapas = listOf(
-                1 to "Aviso",
-                2 to "Detalhes",
-                3 to "Profissional"
-            )
-            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp)
-                ) {
-                    val circleSize = 26.dp
-                    val centerY = circleSize / 2
-                    val stepCount = etapas.size.coerceAtLeast(2)
-                    Canvas(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(32.dp)
-                    ) {
-                        val startX = size.width / (stepCount * 2f)
-                        val y = centerY.toPx()
-                        val gap = size.width / stepCount
-                        for (i in 0 until stepCount - 1) {
-                            val active = etapaAtualNumero > (i + 1)
-                            val color = if (active) Color(0xFF3B82F6) else Color(0xFF1E293B)
-                            val x1 = startX + (gap * i)
-                            val x2 = startX + (gap * (i + 1))
-                            val inset = 6.dp.toPx()
-                            drawLine(
-                                color = color,
-                                start = Offset(x1 + inset, y),
-                                end = Offset(x2 - inset, y),
-                                strokeWidth = 2.dp.toPx()
-                            )
-                        }
-                    }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        etapas.forEach { (numero, label) ->
-                            val ativo = etapaAtualNumero >= numero
-                            val circleColor = if (ativo) Color(0xFF3B82F6) else Color(0xFF1E293B)
-                            val textColor = if (ativo) Color.White else Color(0xFF94A3B8)
-                            Column(
-                                modifier = Modifier.weight(1f),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(circleSize)
-                                        .clip(CircleShape)
-                                        .background(circleColor)
-                                        .border(1.dp, Color(0xFF23324D), CircleShape),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = numero.toString(),
-                                        color = textColor,
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                                Spacer(Modifier.height(6.dp))
-                                Text(
-                                    text = label,
-                                    color = textColor,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    textAlign = TextAlign.Center
-                                )
-                            }
-                        }
-                    }
-                }
-            }
             Column(
                 modifier = Modifier
                     .weight(1f)
@@ -838,6 +774,15 @@ fun adicionarContatoManual() {
                     .padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = surfaceCardColor),
+                    shape = RoundedCornerShape(18.dp),
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.10f))
+                ) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
                 val tituloCadastro = when (etapaAtual) {
                     1 -> "Novo aviso"
                     2 -> "Detalhes do aviso"
@@ -894,8 +839,9 @@ fun adicionarContatoManual() {
                                             colors = ButtonDefaults.buttonColors(
                                                 containerColor = if (!qrModoSeparado) Color(0xFF3B82F6) else Color(0xFF1F2937)
                                             ),
+                                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.45f)),
                                             modifier = Modifier.weight(1f)
-                                        ) { Text("Tudo em 1") }
+                                        ) { Text("Tudo em 1", color = Color.White) }
                                         Button(
                                             onClick = {
                                                 qrModoSeparado = true
@@ -905,8 +851,9 @@ fun adicionarContatoManual() {
                                             colors = ButtonDefaults.buttonColors(
                                                 containerColor = if (qrModoSeparado) Color(0xFF10B981) else Color(0xFF1F2937)
                                             ),
+                                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.45f)),
                                             modifier = Modifier.weight(1f)
-                                        ) { Text("Separar por item") }
+                                        ) { Text("Separar Avisos", color = Color.White) }
                                     }
                                 }
                             }
@@ -1012,8 +959,10 @@ fun adicionarContatoManual() {
                                     label = { Text("Produtos (total e itens)") },
                                     modifier = Modifier
                                         .fillMaxWidth()
+                                        .height(132.dp)
                                         .focusRequester(descricaoFocusRequester),
-                                    singleLine = true,
+                                    singleLine = false,
+                                    minLines = 4,
                                     shape = RoundedCornerShape(12.dp),
                                     trailingIcon = {
                                         IconButton(onClick = ::iniciarCapturaVoz) {
@@ -1326,10 +1275,16 @@ fun adicionarContatoManual() {
                         }
                     }
                 }
+                    }
+                }
             }
 
             Column(
-                modifier = Modifier.padding(16.dp),
+                modifier = Modifier
+                    .padding(16.dp)
+                    .background(Color(0xFF0B1220).copy(alpha = 0.75f), RoundedCornerShape(14.dp))
+                    .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(14.dp))
+                    .padding(10.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 when (etapaAtual) {
@@ -1337,19 +1292,19 @@ fun adicionarContatoManual() {
                         Button(
                             onClick = { etapaAtual = 2 },
                             enabled = podeAvancarEtapa1,
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6)),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth().height(48.dp)
-                        ) { Text("Avancar", fontSize = 16.sp) }
+                            colors = ButtonDefaults.buttonColors(containerColor = accentBlue),
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.fillMaxWidth().height(52.dp)
+                        ) { Text("Avancar ->", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
                         
                     }
                     2 -> {
                         Button(
                             onClick = { etapaAtual = 3 },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6)),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth().height(48.dp)
-                        ) { Text("Avancar", fontSize = 16.sp) }
+                            colors = ButtonDefaults.buttonColors(containerColor = accentBlue),
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.fillMaxWidth().height(52.dp)
+                        ) { Text("Avancar ->", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             TextButton(onClick = { etapaAtual = 1 }) { Text("Voltar", color = Color.White) }
                         }
@@ -1360,16 +1315,17 @@ fun adicionarContatoManual() {
                                 salvarAvisos()
                                 onDismiss()
                             },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6)),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth().height(48.dp)
-                        ) { Text("Salvar Registro", fontSize = 16.sp) }
+                            colors = ButtonDefaults.buttonColors(containerColor = accentBlue),
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.fillMaxWidth().height(52.dp)
+                        ) { Text("Salvar Registro", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             TextButton(onClick = { etapaAtual = 2 }) { Text("Voltar", color = Color.White) }
                         }
                     }
                 }
             }
+        }
         }
     }
 }

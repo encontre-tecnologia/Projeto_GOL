@@ -71,6 +71,10 @@ fun HistoricoAbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
     val ordenados = remember(abastecimentos) {
         abastecimentos.sortedByDescending { runCatching { LocalDate.parse(it.data, formatter) }.getOrNull() }
     }
+    val totalGasto = remember(ordenados) { ordenados.sumOf { it.valorPago } }
+    val mediaPorRegistro = remember(ordenados) {
+        if (ordenados.isEmpty()) 0.0 else totalGasto / ordenados.size.toDouble()
+    }
 
     if (itemEdicao != null) {
         DialogEditar(
@@ -121,32 +125,83 @@ fun HistoricoAbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
             )
         }
     ) { innerPadding ->
-        if (ordenados.isEmpty()) {
-            Box(Modifier.fillMaxSize().padding(innerPadding), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(Icons.Rounded.LocalGasStation, null, tint = TextGray.copy(alpha = 0.3f), modifier = Modifier.size(60.dp))
-                    Spacer(Modifier.height(16.dp))
-                    Text("Sem registros ainda", color = TextGray, fontSize = 16.sp)
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .padding(horizontal = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.10f))
+            ) {
+                Column(
+                    modifier = Modifier
+                        .background(Brush.verticalGradient(listOf(Color(0xFF334155), Color(0xFF1E293B))))
+                        .padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(CircleShape)
+                                .background(AccentBlue.copy(alpha = 0.2f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Rounded.LocalGasStation, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        Text("Resumo de abastecimentos", color = TextWhite, fontWeight = FontWeight.SemiBold)
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ResumoChip("Registros", ordenados.size.toString(), modifier = Modifier.weight(1f))
+                        ResumoChip("Total", formatarMoedaLocal(totalGasto), modifier = Modifier.weight(1f))
+                        ResumoChip("Media", formatarMoedaLocal(mediaPorRegistro), modifier = Modifier.weight(1f))
+                    }
                 }
             }
-        } else {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding)
-                    .padding(horizontal = 20.dp),
-                contentPadding = PaddingValues(vertical = 16.dp)
-            ) {
-                itemsIndexed(ordenados) { index, item ->
-                    TimelineItem(
-                        item = item,
-                        isLast = index == ordenados.lastIndex,
-                        onEdit = { itemEdicao = item },
-                        onDelete = { itemExcluir = item }
-                    )
+
+            if (ordenados.isEmpty()) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(Icons.Rounded.LocalGasStation, null, tint = TextGray.copy(alpha = 0.3f), modifier = Modifier.size(60.dp))
+                        Spacer(Modifier.height(16.dp))
+                        Text("Sem registros ainda", color = TextGray, fontSize = 16.sp)
+                    }
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(vertical = 8.dp)
+                ) {
+                    itemsIndexed(ordenados) { index, item ->
+                        TimelineItem(
+                            item = item,
+                            isLast = index == ordenados.lastIndex,
+                            onEdit = { itemEdicao = item },
+                            onDelete = { itemExcluir = item }
+                        )
+                    }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ResumoChip(label: String, value: String, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(Color(0xFF0F172A).copy(alpha = 0.6f))
+            .padding(horizontal = 8.dp, vertical = 7.dp)
+    ) {
+        Text(label, color = TextGray, fontSize = 10.sp)
+        Text(value, color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, maxLines = 1)
     }
 }
 
