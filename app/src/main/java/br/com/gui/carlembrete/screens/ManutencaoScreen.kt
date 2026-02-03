@@ -1,7 +1,5 @@
 ﻿package br.com.gui.carlembrete
 
-import AbastecimentoCard
-
 import BikeDistanceCard
 import AvisosCategoriasCard
 import CarroInfoCard
@@ -161,7 +159,7 @@ fun ManutencaoScreen(
     var showHistoricoAbastecimentoScreen by remember { mutableStateOf(false) }
     var showBikeDistanceRegister by remember { mutableStateOf(false) }
     var showBikeDistanceHistory by remember { mutableStateOf(false) }
-    var showIpvaMultasScreen by remember { mutableStateOf(false) }
+    var showPremiumHubScreen by remember { mutableStateOf(false) }
     var showShareVehicleScreen by remember { mutableStateOf(false) }
 
     var showAnjoDaGuardaScreen by remember { mutableStateOf(false) }
@@ -358,14 +356,6 @@ fun ManutencaoScreen(
         AnjoDaGuardaScreen(onDismiss = { showAnjoDaGuardaScreen = false })
         return
     }
-    BackHandler(enabled = showIpvaMultasScreen) { showIpvaMultasScreen = false }
-    if (showIpvaMultasScreen) {
-        IpvaMultasScreen(
-            carroAtual = carroAtual,
-            onDismiss = { showIpvaMultasScreen = false }
-        )
-        return
-    }
     BackHandler(enabled = showShareVehicleScreen) { showShareVehicleScreen = false }
     if (showShareVehicleScreen) {
         ShareVehicleScreen(
@@ -384,6 +374,26 @@ fun ManutencaoScreen(
             isPremium = isSubscribed,
             onPremiumRequired = { activity?.let { subscriptionManager.launchPurchaseFlow(it) } },
             onDismiss = { showMecanicoVirtualScreen = false }
+        )
+        return
+    }
+    BackHandler(enabled = showPremiumHubScreen) { showPremiumHubScreen = false }
+    if (showPremiumHubScreen) {
+        PremiumHubScreen(
+            isPremium = planTier != PlanTier.FREE,
+            onDismiss = { showPremiumHubScreen = false },
+            onOpenGuardian = {
+                showPremiumHubScreen = false
+                showAnjoDaGuardaScreen = true
+            },
+            onOpenFinance = {
+                showPremiumHubScreen = false
+                showMecanicoVirtualScreen = true
+            },
+            onOpenSubscribe = {
+                showPremiumHubScreen = false
+                activity?.let { subscriptionManager.launchPurchaseFlow(it) }
+            }
         )
         return
     }
@@ -718,12 +728,16 @@ fun ManutencaoScreen(
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold
                     )
-                    DrawerMenuItem(Icons.Default.Payments, "Gestor Financeiro") {
-                        showMecanicoVirtualScreen = true
+                    DrawerMenuItem(
+                        icon = Icons.Default.WorkspacePremium,
+                        label = "Zellu Premium",
+                        highlighted = true
+                    ) {
+                        showPremiumHubScreen = true
                         drawerScope.launch { drawerState.close() }
                     }
-                    DrawerMenuItem(Icons.Default.Gavel, "IPVA e Multas") {
-                        showIpvaMultasScreen = true
+                    DrawerMenuItem(Icons.Default.Payments, "Gestor Financeiro") {
+                        showMecanicoVirtualScreen = true
                         drawerScope.launch { drawerState.close() }
                     }
 
@@ -803,7 +817,7 @@ fun ManutencaoScreen(
                             }
                         },
                         actions = {
-                            IconButton(onClick = { showPremiumInfo = true }) {
+                            IconButton(onClick = { showPremiumHubScreen = true }) {
                                 Icon(
                                     painterResource(id = R.drawable.ic_diamond_alt),
                                     contentDescription = "Premium",
@@ -859,44 +873,26 @@ fun ManutencaoScreen(
                         accentBlue = accentBlue
                     )
 
-                    Spacer(Modifier.height(16.dp))
+                    Spacer(Modifier.height(8.dp))
 
                     if (carroAtual.tipoVeiculo != TipoVeiculo.BICICLETA) {
-                        val abastecimentosDoCarro = abastecimentos.filter { it.carroId == carroAtual.id }
-                        val abastecimentoFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
-                        val resumoAbastecimento = remember(abastecimentosDoCarro) {
-                            calcularResumoAbastecimento(abastecimentosDoCarro, abastecimentoFormatter)
-                        }
-                        val proximaDataAbastecimento = resumoAbastecimento.proximaData
-                        LaunchedEffect(carroAtual.id, proximaDataAbastecimento) {
-                            val idNotificacao = "FUEL_${carroAtual.id}"
-                            NotificacaoHelper.cancelarNotificacao(context.applicationContext, idNotificacao)
-                            if (proximaDataAbastecimento != null) {
-                                NotificacaoHelper.agendarNotificacaoPorData(
-                                    context = context.applicationContext,
-                                    id = idNotificacao,
-                                    titulo = "Abastecimento - ${carroAtual.nome}",
-                                    descricao = "Necessario abastecer hoje.",
-                                    data = proximaDataAbastecimento
-                                )
-                            }
-                        }
-
-                        AbastecimentoCard(
-                            proximaData = resumoAbastecimento.proximaData,
-                            diasAte = resumoAbastecimento.diasAte,
-                            custoDia = resumoAbastecimento.mediaCustoDia,
-                            custoSemana = resumoAbastecimento.custoSemana,
-                            custoMes = resumoAbastecimento.custoMes,
-                            dateFormatter = abastecimentoFormatter,
-                            onHistorico = { showHistoricoAbastecimentoScreen = true },
+                        OutlinedButton(
+                            onClick = { showHistoricoAbastecimentoScreen = true },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = 16.dp)
-                        )
+                                .height(44.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.25f)),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
+                        ) {
+                            Icon(Icons.Default.LocalGasStation, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Historico de abastecimento", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                        }
+                    }
 
-                        Spacer(Modifier.height(16.dp))
-                    } else {
+                    if (carroAtual.tipoVeiculo == TipoVeiculo.BICICLETA) {
                         val formatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
                         val pedaladasDoCarro = pedaladas.filter { it.carroId == carroAtual.id }
                         val hoje = LocalDate.now()
@@ -968,6 +964,7 @@ fun ManutencaoScreen(
                     } else {
                         emptyMap()
                     }
+                    Spacer(Modifier.height(14.dp))
                     AvisosCategoriasCard(
                         lembretesDoCarroAtual = lembretesDoCarroAtual,
                         lembretesComBusca = lembretesComBusca,
@@ -1014,27 +1011,53 @@ fun ManutencaoScreen(
 // ----------------- COMPONENTES AUXILIARES LOCAIS -----------------
 
 @Composable
-fun DrawerMenuItem(icon: ImageVector, label: String, onClick: () -> Unit) {
+fun DrawerMenuItem(
+    icon: ImageVector,
+    label: String,
+    highlighted: Boolean = false,
+    onClick: () -> Unit
+) {
+    val container = if (highlighted) Color(0xFF3B2A0A) else Color(0xFF111827)
+    val borderColor = if (highlighted) Color(0xFFFBBF24).copy(alpha = 0.55f) else Color.White.copy(alpha = 0.08f)
+    val iconTint = if (highlighted) Color(0xFFFBBF24) else Color(0xFF94A3B8)
+    val textColor = if (highlighted) Color(0xFFFEF3C7) else Color(0xFFF1F5F9)
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
+            .background(container)
+            .border(1.dp, borderColor, RoundedCornerShape(12.dp))
             .clickable(onClick = onClick)
-            .padding(vertical = 12.dp, horizontal = 16.dp),
+            .padding(vertical = 11.dp, horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = Color(0xFF94A3B8), // Slate 400
-            modifier = Modifier.size(24.dp)
-        )
-        Spacer(Modifier.width(16.dp))
+        Box(
+            modifier = Modifier
+                .size(30.dp)
+                .clip(CircleShape)
+                .background(Color.Black.copy(alpha = 0.18f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = iconTint,
+                modifier = Modifier.size(18.dp)
+            )
+        }
+        Spacer(Modifier.width(10.dp))
         Text(
             text = label,
-            fontSize = 16.sp,
-            color = Color(0xFFF1F5F9), // Slate 100x
+            fontSize = 14.sp,
+            color = textColor,
             fontWeight = FontWeight.Medium
+        )
+        Spacer(Modifier.weight(1f))
+        Icon(
+            imageVector = Icons.Default.KeyboardArrowRight,
+            contentDescription = null,
+            tint = iconTint,
+            modifier = Modifier.size(18.dp)
         )
     }
 }
