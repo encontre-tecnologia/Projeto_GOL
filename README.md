@@ -1,133 +1,116 @@
-﻿<img width="764" height="339" alt="image" src="https://github.com/user-attachments/assets/a0305fbc-e195-45af-94df-7c9f54530ebf" />
-
 # Zellu
 
 [![Testes Automaticos](https://github.com/encontre-tecnologia/Projeto_GOL/actions/workflows/android-ci.yml/badge.svg)](https://github.com/encontre-tecnologia/Projeto_GOL/actions/workflows/android-ci.yml)
-![Kotlin](https://img.shields.io/badge/Kotlin-1.9+-7F52FF?logo=kotlin&logoColor=white)
-![Compose](https://img.shields.io/badge/Jetpack%20Compose-M3-4285F4?logo=android&logoColor=white)
-![Platform](https://img.shields.io/badge/Platform-Android-3DDC84?logo=android&logoColor=white)
+![Kotlin](https://img.shields.io/badge/Kotlin-2.0-7F52FF?logo=kotlin&logoColor=white)
+![Android](https://img.shields.io/badge/Android-MinSdk%2026-3DDC84?logo=android&logoColor=white)
+![Compose](https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285F4?logo=android&logoColor=white)
 
-> **Organize a manutencao de qualquer veiculo com simplicidade e automacao.**
-
-## Descricao breve
-
-O **Zellu** e um app Android nativo para gerenciamento de manutencoes veiculares (carro, moto, caminhonete, caminhao, trator e bicicleta). Ele combina registro manual com leitura automatica por camera (OCR) para reduzir digitacao e acelerar o cadastro de avisos.
-
-## O que e o app
-
-O aplicativo centraliza informacoes de veiculos, lembretes de manutencao, profissionais de apoio e historicos de gastos. O fluxo principal guia o usuario por etapas: cadastrar o servico, definir data/quilometragem e vincular um profissional responsavel. Quando ha foto, o app tenta extrair informacoes automaticamente para preencher campos.
+Aplicativo Android para organizar manutencao de veiculos com cadastro manual e apoio por OCR (camera).
 
 ---
 
-## Funcionalidades (detalhadas)
+## Visao geral
 
-- **Cadastro de veiculos**
-  - Registro de dados essenciais (apelido, marca, modelo/aro, km atual).
-  - Visualizacao organizada por veiculo e status.
-  - Suporte a bicicleta, carro, moto, caminhonete, caminhao e trator.
+O Zellu centraliza:
+- veiculos;
+- lembretes por data e/ou quilometragem;
+- historico de manutencoes e gastos;
+- profissionais vinculados aos servicos;
+- exportacao de historico em PDF.
 
-- **Captura inteligente por camera (OCR)**
-  - Leitura de texto em fotos para sugerir itens de manutencao.
-  - Deteccao de quilometragem quando presente na imagem.
-  - Selecao assistida de produto e marca antes de confirmar o registro.
-
-- **Avisos e manutencoes**
-  - Criacao de lembretes por data e/ou quilometragem.
-  - Categorias de manutencao com cores e icones padronizados.
-  - Fluxo por etapas para evitar erros e acelerar o cadastro.
-  - Categorias adaptadas para bicicleta (corrente, lubrificacao, pedivela, acessorios, conforto, pneu, transmissao, pecas, etc.).
-
-- **Vinculo com profissional**
-  - Selecionar profissional responsavel pelo aviso.
-  - Cadastro rapido de novos profissionais.
-
-- **Relatorios e historico**
-  - Exportacao do historico do veiculo em PDF.
-  - Consulta de eventos anteriores para auditoria e controle.
-
-- **Distancia pedalada (bike)**
-  - Registro manual de km pedalado.
-  - Resumo por dia, semana, mes e total.
-  - Historico separado por bicicleta.
-
-- **Interface moderna**
-  - UI em Jetpack Compose (Material 3), com foco em produtividade no dia a dia.
-
-- **Zellu Guardiao**
-  - Monitoramento com alertas inteligentes (beta/expansao).
+O app atende diferentes tipos de veiculo, incluindo carro, moto, caminhonete, caminhao, trator e bicicleta.
 
 ---
 
-## Tecnologias Utilizadas
+## Funcionalidades principais
 
-Este projeto aplica conceitos modernos de desenvolvimento Android (Modern Android Development - MAD):
-
-- **Linguagem:** [Kotlin](https://kotlinlang.org/)
-- **UI Toolkit:** [Jetpack Compose](https://developer.android.com/jetbrains/compose)
-- **Camera:** [CameraX](https://developer.android.com/training/camerax) (para captura de notas/painel)
-- **IA / Machine Learning:** [Google ML Kit](https://developers.google.com/ml-kit) (reconhecimento de texto/OCR)
-- **Billing:** Google Play Billing (assinaturas)
-- **Qualidade de Codigo:**
-  - [JUnit 4](https://junit.org/junit4/) (testes unitarios)
-  - [Allure Report](https://github.com/allure-framework/allure-java) (relatorios visuais)
-  - **CI/CD:** GitHub Actions (pipeline automatizado de testes)
+- **Cadastro de veiculos** com dados essenciais e organizacao por status.
+- **OCR com camera** para extrair texto e sugerir preenchimento de campos.
+- **Avisos de manutencao** por data e/ou km, com fluxo guiado por etapas.
+- **Vinculo com profissional** responsavel pelo servico.
+- **Historico e relatorios** com exportacao em PDF.
+- **Modulo de bike** com registro de distancia pedalada e resumo por periodo.
+- **Plano Premium** com recursos avancados (ex.: OCR ilimitado e backup automatico).
 
 ---
 
-## Como executar o projeto
+## Stack tecnica
 
-### Pre-requisitos
-- Android Studio Koala ou superior.
-- JDK 17 configurado no Gradle.
-- Dispositivo fisico ou emulador com Android 8.0+ (MinSdk 26).
-
-### Passo a passo
-
-1. **Clone o repositorio:**
-   ```bash
-   git clone https://github.com/encontre-tecnologia/Projeto_GOL.git
-   ```
-
-2. **Abra no Android Studio** e aguarde a sincronizacao do Gradle.
-
-3. **Configure a camera:**
-   Se estiver usando emulador, garanta que a camera virtual esta ativada para testar o OCR.
-
-4. **Execute:**
-   Selecione o modulo `app` e clique em **Run**.
+- Kotlin
+- Android SDK (compileSdk 35 / targetSdk 35 / minSdk 26)
+- Jetpack Compose (Material 3)
+- CameraX
+- Google ML Kit (OCR)
+- Firebase (Auth + Firestore)
+- Google Play Billing
+- WorkManager
+- Retrofit + Gson
+- JUnit 4 + Allure
+- GitHub Actions (CI)
 
 ---
 
-## Planos (status atual)
+## Requisitos
 
-**Zellu Free (Gratis)**
-- Ate 3 veiculos
-- Ate 15 lembretes ativos
-- Lembretes manuais (data e/ou km)
-- Historico basico
-- Backup manual
-- OCR limitado: 3 scans por mes
-- Sem backup automatico e sem PDF
+- Android Studio (versao recente com suporte a AGP 8.13+)
+- JDK 17 instalado
+- Dispositivo fisico ou emulador Android 8.0+
 
-**Zellu Premium**
-- Tudo do Free
-- OCR ilimitado
-- Backup automatico no Google Drive
-- Restaurar com 1 toque
-- Guardiao (alertas inteligentes)
-- Relatorios completos em PDF
-- Ate 5 veiculos
+---
 
-## Testes e Qualidade
+## Como executar
 
-O projeto conta com uma suite de testes unitarios rodando no GitHub Actions a cada push.
-
-Para rodar localmente e gerar o relatorio visual (Dashboard):
+1. Clone o repositorio:
 
 ```bash
-# 1. Rodar os testes
-./gradlew testDebugUnitTest
+git clone https://github.com/encontre-tecnologia/Projeto_GOL.git
+```
 
-# 2. Gerar o relatorio Allure
+2. Abra o projeto no Android Studio.
+3. Aguarde sync do Gradle.
+4. Execute o modulo `app`.
+
+> Para testar OCR no emulador, confirme que a camera virtual esta habilitada.
+
+---
+
+## Testes
+
+Rodar testes unitarios:
+
+```bash
+./gradlew testDebugUnitTest
+```
+
+No Windows (PowerShell):
+
+```powershell
+.\gradlew.bat testDebugUnitTest
+```
+
+Gerar relatorio Allure:
+
+```bash
 ./gradlew allureServe
 ```
+
+---
+
+## CI
+
+A pipeline do GitHub Actions executa os testes unitarios em pushes e pull requests para `main` e `master`.
+
+---
+
+## Estrutura (resumo)
+
+- `app/`: aplicativo Android
+- `.github/workflows/android-ci.yml`: pipeline de CI
+- `gradle/` e scripts `gradlew*`: build e automacao
+
+---
+
+## Observacoes
+
+- O projeto usa recursos de camera, notificacoes e componentes de backup/sincronizacao.
+- Algumas funcionalidades podem depender de configuracao de contas Google/Firebase para operacao completa.

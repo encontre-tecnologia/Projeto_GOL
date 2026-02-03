@@ -713,11 +713,7 @@ fun ManutencaoScreen(
                         drawerScope.launch { drawerState.close() }
                     }
                     DrawerMenuItem(Icons.Default.Share, "Compartilhar Veículo") {
-                        if (planTier == PlanTier.FREE) {
-                            showPremiumDialog = true
-                        } else {
-                            showShareVehicleScreen = true
-                        }
+                        showShareVehicleScreen = true
                         drawerScope.launch { drawerState.close() }
                     }
 
@@ -736,11 +732,6 @@ fun ManutencaoScreen(
                         showPremiumHubScreen = true
                         drawerScope.launch { drawerState.close() }
                     }
-                    DrawerMenuItem(Icons.Default.Payments, "Gestor Financeiro") {
-                        showMecanicoVirtualScreen = true
-                        drawerScope.launch { drawerState.close() }
-                    }
-
                     Spacer(Modifier.height(8.dp))
                     Text(
                         text = "SEGURANÇA",
