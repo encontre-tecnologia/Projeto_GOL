@@ -123,6 +123,11 @@ import kotlin.math.roundToInt
 @Composable
 fun RelatorioVeiculoScreen(carroAtual: CarroInfo, lembretes: List<Lembrete>, isPremium: Boolean, onDismiss: () -> Unit) {
     val context = LocalContext.current
+    val scheme = MaterialTheme.colorScheme
+    val isDark = scheme.background.luminance() < 0.5f
+    val pageBackground = if (isDark) Color(0xFF0F2A4A) else Color.White
+    val textPrimary = if (isDark) Color.White else Color.Black
+    val textDim = if (isDark) Color(0xFF94A3B8) else Color(0xFF475569)
     val resumo = remember(carroAtual, lembretes, isPremium) { gerarResumoRelatorio(carroAtual, lembretes, isPremium) }
     val resumoChip = remember(resumo) {
         resumo.lineSequence()
@@ -143,12 +148,12 @@ fun RelatorioVeiculoScreen(carroAtual: CarroInfo, lembretes: List<Lembrete>, isP
     ) {
         Surface(
             modifier = Modifier.fillMaxSize(),
-            color = Color(0xFF0F2A4A)
+            color = pageBackground
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color(0xFF0F2A4A))
+                    .background(pageBackground)
                     .padding(24.dp)
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(18.dp)
@@ -160,17 +165,17 @@ fun RelatorioVeiculoScreen(carroAtual: CarroInfo, lembretes: List<Lembrete>, isP
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         IconButton(onClick = onDismiss) {
-                            Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar", tint = Color.White, modifier = Modifier.size(20.dp))
+                            Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar", tint = textPrimary, modifier = Modifier.size(20.dp))
                         }
                         Spacer(Modifier.width(6.dp))
                         Text(
                             "Detalhes do veículo",
-                            color = Color.White,
+                            color = textPrimary,
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             modifier = Modifier.weight(1f)
                         )
-                        val pdfAccent = Color.White
+                        val pdfAccent = if (isDark) Color.White else Color.Black
                         OutlinedButton(
                             onClick = {
                                 val uri = gerarPdfRelatorio(context, carroAtual, lembretes, isPremium)

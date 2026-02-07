@@ -19,6 +19,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -38,11 +40,22 @@ import java.util.Locale
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
-    val primaryDark = Color(0xFF0F172A)
-    val surfaceDark = Color(0xFF1E293B)
+    val scheme = MaterialTheme.colorScheme
+    val isDark = scheme.background.luminance() < 0.5f
+    val primaryDark = if (isDark) Color(0xFF0F172A) else Color.White
+    val surfaceDark = if (isDark) Color(0xFF1E293B) else Color.White
     val accentBlue = Color(0xFF3B82F6)
     val accentGreen = Color(0xFF34D399)
-    val cardStroke = Color(0xFF1F2A44)
+    val cardStroke = if (isDark) Color(0xFF1F2A44) else Color(0xFFCBD5E1)
+    val textPrimary = if (isDark) Color.White else Color.Black
+    val textDim = if (isDark) Color(0xFF94A3B8) else Color(0xFF475569)
+    val headerBackground = if (isDark) {
+        Brush.horizontalGradient(
+            listOf(Color(0xFF0B1224), Color(0xFF0F172A), Color(0xFF111827))
+        )
+    } else {
+        SolidColor(Color.White)
+    }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var precoGasolina by remember { mutableStateOf("") }
@@ -58,17 +71,17 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
     val gastoTexto = total?.let { formatarMoeda(it) } ?: "--"
     val canSave = preco != null && total != null && preco > 0.0 && total > 0.0 && !isSaving
     val fieldColors = OutlinedTextFieldDefaults.colors(
-        focusedTextColor = Color.White,
-        unfocusedTextColor = Color.White,
-        cursorColor = Color.White,
-        focusedBorderColor = Color(0xFF334155),
-        unfocusedBorderColor = Color(0xFF1F2A44),
-        focusedLabelColor = Color.White,
-        unfocusedLabelColor = Color(0xFF94A3B8),
-        focusedLeadingIconColor = Color(0xFFCBD5F5),
-        unfocusedLeadingIconColor = Color(0xFF94A3B8),
-        focusedContainerColor = Color(0xFF0F172A),
-        unfocusedContainerColor = Color(0xFF0F172A)
+        focusedTextColor = textPrimary,
+        unfocusedTextColor = textPrimary,
+        cursorColor = textPrimary,
+        focusedBorderColor = if (isDark) Color(0xFF334155) else Color.Black,
+        unfocusedBorderColor = if (isDark) Color(0xFF1F2A44) else Color(0xFFCBD5E1),
+        focusedLabelColor = textPrimary,
+        unfocusedLabelColor = textDim,
+        focusedLeadingIconColor = if (isDark) Color(0xFFCBD5F5) else Color(0xFF334155),
+        unfocusedLeadingIconColor = textDim,
+        focusedContainerColor = if (isDark) Color(0xFF0F172A) else Color.White,
+        unfocusedContainerColor = if (isDark) Color(0xFF0F172A) else Color.White
     )
 
     LaunchedEffect(Unit) {
@@ -83,14 +96,14 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
                 title = {
                     Text(
                         "Abastecimento",
-                        color = Color.White,
+                        color = textPrimary,
                         fontWeight = FontWeight.Bold,
                         style = MaterialTheme.typography.titleMedium
                     )
                 },
                 navigationIcon = {
                     IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar", tint = Color.White)
+                        Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar", tint = textPrimary)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = primaryDark)
@@ -105,17 +118,13 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(18.dp)
         ) {
             Card(
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF111827)),
+                colors = CardDefaults.cardColors(containerColor = surfaceDark),
                 modifier = Modifier.fillMaxWidth(),
                 border = BorderStroke(1.dp, cardStroke)
             ) {
                 Box(
                     modifier = Modifier
-                        .background(
-                            Brush.horizontalGradient(
-                                listOf(Color(0xFF0B1224), Color(0xFF0F172A), Color(0xFF111827))
-                            )
-                        )
+                        .background(headerBackground)
                         .padding(16.dp)
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -129,7 +138,7 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
                             Icon(
                                 imageVector = Icons.Default.LocalGasStation,
                                 contentDescription = null,
-                                tint = Color.White,
+                                tint = textPrimary,
                                 modifier = Modifier.size(28.dp)
                             )
                         }
@@ -137,13 +146,13 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 "Abastecimento",
-                                color = Color.White,
+                                color = textPrimary,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 20.sp
                             )
                             Text(
                                 "Registre o gasto e calcule os litros",
-                                color = Color(0xFF94A3B8),
+                                color = textDim,
                                 fontSize = 12.sp
                             )
                         }
@@ -162,7 +171,7 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
                 ) {
                     Text(
                         "Dados do posto",
-                        color = Color.White,
+                        color = textPrimary,
                         fontWeight = FontWeight.Bold,
                         fontSize = 16.sp
                     )
@@ -174,7 +183,7 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
                             Icon(
                                 imageVector = Icons.Rounded.LocalGasStation,
                                 contentDescription = null,
-                                tint = Color(0xFFCBD5F5)
+                                tint = if (isDark) Color(0xFFCBD5F5) else Color(0xFF334155)
                             )
                         },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
@@ -193,7 +202,7 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
                             Icon(
                                 imageVector = Icons.Default.Payments,
                                 contentDescription = null,
-                                tint = Color(0xFFCBD5F5)
+                                tint = if (isDark) Color(0xFFCBD5F5) else Color(0xFF334155)
                             )
                         },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
@@ -251,7 +260,7 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
                             tint = accentGreen,
                             modifier = Modifier.size(16.dp)
                         )
-                        Text("Resumo", color = Color.White, fontWeight = FontWeight.Bold)
+                        Text("Resumo", color = textPrimary, fontWeight = FontWeight.Bold)
                     }
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -341,16 +350,21 @@ private fun ResumoItem(
     accent: Color,
     modifier: Modifier = Modifier
 ) {
+    val scheme = MaterialTheme.colorScheme
+    val isDark = scheme.background.luminance() < 0.5f
+    val bg = if (isDark) Color(0xFF0B1224) else Color.White
+    val border = if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.12f)
+    val titleColor = if (isDark) Color(0xFF94A3B8) else Color(0xFF475569)
     Column(
         modifier = modifier
             .clip(RoundedCornerShape(12.dp))
-            .background(Color(0xFF0B1224))
-            .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(12.dp))
+            .background(bg)
+            .border(1.dp, border, RoundedCornerShape(12.dp))
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text(title, color = Color(0xFF94A3B8), fontSize = 12.sp, textAlign = TextAlign.Center)
+        Text(title, color = titleColor, fontSize = 12.sp, textAlign = TextAlign.Center)
         Text(value, color = accent, fontWeight = FontWeight.Bold, fontSize = 16.sp, textAlign = TextAlign.Center)
     }
 }

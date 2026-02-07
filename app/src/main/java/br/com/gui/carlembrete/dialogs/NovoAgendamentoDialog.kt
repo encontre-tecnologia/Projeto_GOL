@@ -145,6 +145,14 @@ fun NovoAgendamentoDialog(
     val context = LocalContext.current
     val appContext = context.applicationContext
     val isPremium = planTier != PlanTier.FREE
+    val scheme = MaterialTheme.colorScheme
+    val isDark = scheme.background.luminance() < 0.5f
+    val pageBackground = if (isDark) scheme.background else Color.White
+    val surfaceCardColor = if (isDark) Color(0xFF111827) else Color.White
+    val cardBorder = if (isDark) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.12f)
+    val textPrimary = if (isDark) Color.White else Color.Black
+    val iconColor = if (isDark) Color.White else Color.Black
+    val cameraIconColor = Color.White
     var descricao by remember { mutableStateOf("") }
     var localServicoInput by remember { mutableStateOf("") }
     var data by remember { mutableStateOf(LocalDate.now().format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))) }
@@ -466,7 +474,7 @@ fun adicionarContatoManual() {
     if (isQrLoading) {
         AlertDialog(
             onDismissRequest = {},
-            title = { Text("Lendo nota", color = Color.White, fontWeight = FontWeight.Bold) },
+            title = { Text("Lendo nota", color = textPrimary, fontWeight = FontWeight.Bold) },
             text = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     CircularProgressIndicator(
@@ -489,7 +497,7 @@ fun adicionarContatoManual() {
             shape = dialogCornerShape,
             onDismissRequest = { showKmConfirmDialog = false },
             containerColor = Color(0xFF1E293B),
-            title = { Text("Atualizar KM?", color = Color.White) },
+            title = { Text("Atualizar KM?", color = textPrimary) },
             text = {
                 Text(
                     "Detectamos ${kmDetectadoParaConfirmar} km na captura.\nAtualizar o odômetro do carro?",
@@ -533,10 +541,10 @@ fun adicionarContatoManual() {
                         Icon(
                             Icons.Default.Inventory2,
                             contentDescription = null,
-                            tint = Color.White,
+                            tint = iconColor,
                             modifier = Modifier.size(48.dp)
                         )
-                        Text("Qual e o Produto?", color = Color.White, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, fontSize = 18.sp)
+                        Text("Qual e o Produto?", color = textPrimary, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, fontSize = 18.sp)
                     }
                     IconButton(
                         onClick = { showTextosDialog = false },
@@ -544,7 +552,7 @@ fun adicionarContatoManual() {
                             .align(Alignment.TopEnd)
                             .size(36.dp)
                     ) {
-                        Icon(Icons.Default.Close, contentDescription = "Fechar", tint = Color.White)
+                        Icon(Icons.Default.Close, contentDescription = "Fechar", tint = iconColor)
                     }
                 }
             },
@@ -641,10 +649,10 @@ fun adicionarContatoManual() {
                         Icon(
                             Icons.Default.LocalOffer,
                             contentDescription = null,
-                            tint = Color.White,
+                            tint = iconColor,
                             modifier = Modifier.size(48.dp)
                         )
-                        Text("Qual e a Marca do Produto?", color = Color.White, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, fontSize = 18.sp)
+                        Text("Qual e a Marca do Produto?", color = textPrimary, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, fontSize = 18.sp)
                     }
                     IconButton(
                         onClick = { showMarcaDialog = false },
@@ -652,7 +660,7 @@ fun adicionarContatoManual() {
                             .align(Alignment.TopEnd)
                             .size(36.dp)
                     ) {
-                        Icon(Icons.Default.Close, contentDescription = "Fechar", tint = Color.White)
+                        Icon(Icons.Default.Close, contentDescription = "Fechar", tint = iconColor)
                     }
                 }
             },
@@ -728,15 +736,6 @@ fun adicionarContatoManual() {
     }
 
     val podeAvancarEtapa1 = (isModoLista && listaItensDetectados.isNotEmpty()) || descricao.isNotBlank()
-    val tituloEtapa = when (etapaAtual) {
-        1 -> if (isModoLista) "Itens Detectados" else "Novo Aviso"
-        2 -> "Detalhes do Registro"
-        else -> "Profissional Responsavel"
-    }
-    val pageGradient = Brush.verticalGradient(
-        colors = listOf(Color(0xFF0B1220), Color(0xFF111827), Color(0xFF0F172A))
-    )
-    val surfaceCardColor = Color(0xFF111827)
     val accentBlue = Color(0xFF3B82F6)
 
     Scaffold(
@@ -744,15 +743,15 @@ fun adicionarContatoManual() {
         topBar = {
             TopAppBar(
                 title = {
-                    Text(tituloEtapa, color = Color.White, fontWeight = FontWeight.Bold)
+                    Text("Criar novo Aviso", color = textPrimary, fontWeight = FontWeight.Bold)
                 },
                 navigationIcon = {
                     IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar", tint = Color.White)
+                        Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar", tint = iconColor)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color(0xFF0B1220).copy(alpha = 0.92f)
+                    containerColor = pageBackground
                 )
             )
         }
@@ -760,7 +759,7 @@ fun adicionarContatoManual() {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(pageGradient)
+                .background(pageBackground)
         ) {
         Column(
             modifier = Modifier
@@ -777,7 +776,7 @@ fun adicionarContatoManual() {
                 Card(
                     colors = CardDefaults.cardColors(containerColor = surfaceCardColor),
                     shape = RoundedCornerShape(18.dp),
-                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.10f))
+                    border = BorderStroke(1.dp, cardBorder)
                 ) {
                     Column(
                         modifier = Modifier.padding(horizontal = 14.dp, vertical = 16.dp),
@@ -790,7 +789,7 @@ fun adicionarContatoManual() {
                 }
                 Text(
                     text = tituloCadastro,
-                    color = Color.White,
+                    color = textPrimary,
                     fontSize = 26.sp,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.fillMaxWidth(),
@@ -811,7 +810,7 @@ fun adicionarContatoManual() {
                             Icon(
                                 if (fotoCaminho != null) Icons.Default.Check else Icons.Default.CameraAlt,
                                 null,
-                                tint = Color.White
+                                tint = cameraIconColor
                             )
                             Spacer(Modifier.width(8.dp))
                             Text(if (fotoCaminho != null) "Foto Anexada (Refazer)" else "Escanear Produto", color = Color.White)
@@ -827,7 +826,7 @@ fun adicionarContatoManual() {
                                     modifier = Modifier.padding(12.dp),
                                     verticalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    Text("Como deseja criar os avisos?", color = Color.White, fontWeight = FontWeight.SemiBold)
+                                    Text("Como deseja criar os avisos?", color = textPrimary, fontWeight = FontWeight.SemiBold)
                                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                         Button(
                                             onClick = {
@@ -841,7 +840,7 @@ fun adicionarContatoManual() {
                                             ),
                                             border = BorderStroke(1.dp, Color.White.copy(alpha = 0.45f)),
                                             modifier = Modifier.weight(1f)
-                                        ) { Text("Tudo em 1", color = Color.White) }
+                                        ) { Text("Tudo em 1", color = textPrimary) }
                                         Button(
                                             onClick = {
                                                 qrModoSeparado = true
@@ -853,7 +852,7 @@ fun adicionarContatoManual() {
                                             ),
                                             border = BorderStroke(1.dp, Color.White.copy(alpha = 0.45f)),
                                             modifier = Modifier.weight(1f)
-                                        ) { Text("Separar Avisos", color = Color.White) }
+                                        ) { Text("Separar Avisos", color = textPrimary) }
                                     }
                                 }
                             }
@@ -879,7 +878,7 @@ fun adicionarContatoManual() {
                                         )
                                         Spacer(Modifier.width(10.dp))
                                         Column(modifier = Modifier.weight(1f)) {
-                                            Text(item.nome, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                            Text(item.nome, color = textPrimary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                                             Row(verticalAlignment = Alignment.CenterVertically) {
                                                 ExposedDropdownMenuBox(
                                                     expanded = tipoMenuItemId == item.id,
@@ -1120,7 +1119,7 @@ fun adicionarContatoManual() {
                                             modifier = Modifier.padding(10.dp),
                                             verticalArrangement = Arrangement.spacedBy(8.dp)
                                         ) {
-                                            Text(item.nome, color = Color.White, fontWeight = FontWeight.SemiBold)
+                                            Text(item.nome, color = textPrimary, fontWeight = FontWeight.SemiBold)
                                             OutlinedTextField(
                                                 value = itemValorOverrides[item.id] ?: String.format(Locale.US, "%.2f", item.valor),
                                                 onValueChange = { novo ->
@@ -1180,15 +1179,15 @@ fun adicionarContatoManual() {
                     }
                     else -> {
                         Card(
-                            colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
+                            colors = CardDefaults.cardColors(containerColor = if (isDark) Color(0xFF0F172A) else Color.White),
                             shape = RoundedCornerShape(14.dp),
-                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f))
+                            border = BorderStroke(1.dp, if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.12f))
                         ) {
                             Column(
                                 modifier = Modifier.padding(12.dp),
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                Text("Adicionar novo profissional", color = Color.White, fontWeight = FontWeight.SemiBold)
+                                Text("Adicionar novo profissional", color = textPrimary, fontWeight = FontWeight.SemiBold)
                                 OutlinedTextField(
                                     value = novoContatoNome,
                                     onValueChange = { novoContatoNome = it },
@@ -1220,15 +1219,15 @@ fun adicionarContatoManual() {
                         }
 
                         Card(
-                            colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
+                            colors = CardDefaults.cardColors(containerColor = if (isDark) Color(0xFF0F172A) else Color.White),
                             shape = RoundedCornerShape(14.dp),
-                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f))
+                            border = BorderStroke(1.dp, if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.12f))
                         ) {
                             Column(
                                 modifier = Modifier.padding(12.dp),
                                 verticalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
-                                Text("Vincular profissional", color = Color.White, fontWeight = FontWeight.SemiBold)
+                                    Text("Vincular profissional", color = textPrimary, fontWeight = FontWeight.SemiBold)
                                 if (contatosLista.isEmpty()) {
                                     Text("Nenhum profissional cadastrado. Adicione um acima.", color = Color(0xFF94A3B8), fontSize = 12.sp)
                                 } else {
@@ -1237,9 +1236,15 @@ fun adicionarContatoManual() {
                                             Card(
                                                 modifier = Modifier
                                                     .fillMaxWidth()
-                                                    .border(1.dp, if (contatoSelecionado == contato) Color(0xFF3B82F6) else Color.White.copy(alpha = 0.08f), RoundedCornerShape(14.dp))
+                                                    .border(
+                                                        1.dp,
+                                                        if (contatoSelecionado == contato) Color(0xFF3B82F6)
+                                                        else if (isDark) Color.White.copy(alpha = 0.08f)
+                                                        else Color.Black.copy(alpha = 0.12f),
+                                                        RoundedCornerShape(14.dp)
+                                                    )
                                                     .clickable { contatoSelecionado = contato },
-                                                colors = CardDefaults.cardColors(containerColor = Color(0xFF111827)),
+                                                colors = CardDefaults.cardColors(containerColor = if (isDark) Color(0xFF111827) else Color.White),
                                                 shape = RoundedCornerShape(14.dp)
                                             ) {
                                                 Row(
@@ -1250,14 +1255,14 @@ fun adicionarContatoManual() {
                                                         modifier = Modifier
                                                             .size(40.dp)
                                                             .clip(CircleShape)
-                                                            .background(Color(0xFF1E293B)),
+                                                            .background(if (isDark) Color(0xFF334155) else Color(0xFFE2E8F0)),
                                                         contentAlignment = Alignment.Center
                                                     ) {
-                                                        Icon(Icons.Default.Person, contentDescription = null, tint = Color.White)
+                                                        Icon(Icons.Default.Person, contentDescription = null, tint = iconColor)
                                                     }
                                                     Spacer(Modifier.width(12.dp))
                                                     Column(modifier = Modifier.weight(1f)) {
-                                                        Text(contato.nome, color = Color.White, fontWeight = FontWeight.SemiBold)
+                                                        Text(contato.nome, color = textPrimary, fontWeight = FontWeight.SemiBold)
                                                         Text(contato.telefone, color = Color(0xFF94A3B8), fontSize = 12.sp)
                                                     }
                                                     if (contatoSelecionado == contato) {
@@ -1282,8 +1287,6 @@ fun adicionarContatoManual() {
             Column(
                 modifier = Modifier
                     .padding(16.dp)
-                    .background(Color(0xFF0B1220).copy(alpha = 0.75f), RoundedCornerShape(14.dp))
-                    .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(14.dp))
                     .padding(10.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
@@ -1292,21 +1295,33 @@ fun adicionarContatoManual() {
                         Button(
                             onClick = { etapaAtual = 2 },
                             enabled = podeAvancarEtapa1,
-                            colors = ButtonDefaults.buttonColors(containerColor = accentBlue),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = accentBlue,
+                                contentColor = Color.White
+                            ),
                             shape = RoundedCornerShape(14.dp),
                             modifier = Modifier.fillMaxWidth().height(52.dp)
-                        ) { Text("Avancar ->", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
+                        ) { Text("Avançar", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
                         
                     }
                     2 -> {
                         Button(
                             onClick = { etapaAtual = 3 },
-                            colors = ButtonDefaults.buttonColors(containerColor = accentBlue),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = accentBlue,
+                                contentColor = Color.White
+                            ),
                             shape = RoundedCornerShape(14.dp),
                             modifier = Modifier.fillMaxWidth().height(52.dp)
-                        ) { Text("Avancar ->", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            TextButton(onClick = { etapaAtual = 1 }) { Text("Voltar", color = Color.White) }
+                        ) { Text("Próximo", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
+                        OutlinedButton(
+                            onClick = { etapaAtual = 1 },
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.fillMaxWidth().height(52.dp),
+                            border = BorderStroke(1.dp, Color.Black),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.Black)
+                        ) {
+                            Text("Voltar ao anterior", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                         }
                     }
                     else -> {
@@ -1315,12 +1330,25 @@ fun adicionarContatoManual() {
                                 salvarAvisos()
                                 onDismiss()
                             },
-                            colors = ButtonDefaults.buttonColors(containerColor = accentBlue),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = accentBlue,
+                                contentColor = Color.White
+                            ),
                             shape = RoundedCornerShape(14.dp),
                             modifier = Modifier.fillMaxWidth().height(52.dp)
-                        ) { Text("Salvar Registro", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            TextButton(onClick = { etapaAtual = 2 }) { Text("Voltar", color = Color.White) }
+                        ) {
+                            Icon(Icons.Rounded.CalendarMonth, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Salvar Aviso", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                        OutlinedButton(
+                            onClick = { etapaAtual = 2 },
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.fillMaxWidth().height(52.dp),
+                            border = BorderStroke(1.dp, Color.Black),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.Black)
+                        ) {
+                            Text("Voltar ao anterior", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                         }
                     }
                 }
