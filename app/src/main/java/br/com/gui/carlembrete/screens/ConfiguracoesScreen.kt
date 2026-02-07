@@ -88,8 +88,10 @@ fun ConfiguracoesScreen(
     onTestarNotificacao: () -> Unit,
     carros: List<CarroInfo>,
     lembretes: List<Lembrete>,
-    contatos: List<ContatoProfissional>
+    contatos: List<ContatoProfissional>,
+    onThemeModeChanged: (AppThemeMode) -> Unit
 ) {
+    val colorScheme = MaterialTheme.colorScheme
     val scrollState = rememberScrollState()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -99,6 +101,7 @@ fun ConfiguracoesScreen(
     var adminTapCount by remember { mutableStateOf(0) }
     var showAdminDialog by remember { mutableStateOf(false) }
     var showPremiumDialog by remember { mutableStateOf(false) }
+    var themeMode by remember { mutableStateOf(AppPreferences.getThemeMode(context)) }
     var adminPassword by remember { mutableStateOf("") }
     var adminUnlocked by remember { mutableStateOf(false) }
     var lastBackupTime by remember { mutableStateOf(0L) }
@@ -296,9 +299,9 @@ fun ConfiguracoesScreen(
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
-        containerColor = Color(0xFF070C18),
+        containerColor = colorScheme.background,
         bottomBar = {
-            Divider(color = Color(0xFF334155), thickness = 1.dp)
+            Divider(color = colorScheme.outlineVariant, thickness = 1.dp)
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -317,7 +320,7 @@ fun ConfiguracoesScreen(
             ) {
                 Text(
                     "Versão 1.0.0",
-                    color = Color(0xFF475569),
+                    color = colorScheme.onSurfaceVariant,
                     fontSize = 12.sp
                 )
             }
@@ -327,17 +330,17 @@ fun ConfiguracoesScreen(
                 title = {
                     Text(
                         "Configurações",
-                        color = Color.White,
+                        color = colorScheme.onSurface,
                         fontWeight = FontWeight.Bold,
                         style = MaterialTheme.typography.titleMedium
                     )
                 },
                 navigationIcon = {
                     IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar", tint = Color.White)
+                        Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar", tint = colorScheme.onSurface)
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF070C18))
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = colorScheme.background)
             )
         }
     ) { innerPadding ->
@@ -347,6 +350,48 @@ fun ConfiguracoesScreen(
                 .padding(innerPadding)
                 .verticalScroll(scrollState)
         ) {
+            SectionHeader(title = "APARÊNCIA")
+            Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)) {
+                Text(
+                    "Tema do aplicativo",
+                    color = colorScheme.onSurface,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 12.sp
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    ThemeModeOptionButton(
+                        label = "Sistema",
+                        selected = themeMode == AppThemeMode.SYSTEM,
+                        onClick = {
+                            themeMode = AppThemeMode.SYSTEM
+                            AppPreferences.setThemeMode(context, themeMode)
+                            onThemeModeChanged(themeMode)
+                        },
+                        modifier = Modifier.weight(1f)
+                    )
+                    ThemeModeOptionButton(
+                        label = "Claro",
+                        selected = themeMode == AppThemeMode.LIGHT,
+                        onClick = {
+                            themeMode = AppThemeMode.LIGHT
+                            AppPreferences.setThemeMode(context, themeMode)
+                            onThemeModeChanged(themeMode)
+                        },
+                        modifier = Modifier.weight(1f)
+                    )
+                    ThemeModeOptionButton(
+                        label = "Escuro",
+                        selected = themeMode == AppThemeMode.DARK,
+                        onClick = {
+                            themeMode = AppThemeMode.DARK
+                            AppPreferences.setThemeMode(context, themeMode)
+                            onThemeModeChanged(themeMode)
+                        },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
 
             // --- SEÇÃO 1: BACKUP E DADOS ---
             SectionHeader(title = "PLANO PREMIUM")
@@ -554,16 +599,17 @@ private enum class BackupAction {
 // Componente Reutilizável para o Cabeçalho da Seção (Estilo Android Settings)
 @Composable
 fun SectionHeader(title: String) {
+    val colorScheme = MaterialTheme.colorScheme
     Column(modifier = Modifier.fillMaxWidth()) {
         Text(
             text = title,
-            color = Color(0xFF64748B), // Cinza azulado tipo Android System
+            color = colorScheme.onSurfaceVariant,
             fontSize = 13.sp,
             fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(start = 24.dp, bottom = 8.dp)
         )
         Divider(
-            color = Color(0xFF334155), // Linha sutil
+            color = colorScheme.outlineVariant,
             thickness = 1.dp
         )
     }
@@ -617,6 +663,31 @@ private fun BackupIntervalButton(
         colors = ButtonDefaults.buttonColors(
             containerColor = if (selected) Color(0xFF2563EB) else Color(0xFF1F2937),
             contentColor = Color.White
+        )
+    ) {
+        Text(label, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+@Composable
+private fun ThemeModeOptionButton(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val colorScheme = MaterialTheme.colorScheme
+    OutlinedButton(
+        onClick = onClick,
+        modifier = modifier.height(40.dp),
+        shape = RoundedCornerShape(10.dp),
+        border = BorderStroke(
+            width = 1.dp,
+            color = if (selected) colorScheme.primary else colorScheme.outline
+        ),
+        colors = ButtonDefaults.outlinedButtonColors(
+            containerColor = if (selected) colorScheme.primary.copy(alpha = 0.16f) else colorScheme.surface,
+            contentColor = colorScheme.onSurface
         )
     ) {
         Text(label, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)

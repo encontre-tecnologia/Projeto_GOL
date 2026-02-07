@@ -75,6 +75,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -127,6 +128,25 @@ fun GaragemOverviewScreen(
     onSelecionar: (CarroInfo) -> Unit,
     onDismiss: () -> Unit
 ) {
+    val scheme = MaterialTheme.colorScheme
+    val isDark = scheme.background.luminance() < 0.5f
+    val textPrimary = if (isDark) Color.White else Color.Black
+    val textDim = if (isDark) Color(0xFF94A3B8) else Color(0xFF475569)
+    val cardBg = if (isDark) Color(0xFF0B1324) else Color.White
+    val cardBorder = if (isDark) Color.Transparent else Color.Black.copy(alpha = 0.12f)
+    val searchFieldColors = OutlinedTextFieldDefaults.colors(
+        focusedTextColor = textPrimary,
+        unfocusedTextColor = textPrimary,
+        focusedBorderColor = if (isDark) Color(0xFF334155) else Color.Black,
+        unfocusedBorderColor = if (isDark) Color(0xFF1E293B) else Color(0xFFCBD5E1),
+        focusedContainerColor = if (isDark) Color(0xFF0B1324) else Color.White,
+        unfocusedContainerColor = if (isDark) Color(0xFF0B1324) else Color.White,
+        cursorColor = textPrimary,
+        focusedLeadingIconColor = textDim,
+        unfocusedLeadingIconColor = textDim,
+        focusedPlaceholderColor = textDim,
+        unfocusedPlaceholderColor = textDim
+    )
     var busca by remember { mutableStateOf("") }
     val buscaNormalizada = busca.trim().lowercase(Locale.getDefault())
     val usuarioNome = FirebaseAuth.getInstance().currentUser?.displayName
@@ -152,7 +172,7 @@ fun GaragemOverviewScreen(
                 title = {
                     Text(
                         "Meus veículos",
-                        color = Color.White,
+                        color = textPrimary,
                         fontWeight = FontWeight.Bold,
                         style = MaterialTheme.typography.titleMedium
                     )
@@ -165,12 +185,12 @@ fun GaragemOverviewScreen(
                         Icon(
                             Icons.Default.ArrowBackIosNew,
                             contentDescription = "Voltar",
-                            tint = Color.White,
+                            tint = textPrimary,
                             modifier = Modifier.size(26.dp)
                         )
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = if (isDark) Color.Transparent else Color.White)
             )
         }
     ) { innerPadding ->
@@ -178,9 +198,13 @@ fun GaragemOverviewScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
-                    Brush.verticalGradient(
-                        listOf(Color(0xFF16233A), Color(0xFF121B30), Color(0xFF0F172A))
-                    )
+                    if (isDark) {
+                        Brush.verticalGradient(
+                            listOf(Color(0xFF16233A), Color(0xFF121B30), Color(0xFF0F172A))
+                        )
+                    } else {
+                        SolidColor(Color.White)
+                    }
                 )
         ) {
             if (carros.isEmpty()) {
@@ -195,11 +219,11 @@ fun GaragemOverviewScreen(
                     Icon(
                         Icons.Default.DirectionsCar,
                         contentDescription = null,
-                        tint = Color(0xFF94A3B8),
+                        tint = textDim,
                         modifier = Modifier.size(56.dp)
                     )
                     Spacer(Modifier.height(12.dp))
-                    Text("Nenhum veículo cadastrado", color = Color(0xFF94A3B8))
+                    Text("Nenhum veículo cadastrado", color = textDim)
                 }
             } else {
                 LazyColumn(
@@ -217,23 +241,15 @@ fun GaragemOverviewScreen(
                                 Icon(
                                     Icons.Default.Search,
                                     contentDescription = null,
-                                    tint = Color(0xFF94A3B8)
+                                    tint = textDim
                                 )
                             },
-                            placeholder = { Text("Buscar veiculo") },
+                            placeholder = { Text("Buscar veiculo", color = textDim) },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = 24.dp),
                             singleLine = true,
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedTextColor = Color.White,
-                                unfocusedTextColor = Color.White,
-                                focusedBorderColor = Color(0xFF334155),
-                                unfocusedBorderColor = Color(0xFF1E293B),
-                                focusedContainerColor = Color(0xFF0B1324),
-                                unfocusedContainerColor = Color(0xFF0B1324),
-                                cursorColor = Color.White
-                            )
+                            colors = searchFieldColors
                         )
                     }
                     if (carrosFiltrados.isEmpty()) {
@@ -248,11 +264,11 @@ fun GaragemOverviewScreen(
                                 Icon(
                                     Icons.Default.SearchOff,
                                     contentDescription = null,
-                                    tint = Color(0xFF94A3B8),
+                                    tint = textDim,
                                     modifier = Modifier.size(48.dp)
                                 )
                                 Spacer(Modifier.height(8.dp))
-                                Text("Nenhum veiculo encontrado", color = Color(0xFF94A3B8))
+                                Text("Nenhum veiculo encontrado", color = textDim)
                             }
                         }
                     } else {
@@ -269,7 +285,8 @@ fun GaragemOverviewScreen(
                                     .padding(horizontal = 24.dp)
                                     .clickable { onSelecionar(carro) },
                                 shape = RoundedCornerShape(16.dp),
-                                colors = CardDefaults.cardColors(containerColor = Color(0xFF0B1324)),
+                                colors = CardDefaults.cardColors(containerColor = cardBg),
+                                border = if (isDark) null else BorderStroke(1.dp, cardBorder),
                                 elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
                             ) {
                                 Row(
@@ -287,7 +304,7 @@ fun GaragemOverviewScreen(
                                     ) {
                                         VehicleIcon(
                                             tipoVeiculo = carro.tipoVeiculo,
-                                            tint = Color.White,
+                                            tint = if (isDark) Color.White else Color.Black,
                                             size = 28.dp
                                         )
                                     }
@@ -298,26 +315,26 @@ fun GaragemOverviewScreen(
                         ) {
                             Text(
                                 carro.nome.ifBlank { "Veiculo sem nome" },
-                                color = Color.White,
+                                color = textPrimary,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 16.sp
                             )
-                            Text(infoLinha, color = Color(0xFF94A3B8), fontSize = 13.sp)
+                            Text(infoLinha, color = textDim, fontSize = 13.sp)
                             Text(
                                 text = "Proprietário: ${carro.proprietario.ifBlank { "Não informado" }}",
-                                color = Color(0xFFCBD5E1),
+                                color = if (isDark) Color(0xFFCBD5E1) else textDim,
                                 fontSize = 12.sp
                             )
                             Text(
                                 text = "Mantedor: $nomeMantedor",
-                                color = Color(0xFF94A3B8),
+                                color = textDim,
                                 fontSize = 11.sp
                             )
                         }
                                     Icon(
                                         Icons.Default.ArrowForwardIos,
                                         contentDescription = "Ver mais",
-                                        tint = Color(0xFF94A3B8),
+                                        tint = textDim,
                                         modifier = Modifier.size(18.dp)
                                     )
                                 }

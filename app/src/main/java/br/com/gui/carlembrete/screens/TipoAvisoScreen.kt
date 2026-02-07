@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBackIosNew
@@ -31,6 +32,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -42,6 +44,7 @@ data class AvisoItem(
     val color: Color,
     val tipo: TipoManutencao? = null,
     val iconOverride: ImageVector? = null,
+    val wide: Boolean = false,
     val onClick: () -> Unit
 )
 
@@ -61,8 +64,8 @@ fun TipoAvisoScreen(
             TopAppBar(
                 title = {
                     Text(
-                        text = "Tipo de aviso",
-                        color = Color.White,
+                        text = "Criar Aviso",
+                        color = if (surfaceDark.luminance() < 0.5f) textLight else textLight,
                         fontWeight = FontWeight.Bold
                     )
                 },
@@ -75,7 +78,9 @@ fun TipoAvisoScreen(
                         )
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = surfaceDark)
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = if (surfaceDark.luminance() < 0.5f) Color(0xFF16233A) else surfaceDark
+                )
             )
         }
     ) { innerPadding ->
@@ -92,7 +97,7 @@ fun TipoAvisoScreen(
                 Column(
                     modifier = Modifier
                         .align(Alignment.Center)
-                        .offset(y = (-40).dp)
+                        .offset(y = (-60).dp)
                         .padding(horizontal = 16.dp, vertical = 12.dp)
                         .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -111,21 +116,62 @@ fun TipoAvisoScreen(
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        "Selecione a categoria para continuar",
-                        color = textDim,
-                        fontSize = 13.sp
-                    )
-
-                    Text(
                         "Escolha o tipo de aviso:",
                         color = textDim,
-                        fontSize = 13.sp
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold
                     )
 
                     Column(
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        itensAviso.chunked(2).forEach { linha ->
+                        val wideItems = itensAviso.filter { it.wide }
+                        val gridItems = itensAviso.filter { !it.wide }
+                        wideItems.forEach { item ->
+                            OutlinedButton(
+                                onClick = item.onClick,
+                                border = BorderStroke(1.dp, if (surfaceDark.luminance() < 0.5f) Color(0xFF334155) else Color.Black),
+                                shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(64.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    if (item.label.contains("estacionei", ignoreCase = true)) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(26.dp)
+                                                .background(item.color.copy(alpha = 0.15f), CircleShape),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                "E",
+                                                color = item.color,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 14.sp
+                                            )
+                                        }
+                                    } else {
+                                        Icon(
+                                            imageVector = item.iconOverride ?: item.icon,
+                                            contentDescription = null,
+                                            tint = item.color,
+                                            modifier = Modifier.size(26.dp)
+                                        )
+                                    }
+                                    Text(
+                                        item.label,
+                                        color = textLight,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 16.sp
+                                    )
+                                }
+                            }
+                        }
+                        gridItems.chunked(2).forEach { linha ->
                             Row(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {

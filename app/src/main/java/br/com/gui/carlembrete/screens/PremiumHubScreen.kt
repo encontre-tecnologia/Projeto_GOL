@@ -45,6 +45,7 @@ fun PremiumHubScreen(
     onDismiss: () -> Unit,
     onOpenGuardian: () -> Unit,
     onOpenFinance: () -> Unit,
+    onOpenAiAssistant: () -> Unit,
     onOpenSubscribe: () -> Unit
 ) {
     val background = Brush.verticalGradient(
@@ -101,6 +102,13 @@ fun PremiumHubScreen(
                     title = "Gestor Financeiro",
                     subtitle = "Visão de gastos e relatórios",
                     onClick = onOpenFinance
+                )
+
+                PremiumFeatureButton(
+                    icon = { Icon(Icons.Default.WorkspacePremium, contentDescription = null, tint = Color.White) },
+                    title = "Viagem",
+                    subtitle = "Gastos, notas e relatorio",
+                    onClick = onOpenAiAssistant
                 )
 
                 if (!isPremium) {
