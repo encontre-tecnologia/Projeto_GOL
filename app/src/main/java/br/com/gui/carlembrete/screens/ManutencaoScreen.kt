@@ -41,6 +41,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.layout.ContentScale
@@ -53,8 +55,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.view.WindowCompat
-import androidx.core.view.WindowInsetsControllerCompat
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.firebase.auth.FirebaseAuth
@@ -82,8 +82,12 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
 fun ManutencaoScreen(
     modifier: Modifier = Modifier,
     context: Context = LocalContext.current,
-    onLoaded: () -> Unit = {}
+    onLoaded: () -> Unit = {},
+    onThemeModeChanged: (AppThemeMode) -> Unit = {}
 ) {
+    val colorScheme = MaterialTheme.colorScheme
+    val isDark = colorScheme.background.luminance() < 0.5f
+
     // ----------------- ESTADOS E VARIÁVEIS -----------------
     var listaCarros by remember { mutableStateOf<List<CarroInfo>>(emptyList()) }
     var listaContatos by remember { mutableStateOf<List<ContatoProfissional>>(emptyList()) }
@@ -94,14 +98,14 @@ fun ManutencaoScreen(
     var notifiedLoaded by remember { mutableStateOf(false) }
 
     // CORES DO TEMA (Azul Premium)
-    val primaryDark = Color(0xFF121B30)
-    val surfaceDark = Color(0xFF1E293B)
-    val fuelCardStart = Color(0xFF334155)
-    val fuelCardEnd = Color(0xFF1E293B)
-    val topBarDark = fuelCardStart
-    val accentBlue = Color(0xFF3B82F6)
-    val textLight = Color(0xFFF1F5F9)
-    val textDim = Color(0xFF94A3B8)
+    val primaryDark = colorScheme.background
+    val surfaceDark = colorScheme.surface
+    val fuelCardStart = if (isDark) colorScheme.surface else Color.White
+    val fuelCardEnd = if (isDark) colorScheme.background else Color.White
+    val topBarDark = colorScheme.background
+    val accentBlue = colorScheme.primary
+    val textLight = colorScheme.onSurface
+    val textDim = colorScheme.onSurfaceVariant
 
     // ----------------- CARREGAMENTO DE DADOS -----------------
     LaunchedEffect(Unit) {
@@ -161,6 +165,8 @@ fun ManutencaoScreen(
     var showBikeDistanceHistory by remember { mutableStateOf(false) }
     var showPremiumHubScreen by remember { mutableStateOf(false) }
     var showShareVehicleScreen by remember { mutableStateOf(false) }
+    var showAondePareiScreen by remember { mutableStateOf(false) }
+    var showAiAssistantScreen by remember { mutableStateOf(false) }
 
     var showAnjoDaGuardaScreen by remember { mutableStateOf(false) }
     var showGaragemScreen by remember { mutableStateOf(false) }
@@ -203,14 +209,6 @@ fun ManutencaoScreen(
     val vehicleLimit = if (planTier == PlanTier.FREE) 3 else Int.MAX_VALUE
     val lembreteLimit = if (planTier == PlanTier.FREE) 15 else Int.MAX_VALUE
 
-    // Configuração da Barra de Status (Cor escura)
-    SideEffect {
-        activity?.window?.let { window ->
-            WindowCompat.setDecorFitsSystemWindows(window, true)
-            window.statusBarColor = android.graphics.Color.parseColor("#0F172A")
-            WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightStatusBars = false
-        }
-    }
     DisposableEffect(Unit) {
         subscriptionManager.connect()
         onDispose { subscriptionManager.disconnect() }
@@ -293,7 +291,17 @@ fun ManutencaoScreen(
                 TipoManutencao.OUTROS
             )
         }
-        val itensAviso = (if (isBike) emptyList() else listOf(
+        val itensAviso = listOf(
+            AvisoItem(
+                label = "Lembrar aonde estacionei",
+                icon = Icons.Default.LocalParking,
+                color = accentBlue,
+                wide = true
+            ) {
+                showTipoAvisoDialog = false
+                showAondePareiScreen = true
+            }
+        ) + (if (isBike) emptyList() else listOf(
             AvisoItem("Gasolina", Icons.Rounded.LocalGasStation, accentBlue) {
                 showTipoAvisoDialog = false
                 showAbastecimentoScreen = true
@@ -313,14 +321,21 @@ fun ManutencaoScreen(
                 showAddLembreteDialog = true
             }
         }
+        val avisoBackground = if (isDark) {
+            Brush.verticalGradient(
+                listOf(Color(0xFF16233A), primaryDark, Color(0xFF0F172A))
+            )
+        } else {
+            SolidColor(Color.White)
+        }
+        val avisoTextPrimary = if (isDark) textLight else Color.Black
+        val avisoTextDim = if (isDark) textDim else Color(0xFF475569)
         TipoAvisoScreen(
             itensAviso = itensAviso,
-            backgroundBrush = Brush.verticalGradient(
-                listOf(Color(0xFF16233A), primaryDark, Color(0xFF0F172A))
-            ),
-            surfaceDark = surfaceDark,
-            textLight = textLight,
-            textDim = textDim,
+            backgroundBrush = avisoBackground,
+            surfaceDark = if (isDark) surfaceDark else Color.White,
+            textLight = avisoTextPrimary,
+            textDim = avisoTextDim,
             onDismiss = { showTipoAvisoDialog = false }
         )
         return
@@ -347,7 +362,8 @@ fun ManutencaoScreen(
             },
             carros = listaCarros,
             lembretes = todosLembretes,
-            contatos = listaContatos
+            contatos = listaContatos,
+            onThemeModeChanged = onThemeModeChanged
         )
         return
     }
@@ -389,6 +405,10 @@ fun ManutencaoScreen(
             onOpenFinance = {
                 showPremiumHubScreen = false
                 showMecanicoVirtualScreen = true
+            },
+            onOpenAiAssistant = {
+                showPremiumHubScreen = false
+                showAiAssistantScreen = true
             },
             onOpenSubscribe = {
                 showPremiumHubScreen = false
@@ -543,6 +563,16 @@ fun ManutencaoScreen(
     BackHandler(enabled = showBikeDistanceHistory) { showBikeDistanceHistory = false }
     if (showBikeDistanceHistory) {
         BikeDistanceHistoryScreen(carroId = carroAtual.id, onDismiss = { showBikeDistanceHistory = false })
+        return
+    }
+    BackHandler(enabled = showAondePareiScreen) { showAondePareiScreen = false }
+    if (showAondePareiScreen) {
+        AondePareiScreen(onDismiss = { showAondePareiScreen = false })
+        return
+    }
+    BackHandler(enabled = showAiAssistantScreen) { showAiAssistantScreen = false }
+    if (showAiAssistantScreen) {
+        AssistentePremiumScreen(onDismiss = { showAiAssistantScreen = false })
         return
     }
     LaunchedEffect(showAbastecimentoScreen) {
@@ -712,10 +742,6 @@ fun ManutencaoScreen(
                         }
                         drawerScope.launch { drawerState.close() }
                     }
-                    DrawerMenuItem(Icons.Default.Share, "Compartilhar Veículo") {
-                        showShareVehicleScreen = true
-                        drawerScope.launch { drawerState.close() }
-                    }
 
                     Spacer(Modifier.height(8.dp))
                     Text(
@@ -793,6 +819,7 @@ fun ManutencaoScreen(
         topBar = {
             if (showTopBar) {
                 CenterAlignedTopAppBar(
+                        modifier = Modifier.statusBarsPadding(),
                         title = {
                             Text(
                                 "Zellu",
@@ -825,11 +852,7 @@ fun ManutencaoScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        listOf(Color(0xFF16233A), primaryDark, Color(0xFF0F172A))
-                    )
-                )
+                .background(colorScheme.background)
         ) {
             if (isLoading) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -842,7 +865,7 @@ fun ManutencaoScreen(
                         .fillMaxSize()
                         .verticalScroll(contentScrollState)
                 ) {
-                    Spacer(Modifier.height(20.dp))
+                    Spacer(Modifier.height(8.dp))
 
                     CarroInfoCard(
                         carroAtual = carroAtual,
@@ -874,8 +897,8 @@ fun ManutencaoScreen(
                                 .padding(horizontal = 16.dp)
                                 .height(44.dp),
                             shape = RoundedCornerShape(12.dp),
-                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.25f)),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
+                            border = BorderStroke(1.dp, if (isDark) Color.White.copy(alpha = 0.25f) else Color.Black),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = if (isDark) Color.White else Color.Black)
                         ) {
                             Icon(Icons.Default.LocalGasStation, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(8.dp))
@@ -1008,10 +1031,30 @@ fun DrawerMenuItem(
     highlighted: Boolean = false,
     onClick: () -> Unit
 ) {
-    val container = if (highlighted) Color(0xFF3B2A0A) else Color(0xFF111827)
-    val borderColor = if (highlighted) Color(0xFFFBBF24).copy(alpha = 0.55f) else Color.White.copy(alpha = 0.08f)
-    val iconTint = if (highlighted) Color(0xFFFBBF24) else Color(0xFF94A3B8)
-    val textColor = if (highlighted) Color(0xFFFEF3C7) else Color(0xFFF1F5F9)
+    val colorScheme = MaterialTheme.colorScheme
+    val isDark = colorScheme.background.luminance() < 0.5f
+    val container = when {
+        highlighted && isDark -> Color(0xFF3B2A0A)
+        highlighted && !isDark -> Color(0xFFFEF3C7)
+        isDark -> Color(0xFF111827)
+        else -> Color(0xFFF1F5F9)
+    }
+    val borderColor = when {
+        highlighted -> Color(0xFFFBBF24)
+        isDark -> Color.White.copy(alpha = 0.08f)
+        else -> Color(0xFFCBD5E1)
+    }
+    val iconTint = when {
+        highlighted -> Color(0xFFF59E0B)
+        isDark -> Color(0xFF94A3B8)
+        else -> Color(0xFF475569)
+    }
+    val textColor = when {
+        highlighted && isDark -> Color(0xFFFEF3C7)
+        highlighted && !isDark -> Color(0xFF92400E)
+        isDark -> Color(0xFFF1F5F9)
+        else -> Color(0xFF0F172A)
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1026,7 +1069,7 @@ fun DrawerMenuItem(
             modifier = Modifier
                 .size(30.dp)
                 .clip(CircleShape)
-                .background(Color.Black.copy(alpha = 0.18f)),
+                .background(if (isDark) Color.Black.copy(alpha = 0.18f) else Color(0xFFE2E8F0)),
             contentAlignment = Alignment.Center
         ) {
             Icon(

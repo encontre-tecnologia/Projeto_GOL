@@ -22,9 +22,12 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -32,6 +35,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.core.content.ContextCompat
@@ -96,21 +100,41 @@ class MainActivity : ComponentActivity() {
         }
 
         WindowCompat.setDecorFitsSystemWindows(window, true)
-        window.statusBarColor = android.graphics.Color.BLACK
-        WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightStatusBars = false
     }
 
     private fun initializeContentIfNeeded() {
         if (contentInitialized) return
         contentInitialized = true
         setContent {
-            CarLembreteTheme {
+            var themeMode by remember { mutableStateOf(AppPreferences.getThemeMode(this@MainActivity)) }
+
+            CarLembreteTheme(themeMode = themeMode) {
+                val isDarkTheme = when (themeMode) {
+                    AppThemeMode.SYSTEM -> isSystemInDarkTheme()
+                    AppThemeMode.LIGHT -> false
+                    AppThemeMode.DARK -> true
+                }
+                val colorScheme = MaterialTheme.colorScheme
                 val auth = remember { FirebaseAuth.getInstance() }
                 var usuario by remember { mutableStateOf(auth.currentUser) }
                 var showLoading by remember { mutableStateOf(usuario != null) }
                 var loadingDoneSignal by remember { mutableIntStateOf(0) }
                 var videoFinished by remember { mutableStateOf(false) }
                 val loadingProgress = remember { Animatable(0f) }
+                LaunchedEffect(showLoading, isDarkTheme) {
+                    val insetsController = WindowInsetsControllerCompat(window, window.decorView)
+                    if (showLoading) {
+                        window.statusBarColor = android.graphics.Color.parseColor("#0F172A")
+                        insetsController.isAppearanceLightStatusBars = false
+                    } else {
+                        window.statusBarColor = if (isDarkTheme) {
+                            colorScheme.background.toArgb()
+                        } else {
+                            Color.White.toArgb()
+                        }
+                        insetsController.isAppearanceLightStatusBars = !isDarkTheme
+                    }
+                }
                 DisposableEffect(Unit) {
                     val listener = FirebaseAuth.AuthStateListener { firebaseAuth ->
                         usuario = firebaseAuth.currentUser
@@ -135,14 +159,15 @@ class MainActivity : ComponentActivity() {
                         showLoading = false
                     }
                 }
-                val baseBackground = if (usuario == null) Color.Black else Color(0xFF0F2A4A)
+                val baseBackground = MaterialTheme.colorScheme.background
                 Surface(modifier = Modifier.fillMaxSize(), color = baseBackground) {
                     if (usuario == null) {
                         AuthScreen(onSignedIn = { })
                     } else {
                         Box(modifier = Modifier.fillMaxSize()) {
                                 ManutencaoScreen(
-                                    onLoaded = { loadingDoneSignal++ }
+                                    onLoaded = { loadingDoneSignal++ },
+                                    onThemeModeChanged = { themeMode = it }
                                 )
                             if (showLoading) {
                                 LoadingScreen(

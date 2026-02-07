@@ -23,6 +23,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -37,6 +38,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
@@ -56,13 +58,30 @@ import java.text.NumberFormat
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
-// --- CORES & FORMATADORES ---
-private val CardBackgroundColor = Color(0xFF2B3950)
-private val ItemBackgroundColor = Color(0xFF0F172A)
-private val SurfaceHighlight = Color(0xFF334155)
-private val TextWhite = Color(0xFFF8FAFC)
-private val TextGray = Color(0xFF94A3B8)
-private val AccentBlue = Color(0xFF3B82F6)
+private data class AvisosPalette(
+    val cardBackground: Color,
+    val itemBackground: Color,
+    val surfaceHighlight: Color,
+    val textPrimary: Color,
+    val textSecondary: Color,
+    val accent: Color,
+    val isDark: Boolean
+)
+
+@Composable
+private fun avisosPalette(): AvisosPalette {
+    val scheme = MaterialTheme.colorScheme
+    val isDark = scheme.background.luminance() < 0.5f
+    return AvisosPalette(
+        cardBackground = if (isDark) Color(0xFF2B3950) else Color.White,
+        itemBackground = if (isDark) Color(0xFF0F172A) else Color(0xFFF8FAFC),
+        surfaceHighlight = if (isDark) Color(0xFF334155) else Color(0xFFCBD5E1),
+        textPrimary = scheme.onSurface,
+        textSecondary = scheme.onSurfaceVariant,
+        accent = scheme.primary,
+        isDark = isDark
+    )
+}
 private val WhatsAppGreen = Color(0xFF25D366)
 private val MoneyGreen = Color(0xFF10B981)
 
@@ -90,6 +109,9 @@ fun AvisosCategoriasCard(
     textDim: Color,
     modifier: Modifier = Modifier
 ) {
+    val palette = avisosPalette()
+    val cardBorderColor = if (palette.isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.35f)
+    val searchBorderColor = if (palette.isDark) Color.White.copy(alpha = 0.55f) else Color.Black.copy(alpha = 0.65f)
     val scrollState = rememberScrollState()
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
@@ -111,12 +133,13 @@ fun AvisosCategoriasCard(
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(28.dp),
-            colors = CardDefaults.cardColors(containerColor = CardBackgroundColor),
+            colors = CardDefaults.cardColors(containerColor = palette.cardBackground),
+            border = BorderStroke(1.dp, cardBorderColor),
             elevation = CardDefaults.cardElevation(0.dp)
         ) {
             Column(
                 modifier = Modifier
-                    .background(CardBackgroundColor) // Cor sÃ³lida, sem degradÃª
+                    .background(palette.cardBackground)
                     .padding(vertical = 12.dp),
             ) {
 
@@ -132,7 +155,7 @@ fun AvisosCategoriasCard(
                 ) {
                     Text(
                         text = "CATEGORIAS",
-                        color = TextWhite,
+                        color = palette.textPrimary,
                         fontSize = 16.sp,
                         fontWeight = FontWeight.ExtraBold,
                         letterSpacing = 0.5.sp
@@ -212,7 +235,7 @@ fun AvisosCategoriasCard(
                         val tituloFiltro = labelOverrides[filtroTipo] ?: filtroTipo?.label
                         Text(
                             text = if (tituloFiltro != null) tituloFiltro.uppercase() else "PROXIMOS LEMBRETES:",
-                            color = TextWhite,
+                            color = palette.textPrimary,
                             fontSize = 16.sp,
                             fontWeight = FontWeight.ExtraBold,
                             letterSpacing = 0.5.sp
@@ -221,9 +244,9 @@ fun AvisosCategoriasCard(
 
                     if (lembretesDoCarroAtual.isNotEmpty()) {
                         Surface(
-                            color = AccentBlue.copy(alpha = 0.2f),
+                            color = palette.accent.copy(alpha = 0.2f),
                             shape = RoundedCornerShape(6.dp),
-                            border = BorderStroke(1.dp, AccentBlue)
+                            border = BorderStroke(1.dp, palette.accent)
                         ) {
                             Text(
                                 text = "${lembretesDoCarroAtual.size}",
@@ -249,9 +272,9 @@ fun AvisosCategoriasCard(
                         value = buscaLocal,
                         onValueChange = { buscaLocal = it },
                         placeholder = "Buscar lembrete",
-                        textColor = TextWhite,
-                        placeholderColor = TextGray,
-                        borderColor = Color.White.copy(alpha = 0.55f),
+                        textColor = palette.textPrimary,
+                        placeholderColor = palette.textSecondary,
+                        borderColor = searchBorderColor,
                         modifier = Modifier
                             .weight(1f)
                             .height(44.dp)
@@ -262,9 +285,9 @@ fun AvisosCategoriasCard(
                             keyboardController?.hide()
                             focusManager.clearFocus()
                         },
-                        border = BorderStroke(1.dp, Color.White),
+                        border = BorderStroke(1.dp, searchBorderColor),
                         colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
-                            containerColor = AccentBlue,
+                            containerColor = palette.accent,
                             contentColor = Color.White
                         ),
                         contentPadding = PaddingValues(0.dp),
@@ -277,7 +300,7 @@ fun AvisosCategoriasCard(
 
                 // --- LISTA DE LEMBRETES ---
                 if (lembretesComBusca.isEmpty()) {
-                    EmptyStateView(TextGray)
+                    EmptyStateView(palette.textSecondary)
                 } else {
                     Column(
                         modifier = Modifier.padding(horizontal = 12.dp),
@@ -307,6 +330,7 @@ fun LembreteCardLocal(
     onClick: () -> Unit,
     onAddPrestador: (Lembrete) -> Unit
 ) {
+    val palette = avisosPalette()
     val context = LocalContext.current
 
     val valorFormatado = remember(lembrete.valor) {
@@ -321,8 +345,8 @@ fun LembreteCardLocal(
         modifier = Modifier
             .fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = ItemBackgroundColor),
-        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f)),
+        colors = CardDefaults.cardColors(containerColor = palette.itemBackground),
+        border = BorderStroke(1.dp, if (palette.isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.22f)),
         elevation = CardDefaults.cardElevation(4.dp)
     ) {
         Column(
@@ -352,7 +376,7 @@ fun LembreteCardLocal(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = lembrete.titulo,
-                        color = TextWhite,
+                        color = palette.textPrimary,
                         fontWeight = FontWeight.SemiBold,
                         fontSize = 16.sp,
                         maxLines = 1,
@@ -364,7 +388,7 @@ fun LembreteCardLocal(
                         Icon(
                             imageVector = Icons.Default.EventNote,
                             contentDescription = null,
-                            tint = TextGray,
+                            tint = palette.textSecondary,
                             modifier = Modifier.size(12.dp)
                         )
                         Spacer(Modifier.width(4.dp))
@@ -374,7 +398,7 @@ fun LembreteCardLocal(
 
                         Text(
                             text = dataFormatada,
-                            color = TextGray,
+                            color = palette.textSecondary,
                             fontSize = 12.sp
                         )
                     }
@@ -460,7 +484,7 @@ fun LembreteCardLocal(
                     }
                 } else {
                     Surface(
-                        color = AccentBlue.copy(alpha = 0.15f),
+                        color = palette.accent.copy(alpha = 0.15f),
                         shape = CircleShape,
                         modifier = Modifier
                             .clip(CircleShape)
@@ -473,13 +497,13 @@ fun LembreteCardLocal(
                             Icon(
                                 imageVector = Icons.Default.Add,
                                 contentDescription = "Adicionar contato",
-                                tint = AccentBlue,
+                                tint = palette.accent,
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(Modifier.width(8.dp))
                             Text(
                                 text = "Adicionar contato",
-                                color = AccentBlue,
+                                color = palette.accent,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold
                             )
@@ -503,13 +527,14 @@ fun MonitorIcon(
     iconOverride: ImageVector? = null,
     labelOverride: String? = null
 ) {
+    val palette = avisosPalette()
     val animatedColor by animateColorAsState(
-        targetValue = if (selected) cor else SurfaceHighlight,
+        targetValue = if (selected) cor else palette.surfaceHighlight,
         animationSpec = tween(durationMillis = 300),
         label = "colorAnim"
     )
 
-    val iconColor = if (selected) Color.White else TextGray
+    val iconColor = if (selected) Color.White else palette.textSecondary
     val labelText = labelOverride ?: tipo.label
 
     Column(
@@ -551,7 +576,7 @@ fun MonitorIcon(
                         .offset(x = 4.dp, y = (-2).dp)
                         .size(24.dp)
                         .background(Color(0xFFEF4444), CircleShape)
-                        .border(2.dp, CardBackgroundColor, CircleShape),
+                        .border(2.dp, palette.cardBackground, CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
@@ -568,7 +593,7 @@ fun MonitorIcon(
 
         Text(
             text = labelText,
-            color = if (selected) TextWhite else TextGray,
+            color = if (selected) palette.textPrimary else palette.textSecondary,
             fontSize = 13.sp,
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
             maxLines = 1,
@@ -579,12 +604,13 @@ fun MonitorIcon(
 
 @Composable
 private fun MonitorAllIcon(selected: Boolean, onClick: () -> Unit) {
+    val palette = avisosPalette()
     val animatedColor by animateColorAsState(
-        targetValue = if (selected) AccentBlue else SurfaceHighlight,
+        targetValue = if (selected) palette.accent else palette.surfaceHighlight,
         animationSpec = tween(durationMillis = 300),
         label = "allAnim"
     )
-    val iconColor = if (selected) Color.White else TextGray
+    val iconColor = if (selected) Color.White else palette.textSecondary
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -612,7 +638,7 @@ private fun MonitorAllIcon(selected: Boolean, onClick: () -> Unit) {
 
         Text(
             text = "Todos",
-            color = if (selected) TextWhite else TextGray,
+            color = if (selected) palette.textPrimary else palette.textSecondary,
             fontSize = 13.sp,
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
         )
@@ -621,6 +647,7 @@ private fun MonitorAllIcon(selected: Boolean, onClick: () -> Unit) {
 
 @Composable
 private fun EmptyStateView(textColor: Color) {
+    val palette = avisosPalette()
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -643,7 +670,7 @@ private fun EmptyStateView(textColor: Color) {
             )
         }
         Spacer(Modifier.height(16.dp))
-        Text("Tudo 100%!", color = TextWhite, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+        Text("Tudo 100%!", color = palette.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
         Text("Nenhum aviso nessa categoria.", color = textColor, fontSize = 13.sp)
     }
 }
@@ -669,7 +696,7 @@ private fun SearchTextFieldLocal(
             value = value,
             onValueChange = onValueChange,
             singleLine = true,
-            cursorBrush = SolidColor(Color.White),
+            cursorBrush = SolidColor(textColor),
             textStyle = TextStyle(color = textColor, fontSize = 13.sp),
             modifier = Modifier.fillMaxWidth()
         )

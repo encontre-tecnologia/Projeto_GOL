@@ -15,16 +15,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-
-private val BikeCardBackground = Color(0xFF1E293B)
-private val BikeAccent = Color(0xFF22C55E)
-private val BikeTextWhite = Color(0xFFF1F5F9)
-private val BikeTextGray = Color(0xFF94A3B8)
-private val BikeInnerBackground = Color(0xFF0F172A).copy(alpha = 0.5f)
 
 @Composable
 fun BikeDistanceCard(
@@ -36,6 +31,15 @@ fun BikeDistanceCard(
     onHistorico: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val scheme = MaterialTheme.colorScheme
+    val isDark = scheme.background.luminance() < 0.5f
+    val bikeCardBackground = if (isDark) Color(0xFF2B3950) else Color.White
+    val bikeAccent = if (isDark) Color(0xFF22C55E) else Color(0xFF16A34A)
+    val bikeTextPrimary = scheme.onSurface
+    val bikeTextSecondary = scheme.onSurfaceVariant
+    val bikeInnerBackground = if (isDark) Color(0xFF0F172A).copy(alpha = 0.5f) else Color.White.copy(alpha = 0.75f)
+    val cardBorderColor = if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.35f)
+
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -45,11 +49,12 @@ fun BikeDistanceCard(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(24.dp),
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-            colors = CardDefaults.cardColors(containerColor = BikeCardBackground)
+            colors = CardDefaults.cardColors(containerColor = bikeCardBackground),
+            border = androidx.compose.foundation.BorderStroke(1.dp, cardBorderColor)
         ) {
             Column(
                 modifier = Modifier
-                    .background(BikeCardBackground)
+                    .background(bikeCardBackground)
                     .padding(12.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -62,7 +67,7 @@ fun BikeDistanceCard(
                             Icon(
                                 imageVector = Icons.Rounded.DirectionsBike,
                                 contentDescription = null,
-                                tint = BikeAccent,
+                                tint = bikeAccent,
                                 modifier = Modifier.size(24.dp)
                             )
                         }
@@ -72,14 +77,14 @@ fun BikeDistanceCard(
 
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "Distância Pedalada",
-                            color = BikeTextWhite,
+                            text = "Distancia Pedalada",
+                            color = bikeTextPrimary,
                             fontWeight = FontWeight.Bold,
                             fontSize = 16.sp
                         )
                         Text(
                             text = "Registre suas voltas e km",
-                            color = BikeTextGray,
+                            color = bikeTextSecondary,
                             fontSize = 12.sp
                         )
                     }
@@ -96,6 +101,9 @@ fun BikeDistanceCard(
                         value = kmHoje,
                         icon = Icons.Rounded.Today,
                         color = Color(0xFF60A5FA),
+                        textPrimary = bikeTextPrimary,
+                        textSecondary = bikeTextSecondary,
+                        innerBackground = bikeInnerBackground,
                         modifier = Modifier.weight(1f)
                     )
                     Spacer(Modifier.width(8.dp))
@@ -104,14 +112,20 @@ fun BikeDistanceCard(
                         value = kmSemana,
                         icon = Icons.Rounded.Event,
                         color = Color(0xFF34D399),
+                        textPrimary = bikeTextPrimary,
+                        textSecondary = bikeTextSecondary,
+                        innerBackground = bikeInnerBackground,
                         modifier = Modifier.weight(1f)
                     )
                     Spacer(Modifier.width(8.dp))
                     DistanceCompactItem(
-                        label = "Mês",
+                        label = "Mes",
                         value = kmMes,
                         icon = Icons.Rounded.Route,
                         color = Color(0xFFF59E0B),
+                        textPrimary = bikeTextPrimary,
+                        textSecondary = bikeTextSecondary,
+                        innerBackground = bikeInnerBackground,
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -122,23 +136,23 @@ fun BikeDistanceCard(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(16.dp))
-                        .background(BikeInnerBackground)
+                        .background(bikeInnerBackground)
                         .padding(14.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column {
-                        Text("Total", color = BikeTextGray, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        Text("Total", color = bikeTextSecondary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                         Text(
                             text = formatKm(kmTotal),
-                            color = BikeTextWhite,
+                            color = bikeTextPrimary,
                             fontWeight = FontWeight.ExtraBold,
                             fontSize = 18.sp
                         )
                     }
                     Text(
                         text = "km",
-                        color = BikeTextGray,
+                        color = bikeTextSecondary,
                         fontWeight = FontWeight.Bold
                     )
                 }
@@ -153,7 +167,7 @@ fun BikeDistanceCard(
                             .height(48.dp),
                         shape = RoundedCornerShape(14.dp),
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = BikeAccent,
+                            containerColor = bikeAccent,
                             contentColor = Color.White
                         )
                     ) {
@@ -166,9 +180,9 @@ fun BikeDistanceCard(
                             .height(48.dp),
                         shape = RoundedCornerShape(14.dp),
                         border = ButtonDefaults.outlinedButtonBorder,
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = BikeTextWhite)
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = bikeTextPrimary)
                     ) {
-                        Text("Histórico", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        Text("Historico", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                         Spacer(Modifier.width(6.dp))
                         Icon(Icons.Rounded.ChevronRight, contentDescription = null, modifier = Modifier.size(16.dp))
                     }
@@ -184,12 +198,15 @@ private fun DistanceCompactItem(
     value: Double,
     icon: ImageVector,
     color: Color,
+    textPrimary: Color,
+    textSecondary: Color,
+    innerBackground: Color,
     modifier: Modifier = Modifier
 ) {
     Column(
         modifier = modifier
             .clip(RoundedCornerShape(16.dp))
-            .background(BikeInnerBackground)
+            .background(innerBackground)
             .padding(vertical = 12.dp, horizontal = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
@@ -203,14 +220,14 @@ private fun DistanceCompactItem(
         Spacer(Modifier.height(6.dp))
         Text(
             text = label,
-            color = BikeTextGray,
+            color = textSecondary,
             fontSize = 11.sp,
             fontWeight = FontWeight.Medium
         )
         Spacer(Modifier.height(4.dp))
         Text(
             text = formatKm(value),
-            color = BikeTextWhite,
+            color = textPrimary,
             fontWeight = FontWeight.Bold,
             fontSize = 13.sp
         )

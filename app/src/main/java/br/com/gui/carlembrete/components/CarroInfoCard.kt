@@ -20,6 +20,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -31,6 +32,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -39,12 +41,28 @@ import androidx.compose.ui.unit.sp
 import br.com.gui.carlembrete.CarroInfo
 import br.com.gui.carlembrete.VehicleIcon
 
-// --- CORES ---
-// Cor sÃ³lida para o fundo do Card Principal (Uniforme)
-private val CardBackgroundColor = Color(0xFF2B3950) // mais claro
-private val TextWhite = Color(0xFFF1F5F9)
-private val TextGray = Color(0xFF94A3B8)
-private val AccentBlue = Color(0xFF3B82F6)
+private data class CarCardPalette(
+    val cardBackground: Color,
+    val textPrimary: Color,
+    val textSecondary: Color,
+    val accent: Color,
+    val actionBackground: Color,
+    val isDark: Boolean
+)
+
+@Composable
+private fun carCardPalette(): CarCardPalette {
+    val scheme = MaterialTheme.colorScheme
+    val isDark = scheme.background.luminance() < 0.5f
+    return CarCardPalette(
+        cardBackground = if (isDark) Color(0xFF2B3950) else Color.White,
+        textPrimary = scheme.onSurface,
+        textSecondary = scheme.onSurfaceVariant,
+        accent = scheme.primary,
+        actionBackground = if (isDark) Color(0xFF334155).copy(alpha = 0.5f) else Color(0xFFCBD5E1).copy(alpha = 0.65f),
+        isDark = isDark
+    )
+}
 
 @Composable
 fun CarroInfoCard(
@@ -60,6 +78,9 @@ fun CarroInfoCard(
     accentBlue: Color,
     modifier: Modifier = Modifier
 ) {
+    val palette = carCardPalette()
+    val heroTextColor = Color.White
+    val cardBorderColor = if (palette.isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.35f)
     // Cores DinÃ¢micas baseadas no carro (Apenas para o card interno do carro)
     val baseColor = carroAtual.getCorUI()
     val carDisplayGradientStart = lerp(Color(0xFF1E293B), baseColor, 0.55f)
@@ -75,14 +96,15 @@ fun CarroInfoCard(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(28.dp),
             // AQUI ESTÃ A MUDANÃ‡A: Usamos uma cor sÃ³lida para o container
-            colors = CardDefaults.cardColors(containerColor = CardBackgroundColor),
+            colors = CardDefaults.cardColors(containerColor = palette.cardBackground),
+            border = BorderStroke(1.dp, cardBorderColor),
             elevation = CardDefaults.cardElevation(0.dp)
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     // Garante que o fundo seja uniforme
-                    .background(CardBackgroundColor)
+                    .background(palette.cardBackground)
                     .padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
@@ -120,21 +142,21 @@ fun CarroInfoCard(
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             IconButton(onClick = onPrevCar) {
-                                Icon(Icons.Default.ChevronLeft, null, tint = TextWhite.copy(0.6f), modifier = Modifier.size(32.dp))
+                                Icon(Icons.Default.ChevronLeft, null, tint = heroTextColor.copy(0.75f), modifier = Modifier.size(32.dp))
                             }
 
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Text(
                                     text = carroAtual.marca.uppercase(),
                                     fontSize = 12.sp,
-                                    color = TextWhite.copy(alpha = 0.6f),
+                                    color = heroTextColor.copy(alpha = 0.7f),
                                     fontWeight = FontWeight.SemiBold,
                                     letterSpacing = 2.sp
                                 )
                                 Text(
                                     text = carroAtual.nome,
                                     fontSize = 24.sp,
-                                    color = TextWhite,
+                                    color = heroTextColor,
                                     fontWeight = FontWeight.Black,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
@@ -147,13 +169,13 @@ fun CarroInfoCard(
                                 Text(
                                     text = subtitulo,
                                     fontSize = 14.sp,
-                                    color = TextWhite.copy(alpha = 0.8f),
+                                    color = heroTextColor.copy(alpha = 0.9f),
                                     fontWeight = FontWeight.Medium
                                 )
                             }
 
                             IconButton(onClick = onNextCar) {
-                                Icon(Icons.Default.ChevronRight, null, tint = TextWhite.copy(0.6f), modifier = Modifier.size(32.dp))
+                                Icon(Icons.Default.ChevronRight, null, tint = heroTextColor.copy(0.75f), modifier = Modifier.size(32.dp))
                             }
                         }
 
@@ -178,7 +200,7 @@ fun CarroInfoCard(
                             val isBikeIcon = carroAtual.tipoVeiculo == br.com.gui.carlembrete.TipoVeiculo.BICICLETA
                             VehicleIcon(
                                 tipoVeiculo = carroAtual.tipoVeiculo,
-                                tint = if (isBikeIcon) TextWhite else null,
+                                tint = if (isBikeIcon) heroTextColor else null,
                                 size = if (isBikeIcon) 88.dp else 210.dp
                             )
                         }
@@ -198,7 +220,7 @@ fun CarroInfoCard(
                                 Spacer(Modifier.width(6.dp))
                                 Text(
                                     text = if (nomeMantedor.isNotBlank()) nomeMantedor else carroAtual.proprietario.split(" ").first(),
-                                    color = TextWhite.copy(0.9f),
+                                    color = heroTextColor.copy(0.92f),
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold
                                 )
@@ -206,7 +228,7 @@ fun CarroInfoCard(
 
                             if (carroAtual.tipoVeiculo != br.com.gui.carlembrete.TipoVeiculo.BICICLETA) {
                                 // Separador vertical
-                                Box(modifier = Modifier.width(1.dp).height(12.dp).background(TextWhite.copy(0.2f)))
+                                Box(modifier = Modifier.width(1.dp).height(12.dp).background(heroTextColor.copy(0.25f)))
                             }
 
                             if (carroAtual.tipoVeiculo != br.com.gui.carlembrete.TipoVeiculo.BICICLETA) {
@@ -216,7 +238,7 @@ fun CarroInfoCard(
                                     Spacer(Modifier.width(6.dp))
                                     Text(
                                         text = if (carroAtual.kmAtual > 0) "${carroAtual.kmAtual} KM" else "--",
-                                        color = TextWhite.copy(0.9f),
+                                        color = heroTextColor.copy(0.92f),
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.Bold
                                     )
@@ -251,10 +273,10 @@ fun CarroInfoCard(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(56.dp)
-                        .shadow(12.dp, RoundedCornerShape(16.dp), spotColor = AccentBlue.copy(alpha = 0.4f)),
+                        .shadow(12.dp, RoundedCornerShape(16.dp), spotColor = palette.accent.copy(alpha = 0.4f)),
                     shape = RoundedCornerShape(16.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = AccentBlue,
+                        containerColor = Color(0xFF3B82F6),
                         contentColor = Color.White
                     )
                 ) {
@@ -295,16 +317,17 @@ fun ActionGlassButton(
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
+    val palette = carCardPalette()
     Button(
         onClick = onClick,
         modifier = modifier.height(52.dp),
         shape = RoundedCornerShape(14.dp),
         colors = ButtonDefaults.buttonColors(
             // Um tom ligeiramente diferente do fundo sÃ³lido para destacar o botÃ£o
-            containerColor = Color(0xFF334155).copy(alpha = 0.5f),
-            contentColor = TextGray
+            containerColor = palette.actionBackground,
+            contentColor = palette.textSecondary
         ),
-        border = BorderStroke(1.5.dp, Color.White.copy(alpha = 0.2f)),
+        border = BorderStroke(1.5.dp, palette.textPrimary.copy(alpha = 0.2f)),
         elevation = ButtonDefaults.buttonElevation(0.dp)
     ) {
         Row(
@@ -316,14 +339,14 @@ fun ActionGlassButton(
                 imageVector = icon,
                 contentDescription = null,
                 modifier = Modifier.size(20.dp),
-                tint = Color.White.copy(alpha = 0.8f)
+                tint = palette.textPrimary.copy(alpha = 0.8f)
             )
             Spacer(Modifier.width(8.dp))
             Text(
                 text = label,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold,
-                color = Color.White.copy(alpha = 0.8f),
+                color = palette.textPrimary.copy(alpha = 0.8f),
                 maxLines = 1,
                 softWrap = false,
                 overflow = TextOverflow.Ellipsis
