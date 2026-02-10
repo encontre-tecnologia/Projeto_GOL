@@ -101,6 +101,7 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
     private var lastAlertMillis: Long = 0L
     private var lastBleAlertMillis: Long = 0L
     private var lastOwnerAlertAt: Long = 0L
+    private var lastRemoteAlertAt: Long = 0L
     private var alarmTrack: AudioTrack? = null
     private var lastSoundAt: Long = 0L
     private var previousAlarmVolume: Int? = null
@@ -112,6 +113,17 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
     private var lowBatterySent = false
     private var unpluggedSent = false
     private var lastCharging: Boolean? = null
+    private val remoteAlertCooldownByType = mutableMapOf<String, Long>()
+
+    private val scanRestartDebounceMs = 8_000L
+    private val scanRestartDelayMs = 3_000L
+    private val bleWatchdogIntervalMs = 60_000L
+    private val globalRemoteCooldownMs = 30_000L
+    private val remoteCooldownByTypeMs = mapOf(
+        "Movimento" to 60_000L,
+        "Energia desconectada" to 120_000L,
+        "Bateria baixa" to 300_000L
+    )
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -164,9 +176,15 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
         if (isCarMode) {
             stopFirestoreListener()
             stopOwnerAlarm()
+            stopBleScanner()
+            closeGattClient()
+            stopBleWatchdog()
+            unregisterBluetoothStateReceiver()
         } else {
             stopMotionMonitor()
             stopBatteryMonitor()
+            stopBleAdvertiser()
+            stopGattServer()
         }
 
         if (intent?.action != ACTION_UPDATE) {
@@ -180,17 +198,28 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
             if (isArmed) {
                 startMotionMonitor()
                 startBatteryMonitor()
+                startBleAdvertiser()
+                startGattServer()
             } else {
                 stopMotionMonitor()
                 stopBatteryMonitor()
+                stopBleAdvertiser()
+                stopGattServer()
             }
         } else {
             lastAlertMillis = System.currentTimeMillis()
             lastAlertTimestamp = Timestamp.now()
             if (isArmed) {
                 startFirestoreListener()
+                registerBluetoothStateReceiver()
+                startBleScanner()
+                startBleWatchdog()
             } else {
                 stopFirestoreListener()
+                stopBleScanner()
+                closeGattClient()
+                stopBleWatchdog()
+                unregisterBluetoothStateReceiver()
             }
         }
 
@@ -201,13 +230,19 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
         stopMotionMonitor()
         stopFirestoreListener()
         stopBatteryMonitor()
+        stopBleAdvertiser()
+        stopGattServer()
+        stopBleScanner()
+        closeGattClient()
+        stopBleWatchdog()
+        unregisterBluetoothStateReceiver()
         stopOwnerAlarm()
         bleConnected = false
         super.onDestroy()
     }
 
     private fun startMotionMonitor() {
-        accelSensor?.let { sensorManager?.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL) }
+        accelSensor?.let { sensorManager?.registerListener(this, it, SensorManager.SENSOR_DELAY_UI) }
     }
 
     private fun stopMotionMonitor() {
@@ -241,6 +276,9 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
 
     private fun handleMotionDetected() {
         if (!isArmed) return
+        if (isCarMode) {
+            notifyBleClients()
+        }
         showAlertNotification("Movimento detectado")
         if (notifyRemote) {
             sendFirestoreAlert("Movimento")
@@ -253,9 +291,9 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
         if (advertiser != null) return
         advertiser = adapter?.bluetoothLeAdvertiser
         val settings = AdvertiseSettings.Builder()
-            .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
+            .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_BALANCED)
             .setConnectable(true)
-            .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH)
+            .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_MEDIUM)
             .build()
         val data = AdvertiseData.Builder()
             .setIncludeDeviceName(false)
@@ -349,7 +387,7 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
             .setServiceUuid(ParcelUuid(SERVICE_UUID))
             .build()
         val settings = ScanSettings.Builder()
-            .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+            .setScanMode(ScanSettings.SCAN_MODE_LOW_POWER)
             .build()
         scanner?.startScan(listOf(filter), settings, scanCallback)
     }
@@ -445,20 +483,20 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
             if (!isCarMode && gattClient == null) {
                 restartBleScanWithDelay()
             }
-            bleHandler.postDelayed(this, 20000)
+            bleHandler.postDelayed(this, bleWatchdogIntervalMs)
         }
     }
 
     private fun restartBleScanWithDelay() {
         val now = SystemClock.elapsedRealtime()
-        if (now - lastScanRestartAt < 2000) return
+        if (now - lastScanRestartAt < scanRestartDebounceMs) return
         lastScanRestartAt = now
         bleHandler.postDelayed({
             if (!isCarMode) {
                 stopBleScanner()
                 startBleScanner()
             }
-        }, 1200)
+        }, scanRestartDelayMs)
     }
 
     private fun registerBluetoothStateReceiver() {
@@ -541,9 +579,6 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
                 val batch = db.batch()
                 snapshot.documents.forEach { doc -> batch.delete(doc.reference) }
                 batch.commit()
-                    .addOnSuccessListener {
-                        showAlertNotification("Alertas do guardiao apagados")
-                    }
                     .addOnFailureListener { err ->
                         Log.e(TAG, "Falha ao apagar alertas do guardiao", err)
                     }
@@ -564,6 +599,10 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
             showAlertNotification("Login necessario para alertas remotos")
             return
         }
+        if (!shouldSendRemoteAlert(type)) {
+            Log.d(TAG, "Alerta remoto ignorado por cooldown: ${type ?: "geral"}")
+            return
+        }
         val db = FirebaseFirestore.getInstance()
         val payload = hashMapOf(
             "timestamp" to FieldValue.serverTimestamp(),
@@ -577,11 +616,38 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
             .document(uid)
             .collection("events")
             .add(payload)
-            .addOnSuccessListener { Log.d(TAG, "Alerta remoto enviado") }
+            .addOnSuccessListener { markRemoteAlertSent(type) }
             .addOnFailureListener { err ->
                 Log.e(TAG, "Falha ao enviar alerta remoto", err)
                 showAlertNotification("Falha ao enviar alerta remoto")
             }
+    }
+
+    private fun shouldSendRemoteAlert(type: String?): Boolean {
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastRemoteAlertAt < globalRemoteCooldownMs) {
+            return false
+        }
+        val normalizedType = normalizeRemoteType(type)
+        val cooldownMs = remoteCooldownByTypeMs[normalizedType] ?: globalRemoteCooldownMs
+        val lastByType = remoteAlertCooldownByType[normalizedType] ?: 0L
+        return now - lastByType >= cooldownMs
+    }
+
+    private fun markRemoteAlertSent(type: String?) {
+        val now = SystemClock.elapsedRealtime()
+        lastRemoteAlertAt = now
+        val normalizedType = normalizeRemoteType(type)
+        remoteAlertCooldownByType[normalizedType] = now
+        Log.d(TAG, "Alerta remoto enviado: $normalizedType")
+    }
+
+    private fun normalizeRemoteType(type: String?): String {
+        if (type.isNullOrBlank()) return "geral"
+        return when {
+            type.startsWith("Bateria baixa", ignoreCase = true) -> "Bateria baixa"
+            else -> type
+        }
     }
 
     private fun buildStatusNotification(text: String): Notification {

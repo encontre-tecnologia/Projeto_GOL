@@ -123,11 +123,9 @@ import kotlin.math.roundToInt
 @Composable
 fun RelatorioVeiculoScreen(carroAtual: CarroInfo, lembretes: List<Lembrete>, isPremium: Boolean, onDismiss: () -> Unit) {
     val context = LocalContext.current
-    val scheme = MaterialTheme.colorScheme
-    val isDark = scheme.background.luminance() < 0.5f
-    val pageBackground = if (isDark) Color(0xFF0F2A4A) else Color.White
-    val textPrimary = if (isDark) Color.White else Color.Black
-    val textDim = if (isDark) Color(0xFF94A3B8) else Color(0xFF475569)
+    val pageBackground = Color.White
+    val textPrimary = Color(0xFF0F172A)
+    val textDim = Color(0xFF475569)
     val resumo = remember(carroAtual, lembretes, isPremium) { gerarResumoRelatorio(carroAtual, lembretes, isPremium) }
     val resumoChip = remember(resumo) {
         resumo.lineSequence()
@@ -175,7 +173,7 @@ fun RelatorioVeiculoScreen(carroAtual: CarroInfo, lembretes: List<Lembrete>, isP
                             fontWeight = FontWeight.Bold,
                             modifier = Modifier.weight(1f)
                         )
-                        val pdfAccent = if (isDark) Color.White else Color.Black
+                        val pdfAccent = Color.Black
                         OutlinedButton(
                             onClick = {
                                 val uri = gerarPdfRelatorio(context, carroAtual, lembretes, isPremium)
@@ -217,11 +215,20 @@ fun RelatorioVeiculoScreen(carroAtual: CarroInfo, lembretes: List<Lembrete>, isP
                             Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                                     val isBikeIcon = carroAtual.tipoVeiculo == TipoVeiculo.BICICLETA
-                                    VehicleIcon(
-                                        tipoVeiculo = carroAtual.tipoVeiculo,
-                                        tint = if (isBikeIcon) Color.White else null,
-                                        size = if (isBikeIcon) 88.dp else 210.dp
-                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .size(148.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFFFFF3D6))
+                                            .border(2.dp, Color(0xFFF59E0B), CircleShape),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        VehicleIcon(
+                                            tipoVeiculo = carroAtual.tipoVeiculo,
+                                            tint = if (isBikeIcon) Color(0xFF92400E) else null,
+                                            size = if (isBikeIcon) 92.dp else 104.dp
+                                        )
+                                    }
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(carroAtual.nome, color = textoPrimario, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold)
                                         if (infoModelo.isNotBlank()) {
@@ -254,12 +261,12 @@ fun RelatorioVeiculoScreen(carroAtual: CarroInfo, lembretes: List<Lembrete>, isP
                     ElevatedCard(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(20.dp)),
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFF0B1729))
+                            .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(20.dp)),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFF8FAFC))
                     ) {
                         Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                            Text("Status geral", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                            Text("Avisos ativos: ${lembretes.size}", color = Color(0xFF93C5FD))
+                            Text("Status geral", color = Color(0xFF0F172A), fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                            Text("Avisos ativos: ${lembretes.size}", color = Color(0xFF1D4ED8))
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                 TipoManutencao.values().forEach { tipo ->
                                     val quantidade = lembretesPorTipo.getOrDefault(tipo, 0)
@@ -270,7 +277,7 @@ fun RelatorioVeiculoScreen(carroAtual: CarroInfo, lembretes: List<Lembrete>, isP
                                                 modifier = Modifier
                                                     .size(56.dp)
                                                     .clip(CircleShape)
-                                                    .background(Color(0xFF16233B))
+                                                    .background(Color.White)
                                                     .border(2.dp, calcularCorStatus(lembretes, tipo).copy(alpha = 0.6f), CircleShape)
                                             ) {
                                                 TipoIcon(
@@ -294,7 +301,7 @@ fun RelatorioVeiculoScreen(carroAtual: CarroInfo, lembretes: List<Lembrete>, isP
                                             }
                                         }
                                         Spacer(Modifier.height(4.dp))
-                                        Text(tipo.label, color = Color.White, fontSize = 11.sp)
+                                        Text(tipo.label, color = Color(0xFF334155), fontSize = 11.sp)
                                     }
                                 }
                             }
@@ -303,8 +310,8 @@ fun RelatorioVeiculoScreen(carroAtual: CarroInfo, lembretes: List<Lembrete>, isP
                     ElevatedCard(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(20.dp)),
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFF0B1729))
+                            .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(20.dp)),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFF8FAFC))
                     ) {
                         val (tituloReputacao, descricaoReputacao) = calcularReputacao(lembretes)
                         val corReputacao = when (tituloReputacao) {
@@ -314,26 +321,26 @@ fun RelatorioVeiculoScreen(carroAtual: CarroInfo, lembretes: List<Lembrete>, isP
                             else -> Color.White
                         }
                         Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Text("Reputa├º├úo do ve├¡culo", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                            Text("Reputa├º├úo do ve├¡culo", color = Color(0xFF0F172A), fontWeight = FontWeight.Bold, fontSize = 16.sp)
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Icon(Icons.Default.Star, contentDescription = null, tint = corReputacao)
                                 Text(tituloReputacao, color = corReputacao, fontWeight = FontWeight.Bold, fontSize = 15.sp)
                             }
-                            Text(descricaoReputacao, color = Color(0xFFCBD5E1), fontSize = 12.sp)
+                            Text(descricaoReputacao, color = Color(0xFF475569), fontSize = 12.sp)
                         }
                     }
                     if (proximos.isNotEmpty()) {
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Text("Pr├│ximas manuten├º├Áes", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                            Text("Pr├│ximas manuten├º├Áes", color = Color(0xFF0F172A), fontWeight = FontWeight.Bold, fontSize = 16.sp)
                             proximos.forEach { (lembrete, data) ->
                                 ElevatedCard(
-                                    colors = CardDefaults.cardColors(containerColor = Color(0xFF0B1729)),
-                                    modifier = Modifier.fillMaxWidth().border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(16.dp))
+                                    colors = CardDefaults.cardColors(containerColor = Color(0xFFF8FAFC)),
+                                    modifier = Modifier.fillMaxWidth().border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(16.dp))
                                 ) {
                                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                        Text(lembrete.titulo, color = Color.White, fontWeight = FontWeight.SemiBold)
-                                        Text("Data: ${lembrete.dataLimite.ifBlank { data.format(formatter) }}", color = Color(0xFF93C5FD), fontSize = 12.sp)
-                                        if (lembrete.kmLimite.isNotBlank()) Text("KM limite: ${lembrete.kmLimite}", color = Color(0xFFE0E7FF), fontSize = 12.sp)
+                                        Text(lembrete.titulo, color = Color(0xFF0F172A), fontWeight = FontWeight.SemiBold)
+                                        Text("Data: ${lembrete.dataLimite.ifBlank { data.format(formatter) }}", color = Color(0xFF1D4ED8), fontSize = 12.sp)
+                                        if (lembrete.kmLimite.isNotBlank()) Text("KM limite: ${lembrete.kmLimite}", color = Color(0xFF334155), fontSize = 12.sp)
                                     }
                                 }
                             }
@@ -342,7 +349,7 @@ fun RelatorioVeiculoScreen(carroAtual: CarroInfo, lembretes: List<Lembrete>, isP
                         Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp)) {
                             Icon(Icons.Default.CheckCircle, null, tint = Color(0xFF10B981), modifier = Modifier.size(42.dp))
                             Spacer(Modifier.height(8.dp))
-                            Text("Sem manuten├º├Áes pendentes", color = Color(0xFF94A3B8))
+                            Text("Sem manuten├º├Áes pendentes", color = Color(0xFF64748B))
                         }
                     }
                 }

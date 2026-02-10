@@ -15,6 +15,11 @@ object AppPreferences {
     private const val KEY_PARKED_LAT = "parked_lat"
     private const val KEY_PARKED_LNG = "parked_lng"
     private const val KEY_PARKED_TIME = "parked_time"
+    private const val KEY_PARKING_FINALIZED = "parking_finalized"
+    private const val KEY_PARKING_PRICING_MODE = "parking_pricing_mode"
+    private const val KEY_PARKING_FIXED_VALUE = "parking_fixed_value"
+    private const val KEY_PARKING_HOURLY_VALUE = "parking_hourly_value"
+    private const val KEY_PARKING_SELECTED_HOURS = "parking_selected_hours"
 
     fun needsOnboarding(context: Context): Boolean {
         return context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getBoolean(KEY_FIRST_RUN, true)
@@ -110,6 +115,7 @@ object AppPreferences {
             .putString(KEY_PARKED_LAT, lat.toString())
             .putString(KEY_PARKED_LNG, lng.toString())
             .putLong(KEY_PARKED_TIME, timeMillis)
+            .putBoolean(KEY_PARKING_FINALIZED, false)
             .apply()
     }
 
@@ -122,6 +128,59 @@ object AppPreferences {
         val time = prefs.getLong(KEY_PARKED_TIME, 0L)
         return ParkedLocation(lat, lng, time)
     }
+
+    fun clearParkedLocation(context: Context) {
+        context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+            .edit()
+            .remove(KEY_PARKED_LAT)
+            .remove(KEY_PARKED_LNG)
+            .remove(KEY_PARKED_TIME)
+            .apply()
+    }
+
+    fun isParkingFinalized(context: Context): Boolean {
+        return context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+            .getBoolean(KEY_PARKING_FINALIZED, false)
+    }
+
+    fun setParkingFinalized(context: Context, finalized: Boolean) {
+        context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+            .edit()
+            .putBoolean(KEY_PARKING_FINALIZED, finalized)
+            .apply()
+    }
+
+    fun setParkingCostConfig(
+        context: Context,
+        pricingMode: ParkingPricingMode,
+        fixedValue: Double?,
+        hourlyValue: Double?,
+        selectedHours: Int
+    ) {
+        context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+            .edit()
+            .putString(KEY_PARKING_PRICING_MODE, pricingMode.name)
+            .putString(KEY_PARKING_FIXED_VALUE, fixedValue?.toString())
+            .putString(KEY_PARKING_HOURLY_VALUE, hourlyValue?.toString())
+            .putInt(KEY_PARKING_SELECTED_HOURS, selectedHours)
+            .apply()
+    }
+
+    fun getParkingCostConfig(context: Context): ParkingCostConfig {
+        val prefs = context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        val mode = prefs.getString(KEY_PARKING_PRICING_MODE, ParkingPricingMode.FIXO.name)
+            ?.let { runCatching { ParkingPricingMode.valueOf(it) }.getOrNull() }
+            ?: ParkingPricingMode.FIXO
+        val fixedValue = prefs.getString(KEY_PARKING_FIXED_VALUE, null)?.toDoubleOrNull()
+        val hourlyValue = prefs.getString(KEY_PARKING_HOURLY_VALUE, null)?.toDoubleOrNull()
+        val selectedHours = prefs.getInt(KEY_PARKING_SELECTED_HOURS, 1).coerceAtLeast(1)
+        return ParkingCostConfig(
+            pricingMode = mode,
+            fixedValue = fixedValue,
+            hourlyValue = hourlyValue,
+            selectedHours = selectedHours
+        )
+    }
 }
 
 data class ParkedLocation(
@@ -129,6 +188,18 @@ data class ParkedLocation(
     val lng: Double,
     val timeMillis: Long
 )
+
+data class ParkingCostConfig(
+    val pricingMode: ParkingPricingMode = ParkingPricingMode.FIXO,
+    val fixedValue: Double? = null,
+    val hourlyValue: Double? = null,
+    val selectedHours: Int = 1
+)
+
+enum class ParkingPricingMode {
+    FIXO,
+    POR_HORA
+}
 
 enum class AppThemeMode {
     SYSTEM,

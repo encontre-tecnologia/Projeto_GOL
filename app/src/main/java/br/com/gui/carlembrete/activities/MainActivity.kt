@@ -55,8 +55,11 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
+const val EXTRA_OPEN_AONDE_PAREI = "extra_open_aonde_parei"
+
 class MainActivity : ComponentActivity() {
     private var contentInitialized = false
+    private var openAondePareiFromIntent by mutableStateOf(false)
 
     private val onboardingResultLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -84,6 +87,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        handleNavigationIntent(intent)
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
             requestPermissionLauncher.launch(Manifest.permission.CAMERA)
         }
@@ -100,6 +104,19 @@ class MainActivity : ComponentActivity() {
         }
 
         WindowCompat.setDecorFitsSystemWindows(window, true)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleNavigationIntent(intent)
+    }
+
+    private fun handleNavigationIntent(intent: Intent?) {
+        if (intent?.getBooleanExtra(EXTRA_OPEN_AONDE_PAREI, false) == true) {
+            openAondePareiFromIntent = true
+            intent.removeExtra(EXTRA_OPEN_AONDE_PAREI)
+        }
     }
 
     private fun initializeContentIfNeeded() {
@@ -166,6 +183,8 @@ class MainActivity : ComponentActivity() {
                     } else {
                         Box(modifier = Modifier.fillMaxSize()) {
                                 ManutencaoScreen(
+                                    openAondePareiOnStart = openAondePareiFromIntent,
+                                    onAondePareiStartConsumed = { openAondePareiFromIntent = false },
                                     onLoaded = { loadingDoneSignal++ },
                                     onThemeModeChanged = { themeMode = it }
                                 )
