@@ -243,14 +243,16 @@ fun AvisosCategoriasCard(
                     }
 
                     if (lembretesDoCarroAtual.isNotEmpty()) {
+                        val totalBadgeBorder = if (palette.isDark) palette.accent else Color.Black
+                        val totalBadgeText = if (palette.isDark) Color.White else Color.Black
                         Surface(
-                            color = palette.accent.copy(alpha = 0.2f),
+                            color = if (palette.isDark) palette.accent.copy(alpha = 0.2f) else Color.Transparent,
                             shape = RoundedCornerShape(6.dp),
-                            border = BorderStroke(1.dp, palette.accent)
+                            border = BorderStroke(1.dp, totalBadgeBorder)
                         ) {
                             Text(
                                 text = "${lembretesDoCarroAtual.size}",
-                                color = Color.White,
+                                color = totalBadgeText,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
@@ -297,6 +299,7 @@ fun AvisosCategoriasCard(
                         Icon(Icons.Default.Search, contentDescription = "Buscar", modifier = Modifier.size(20.dp))
                     }
                 }
+                Spacer(Modifier.height(12.dp))
 
                 // --- LISTA DE LEMBRETES ---
                 if (lembretesComBusca.isEmpty()) {

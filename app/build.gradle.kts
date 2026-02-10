@@ -81,6 +81,8 @@ dependencies {
     implementation(libs.androidx.compose.foundation)
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.navigation.runtime.ktx)
+    implementation("com.google.ai.client.generativeai:generativeai:0.9.0")
+    implementation("io.coil-kt:coil-compose:2.5.0")
 
     // --- TESTES E RELATÓRIOS ---
     testImplementation(libs.junit)

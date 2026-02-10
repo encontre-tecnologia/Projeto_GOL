@@ -174,34 +174,65 @@ fun PrivacidadeTermosDialog(onDismiss: () -> Unit) {
 }
 
 @Composable
-fun NovoContatoDialog(onDismiss: () -> Unit, onSalvar: (ContatoProfissional) -> Unit) {
+fun NovoContatoDialog(
+    onDismiss: () -> Unit,
+    onSalvar: (ContatoProfissional) -> Unit,
+    contatosExistentes: List<ContatoProfissional> = emptyList(),
+    onSelecionarExistente: (ContatoProfissional) -> Unit = {}
+) {
     var nome by remember { mutableStateOf("") }
     var telefone by remember { mutableStateOf("") }
     var tipo by remember { mutableStateOf("") }
+    val hasNome = nome.trim().isNotEmpty()
+
     AlertDialog(
-        modifier = Modifier.border(dialogBorderStroke, dialogCornerShape),
-        shape = dialogCornerShape,
+        modifier = Modifier
+            .fillMaxWidth(0.94f)
+            .border(BorderStroke(1.dp, Color(0xFFE2E8F0)), RoundedCornerShape(20.dp)),
+        shape = RoundedCornerShape(20.dp),
         onDismissRequest = onDismiss,
-        containerColor = Color(0xFF1E293B),
-        title = { Text("Novo Profissional", color = Color.White) },
+        containerColor = Color(0xFFFFFBF2),
+        title = {
+            Text(
+                "Novo Profissional",
+                color = Color(0xFF0F172A),
+                fontWeight = FontWeight.Bold
+            )
+        },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(
                     value = nome,
                     onValueChange = { nome = it },
                     label = { Text("Nome") },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White
+                        focusedTextColor = Color(0xFF0F172A),
+                        unfocusedTextColor = Color(0xFF0F172A),
+                        focusedContainerColor = Color.White,
+                        unfocusedContainerColor = Color.White,
+                        focusedLabelColor = Color(0xFF475569),
+                        unfocusedLabelColor = Color(0xFF64748B),
+                        focusedBorderColor = Color(0xFF3B82F6),
+                        unfocusedBorderColor = Color(0xFFCBD5E1)
                     )
                 )
                 OutlinedTextField(
                     value = tipo,
                     onValueChange = { tipo = it },
-                    label = { Text("Tipo (Ex: Mecânico)") },
+                    label = { Text("Tipo (Ex: Mecanico)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White
+                        focusedTextColor = Color(0xFF0F172A),
+                        unfocusedTextColor = Color(0xFF0F172A),
+                        focusedContainerColor = Color.White,
+                        unfocusedContainerColor = Color.White,
+                        focusedLabelColor = Color(0xFF475569),
+                        unfocusedLabelColor = Color(0xFF64748B),
+                        focusedBorderColor = Color(0xFF3B82F6),
+                        unfocusedBorderColor = Color(0xFFCBD5E1)
                     )
                 )
                 OutlinedTextField(
@@ -209,30 +240,88 @@ fun NovoContatoDialog(onDismiss: () -> Unit, onSalvar: (ContatoProfissional) -> 
                     onValueChange = { if (it.all(Char::isDigit)) telefone = it },
                     label = { Text("WhatsApp") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White
+                        focusedTextColor = Color(0xFF0F172A),
+                        unfocusedTextColor = Color(0xFF0F172A),
+                        focusedContainerColor = Color.White,
+                        unfocusedContainerColor = Color.White,
+                        focusedLabelColor = Color(0xFF475569),
+                        unfocusedLabelColor = Color(0xFF64748B),
+                        focusedBorderColor = Color(0xFF3B82F6),
+                        unfocusedBorderColor = Color(0xFFCBD5E1)
                     )
                 )
+
+                if (contatosExistentes.isNotEmpty()) {
+                    HorizontalDivider(color = Color(0xFFE2E8F0))
+                    Text(
+                        "Ou escolha um profissional ja cadastrado",
+                        color = Color(0xFF334155),
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 13.sp
+                    )
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 180.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(contatosExistentes) { contato ->
+                            OutlinedButton(
+                                onClick = { onSelecionarExistente(contato) },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(46.dp),
+                                shape = RoundedCornerShape(10.dp),
+                                border = BorderStroke(1.dp, Color(0xFFCBD5E1)),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF0F172A))
+                            ) {
+                                Text(
+                                    "${contato.nome} - ${contato.tipoServico.ifBlank { "Profissional" }}",
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+                }
             }
         },
         confirmButton = {
             Button(
-                onClick = { if (nome.isNotBlank()) onSalvar(ContatoProfissional(nome = nome, telefone = telefone, tipoServico = tipo)) },
-                modifier = Modifier.height(56.dp),
+                onClick = {
+                    if (hasNome) {
+                        onSalvar(
+                            ContatoProfissional(
+                                nome = nome.trim(),
+                                telefone = telefone.trim(),
+                                tipoServico = tipo.trim()
+                            )
+                        )
+                    }
+                },
+                enabled = hasNome,
+                modifier = Modifier
+                    .height(52.dp)
+                    .width(150.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6)),
-                shape = dialogActionButtonShape
-            ) { Text("Salvar", fontSize = 18.sp) }
+                shape = RoundedCornerShape(12.dp)
+            ) { Text("Salvar", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
         },
         dismissButton = {
-            TextButton(
+            OutlinedButton(
                 onClick = onDismiss,
-                modifier = Modifier.height(56.dp)
-            ) { Text("Cancelar", fontSize = 18.sp) }
+                modifier = Modifier
+                    .height(52.dp)
+                    .width(150.dp),
+                border = BorderStroke(1.dp, Color(0xFFCBD5E1)),
+                shape = RoundedCornerShape(12.dp)
+            ) { Text("Cancelar", fontSize = 16.sp, color = Color(0xFF334155), fontWeight = FontWeight.SemiBold) }
         }
     )
 }
-
 @Composable
 fun NotificacaoRapidaDialog(onDismiss: () -> Unit, onDisparar: () -> Unit) {
     Dialog(
@@ -693,4 +782,5 @@ private fun SeletorPeca(
         }
     }
 }
+
 

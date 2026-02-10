@@ -8,6 +8,7 @@ import android.app.Activity
 import android.graphics.Paint
 import android.content.Context
 import android.content.ContextWrapper
+import android.speech.tts.TextToSpeech
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
@@ -34,18 +35,26 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -54,6 +63,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
@@ -65,6 +75,7 @@ import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
+import java.io.File
 import java.util.Locale
 import kotlin.math.ceil
 
@@ -75,6 +86,23 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
     else -> null
 }
 
+private const val HOME_TUTORIAL_PREFS = "home_tutorial_prefs"
+private const val KEY_HOME_TUTORIAL_VERSION = "home_tutorial_version"
+private const val CURRENT_HOME_TUTORIAL_VERSION = 1
+
+private fun shouldAutoStartHomeTutorial(context: Context): Boolean {
+    val savedVersion = context.getSharedPreferences(HOME_TUTORIAL_PREFS, Context.MODE_PRIVATE)
+        .getInt(KEY_HOME_TUTORIAL_VERSION, 0)
+    return savedVersion < CURRENT_HOME_TUTORIAL_VERSION
+}
+
+private fun markHomeTutorialSeen(context: Context) {
+    context.getSharedPreferences(HOME_TUTORIAL_PREFS, Context.MODE_PRIVATE)
+        .edit()
+        .putInt(KEY_HOME_TUTORIAL_VERSION, CURRENT_HOME_TUTORIAL_VERSION)
+        .apply()
+}
+
 /* ----------------- TELA PRINCIPAL (Visual Dashboard Premium) ----------------- */
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -82,6 +110,8 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
 fun ManutencaoScreen(
     modifier: Modifier = Modifier,
     context: Context = LocalContext.current,
+    openAondePareiOnStart: Boolean = false,
+    onAondePareiStartConsumed: () -> Unit = {},
     onLoaded: () -> Unit = {},
     onThemeModeChanged: (AppThemeMode) -> Unit = {}
 ) {
@@ -165,13 +195,61 @@ fun ManutencaoScreen(
     var showBikeDistanceHistory by remember { mutableStateOf(false) }
     var showPremiumHubScreen by remember { mutableStateOf(false) }
     var showShareVehicleScreen by remember { mutableStateOf(false) }
-    var showAondePareiScreen by remember { mutableStateOf(false) }
+    var showAondePareiScreen by remember { mutableStateOf(openAondePareiOnStart) }
     var showAiAssistantScreen by remember { mutableStateOf(false) }
+    var showBudgetAuditorScreen by remember { mutableStateOf(false) }
+    val shouldShowHomeTutorial = remember(context) { shouldAutoStartHomeTutorial(context) }
+    val density = LocalDensity.current
+    var showHomeTutorial by remember { mutableStateOf(false) }
+    var homeTutorialStep by remember { mutableIntStateOf(0) }
+    var menuButtonRect by remember { mutableStateOf<Rect?>(null) }
+    var helpButtonRect by remember { mutableStateOf<Rect?>(null) }
+    var premiumButtonRect by remember { mutableStateOf<Rect?>(null) }
+    var fuelHistoryButtonRect by remember { mutableStateOf<Rect?>(null) }
+    var carInfoRect by remember { mutableStateOf<Rect?>(null) }
+    var remindersRect by remember { mutableStateOf<Rect?>(null) }
+    var tutorialViewportHeightPx by remember { mutableFloatStateOf(0f) }
+
+    LaunchedEffect(openAondePareiOnStart) {
+        if (openAondePareiOnStart) {
+            showAondePareiScreen = true
+            onAondePareiStartConsumed()
+        }
+    }
+    val homeTutorialSteps = remember(carroAtual.tipoVeiculo) {
+        buildList {
+            add("Menu principal: toque aqui para acessar veículos, configurações, segurança e outros serviços." to "menu")
+            add("Zellu Premium: toque aqui para ver recursos avançados e benefícios do plano." to "premium")
+            add("Card do veículo: aqui você acompanha os dados atuais e acessa rapidamente as ações principais." to "car")
+            if (carroAtual.tipoVeiculo != TipoVeiculo.BICICLETA) {
+                add("Histórico de abastecimento: toque aqui para consultar os registros, valores e médias do seu veículo." to "fuel_history")
+            }
+            add("Card de avisos: aqui ficam lembretes e manutenções. Toque em qualquer item para ver detalhes e atualizar informações." to "reminders")
+            add("Botão de ajuda: toque aqui sempre que quiser rever este tutorial guiado." to "help")
+        }
+    }
+    fun normalizedTutorialRect(key: String, rect: Rect?): Rect? {
+        if (rect == null) return null
+        return when (key) {
+            "car" -> {
+                val horizontalInset = with(density) { 16.dp.toPx() }
+                val verticalInset = with(density) { 8.dp.toPx() }
+                Rect(
+                    left = rect.left + horizontalInset,
+                    top = rect.top + verticalInset,
+                    right = rect.right - horizontalInset,
+                    bottom = rect.bottom - verticalInset
+                )
+            }
+            else -> rect
+        }
+    }
 
     var showAnjoDaGuardaScreen by remember { mutableStateOf(false) }
     var showGaragemScreen by remember { mutableStateOf(false) }
     var showCarInfoScreen by remember { mutableStateOf(false) }
     var lembreteSelecionado by remember { mutableStateOf<Lembrete?>(null) }
+    var showLembreteDetalhesScreen by remember { mutableStateOf(false) }
     var contatoDetalheSelecionado by remember { mutableStateOf<ContatoProfissional?>(null) }
     var filtroTipo by remember { mutableStateOf<TipoManutencao?>(null) }
     var buscaTexto by remember { mutableStateOf("") }
@@ -206,8 +284,6 @@ fun ManutencaoScreen(
     val isSubscribed by subscriptionManager.isSubscribed.collectAsState()
     var showPremiumDialog by remember { mutableStateOf(false) }
     var showPremiumInfo by remember { mutableStateOf(false) }
-    val vehicleLimit = if (planTier == PlanTier.FREE) 3 else Int.MAX_VALUE
-    val lembreteLimit = if (planTier == PlanTier.FREE) 15 else Int.MAX_VALUE
 
     DisposableEffect(Unit) {
         subscriptionManager.connect()
@@ -232,15 +308,9 @@ fun ManutencaoScreen(
         NovoCarroScreen(
             onDismiss = { showAddCarScreen = false },
             onSalvar = { novoCarro ->
-                if (listaCarros.size >= vehicleLimit) {
-                    Toast.makeText(context, "Limite de veículos do plano grátis atingido.", Toast.LENGTH_SHORT).show()
-                    showPremiumDialog = true
-                    showAddCarScreen = false
-                } else {
-                    listaCarros = listaCarros + novoCarro
-                    indiceCarroAtual = listaCarros.lastIndex
-                    showAddCarScreen = false
-                }
+                listaCarros = listaCarros + novoCarro
+                indiceCarroAtual = listaCarros.lastIndex
+                showAddCarScreen = false
             }
         )
         return
@@ -248,6 +318,18 @@ fun ManutencaoScreen(
     if (showAddContatoDialog) {
         NovoContatoDialog(
             onDismiss = { showAddContatoDialog = false },
+            contatosExistentes = listaContatos,
+            onSelecionarExistente = { existente ->
+                lembreteParaVincularContato?.let { lembreteId ->
+                    todosLembretes = todosLembretes.map { lembrete ->
+                        if (lembrete.id == lembreteId) lembrete.copy(contatoId = existente.id) else lembrete
+                    }
+                    lembreteSelecionado = todosLembretes.find { it.id == lembreteId }
+                    contatoDetalheSelecionado = existente
+                    lembreteParaVincularContato = null
+                }
+                showAddContatoDialog = false
+            },
             onSalvar = { novo ->
                 listaContatos = listaContatos + novo
                 lembreteParaVincularContato?.let { lembreteId ->
@@ -410,9 +492,38 @@ fun ManutencaoScreen(
                 showPremiumHubScreen = false
                 showAiAssistantScreen = true
             },
+            onOpenBudgetAuditor = {
+                showPremiumHubScreen = false
+                showBudgetAuditorScreen = true
+            },
             onOpenSubscribe = {
                 showPremiumHubScreen = false
                 activity?.let { subscriptionManager.launchPurchaseFlow(it) }
+            }
+        )
+        return
+    }
+    BackHandler(enabled = showLembreteDetalhesScreen) { showLembreteDetalhesScreen = false }
+    if (showLembreteDetalhesScreen && lembreteSelecionado != null) {
+        LembreteDetalhesScreen(
+            lembrete = lembreteSelecionado!!,
+            contato = contatoDetalheSelecionado,
+            carro = carroAtual,
+            onDismiss = { showLembreteDetalhesScreen = false },
+            onDelete = { selecionado ->
+                NotificacaoHelper.cancelarNotificacao(context.applicationContext, selecionado.id)
+                todosLembretes = todosLembretes.filter { it.id != selecionado.id }
+                lembreteSelecionado = null
+                contatoDetalheSelecionado = null
+                showLembreteDetalhesScreen = false
+            },
+            onSalvar = { atualizado ->
+                todosLembretes = todosLembretes.map { if (it.id == atualizado.id) atualizado else it }
+                NotificacaoHelper.cancelarNotificacao(context.applicationContext, atualizado.id)
+                NotificacaoHelper.agendarNotificacao(context.applicationContext, atualizado, atualizado.horaAviso)
+                lembreteSelecionado = atualizado
+                contatoDetalheSelecionado = listaContatos.find { it.id == atualizado.contatoId }
+                Toast.makeText(context, "Aviso atualizado!", Toast.LENGTH_SHORT).show()
             }
         )
         return
@@ -457,42 +568,57 @@ fun ManutencaoScreen(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Icon(
-                        painterResource(id = R.drawable.ic_diamond_alt),
+                        imageVector = Icons.Default.Diamond,
                         contentDescription = null,
-                        tint = Color.Unspecified,
+                        tint = Color(0xFFD4A017),
                         modifier = Modifier.size(64.dp)
                     )
                     Spacer(Modifier.height(8.dp))
-                    Text("Zellu Premium", color = Color(0xFFF59E0B), fontWeight = FontWeight.Bold, fontSize = 22.sp)
+                    Text("Zellu Premium", color = Color(0xFF7A5600), fontWeight = FontWeight.Bold, fontSize = 24.sp)
                 }
             },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("Desbloqueie recursos avançados:", color = Color(0xFFCBD5E1))
+                    Text(
+                        "Desbloqueie recursos que economizam tempo, reduzem erros e elevam o cuidado com seu veículo.",
+                        color = Color(0xFF334155),
+                        fontWeight = FontWeight.Medium
+                    )
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.Shield, contentDescription = null, tint = Color(0xFFF59E0B))
                         Spacer(Modifier.width(8.dp))
-                        Text("Zellu Guardião", color = Color(0xFFCBD5E1))
+                        Column {
+                            Text("Zellu Guardião", color = Color(0xFF0F172A), fontWeight = FontWeight.Bold)
+                            Text(
+                                "Proteção inteligente com alertas em tempo real para você agir rápido e evitar dor de cabeça.",
+                                color = Color(0xFF475569),
+                                fontSize = 13.sp
+                            )
+                        }
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.CloudUpload, contentDescription = null, tint = Color(0xFFF59E0B))
+                        Icon(Icons.Default.Payments, contentDescription = null, tint = Color(0xFFF59E0B))
                         Spacer(Modifier.width(8.dp))
-                        Text("Backup automático no Google Drive", color = Color(0xFFCBD5E1))
-                    }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.CameraAlt, contentDescription = null, tint = Color(0xFFF59E0B))
-                        Spacer(Modifier.width(8.dp))
-                        Text("OCR ilimitado", color = Color(0xFFCBD5E1))
-                    }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.PictureAsPdf, contentDescription = null, tint = Color(0xFFF59E0B))
-                        Spacer(Modifier.width(8.dp))
-                        Text("PDF completo", color = Color(0xFFCBD5E1))
+                        Column {
+                            Text("Gestor Financeiro", color = Color(0xFF0F172A), fontWeight = FontWeight.Bold)
+                            Text(
+                                "Controle completo dos gastos para enxergar onde economizar e tomar decisões com confiança.",
+                                color = Color(0xFF475569),
+                                fontSize = 13.sp
+                            )
+                        }
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = Color(0xFFF59E0B))
                         Spacer(Modifier.width(8.dp))
-                        Text("Veículos ilimitados", color = Color(0xFFCBD5E1))
+                        Column {
+                            Text("Viagem", color = Color(0xFF0F172A), fontWeight = FontWeight.Bold)
+                            Text(
+                                "Registre despesas e notas com praticidade e gere relatórios profissionais em poucos toques.",
+                                color = Color(0xFF475569),
+                                fontSize = 13.sp
+                            )
+                        }
                     }
                 }
             },
@@ -504,18 +630,18 @@ fun ManutencaoScreen(
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF59E0B))
                 ) {
-                    Text("Assinar Premium", color = Color.Black, fontWeight = FontWeight.Bold)
+                    Text("Assine já", color = Color.Black, fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
                 OutlinedButton(
                     onClick = { showPremiumInfo = false },
-                    border = BorderStroke(1.dp, Color(0xFFF59E0B))
+                    border = BorderStroke(1.dp, Color(0xFFB88915))
                 ) {
-                    Text("Agora não", color = Color(0xFFF59E0B))
+                    Text("Agora não", color = Color(0xFF7A5600))
                 }
             },
-            containerColor = Color(0xFF162235)
+            containerColor = Color(0xFFFFFBF2)
         )
     }
 
@@ -575,6 +701,11 @@ fun ManutencaoScreen(
         AssistentePremiumScreen(onDismiss = { showAiAssistantScreen = false })
         return
     }
+    BackHandler(enabled = showBudgetAuditorScreen) { showBudgetAuditorScreen = false }
+    if (showBudgetAuditorScreen) {
+        ScannerPecasScreen(onDismiss = { showBudgetAuditorScreen = false })
+        return
+    }
     LaunchedEffect(showAbastecimentoScreen) {
         if (!showAbastecimentoScreen) {
             abastecimentos = withContext(Dispatchers.IO) { BancoDeDados.carregarAbastecimentos(context) }
@@ -583,6 +714,52 @@ fun ManutencaoScreen(
     LaunchedEffect(showBikeDistanceRegister, showBikeDistanceHistory) {
         if (!showBikeDistanceRegister && !showBikeDistanceHistory) {
             pedaladas = withContext(Dispatchers.IO) { BancoDeDados.carregarPedaladas(context) }
+        }
+    }
+    LaunchedEffect(isLoading, shouldShowHomeTutorial) {
+        if (!isLoading && shouldShowHomeTutorial) {
+            homeTutorialStep = 0
+            showHomeTutorial = true
+        }
+    }
+    LaunchedEffect(
+        showHomeTutorial,
+        homeTutorialStep,
+        menuButtonRect,
+        helpButtonRect,
+        premiumButtonRect,
+        fuelHistoryButtonRect,
+        carInfoRect,
+        remindersRect,
+        tutorialViewportHeightPx
+    ) {
+        if (!showHomeTutorial || tutorialViewportHeightPx <= 0f) return@LaunchedEffect
+        val targetKey = homeTutorialSteps[homeTutorialStep].second
+        val rawTargetRect = when (targetKey) {
+            "menu" -> menuButtonRect
+            "help" -> helpButtonRect
+            "premium" -> premiumButtonRect
+            "fuel_history" -> fuelHistoryButtonRect
+            "car" -> carInfoRect
+            else -> remindersRect
+        }
+        if (targetKey == "help" && (contentScrollState.value > 0 || rawTargetRect == null)) {
+            contentScrollState.animateScrollTo(0)
+            return@LaunchedEffect
+        }
+        val targetRect = normalizedTutorialRect(targetKey, rawTargetRect) ?: return@LaunchedEffect
+
+        val minTop = 96f
+        val maxBottom = tutorialViewportHeightPx - 220f
+        val isOutsideViewport = targetRect.top < minTop || targetRect.bottom > maxBottom
+        if (isOutsideViewport) {
+            val desiredTop = if (targetKey == "fuel_history") {
+                (tutorialViewportHeightPx * 0.34f).coerceAtLeast(minTop)
+            } else {
+                (tutorialViewportHeightPx * 0.24f).coerceAtLeast(minTop)
+            }
+            val scrollDelta = targetRect.top - desiredTop
+            contentScrollState.animateScrollBy(scrollDelta)
         }
     }
 
@@ -596,26 +773,16 @@ fun ManutencaoScreen(
             contatosDisponiveis = listaContatos,
             onDismiss = { showAddLembreteDialog = false; iniciarCameraProduto = false },
             onConfirm = { novo ->
-                if (todosLembretes.size + 1 > lembreteLimit) {
-                    Toast.makeText(context, "Limite de lembretes do plano grátis atingido.", Toast.LENGTH_SHORT).show()
-                    showPremiumDialog = true
-                } else {
-                    todosLembretes = todosLembretes + novo.copy(carroId = carroAtual.id)
-                    showAddLembreteDialog = false
-                    iniciarCameraProduto = false
-                }
+                todosLembretes = todosLembretes + novo.copy(carroId = carroAtual.id)
+                showAddLembreteDialog = false
+                iniciarCameraProduto = false
             },
             onMultiConfirm = { novosItens ->
                 val novosLembretes = novosItens.map { it.copy(carroId = carroAtual.id) }
-                if (todosLembretes.size + novosLembretes.size > lembreteLimit) {
-                    Toast.makeText(context, "Limite de lembretes do plano grátis atingido.", Toast.LENGTH_SHORT).show()
-                    showPremiumDialog = true
-                } else {
-                    todosLembretes = todosLembretes + novosLembretes
-                    showAddLembreteDialog = false
-                    iniciarCameraProduto = false
-                    Toast.makeText(context, "${novosLembretes.size} itens salvos!", Toast.LENGTH_SHORT).show()
-                }
+                todosLembretes = todosLembretes + novosLembretes
+                showAddLembreteDialog = false
+                iniciarCameraProduto = false
+                Toast.makeText(context, "${novosLembretes.size} itens salvos!", Toast.LENGTH_SHORT).show()
             },
             onUpdateKmCarro = { novoKm -> listaCarros = listaCarros.map { if (it.id == carroAtual.id) it.copy(kmAtual = novoKm) else it } },
             autoAbrirCamera = iniciarCameraProduto,
@@ -630,31 +797,7 @@ fun ManutencaoScreen(
         return
     }
 
-    lembreteSelecionado?.let { selecionado ->
-        LembreteDetalhesDialog(
-            lembrete = selecionado,
-            contato = contatoDetalheSelecionado,
-            carro = carroAtual,
-            onDismiss = {
-                lembreteSelecionado = null
-                contatoDetalheSelecionado = null
-            },
-            onDelete = {
-                NotificacaoHelper.cancelarNotificacao(context.applicationContext, selecionado.id)
-                todosLembretes = todosLembretes.filter { it.id != selecionado.id }
-                lembreteSelecionado = null
-                contatoDetalheSelecionado = null
-            },
-            onSalvar = { atualizado ->
-                todosLembretes = todosLembretes.map { if (it.id == atualizado.id) atualizado else it }
-                NotificacaoHelper.cancelarNotificacao(context.applicationContext, atualizado.id)
-                NotificacaoHelper.agendarNotificacao(context.applicationContext, atualizado, atualizado.horaAviso)
-                lembreteSelecionado = atualizado
-                contatoDetalheSelecionado = listaContatos.find { it.id == atualizado.contatoId }
-                Toast.makeText(context, "Aviso atualizado!", Toast.LENGTH_SHORT).show()
-            }
-        )
-    }
+    // detalhes agora abrem em tela dedicada (não em diálogo)
 
     // ----------------- DRAWER (MENU LATERAL) -----------------
     ModalNavigationDrawer(
@@ -734,12 +877,7 @@ fun ManutencaoScreen(
                         drawerScope.launch { drawerState.close() }
                     }
                     DrawerMenuItem(Icons.Default.AddCircle, "Adicionar Veículo") {
-                        if (listaCarros.size >= vehicleLimit) {
-                            Toast.makeText(context, "Limite de veículos do plano grátis atingido.", Toast.LENGTH_SHORT).show()
-                            showPremiumDialog = true
-                        } else {
-                            showAddCarScreen = true
-                        }
+                        showAddCarScreen = true
                         drawerScope.launch { drawerState.close() }
                     }
 
@@ -830,16 +968,28 @@ fun ManutencaoScreen(
                             )
                         },
                         navigationIcon = {
-                            IconButton(onClick = { drawerScope.launch { drawerState.open() } }) {
+                            IconButton(
+                                onClick = { drawerScope.launch { drawerState.open() } },
+                                modifier = Modifier.onGloballyPositioned { menuButtonRect = it.boundsInRoot() }
+                            ) {
                                 Icon(Icons.Default.Menu, "Menu", tint = textLight)
                             }
                         },
                         actions = {
-                            IconButton(onClick = { showPremiumHubScreen = true }) {
+                            IconButton(
+                                onClick = { homeTutorialStep = 0; showHomeTutorial = true },
+                                modifier = Modifier.onGloballyPositioned { helpButtonRect = it.boundsInRoot() }
+                            ) {
+                                Icon(Icons.Default.HelpOutline, "Tutorial", tint = textLight)
+                            }
+                            IconButton(
+                                onClick = { showPremiumInfo = true },
+                                modifier = Modifier.onGloballyPositioned { premiumButtonRect = it.boundsInRoot() }
+                            ) {
                                 Icon(
-                                    painterResource(id = R.drawable.ic_diamond_alt),
+                                    imageVector = Icons.Default.Diamond,
                                     contentDescription = "Premium",
-                                    tint = Color.Unspecified,
+                                    tint = Color(0xFFD4A017),
                                     modifier = Modifier.size(28.dp)
                                 )
                             }
@@ -852,6 +1002,7 @@ fun ManutencaoScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .onGloballyPositioned { tutorialViewportHeightPx = it.size.height.toFloat() }
                 .background(colorScheme.background)
         ) {
             if (isLoading) {
@@ -867,25 +1018,27 @@ fun ManutencaoScreen(
                 ) {
                     Spacer(Modifier.height(8.dp))
 
-                    CarroInfoCard(
-                        carroAtual = carroAtual,
-                        onPrevCar = {
-                            if (indiceCarroAtual > 0) indiceCarroAtual-- else indiceCarroAtual = listaCarros.lastIndex
-                        },
-                        onNextCar = {
-                            if (indiceCarroAtual < listaCarros.lastIndex) indiceCarroAtual++ else indiceCarroAtual = 0
-                        },
-                        onOpenCarInfo = { showCarInfoScreen = true },
-                        onEditCar = { showEditCarScreen = true },
-                        onOpenRelatorio = { showCarInfoScreen = true },
-                        onNovoLembrete = {
-                            iniciarCameraProduto = false
-                            showTipoAvisoDialog = true
-                        },
-                        nomeMantedor = nomeExibido,
-                        textLight = textLight,
-                        accentBlue = accentBlue
-                    )
+                    Box(modifier = Modifier.onGloballyPositioned { carInfoRect = it.boundsInRoot() }) {
+                        CarroInfoCard(
+                            carroAtual = carroAtual,
+                            onPrevCar = {
+                                if (indiceCarroAtual > 0) indiceCarroAtual-- else indiceCarroAtual = listaCarros.lastIndex
+                            },
+                            onNextCar = {
+                                if (indiceCarroAtual < listaCarros.lastIndex) indiceCarroAtual++ else indiceCarroAtual = 0
+                            },
+                            onOpenCarInfo = { showCarInfoScreen = true },
+                            onEditCar = { showEditCarScreen = true },
+                            onOpenRelatorio = { showCarInfoScreen = true },
+                            onNovoLembrete = {
+                                iniciarCameraProduto = false
+                                showTipoAvisoDialog = true
+                            },
+                            nomeMantedor = nomeExibido,
+                            textLight = textLight,
+                            accentBlue = accentBlue
+                        )
+                    }
 
                     Spacer(Modifier.height(8.dp))
 
@@ -895,7 +1048,8 @@ fun ManutencaoScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = 16.dp)
-                                .height(44.dp),
+                                .height(44.dp)
+                                .onGloballyPositioned { fuelHistoryButtonRect = it.boundsInRoot() },
                             shape = RoundedCornerShape(12.dp),
                             border = BorderStroke(1.dp, if (isDark) Color.White.copy(alpha = 0.25f) else Color.Black),
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = if (isDark) Color.White else Color.Black)
@@ -1002,6 +1156,7 @@ fun ManutencaoScreen(
                         onOpenDetalhes = { lembrete ->
                             lembreteSelecionado = lembrete
                             contatoDetalheSelecionado = listaContatos.find { it.id == lembrete.contatoId }
+                            showLembreteDetalhesScreen = true
                         },
                         statusLabel = { textoStatusPrazoLocal(it) },
                         statusColor = { tipo -> calcularCorStatusLocal(lembretesDoCarroAtual, tipo) },
@@ -1009,6 +1164,7 @@ fun ManutencaoScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp)
+                            .onGloballyPositioned { remindersRect = it.boundsInRoot() }
                     )
 
                     Spacer(Modifier.height(24.dp))
@@ -1018,6 +1174,46 @@ fun ManutencaoScreen(
                 }
                 }
             }
+        }
+        if (showHomeTutorial) {
+            val (message, targetKey) = homeTutorialSteps[homeTutorialStep]
+            val targetRect = when (targetKey) {
+                "menu" -> menuButtonRect
+                "help" -> helpButtonRect
+                "premium" -> premiumButtonRect
+                "fuel_history" -> fuelHistoryButtonRect
+                "car" -> carInfoRect
+                else -> remindersRect
+            }
+            val shouldDelayHelpHighlight = targetKey == "help" && contentScrollState.value > 2
+            val resolvedTargetRect = if (shouldDelayHelpHighlight) null else normalizedTutorialRect(targetKey, targetRect)
+            HomeTutorialVoiceNarration(
+                enabled = true,
+                text = message
+            )
+            HomeTutorialSpotlightOverlay(
+                targetRect = resolvedTargetRect,
+                message = message,
+                step = homeTutorialStep + 1,
+                total = homeTutorialSteps.size,
+                targetCornerRadius = when (targetKey) {
+                    "car", "reminders" -> 28.dp
+                    else -> 12.dp
+                },
+                accentBlue = accentBlue,
+                onSkip = {
+                    showHomeTutorial = false
+                    markHomeTutorialSeen(context)
+                },
+                onNext = {
+                    if (homeTutorialStep < homeTutorialSteps.lastIndex) {
+                        homeTutorialStep += 1
+                    } else {
+                        showHomeTutorial = false
+                        markHomeTutorialSeen(context)
+                    }
+                }
+            )
         }
     }
 }
@@ -1124,6 +1320,141 @@ fun ActionButton(
                 color = Color(0xFFE2E8F0), // Slate 200
                 fontSize = 14.sp
             )
+        }
+    }
+}
+
+@Composable
+private fun HomeTutorialVoiceNarration(
+    enabled: Boolean,
+    text: String
+) {
+    val context = LocalContext.current
+    var isReady by remember { mutableStateOf(false) }
+    var tts by remember { mutableStateOf<TextToSpeech?>(null) }
+
+    DisposableEffect(context) {
+        var engine: TextToSpeech? = null
+        engine = TextToSpeech(context.applicationContext) { status ->
+            if (status == TextToSpeech.SUCCESS) {
+                val result = engine?.setLanguage(Locale("pt", "BR")) ?: TextToSpeech.LANG_NOT_SUPPORTED
+                isReady = result != TextToSpeech.LANG_MISSING_DATA && result != TextToSpeech.LANG_NOT_SUPPORTED
+                engine?.let { configureHomeTutorialVoice(it) }
+            }
+        }
+        tts = engine
+        onDispose {
+            tts?.stop()
+            tts?.shutdown()
+            tts = null
+        }
+    }
+
+    LaunchedEffect(enabled, text, isReady) {
+        if (enabled && isReady) {
+            tts?.stop()
+            tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "home_tutorial_step")
+        }
+    }
+}
+
+private fun configureHomeTutorialVoice(tts: TextToSpeech) {
+    tts.setSpeechRate(1.0f)
+    tts.setPitch(0.92f)
+    val maleHints = listOf("male", "masc", "homem", "m")
+    val preferred = runCatching {
+        tts.voices
+            ?.filter { voice -> voice.locale?.language == "pt" }
+            ?.sortedBy { voice ->
+                val name = voice.name.lowercase(Locale.ROOT)
+                when {
+                    name.contains("pt-br") -> 0
+                    name.contains("brazil") -> 1
+                    else -> 2
+                }
+            }
+            ?.firstOrNull { voice ->
+                val name = voice.name.lowercase(Locale.ROOT)
+                val features = voice.features?.joinToString(" ")?.lowercase(Locale.ROOT).orEmpty()
+                maleHints.any { hint -> name.contains(hint) || features.contains(hint) }
+            }
+            ?: tts.voices?.firstOrNull { it.locale?.language == "pt" }
+    }.getOrNull()
+    preferred?.let { tts.voice = it }
+}
+
+@Composable
+private fun HomeTutorialSpotlightOverlay(
+    targetRect: Rect?,
+    message: String,
+    step: Int,
+    total: Int,
+    targetCornerRadius: Dp,
+    accentBlue: Color,
+    onSkip: () -> Unit,
+    onNext: () -> Unit
+) {
+    val density = LocalDensity.current
+    val cornerRadiusPx = with(density) { targetCornerRadius.toPx() }
+    val strokeWidthPx = with(density) { 2.dp.toPx() }
+    val inset = strokeWidthPx / 2f
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
+            .drawWithContent {
+                drawRect(Color.Black.copy(alpha = 0.55f))
+                if (targetRect != null) {
+                    drawRoundRect(
+                        color = Color.Transparent,
+                        topLeft = androidx.compose.ui.geometry.Offset(targetRect.left, targetRect.top),
+                        size = androidx.compose.ui.geometry.Size(targetRect.width, targetRect.height),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(cornerRadiusPx, cornerRadiusPx),
+                        blendMode = BlendMode.Clear
+                    )
+                    drawRoundRect(
+                        color = Color(0xFF60A5FA),
+                        topLeft = androidx.compose.ui.geometry.Offset(targetRect.left + inset, targetRect.top + inset),
+                        size = androidx.compose.ui.geometry.Size(targetRect.width - (inset * 2f), targetRect.height - (inset * 2f)),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius((cornerRadiusPx - inset).coerceAtLeast(0f), (cornerRadiusPx - inset).coerceAtLeast(0f)),
+                        style = Stroke(width = strokeWidthPx)
+                    )
+                }
+                drawContent()
+            }
+            .clickable(enabled = true) {},
+        contentAlignment = Alignment.BottomCenter
+    ) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            border = BorderStroke(2.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.45f))
+        ) {
+            Column(
+                modifier = Modifier.padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text("Guia rápido", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                Text("Etapa $step de $total", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                Text(message, color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
+                ) {
+                    OutlinedButton(onClick = onSkip) {
+                        Text("Pular guia")
+                    }
+                    Button(
+                        onClick = onNext,
+                        colors = ButtonDefaults.buttonColors(containerColor = accentBlue, contentColor = Color.White)
+                    ) {
+                        Text(if (step < total) "Avançar" else "Finalizar")
+                    }
+                }
+            }
         }
     }
 }
@@ -1438,6 +1769,173 @@ fun BadgeStatus(label: String, color: Color) {
             letterSpacing = 0.6.sp,
             maxLines = 1
         )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LembreteDetalhesScreen(
+    lembrete: Lembrete,
+    contato: ContatoProfissional?,
+    carro: CarroInfo,
+    onDismiss: () -> Unit,
+    onDelete: (Lembrete) -> Unit,
+    onSalvar: (Lembrete) -> Unit
+) {
+    var editando by remember(lembrete.id) { mutableStateOf(false) }
+    var titulo by remember(lembrete.id) { mutableStateOf(lembrete.titulo) }
+    var dataAviso by remember(lembrete.id) { mutableStateOf(lembrete.dataLimite) }
+    var horaAviso by remember(lembrete.id) { mutableStateOf(lembrete.horaAviso) }
+    var kmLimite by remember(lembrete.id) { mutableStateOf(lembrete.kmLimite) }
+    var valorTexto by remember(lembrete.id) { mutableStateOf(if (lembrete.valor > 0) lembrete.valor.toString() else "") }
+
+    Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
+        topBar = {
+            CenterAlignedTopAppBar(
+                title = { Text("Detalhes do aviso", fontWeight = FontWeight.Bold) },
+                navigationIcon = {
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar")
+                    }
+                },
+                actions = {
+                    TextButton(onClick = { editando = !editando }) {
+                        Text(if (editando) "Visualizar" else "Editar", fontWeight = FontWeight.Bold)
+                    }
+                }
+            )
+        }
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .padding(innerPadding)
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    if (editando) {
+                        OutlinedTextField(
+                            value = titulo,
+                            onValueChange = { titulo = it },
+                            label = { Text("Título") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        OutlinedTextField(
+                            value = dataAviso,
+                            onValueChange = { dataAviso = it },
+                            label = { Text("Data do aviso (dd/MM/yyyy)") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        OutlinedTextField(
+                            value = horaAviso,
+                            onValueChange = { horaAviso = it },
+                            label = { Text("Hora do aviso (HH:mm)") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        OutlinedTextField(
+                            value = kmLimite,
+                            onValueChange = { if (it.all(Char::isDigit)) kmLimite = it },
+                            label = { Text("KM limite") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        OutlinedTextField(
+                            value = valorTexto,
+                            onValueChange = { if (it.all { c -> c.isDigit() || c == '.' || c == ',' }) valorTexto = it.replace(',', '.') },
+                            label = { Text("Valor (R$)") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    } else {
+                        Text(lembrete.titulo, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp)
+                        Text(lembrete.tipo.label, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        HorizontalDivider()
+                        InfoRow("Veículo", carro.nome, MaterialTheme.colorScheme.onSurface, MaterialTheme.colorScheme.onSurfaceVariant)
+                        InfoRow("Data", lembrete.dataLimite.ifBlank { "Sem data" }, MaterialTheme.colorScheme.onSurface, MaterialTheme.colorScheme.onSurfaceVariant)
+                        InfoRow("Hora", lembrete.horaAviso, MaterialTheme.colorScheme.onSurface, MaterialTheme.colorScheme.onSurfaceVariant)
+                        InfoRow("KM limite", lembrete.kmLimite.ifBlank { "Não definido" }, MaterialTheme.colorScheme.onSurface, MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (lembrete.valor > 0) {
+                            InfoRow("Valor", formatarMoedaLocal(lembrete.valor), MaterialTheme.colorScheme.onSurface, MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        contato?.let {
+                            InfoRow("Profissional", "${it.nome} (${it.tipoServico})", MaterialTheme.colorScheme.onSurface, MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        val fotoPath = lembrete.fotoPath.orEmpty()
+                        if (fotoPath.isNotBlank()) {
+                            Spacer(Modifier.height(4.dp))
+                            Text("Registro fotográfico", fontWeight = FontWeight.Bold)
+                            val imageModel: Any = if (
+                                fotoPath.startsWith("content://") || fotoPath.startsWith("file://")
+                            ) {
+                                fotoPath
+                            } else {
+                                File(fotoPath)
+                            }
+                            AsyncImage(
+                                model = imageModel,
+                                contentDescription = "Imagem do registro fotográfico",
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(200.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .border(
+                                        width = 1.dp,
+                                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f),
+                                        shape = RoundedCornerShape(12.dp)
+                                    ),
+                                contentScale = ContentScale.Crop
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (editando) {
+                Button(
+                    onClick = {
+                        val atualizado = lembrete.copy(
+                            titulo = titulo.ifBlank { lembrete.titulo },
+                            dataLimite = dataAviso.ifBlank { lembrete.dataLimite },
+                            horaAviso = horaAviso.ifBlank { lembrete.horaAviso },
+                            kmLimite = kmLimite,
+                            valor = valorTexto.toDoubleOrNull() ?: 0.0
+                        )
+                        onSalvar(atualizado)
+                        editando = false
+                    },
+                    modifier = Modifier.fillMaxWidth().height(50.dp),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("Salvar alterações", fontWeight = FontWeight.Bold)
+                }
+            } else {
+                Button(
+                    onClick = { onDelete(lembrete) },
+                    modifier = Modifier.fillMaxWidth().height(50.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444), contentColor = Color.White),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("Apagar aviso", fontWeight = FontWeight.Bold)
+                }
+            }
+        }
     }
 }
 

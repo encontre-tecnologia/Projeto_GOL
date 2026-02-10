@@ -1,23 +1,28 @@
-package br.com.gui.carlembrete
+﻿package br.com.gui.carlembrete
 
+import android.app.Activity
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBackIosNew
+import androidx.compose.material.icons.filled.ArrowForwardIos
+import androidx.compose.material.icons.filled.Diamond
+import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Payments
+import androidx.compose.material.icons.filled.RequestQuote
 import androidx.compose.material.icons.filled.Shield
-import androidx.compose.material.icons.filled.WorkspacePremium
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
@@ -25,18 +30,20 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.view.WindowInsetsControllerCompat
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -46,90 +53,143 @@ fun PremiumHubScreen(
     onOpenGuardian: () -> Unit,
     onOpenFinance: () -> Unit,
     onOpenAiAssistant: () -> Unit,
+    onOpenBudgetAuditor: () -> Unit,
     onOpenSubscribe: () -> Unit
 ) {
-    val background = Brush.verticalGradient(
-        colors = listOf(Color(0xFF1A1200), Color(0xFF0F172A), Color(0xFF111827))
-    )
+    val view = LocalView.current
+    val isDark = isSystemInDarkTheme()
+    val textPrimary = if (isDark) Color(0xFFFFF4D6) else Color(0xFF3A2500)
+    val textDim = if (isDark) Color(0xFFE7D7AF) else Color(0xFF7A5A1F)
+    val accentGold = Color(0xFFD4A017)
+    val borderColor = if (isDark) Color(0xFF7C5A14) else Color(0xFFE9C46A)
+    val screenBg = if (isDark) Color(0xFF151515) else Color(0xFFFFFBEB)
+    val cardSurface = if (isDark) Color(0xFF1B1B1B) else Color.White
+    val featureCardSurface = if (isDark) Color(0xFF221A0D) else Color(0xFFFFFEF8)
+
+    DisposableEffect(view) {
+        val activity = view.context as? Activity
+        val window = activity?.window
+        val insetsController = window?.let { WindowInsetsControllerCompat(it, it.decorView) }
+        val oldStatusColor = window?.statusBarColor
+        val oldLightStatus = insetsController?.isAppearanceLightStatusBars
+
+        if (window != null && insetsController != null) {
+            // Igual ao comportamento da tela de carregamento: ícones brancos na barra superior.
+            window.statusBarColor = Color(0xFF0F172A).toArgb()
+            insetsController.isAppearanceLightStatusBars = false
+        }
+
+        onDispose {
+            if (window != null && insetsController != null) {
+                if (oldStatusColor != null) window.statusBarColor = oldStatusColor
+                if (oldLightStatus != null) insetsController.isAppearanceLightStatusBars = oldLightStatus
+            }
+        }
+    }
+
     Scaffold(
-        containerColor = Color.Transparent,
+        containerColor = screenBg,
         topBar = {
             CenterAlignedTopAppBar(
-                title = { Text("Zellu Premium", color = Color(0xFFFFE7A8), fontWeight = FontWeight.Bold) },
+                title = { Text("Zellu Premium", color = textPrimary, fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar", tint = Color.White)
+                        Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar", tint = textPrimary)
                     }
                 },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color(0xFF111827))
+                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = cardSurface)
             )
         }
     ) { innerPadding ->
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(background)
+                .background(screenBg)
                 .padding(innerPadding)
                 .padding(16.dp)
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 Card(
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF2A1B05)),
-                    border = BorderStroke(1.dp, Color(0xFFFBBF24).copy(alpha = 0.55f)),
+                    colors = CardDefaults.cardColors(containerColor = cardSurface),
+                    border = BorderStroke(1.dp, borderColor),
                     shape = RoundedCornerShape(16.dp)
                 ) {
-                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Icon(Icons.Default.WorkspacePremium, contentDescription = null, tint = Color(0xFFFBBF24))
-                        Text("Central Premium", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 18.sp)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Diamond,
+                            contentDescription = null,
+                            tint = accentGold,
+                            modifier = Modifier.size(36.dp)
+                        )
+                        Text("Central Premium", color = textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 20.sp)
                         Text(
-                            if (isPremium) "Seu plano está ativo. Acesse os recursos abaixo."
-                            else "Desbloqueie recursos avançados do Zellu.",
-                            color = Color(0xFFFDE68A),
+                            if (isPremium) {
+                                "Plano Premium ativo. Todos os recursos desta tela estao liberados."
+                            } else {
+                                "Esta e a tela de recursos Premium do Zellu."
+                            },
+                            color = textDim,
                             fontSize = 13.sp
                         )
                     }
                 }
 
-                PremiumFeatureButton(
-                    icon = { Icon(Icons.Default.Shield, contentDescription = null, tint = Color.White) },
-                    title = "Zellu Guardião",
-                    subtitle = "Proteção e alertas inteligentes",
+                PremiumFeatureCard(
+                    title = "Zellu Guardiao",
+                    subtitle = "Protecao e alertas inteligentes",
+                    iconColor = accentGold,
+                    textPrimary = textPrimary,
+                    textDim = textDim,
+                    borderColor = borderColor,
+                    cardSurface = featureCardSurface,
                     onClick = onOpenGuardian
-                )
+                ) {
+                    Icon(Icons.Default.Shield, contentDescription = null, tint = accentGold)
+                }
 
-                PremiumFeatureButton(
-                    icon = { Icon(Icons.Default.Payments, contentDescription = null, tint = Color.White) },
+                PremiumFeatureCard(
                     title = "Gestor Financeiro",
-                    subtitle = "Visão de gastos e relatórios",
+                    subtitle = "Visao de gastos e relatorios",
+                    iconColor = Color(0xFF7C3AED),
+                    textPrimary = textPrimary,
+                    textDim = textDim,
+                    borderColor = borderColor,
+                    cardSurface = featureCardSurface,
                     onClick = onOpenFinance
-                )
+                ) {
+                    Icon(Icons.Default.Payments, contentDescription = null, tint = Color(0xFF7C3AED))
+                }
 
-                PremiumFeatureButton(
-                    icon = { Icon(Icons.Default.WorkspacePremium, contentDescription = null, tint = Color.White) },
+                PremiumFeatureCard(
                     title = "Viagem",
                     subtitle = "Gastos, notas e relatorio",
+                    iconColor = Color(0xFFEA580C),
+                    textPrimary = textPrimary,
+                    textDim = textDim,
+                    borderColor = borderColor,
+                    cardSurface = featureCardSurface,
                     onClick = onOpenAiAssistant
-                )
+                ) {
+                    Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = Color(0xFFEA580C))
+                }
 
-                if (!isPremium) {
-                    Spacer(Modifier.height(4.dp))
-                    Button(
-                        onClick = onOpenSubscribe,
-                        modifier = Modifier.fillMaxWidth().height(50.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFBBF24), contentColor = Color.Black),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Text("Assinar Premium", fontWeight = FontWeight.Bold)
-                    }
-                } else {
-                    OutlinedButton(
-                        onClick = onDismiss,
-                        modifier = Modifier.fillMaxWidth().height(50.dp),
-                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.25f)),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Text("Fechar", color = Color.White)
-                    }
+                PremiumFeatureCard(
+                    title = "Auditor de Orcamentos",
+                    subtitle = "Compare valores e valide propostas",
+                    iconColor = Color(0xFF0EA5E9),
+                    textPrimary = textPrimary,
+                    textDim = textDim,
+                    borderColor = borderColor,
+                    cardSurface = featureCardSurface,
+                    onClick = onOpenBudgetAuditor
+                ) {
+                    Icon(Icons.Default.RequestQuote, contentDescription = null, tint = Color(0xFF0EA5E9))
                 }
             }
         }
@@ -137,25 +197,45 @@ fun PremiumHubScreen(
 }
 
 @Composable
-private fun PremiumFeatureButton(
-    icon: @Composable () -> Unit,
+private fun PremiumFeatureCard(
     title: String,
     subtitle: String,
-    onClick: () -> Unit
+    iconColor: Color,
+    textPrimary: Color,
+    textDim: Color,
+    borderColor: Color,
+    cardSurface: Color,
+    onClick: () -> Unit,
+    icon: @Composable () -> Unit
 ) {
-    Button(
-        onClick = onClick,
-        modifier = Modifier.fillMaxWidth().height(58.dp),
-        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        colors = CardDefaults.cardColors(containerColor = cardSurface),
         shape = RoundedCornerShape(14.dp),
-        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f))
+        border = BorderStroke(1.dp, borderColor)
     ) {
-        Box(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.align(Alignment.CenterStart)) {
-                Text(title, color = Color.White, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyLarge)
-                Text(subtitle, color = Color(0xFF94A3B8), fontSize = 11.sp)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .background(iconColor.copy(alpha = 0.12f), RoundedCornerShape(10.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                icon()
             }
-            Box(modifier = Modifier.align(Alignment.CenterEnd)) { icon() }
+            Spacer(Modifier.size(12.dp))
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(title, color = textPrimary, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyLarge)
+                Text(subtitle, color = textDim, fontSize = 12.sp)
+            }
+            Icon(Icons.Default.ArrowForwardIos, contentDescription = null, tint = textDim, modifier = Modifier.size(16.dp))
         }
     }
 }

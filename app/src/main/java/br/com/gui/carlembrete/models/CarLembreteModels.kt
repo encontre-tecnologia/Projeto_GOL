@@ -212,6 +212,7 @@ fun logoResForMarca(marca: String, tipoVeiculo: TipoVeiculo?): Int? = null
 fun TipoVeiculoSelector(
     selecionado: TipoVeiculo?,
     onSelect: (TipoVeiculo) -> Unit,
+    lightStyle: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val accent = Color(0xFF3B82F6)
@@ -224,19 +225,34 @@ fun TipoVeiculoSelector(
     ) {
         TipoVeiculo.values().forEach { tipo ->
             val selected = tipo == selecionado
+            val bgColor = when {
+                selected -> accent
+                lightStyle -> Color.White
+                else -> Color(0xFF0B1224)
+            }
+            val borderColor = when {
+                selected -> accent
+                lightStyle -> Color.Black
+                else -> Color.White.copy(alpha = 0.12f)
+            }
+            val textColor = when {
+                selected -> Color.White
+                lightStyle -> Color(0xFF0F172A)
+                else -> Color(0xFF94A3B8)
+            }
             Surface(
-                color = if (selected) accent.copy(alpha = 0.18f) else Color(0xFF0B1224),
+                color = bgColor,
                 shape = RoundedCornerShape(10.dp),
                 border = BorderStroke(
                     width = 1.dp,
-                    color = if (selected) accent.copy(alpha = 0.7f) else Color.White.copy(alpha = 0.12f)
+                    color = borderColor
                 ),
                 modifier = Modifier
                     .clickable { onSelect(tipo) }
             ) {
                 Text(
                     text = tipo.label,
-                    color = if (selected) Color.White else Color(0xFF94A3B8),
+                    color = textColor,
                     fontSize = 12.sp,
                     fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)

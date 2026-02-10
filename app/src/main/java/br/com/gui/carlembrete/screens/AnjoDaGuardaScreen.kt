@@ -1,4 +1,4 @@
-package br.com.gui.carlembrete
+﻿package br.com.gui.carlembrete
 
 
 
@@ -59,6 +59,7 @@ import androidx.compose.foundation.BorderStroke
 
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 
 
 
@@ -182,6 +183,21 @@ import java.time.format.DateTimeFormatter
 
 
 
+private const val GUARDIAN_INFO_PREFS = "guardian_info_prefs"
+private const val KEY_GUARDIAN_INFO_DISMISSED = "guardian_info_dismissed"
+
+private fun shouldAutoShowGuardianInfo(context: Context): Boolean {
+    val prefs = context.getSharedPreferences(GUARDIAN_INFO_PREFS, Context.MODE_PRIVATE)
+    return !prefs.getBoolean(KEY_GUARDIAN_INFO_DISMISSED, false)
+}
+
+private fun setGuardianInfoDismissed(context: Context, dismissed: Boolean) {
+    context.getSharedPreferences(GUARDIAN_INFO_PREFS, Context.MODE_PRIVATE)
+        .edit()
+        .putBoolean(KEY_GUARDIAN_INFO_DISMISSED, dismissed)
+        .apply()
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 
 
@@ -198,11 +214,11 @@ fun AnjoDaGuardaScreen(onDismiss: () -> Unit) {
 
 
 
-    val bgDark = Color(0xFF0B1120)
+    val bgDark = Color(0xFFF8FAFC)
 
 
 
-    val cardBg = Color(0xFF1E293B)
+    val cardBg = Color(0xFFE2E8F0)
 
 
 
@@ -218,11 +234,11 @@ fun AnjoDaGuardaScreen(onDismiss: () -> Unit) {
 
 
 
-    val textPrimary = Color(0xFFF8FAFC)
+    val textPrimary = Color(0xFF0F172A)
 
 
 
-    val textSecondary = Color(0xFF94A3B8)
+    val textSecondary = Color(0xFF475569)
 
 
 
@@ -231,22 +247,6 @@ fun AnjoDaGuardaScreen(onDismiss: () -> Unit) {
 
 
     val context = LocalContext.current
-
-    val activity = (context as? android.app.Activity)
-    val subscriptionManager = remember { SubscriptionManager(context) }
-    val isSubscribed by subscriptionManager.isSubscribed.collectAsState()
-
-    DisposableEffect(Unit) {
-        subscriptionManager.connect()
-        onDispose { subscriptionManager.disconnect() }
-    }
-
-
-
-
-
-
-
 
     // --- Estados Reativos ---
 
@@ -305,6 +305,10 @@ fun AnjoDaGuardaScreen(onDismiss: () -> Unit) {
 
 
     var networkLabel by remember { mutableStateOf("Verificando...") }
+    val shouldAutoShowInfo = remember(context) { shouldAutoShowGuardianInfo(context) }
+    var showInfoDialog by remember { mutableStateOf(false) }
+    var dontShowAgain by remember { mutableStateOf(false) }
+    var infoOpenedFromHelp by remember { mutableStateOf(false) }
 
 
 
@@ -744,6 +748,14 @@ fun AnjoDaGuardaScreen(onDismiss: () -> Unit) {
 
 
 
+    LaunchedEffect(isAuthenticated, shouldAutoShowInfo) {
+        if (isAuthenticated && shouldAutoShowInfo) {
+            dontShowAgain = false
+            infoOpenedFromHelp = false
+            showInfoDialog = true
+        }
+    }
+
     // --- UI Principal ---
 
 
@@ -812,6 +824,18 @@ fun AnjoDaGuardaScreen(onDismiss: () -> Unit) {
 
 
 
+                actions = {
+                    IconButton(
+                        onClick = {
+                            dontShowAgain = false
+                            infoOpenedFromHelp = true
+                            showInfoDialog = true
+                        }
+                    ) {
+                        Icon(Icons.Default.HelpOutline, contentDescription = "Como funciona", tint = accentBlue)
+                    }
+                },
+
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent)
 
 
@@ -851,65 +875,8 @@ fun AnjoDaGuardaScreen(onDismiss: () -> Unit) {
         }
 
 
-        if (!isSubscribed) {
-
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
-                contentAlignment = Alignment.Center
-            ) {
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF111827)),
-                    shape = RoundedCornerShape(16.dp),
-                    border = BorderStroke(1.dp, Color(0xFF334155)),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 24.dp)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(20.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Icon(Icons.Filled.Shield, contentDescription = null, tint = accentBlue, modifier = Modifier.size(36.dp))
-                        Text("Zellu Guardiao", color = textPrimary, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                        Text(
-                            "Ative o monitoramento premium com alertas inteligentes e protecao extra.",
-                            color = textSecondary,
-                            textAlign = TextAlign.Center,
-                            fontSize = 12.sp
-                        )
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-                            Text("- Monitoramento em tempo real", color = Color(0xFFCBD5E1), fontSize = 12.sp)
-                            Text("- Alertas prioritarios", color = Color(0xFFCBD5E1), fontSize = 12.sp)
-                            Text("- Historico de eventos", color = Color(0xFFCBD5E1), fontSize = 12.sp)
-                        }
-                        Button(
-                            onClick = { if (activity != null) subscriptionManager.launchPurchaseFlow(activity) },
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF59E0B), contentColor = Color.Black),
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Text("Assinar Premium", fontWeight = FontWeight.Bold)
-                        }
-                        TextButton(onClick = onDismiss) {
-                            Text("Voltar", color = textSecondary)
-                        }
-                    }
-                }
-            }
-            return@Scaffold
-
-        }
-
-
-
-
-
-
-
-        Column(
+        Box(modifier = Modifier.fillMaxSize()) {
+            Column(
 
 
 
@@ -1211,7 +1178,7 @@ fun AnjoDaGuardaScreen(onDismiss: () -> Unit) {
 
                 Column(modifier = Modifier.fillMaxWidth()) {
 
-                    Text("PERFIL DE OPERAÇÃO", color = textSecondary, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                    Text("Aonde este celular irá ficar?", color = textSecondary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
 
                     Spacer(Modifier.height(12.dp))
 
@@ -1219,9 +1186,9 @@ fun AnjoDaGuardaScreen(onDismiss: () -> Unit) {
 
                         ModeSelectionCard(
 
-                            title = if (isCarMode) "MODULO CARRO" else "MODULO DONO",
+                            title = if (isCarMode) "NO VEÍCULO" else "NO CELULAR",
 
-                            desc = if (isCarMode) "Fica no veiculo" else "Recebe alertas",
+                            desc = if (isCarMode) "Monitora no carro" else "Recebe os alertas",
 
                             icon = if (isCarMode) Icons.Filled.DirectionsCar else Icons.Filled.Smartphone,
 
@@ -1241,9 +1208,9 @@ fun AnjoDaGuardaScreen(onDismiss: () -> Unit) {
 
                             ModeSelectionCard(
 
-                                title = "MODULO CARRO",
+                                title = "NO VEÍCULO",
 
-                                desc = "Fica no veiculo",
+                                desc = "Monitora no carro",
 
                                 icon = Icons.Filled.DirectionsCar,
 
@@ -1265,9 +1232,9 @@ fun AnjoDaGuardaScreen(onDismiss: () -> Unit) {
 
                             ModeSelectionCard(
 
-                                title = "MODULO DONO",
+                                title = "NO CELULAR",
 
-                                desc = "Recebe alertas",
+                                desc = "Recebe os alertas",
 
                                 icon = Icons.Filled.Smartphone,
 
@@ -1303,7 +1270,13 @@ fun AnjoDaGuardaScreen(onDismiss: () -> Unit) {
 
 
 
-                    SettingToggleRow("Sirene Local", "Toca alarme alto no veículo", alarmLocal, accentRed) {
+                    SettingToggleRow(
+                        title = "Sirene Local",
+                        subtitle = "Toca alarme alto no veículo",
+                        state = alarmLocal,
+                        activeColor = accentRed,
+                        modifier = Modifier
+                    ) {
 
 
 
@@ -1323,7 +1296,13 @@ fun AnjoDaGuardaScreen(onDismiss: () -> Unit) {
 
 
 
-                    SettingToggleRow("Alerta Sonoro", "Tocar som no seu celular", alarmRemote, accentRed) {
+                    SettingToggleRow(
+                        title = "Alerta Sonoro",
+                        subtitle = "Tocar som no seu celular",
+                        state = alarmRemote,
+                        activeColor = accentRed,
+                        modifier = Modifier
+                    ) {
 
 
 
@@ -1355,7 +1334,7 @@ fun AnjoDaGuardaScreen(onDismiss: () -> Unit) {
 
 
 
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
 
 
 
@@ -1363,7 +1342,7 @@ fun AnjoDaGuardaScreen(onDismiss: () -> Unit) {
 
 
 
-                    border = BorderStroke(1.dp, Color(0xFF334155)),
+                    border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
 
 
 
@@ -1391,7 +1370,7 @@ fun AnjoDaGuardaScreen(onDismiss: () -> Unit) {
 
 
 
-                            Text("SYSTEM_LOGS", color = textSecondary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Text("ATIVIDADE", color = textSecondary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
 
 
 
@@ -1407,7 +1386,7 @@ fun AnjoDaGuardaScreen(onDismiss: () -> Unit) {
 
 
 
-                            Text("> Aguardando eventos...", color = Color(0xFF64748B), fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace, fontSize = 12.sp)
+                            Text("> Sem atividade", color = Color(0xFF64748B), fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace, fontSize = 12.sp)
 
 
 
@@ -1458,7 +1437,71 @@ fun AnjoDaGuardaScreen(onDismiss: () -> Unit) {
             }
 
 
-
+            if (showInfoDialog) {
+                AlertDialog(
+                    onDismissRequest = { showInfoDialog = false },
+                    icon = {
+                        Icon(
+                            Icons.Default.Info,
+                            contentDescription = null,
+                            tint = accentBlue,
+                            modifier = Modifier.size(38.dp)
+                        )
+                    },
+                    title = {
+                        Text(
+                            "Como funciona o Zellu Guardião",
+                            modifier = Modifier.fillMaxWidth(),
+                            textAlign = TextAlign.Center
+                        )
+                    },
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Text("1. Selecione o perfil antes de armar.", fontWeight = FontWeight.Bold)
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Icon(
+                                    Icons.Filled.DirectionsCar,
+                                    contentDescription = null,
+                                    tint = accentBlue,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                                Text("Perfil No Veículo: fica no veículo, detecta movimento e envia alertas.")
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Icon(
+                                    Icons.Filled.Smartphone,
+                                    contentDescription = null,
+                                    tint = accentBlue,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                                Text("Perfil No Celular: recebe os alertas no seu celular.")
+                            }
+                            Text("2. Toque no botão central para ARMAR ou DESARMAR.", fontWeight = FontWeight.Bold)
+                            Text("3. Ative Sirene Local (carro) ou Alerta Sonoro (dono), se desejar.")
+                            Text("4. A área ATIVIDADE mostra os últimos eventos.", fontWeight = FontWeight.Bold)
+                            if (!infoOpenedFromHelp) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Checkbox(
+                                        checked = dontShowAgain,
+                                        onCheckedChange = { checked -> dontShowAgain = checked }
+                                    )
+                                    Text("Não mostrar novamente")
+                                }
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        Button(onClick = {
+                            if (!infoOpenedFromHelp && dontShowAgain) {
+                                setGuardianInfoDismissed(context, true)
+                            }
+                            showInfoDialog = false
+                        }) {
+                            Text("Entendi")
+                        }
+                    }
+                )
+            }
         }
 
 
@@ -1466,6 +1509,8 @@ fun AnjoDaGuardaScreen(onDismiss: () -> Unit) {
     }
 
 
+
+}
 
 }
 
@@ -1484,9 +1529,6 @@ fun AnjoDaGuardaScreen(onDismiss: () -> Unit) {
 
 
 @Composable
-
-
-
 fun RadarAnimation(isActive: Boolean, color: Color) {
 
 
@@ -1619,7 +1661,7 @@ fun ModeSelectionCard(
 
 
 
-        border = BorderStroke(1.dp, if (isSelected) color else Color(0xFF334155)),
+        border = BorderStroke(1.dp, if (isSelected) color else Color(0xFFE2E8F0)),
 
 
 
@@ -1655,11 +1697,11 @@ fun ModeSelectionCard(
 
 
 
-            Text(title, color = if(isSelected) Color.White else Color(0xFF94A3B8), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            Text(title, color = Color(0xFF0F172A), fontSize = 12.sp, fontWeight = FontWeight.Bold)
 
 
 
-            Text(desc, color = Color(0xFF64748B), fontSize = 10.sp, lineHeight = 12.sp, textAlign = TextAlign.Center)
+            Text(desc, color = Color(0xFF0F172A), fontSize = 10.sp, lineHeight = 12.sp, textAlign = TextAlign.Center)
 
 
 
@@ -1683,7 +1725,14 @@ fun ModeSelectionCard(
 
 
 
-fun SettingToggleRow(title: String, subtitle: String, state: Boolean, activeColor: Color, onUpdate: (Boolean) -> Unit) {
+fun SettingToggleRow(
+    title: String,
+    subtitle: String,
+    state: Boolean,
+    activeColor: Color,
+    modifier: Modifier = Modifier,
+    onUpdate: (Boolean) -> Unit
+) {
 
 
 
@@ -1691,7 +1740,7 @@ fun SettingToggleRow(title: String, subtitle: String, state: Boolean, activeColo
 
 
 
-        modifier = Modifier
+        modifier = modifier
 
 
 
@@ -1699,7 +1748,11 @@ fun SettingToggleRow(title: String, subtitle: String, state: Boolean, activeColo
 
 
 
-            .background(Color(0xFF1E293B), RoundedCornerShape(12.dp))
+            .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(12.dp))
+
+
+
+            .background(Color.White, RoundedCornerShape(12.dp))
 
 
 
@@ -1723,11 +1776,11 @@ fun SettingToggleRow(title: String, subtitle: String, state: Boolean, activeColo
 
 
 
-            Text(title, color = Color.White, fontWeight = FontWeight.Bold)
+            Text(title, color = Color(0xFF0F172A), fontWeight = FontWeight.Bold)
 
 
 
-            Text(subtitle, color = Color(0xFF94A3B8), fontSize = 12.sp)
+            Text(subtitle, color = Color(0xFF64748B), fontSize = 12.sp)
 
 
 

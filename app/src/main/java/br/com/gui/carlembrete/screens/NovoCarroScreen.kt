@@ -58,7 +58,11 @@ fun NovoCarroScreen(
     onSalvar: (CarroInfo) -> Unit
 ) {
     val context = LocalContext.current
-    val primaryDark = Color(0xFF121B30)
+    val bgLight = Color(0xFFF8FAFC)
+    val cardLight = Color.White
+    val borderLight = Color(0xFFE2E8F0)
+    val textPrimary = Color(0xFF0F172A)
+    val textSecondary = Color(0xFF64748B)
     val accentBlue = Color(0xFF3B82F6)
     val carroBase = CarroInfo(nome = "", modelo = "")
 
@@ -114,27 +118,23 @@ fun NovoCarroScreen(
     }
 
     Scaffold(
-        containerColor = Color.Transparent,
+        containerColor = bgLight,
         topBar = {
             TopAppBar(
-                title = { Text("Adicionar veiculo", color = Color.White, fontWeight = FontWeight.Bold) },
+                title = { Text("Adicionar veiculo", color = textPrimary, fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar", tint = Color.White)
+                        Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar", tint = textPrimary)
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = bgLight)
             )
         }
     ) { innerPadding ->
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        listOf(Color(0xFF16233A), primaryDark, Color(0xFF0F172A))
-                    )
-                )
+                .background(bgLight)
                 .padding(innerPadding)
         ) {
             Column(
@@ -158,8 +158,8 @@ fun NovoCarroScreen(
                             }
                         },
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White
+                            focusedTextColor = textPrimary,
+                            unfocusedTextColor = textPrimary
                         ),
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -176,19 +176,20 @@ fun NovoCarroScreen(
                             }
                         },
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White
+                            focusedTextColor = textPrimary,
+                            unfocusedTextColor = textPrimary
                         ),
                         modifier = Modifier.fillMaxWidth()
                     )
 
-                    Text("Tipo de veiculo", color = Color(0xFFCBD5E1), fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                    Text("Tipo de veiculo", color = textSecondary, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
                     TipoVeiculoSelector(
                         selecionado = tipoSelecionado,
                         onSelect = {
                             tipoSelecionado = it
                             tipoSelecionadoConfirmado = true
-                        }
+                        },
+                        lightStyle = true
                     )
 
                     val marcasBicicletaLocal = listOf(
@@ -267,7 +268,6 @@ fun NovoCarroScreen(
                     }
 
                     var marcaExpanded by remember { mutableStateOf(false) }
-                    val marcaLogo = logoResForMarca(marca, tipoSelecionado)
                     ExposedDropdownMenuBox(
                         expanded = marcaExpanded,
                         onExpandedChange = {
@@ -283,40 +283,28 @@ fun NovoCarroScreen(
                             onValueChange = {},
                             readOnly = true,
                             label = { Text("Marca") },
-                            placeholder = { Text("Selecione a marca") },
+                            placeholder = { Text(if (marcaExpanded) "Selecione a marca" else "Marca") },
                             modifier = Modifier
                                 .menuAnchor()
                                 .fillMaxWidth(),
                             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = marcaExpanded) },
                             enabled = tipoSelecionadoConfirmado,
-                            leadingIcon = run {
-                                val tipoLocal = tipoSelecionado
-                                when {
-                                    marcaLogo != null -> {
-                                        {
-                                            Image(
-                                                painter = painterResource(marcaLogo),
-                                                contentDescription = marca,
-                                                modifier = Modifier.size(24.dp),
-                                                colorFilter = ColorFilter.tint(Color.White)
-                                            )
-                                        }
-                                    }
-                                    tipoLocal != null -> {
-                                        {
-                                            VehicleIcon(
-                                                tipoVeiculo = tipoLocal,
-                                                tint = Color.White,
-                                                size = 24.dp
-                                            )
-                                        }
-                                    }
-                                    else -> null
+                            leadingIcon = if (tipoSelecionado != null) {
+                                {
+                                    VehicleIcon(
+                                        tipoVeiculo = tipoSelecionado!!,
+                                        tint = textPrimary,
+                                        size = 22.dp
+                                    )
                                 }
-                            },
+                            } else null,
                             colors = OutlinedTextFieldDefaults.colors(
-                                focusedTextColor = Color.White,
-                                unfocusedTextColor = Color.White
+                                focusedTextColor = textPrimary,
+                                unfocusedTextColor = textPrimary,
+                                focusedLabelColor = textSecondary,
+                                unfocusedLabelColor = textSecondary,
+                                focusedPlaceholderColor = textSecondary,
+                                unfocusedPlaceholderColor = textSecondary
                             )
                         )
                         ExposedDropdownMenu(expanded = marcaExpanded, onDismissRequest = { marcaExpanded = false }) {
@@ -335,8 +323,8 @@ fun NovoCarroScreen(
                                                     modifier = Modifier
                                                         .size(28.dp)
                                                         .clip(CircleShape)
-                                                        .background(Color.White.copy(alpha = 0.08f))
-                                                        .border(1.dp, Color.White.copy(alpha = 0.18f), CircleShape),
+                                                        .background(Color(0xFFF1F5F9))
+                                                        .border(1.dp, borderLight, CircleShape),
                                                     contentAlignment = Alignment.Center
                                                 ) {
                                                     if (res != null) {
@@ -344,21 +332,21 @@ fun NovoCarroScreen(
                                                             painter = painterResource(res),
                                                             contentDescription = marcaNome,
                                                             modifier = Modifier.size(16.dp),
-                                                            colorFilter = ColorFilter.tint(Color.White)
+                                                            colorFilter = ColorFilter.tint(textPrimary)
                                                         )
                                                     } else {
                                                         val tipoLocal = tipoSelecionado
                                                         if (tipoLocal != null) {
                                                             VehicleIcon(
                                                                 tipoVeiculo = tipoLocal,
-                                                                tint = Color.White,
+                                                                tint = textPrimary,
                                                                 size = 16.dp
                                                             )
                                                         } else {
                                                             Icon(
                                                                 imageVector = Icons.Rounded.DirectionsCar,
                                                                 contentDescription = null,
-                                                                tint = Color.White,
+                                                                tint = textPrimary,
                                                                 modifier = Modifier.size(16.dp)
                                                             )
                                                         }
@@ -370,7 +358,7 @@ fun NovoCarroScreen(
                                                 marcaNome,
                                                 fontSize = 13.sp,
                                                 fontWeight = FontWeight.SemiBold,
-                                                color = Color.White
+                                                color = textPrimary
                                             )
                                         }
                                     },
@@ -391,8 +379,8 @@ fun NovoCarroScreen(
                         label = { Text("Proprietario") },
                         singleLine = true,
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White
+                            focusedTextColor = textPrimary,
+                            unfocusedTextColor = textPrimary
                         ),
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -404,8 +392,8 @@ fun NovoCarroScreen(
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         singleLine = true,
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White
+                            focusedTextColor = textPrimary,
+                            unfocusedTextColor = textPrimary
                         ),
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -448,7 +436,7 @@ fun NovoCarroScreen(
                 }
 
                 TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
-                    Text("Cancelar", color = Color(0xFF94A3B8))
+                    Text("Cancelar", color = textSecondary)
                 }
             }
         }
@@ -459,15 +447,15 @@ fun NovoCarroScreen(
 private fun NovoHeroCard() {
     Card(
         shape = RoundedCornerShape(22.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
-        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f))
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        border = BorderStroke(1.dp, Color(0xFFE2E8F0))
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(
                     Brush.linearGradient(
-                        listOf(Color(0xFF1F3A60), Color(0xFF0F172A))
+                        listOf(Color(0xFFEFF6FF), Color(0xFFDBEAFE))
                     )
                 )
                 .padding(18.dp)
@@ -477,16 +465,16 @@ private fun NovoHeroCard() {
                     modifier = Modifier
                         .size(46.dp)
                         .clip(RoundedCornerShape(14.dp))
-                        .background(Color(0xFF243B64))
-                        .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(14.dp)),
+                        .background(Color.White)
+                        .border(1.dp, Color(0xFFBFDBFE), RoundedCornerShape(14.dp)),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(Icons.Rounded.AddCircle, contentDescription = null, tint = Color(0xFF60A5FA), modifier = Modifier.size(26.dp))
                 }
                 Spacer(Modifier.width(12.dp))
                 Column {
-                    Text("Novo veiculo", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                    Text("Crie um perfil para acompanhar seus lembretes", color = Color(0xFF94A3B8), fontSize = 12.sp)
+                    Text("Novo veiculo", color = Color(0xFF0F172A), fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    Text("Crie um perfil para acompanhar seus lembretes", color = Color(0xFF475569), fontSize = 12.sp)
                 }
             }
         }
@@ -499,24 +487,23 @@ private fun NovoSectionCard(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, contentDescription = null, tint = Color(0xFF94A3B8), modifier = Modifier.size(16.dp))
-            Spacer(Modifier.width(8.dp))
-            Text(title, color = Color(0xFFCBD5E1), fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
-        }
-        Card(
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
-            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f))
+    Card(
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        border = BorderStroke(1.dp, Color(0xFFE2E8F0))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-                content = content
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(icon, contentDescription = null, tint = Color(0xFF64748B), modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(title, color = Color(0xFF334155), fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+            }
+            content()
         }
     }
 }
@@ -564,14 +551,14 @@ private fun ColorRowNovo(
                         .background(cor)
                         .border(
                             width = if (selecionadaCor) 3.dp else 1.dp,
-                            color = if (selecionadaCor) Color.White else Color.White.copy(alpha = 0.2f),
+                            color = if (selecionadaCor) Color(0xFF0F172A) else Color(0xFFCBD5E1),
                             shape = CircleShape
                         )
                         .clickable { onSelect(cor.toArgb()) }
                 )
                 Text(
                     text = label,
-                    color = Color(0xFF94A3B8),
+                    color = Color(0xFF64748B),
                     fontSize = 10.sp,
                     maxLines = 1
                 )
