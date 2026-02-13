@@ -3,6 +3,7 @@
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -16,6 +17,7 @@ import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
@@ -23,13 +25,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import br.com.gui.carlembrete.VehicleIcon
 import androidx.compose.ui.unit.sp
+import androidx.core.view.WindowInsetsControllerCompat
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -43,15 +48,46 @@ fun CarroInfoScreen(
     isPremium: Boolean,
     onDismiss: () -> Unit
 ) {
-    // --- CORES ORIGINAIS ---
-    val primaryDark = Color(0xFF0F172A) // A cor sólida original
-    val cardColor = Color(0xFF1E293B)   // Surface original
-    val textLight = Color(0xFFF1F5F9)
-    val textDim = Color(0xFF94A3B8)
+    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val pageLight = if (isDark) Color(0xFF0F172A) else Color(0xFFF8FAFC)
+    val cardColor = if (isDark) Color(0xFF1E293B) else Color.White
+    val textLight = if (isDark) Color(0xFFF1F5F9) else Color(0xFF0F172A)
+    val textDim = if (isDark) Color(0xFF94A3B8) else Color(0xFF64748B)
     val accentColor = Color(0xFF38BDF8)
+    val cardBorder = if (isDark) Color(0xFF475569) else Color.Black.copy(alpha = 0.85f)
+    val dividerColor = if (isDark) Color.White.copy(alpha = 0.12f) else Color(0xFFE2E8F0)
+    val pdfAccent = if (isDark) Color.White else Color.Black
+    val pdfContainer = Color.Transparent
 
     val totalGastos = lembretes.sumOf { it.valor }
     val context = LocalContext.current
+    val view = LocalView.current
+
+    DisposableEffect(view, isDark) {
+        val activity = view.context as? android.app.Activity
+        val window = activity?.window
+        val insetsController = window?.let { WindowInsetsControllerCompat(it, it.decorView) }
+        val oldStatusColor = window?.statusBarColor
+        val oldNavColor = window?.navigationBarColor
+        val oldLightStatus = insetsController?.isAppearanceLightStatusBars
+        val oldLightNav = insetsController?.isAppearanceLightNavigationBars
+
+        if (window != null && insetsController != null) {
+            window.statusBarColor = pageLight.toArgb()
+            window.navigationBarColor = pageLight.toArgb()
+            insetsController.isAppearanceLightStatusBars = !isDark
+            insetsController.isAppearanceLightNavigationBars = !isDark
+        }
+
+        onDispose {
+            if (window != null && insetsController != null) {
+                if (oldStatusColor != null) window.statusBarColor = oldStatusColor
+                if (oldNavColor != null) window.navigationBarColor = oldNavColor
+                if (oldLightStatus != null) insetsController.isAppearanceLightStatusBars = oldLightStatus
+                if (oldLightNav != null) insetsController.isAppearanceLightNavigationBars = oldLightNav
+            }
+        }
+    }
 
     // Lógica de dados
     val proximo = lembretes.minByOrNull { dataParaOrdenacao(it) }?.let {
@@ -120,10 +156,9 @@ fun CarroInfoScreen(
         .sortedByDescending { it.count }
         .take(5)
 
-    // Voltei para o Scaffold com containerColor fixo
     Scaffold(
         modifier = Modifier.fillMaxSize(),
-        containerColor = primaryDark
+        containerColor = pageLight
     ) { innerPadding ->
         Column(
             modifier = Modifier
@@ -148,21 +183,19 @@ fun CarroInfoScreen(
                         Icon(
                             Icons.Default.ArrowBackIosNew,
                             contentDescription = "Voltar",
-                            tint = Color.White,
+                            tint = textLight,
                             modifier = Modifier.size(18.dp)
                         )
                     }
                     Spacer(Modifier.width(8.dp))
                     Text(
                         "Relatório Técnico",
-                        color = Color.White,
+                        color = textLight,
                         fontWeight = FontWeight.Bold,
                         fontSize = 16.sp
                     )
                 }
 
-                val pdfAccent = accentColor
-                val pdfContainer = accentColor.copy(alpha = 0.15f)
                 FilledTonalButton(
                     onClick = {
                         val uri = gerarPdfRelatorio(context, carro, lembretes, isPremium)
@@ -176,6 +209,7 @@ fun CarroInfoScreen(
                         containerColor = pdfContainer,
                         contentColor = pdfAccent
                     ),
+                    border = BorderStroke(1.dp, cardBorder),
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                     shape = RoundedCornerShape(12.dp)
                 ) {
@@ -195,12 +229,19 @@ fun CarroInfoScreen(
                     modifier = Modifier.size(90.dp)
                 ) {
                     val isBikeIcon = carro.tipoVeiculo == TipoVeiculo.BICICLETA
-                    VehicleIcon(
-                        tipoVeiculo = carro.tipoVeiculo,
-                        tint = if (isBikeIcon) Color.White else null,
-                        size = if (isBikeIcon) 88.dp else 360.dp,
-                        modifier = Modifier.fillMaxSize()
-                    )
+                    Box(
+                        modifier = Modifier
+                            .size(84.dp)
+                            .background(if (isDark) Color(carro.corArgb).copy(alpha = 0.72f) else Color(carro.corArgb), CircleShape)
+                            .border(1.dp, cardBorder, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        VehicleIcon(
+                            tipoVeiculo = carro.tipoVeiculo,
+                            tint = if (isBikeIcon) textLight else null,
+                            size = if (isBikeIcon) 72.dp else 78.dp
+                        )
+                    }
                 }
 
                 Spacer(Modifier.height(0.dp))
@@ -236,7 +277,8 @@ fun CarroInfoScreen(
                     valueColor = corSaude,
                     icon = Icons.Outlined.Info,
                     cardColor = cardColor,
-                    dimColor = textDim
+                    dimColor = textDim,
+                    borderColor = cardBorder
                 )
                 // Card 2: Gasto
                 DashboardCard(
@@ -246,7 +288,8 @@ fun CarroInfoScreen(
                     valueColor = textLight,
                     icon = Icons.Outlined.Description,
                     cardColor = cardColor,
-                    dimColor = textDim
+                    dimColor = textDim,
+                    borderColor = cardBorder
                 )
                 // Card 3: KM
                 DashboardCard(
@@ -256,7 +299,8 @@ fun CarroInfoScreen(
                     valueColor = accentColor,
                     icon = Icons.Default.Speed,
                     cardColor = cardColor,
-                    dimColor = textDim
+                    dimColor = textDim,
+                    borderColor = cardBorder
                 )
             }
 
@@ -269,13 +313,13 @@ fun CarroInfoScreen(
             ) {
 
                 // Seção Técnica
-                ContentSection(title = "Ficha Técnica", icon = Icons.Outlined.Build, cardColor = cardColor, titleColor = textLight) {
+                ContentSection(title = "Ficha Técnica", icon = Icons.Outlined.Build, cardColor = cardColor, titleColor = textLight, borderColor = cardBorder) {
                     InfoRowModern("Cor", corNome, textDim, textLight)
-                    Divider(color = Color.White.copy(alpha = 0.05f))
+                    Divider(color = dividerColor)
                     InfoRowModern("Código ID", codigoCurto(carro.id), textDim, textLight)
-                    Divider(color = Color.White.copy(alpha = 0.05f))
+                    Divider(color = dividerColor)
                     InfoRowModern("Próx. Serviço", proximo, textDim, if(proximo == "--") textDim else accentColor)
-                    Divider(color = Color.White.copy(alpha = 0.05f))
+                    Divider(color = dividerColor)
                     InfoRowModern("Proprietário", carro.proprietario.ifBlank { "--" }, textDim, textLight)
                 }
 
@@ -285,7 +329,8 @@ fun CarroInfoScreen(
                         title = "Situação Legal",
                         icon = Icons.Outlined.Description,
                         cardColor = cardColor,
-                        titleColor = textLight
+                        titleColor = textLight,
+                        borderColor = cardBorder
                     ) {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             documentos.forEach { (label, status, color) ->
@@ -303,7 +348,8 @@ fun CarroInfoScreen(
                     title = "Últimas Manutenções",
                     icon = Icons.Outlined.History,
                     cardColor = cardColor,
-                    titleColor = textLight
+                    titleColor = textLight,
+                    borderColor = cardBorder
                 ) {
                     if (historicoManutencoes.isEmpty()) {
                         Text("Nenhum registro encontrado.", color = textDim, fontSize = 12.sp, modifier = Modifier.padding(vertical = 8.dp))
@@ -328,14 +374,14 @@ fun CarroInfoScreen(
                                 )
                             }
                             if (index < historicoManutencoes.lastIndex) {
-                                Divider(color = Color.White.copy(alpha = 0.05f))
+                                Divider(color = dividerColor)
                             }
                         }
                     }
                 }
 
                 // Peças Trocadas
-                ContentSection(title = "Peças Recorrentes", icon = Icons.Default.Settings, cardColor = cardColor, titleColor = textLight) {
+                ContentSection(title = "Peças Recorrentes", icon = Icons.Default.Settings, cardColor = cardColor, titleColor = textLight, borderColor = cardBorder) {
                     if (trocasPorPeca.isEmpty()) {
                         Text("Sem dados de peças.", color = textDim, fontSize = 12.sp)
                     } else {
@@ -369,10 +415,13 @@ fun DashboardCard(
     valueColor: Color,
     icon: ImageVector,
     cardColor: Color,
-    dimColor: Color
+    dimColor: Color,
+    borderColor: Color
 ) {
     ElevatedCard(
-        modifier = modifier.height(100.dp),
+        modifier = modifier
+            .height(100.dp)
+            .border(1.dp, borderColor, RoundedCornerShape(16.dp)),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.elevatedCardColors(containerColor = cardColor),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
@@ -398,25 +447,27 @@ fun ContentSection(
     icon: ImageVector,
     cardColor: Color,
     titleColor: Color,
+    borderColor: Color,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, contentDescription = null, tint = titleColor.copy(alpha = 0.7f), modifier = Modifier.size(16.dp))
-            Spacer(Modifier.width(8.dp))
-            Text(title.uppercase(), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = titleColor.copy(alpha = 0.7f))
-        }
-        ElevatedCard(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.elevatedCardColors(containerColor = cardColor),
-            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp) // Flat look para ficar clean no sólido
+    ElevatedCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, borderColor, RoundedCornerShape(16.dp)),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.elevatedCardColors(containerColor = cardColor),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-                content = content
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(icon, contentDescription = null, tint = titleColor.copy(alpha = 0.82f), modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(title.uppercase(), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = titleColor.copy(alpha = 0.82f))
+            }
+            content()
         }
     }
 }

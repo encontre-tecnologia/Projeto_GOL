@@ -55,6 +55,7 @@ import br.com.gui.carlembrete.TipoManutencao
 import br.com.gui.carlembrete.abrirWhatsApp
 import br.com.gui.carlembrete.dataParaOrdenacao
 import java.text.NumberFormat
+import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
@@ -459,10 +460,17 @@ fun LembreteCardLocal(
                                 val dataFormatada = try {
                                     dataParaOrdenacao(lembrete).format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))
                                 } catch (e: Exception) { lembrete.dataLimite.ifBlank { "--/--/----" } }
+                                val saudacao = when (LocalTime.now().hour) {
+                                    in 5..11 -> "Bom dia"
+                                    in 12..17 -> "Boa tarde"
+                                    else -> "Boa noite"
+                                }
+                                val servico = lembrete.titulo.ifBlank { "serviço" }
+                                val itemTrocado = lembrete.peca.ifBlank { lembrete.titulo }.ifBlank { "item do serviço" }
                                 abrirWhatsApp(
                                     context,
                                     contato.telefone,
-                                    "Olá ${contato.nome}, tudo bem? Estou entrando em contato sobre o serviço *${lembrete.titulo}* do veículo ${lembrete.carroId}. A data prevista é *$dataFormatada* e o valor estimado é *${valorFormatado}*. Podemos agendar?"
+                                    "$saudacao, ${contato.nome}! Tudo bem?\n\nFiz a *$servico* com você, do item *$itemTrocado*, no dia *$dataFormatada*.\nGostaria de perguntar se o valor ainda é *$valorFormatado* e quando você teria uma data para realizar esse serviço novamente."
                                 )
                             }
                     ) {

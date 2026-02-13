@@ -1,4 +1,4 @@
-﻿package br.com.gui.carlembrete
+package br.com.gui.carlembrete
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -654,7 +654,7 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Anjo da Guarda")
             .setContentText(text)
-            .setSmallIcon(android.R.drawable.ic_lock_lock)
+            .setSmallIcon(R.drawable.logonotificacao)
             .setOngoing(true)
             .build()
     }
@@ -664,11 +664,18 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Anjo da Guarda")
             .setContentText(text)
-            .setSmallIcon(android.R.drawable.ic_dialog_alert)
+            .setSmallIcon(R.drawable.logonotificacao)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .build()
         manager.notify(NOTIF_ID + 1, notification)
+        NotificacaoHelper.registrarNotificacaoDisparada(
+            context = this,
+            id = "GUARDIAN_${NOTIF_ID + 1}_${System.currentTimeMillis()}",
+            titulo = "Anjo da Guarda",
+            descricao = text,
+            carroId = null
+        )
     }
 
     private fun createChannel() {

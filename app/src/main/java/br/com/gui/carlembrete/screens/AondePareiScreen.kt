@@ -59,6 +59,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -170,7 +171,14 @@ fun AondePareiScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Onde Parei", fontWeight = FontWeight.Bold) },
+                title = {
+                    Text(
+                        text = "Onde parei",
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onDismiss) {
                         Icon(Icons.Default.ArrowBackIosNew, "Voltar")
@@ -265,7 +273,13 @@ fun AondePareiScreen(
                             ) {
                                 Icon(Icons.Rounded.Navigation, null)
                                 Spacer(Modifier.width(8.dp))
-                                Text("Ir até o carro (Maps)", fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                                Text(
+                                    text = "Abrir rota no Maps",
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 16.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
                             }
                         }
                     }
@@ -298,6 +312,8 @@ fun AondePareiScreen(
                                 text = selectedVehicleName.ifBlank { "Selecionar veículo" },
                                 style = MaterialTheme.typography.bodyLarge,
                                 fontWeight = FontWeight.Medium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f)
                             )
                             Icon(Icons.Default.ArrowDropDown, null, tint = secondaryColor)
@@ -397,7 +413,7 @@ fun AondePareiScreen(
                     }
 
                     Text(
-                        "Ao voltar para o carro, não esqueça de clicar em \"Encontrei meu carro\" aqui no app para registrar o tempo corretamente.",
+                        "Quando voltar ao carro, toque em \"Encontrei meu carro\" para registrar o tempo corretamente.",
                         textAlign = TextAlign.Start, // TEXTO ALINHADO A ESQUERDA
                         color = MaterialTheme.colorScheme.onSurface,
                         style = MaterialTheme.typography.bodyMedium
@@ -420,7 +436,9 @@ fun AondePareiScreen(
                         Text(
                             "Não exibir esse aviso novamente",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = secondaryColor
+                            color = secondaryColor,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
 
@@ -496,7 +514,7 @@ fun AondePareiScreen(
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     Text(
-                        "Selecionar Veículo",
+                        "Selecionar veículo",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface
@@ -691,13 +709,13 @@ fun StatusHeader(isParked: Boolean, location: ParkedLocation?, primaryColor: Col
                     if (isParked && location != null) {
                         val sdf = SimpleDateFormat("HH:mm", Locale("pt", "BR"))
                         Text(
-                            "Desde às ${sdf.format(Date(location.timeMillis))}",
+                            "Desde as ${sdf.format(Date(location.timeMillis))}",
                             color = Color.White.copy(alpha = 0.9f),
                             fontSize = 14.sp
                         )
                     } else {
                         Text(
-                            "Toque para marcar local",
+                            "Toque para marcar o local",
                             color = Color.White.copy(alpha = 0.8f),
                             fontSize = 14.sp
                         )
@@ -719,7 +737,13 @@ fun BigActionButton(text: String, icon: ImageVector, color: Color, onClick: () -
     ) {
         Icon(icon, null, modifier = Modifier.size(24.dp))
         Spacer(Modifier.width(12.dp))
-        Text(text, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        Text(
+            text = text,
+            fontSize = 17.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 
@@ -781,7 +805,7 @@ private fun showParkingOngoingNotification(context: Context, location: ParkedLoc
 
     val sinceText = SimpleDateFormat("dd/MM HH:mm", Locale("pt", "BR")).format(Date(location.timeMillis))
     val notification = NotificationCompat.Builder(context, PARKING_NOTIFICATION_CHANNEL_ID)
-        .setSmallIcon(android.R.drawable.ic_dialog_map)
+        .setSmallIcon(R.drawable.logonotificacao)
         .setContentTitle("Estacionamento em andamento")
         .setContentText("Toque quando encontrar o carro. Desde: $sinceText")
         .setStyle(
@@ -797,6 +821,13 @@ private fun showParkingOngoingNotification(context: Context, location: ParkedLoc
         .build()
 
     manager.notify(PARKING_NOTIFICATION_ID, notification)
+    NotificacaoHelper.registrarNotificacaoDisparada(
+        context = context,
+        id = "PARKING_$PARKING_NOTIFICATION_ID",
+        titulo = "Estacionamento em andamento",
+        descricao = "Local marcado com sucesso. A notificacao permanece ate voce finalizar no app.",
+        carroId = null
+    )
 }
 
 private fun cancelParkingOngoingNotification(context: Context) {
@@ -936,3 +967,4 @@ private fun toPortraitBitmapForPdf(bitmap: Bitmap): Bitmap {
     val matrix = Matrix().apply { postRotate(90f) }
     return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
 }
+

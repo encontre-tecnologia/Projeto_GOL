@@ -7,7 +7,6 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -18,18 +17,17 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBackIosNew
 import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.rounded.Build
 import androidx.compose.material.icons.rounded.DirectionsCar
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Person
-import androidx.compose.material.icons.rounded.Motorcycle
 import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -39,13 +37,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import br.com.gui.carlembrete.VehicleIcon
 import androidx.compose.ui.unit.sp
@@ -57,21 +55,42 @@ import java.util.Locale
 fun EditarCarroScreen(
     carroAtual: CarroInfo,
     onDismiss: () -> Unit,
-    onSalvar: (CarroInfo) -> Unit
+    onSalvar: (CarroInfo) -> Unit,
+    onExcluir: () -> Unit
 ) {
     val context = LocalContext.current
+    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val primaryDark = Color(0xFF121B30)
     val accentBlue = Color(0xFF3B82F6)
+    val screenBackground = if (isDark) Brush.verticalGradient(listOf(Color(0xFF16233A), primaryDark, Color(0xFF0F172A))) else Brush.verticalGradient(listOf(Color(0xFFF4F7FB), Color(0xFFEFF3FA)))
+    val sectionBorder = if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.10f)
+    val titleColor = if (isDark) Color.White else Color(0xFF0F172A)
+    val textSecondary = if (isDark) Color(0xFFCBD5E1) else Color(0xFF334155)
+    val actionOutline = if (isDark) Color.White else Color.Black
+    val textFieldColors = OutlinedTextFieldDefaults.colors(
+        focusedTextColor = titleColor,
+        unfocusedTextColor = titleColor,
+        focusedLabelColor = textSecondary,
+        unfocusedLabelColor = textSecondary,
+        focusedBorderColor = accentBlue,
+        unfocusedBorderColor = sectionBorder,
+        cursorColor = titleColor,
+        focusedLeadingIconColor = textSecondary,
+        unfocusedLeadingIconColor = textSecondary,
+        focusedTrailingIconColor = textSecondary,
+        unfocusedTrailingIconColor = textSecondary
+    )
 
     var nome by remember { mutableStateOf(carroAtual.nome) }
     var marca by remember { mutableStateOf(carroAtual.marca) }
     var modelo by remember { mutableStateOf(carroAtual.modelo) }
     var proprietario by remember { mutableStateOf(carroAtual.proprietario) }
     var kmAtualStr by remember { mutableStateOf(if (carroAtual.kmAtual > 0) formatarKmLocal(carroAtual.kmAtual) else "") }
-    var tipoSelecionado by remember { mutableStateOf(carroAtual.tipoVeiculo) }
-    var tipoSelecionadoConfirmado by remember { mutableStateOf(true) }
+    val tipoSelecionado = carroAtual.tipoVeiculo
     var corSelecionada by remember { mutableStateOf(carroAtual.corArgb) }
     var alvoVoz by remember { mutableStateOf("nome") }
+    val contentScrollState = rememberScrollState()
+    val showTopBar by remember { derivedStateOf { contentScrollState.value <= 8 } }
 
     val speechLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
@@ -117,41 +136,39 @@ fun EditarCarroScreen(
     Scaffold(
         containerColor = Color.Transparent,
         topBar = {
-            TopAppBar(
-                title = { Text("Editar veiculo", color = Color.White, fontWeight = FontWeight.Bold) },
-                navigationIcon = {
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar", tint = Color.White)
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
-            )
+            if (showTopBar) {
+                TopAppBar(
+                    title = { Text("Editar veiculo", color = titleColor, fontWeight = FontWeight.Bold) },
+                    navigationIcon = {
+                        IconButton(onClick = onDismiss) {
+                            Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar", tint = titleColor)
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
+                )
+            }
         }
     ) { innerPadding ->
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        listOf(Color(0xFF16233A), primaryDark, Color(0xFF0F172A))
-                    )
-                )
+                .background(screenBackground)
                 .padding(innerPadding)
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
+                    .verticalScroll(contentScrollState)
                     .padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 EditHeroCard(
                     nome = if (nome.isNotBlank()) nome else carroAtual.nome,
                     modelo = if (modelo.isNotBlank()) modelo else carroAtual.modelo,
-                    marca = marca.ifBlank { carroAtual.marca },
                     tipoVeiculo = tipoSelecionado,
                     cor = corSelecionada,
-                    accent = accentBlue
+                    accent = accentBlue,
+                    isDark = isDark
                 )
 
                 EditSectionCard(title = "Dados do veiculo", icon = Icons.Rounded.DirectionsCar) {
@@ -165,10 +182,7 @@ fun EditarCarroScreen(
                                 Icon(Icons.Default.Mic, contentDescription = "Falar nome do veiculo")
                             }
                         },
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White
-                        ),
+                        colors = textFieldColors,
                         modifier = Modifier.fillMaxWidth()
                     )
 
@@ -183,212 +197,10 @@ fun EditarCarroScreen(
                                 Icon(Icons.Default.Mic, contentDescription = "Falar motor")
                             }
                         },
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White
-                        ),
+                        colors = textFieldColors,
                         modifier = Modifier.fillMaxWidth()
                     )
 
-                    Text("Tipo de veiculo", color = Color(0xFFCBD5E1), fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
-                    TipoVeiculoSelector(
-                        selecionado = tipoSelecionado,
-                        onSelect = {
-                            tipoSelecionado = it
-                            tipoSelecionadoConfirmado = true
-                        }
-                    )
-
-                    val marcasBicicletaLocal = listOf(
-                        "Caloi",
-                        "Monark",
-                        "Houston",
-                        "Oggi",
-                        "Sense",
-                        "Audax",
-                        "Soul Cycles",
-                        "Cannondale",
-                        "Specialized",
-                        "Trek"
-                    )
-                    val marcasCaminhaoLocal = listOf(
-                        "Mercedes-Benz",
-                        "Volkswagen",
-                        "Scania",
-                        "Volvo",
-                        "IVECO",
-                        "DAF",
-                        "Ford",
-                        "MAN"
-                    )
-                    val marcasMotoLocal = listOf(
-                        "Honda",
-                        "Yamaha",
-                        "Suzuki",
-                        "Kawasaki",
-                        "BMW",
-                        "Harley-Davidson",
-                        "Ducati",
-                        "Royal Enfield",
-                        "Triumph",
-                        "Shineray"
-                    )
-                    val marcasCaminhoneteLocal = listOf(
-                        "Toyota",
-                        "Chevrolet",
-                        "Ford",
-                        "Volkswagen",
-                        "Fiat",
-                        "Nissan",
-                        "Mitsubishi",
-                        "Ram",
-                        "Renault",
-                        "Jeep",
-                        "Honda",
-                        "Hyundai"
-                    )
-                    val marcasTratorLocal = listOf(
-                        "John Deere",
-                        "Massey Ferguson",
-                        "Valtra",
-                        "New Holland",
-                        "Case IH",
-                        "Ford",
-                        "Kubota",
-                        "Fendt",
-                        "Mahindra",
-                        "Agrale"
-                    )
-                    val marcasDisponiveis = when (tipoSelecionado) {
-                        TipoVeiculo.BICICLETA -> marcasBicicletaLocal
-                        TipoVeiculo.CAMINHONETE -> marcasCaminhoneteLocal
-                        TipoVeiculo.CAMINHAO -> marcasCaminhaoLocal
-                        TipoVeiculo.MOTO -> marcasMotoLocal
-                        TipoVeiculo.TRATOR -> marcasTratorLocal
-                        else -> marcasSuportadas
-                    }.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
-                    LaunchedEffect(tipoSelecionado) {
-                        if (marca.isNotBlank() && !marcasDisponiveis.contains(marca)) {
-                            marca = ""
-                        }
-                    }
-
-                    var marcaExpanded by remember { mutableStateOf(false) }
-                    val marcaLogo = logoResForMarca(marca, tipoSelecionado)
-                    ExposedDropdownMenuBox(
-                        expanded = marcaExpanded,
-                        onExpandedChange = {
-                            if (tipoSelecionadoConfirmado) {
-                                marcaExpanded = !marcaExpanded
-                            } else {
-                                Toast.makeText(context, "Selecione o tipo de veiculo primeiro", Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                    ) {
-                        OutlinedTextField(
-                            value = marca,
-                            onValueChange = {},
-                            readOnly = true,
-                            label = { Text("Marca") },
-                            placeholder = { Text("Selecione a marca") },
-                            modifier = Modifier
-                                .menuAnchor()
-                                .fillMaxWidth(),
-                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = marcaExpanded) },
-                            enabled = tipoSelecionadoConfirmado,
-                            leadingIcon = run {
-                                val tipoLocal = tipoSelecionado
-                                when {
-                                    marcaLogo != null -> {
-                                        {
-                                            Image(
-                                                painter = painterResource(marcaLogo),
-                                                contentDescription = marca,
-                                                modifier = Modifier.size(24.dp),
-                                                colorFilter = ColorFilter.tint(Color.White)
-                                            )
-                                        }
-                                    }
-                                    tipoLocal != null -> {
-                                        {
-                                            VehicleIcon(
-                                                tipoVeiculo = tipoLocal,
-                                                tint = Color.White,
-                                                size = 24.dp
-                                            )
-                                        }
-                                    }
-                                    else -> null
-                                }
-                            },
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedTextColor = Color.White,
-                                unfocusedTextColor = Color.White
-                            )
-                        )
-                        ExposedDropdownMenu(expanded = marcaExpanded, onDismissRequest = { marcaExpanded = false }) {
-                            marcasDisponiveis.forEach { marcaNome ->
-                                val res = logoResForMarca(marcaNome, tipoSelecionado)
-                                DropdownMenuItem(
-                                    text = {
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(vertical = 4.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            if (res != null || tipoSelecionado != null) {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .size(28.dp)
-                                                        .clip(CircleShape)
-                                                        .background(Color.White.copy(alpha = 0.08f))
-                                                        .border(1.dp, Color.White.copy(alpha = 0.18f), CircleShape),
-                                                    contentAlignment = Alignment.Center
-                                                ) {
-                                                    if (res != null) {
-                                                        Image(
-                                                            painter = painterResource(res),
-                                                            contentDescription = marcaNome,
-                                                            modifier = Modifier.size(16.dp),
-                                                            colorFilter = ColorFilter.tint(Color.White)
-                                                        )
-                                                    } else {
-                                                        val tipoLocal = tipoSelecionado
-                                                        if (tipoLocal != null) {
-                                                            VehicleIcon(
-                                                                tipoVeiculo = tipoLocal,
-                                                                tint = Color.White,
-                                                                size = 16.dp
-                                                            )
-                                                        } else {
-                                                            Icon(
-                                                                imageVector = Icons.Rounded.DirectionsCar,
-                                                                contentDescription = null,
-                                                                tint = Color.White,
-                                                                modifier = Modifier.size(16.dp)
-                                                            )
-                                                        }
-                                                    }
-                                                }
-                                                Spacer(Modifier.width(10.dp))
-                                            }
-                                            Text(
-                                                marcaNome,
-                                                fontSize = 13.sp,
-                                                fontWeight = FontWeight.SemiBold,
-                                                color = Color.White
-                                            )
-                                        }
-                                    },
-                                    onClick = {
-                                        marca = marcaNome
-                                        marcaExpanded = false
-                                    }
-                                )
-                            }
-                        }
-                    }
                 }
 
                 EditSectionCard(title = "Proprietario e uso", icon = Icons.Rounded.Person) {
@@ -397,10 +209,7 @@ fun EditarCarroScreen(
                         onValueChange = { proprietario = it },
                         label = { Text("Proprietario") },
                         singleLine = true,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White
-                        ),
+                        colors = textFieldColors,
                         modifier = Modifier.fillMaxWidth()
                     )
 
@@ -410,10 +219,7 @@ fun EditarCarroScreen(
                         label = { Text("KM Atual (Painel)") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         singleLine = true,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White
-                        ),
+                        colors = textFieldColors,
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
@@ -445,13 +251,24 @@ fun EditarCarroScreen(
                     colors = ButtonDefaults.buttonColors(containerColor = accentBlue),
                     shape = RoundedCornerShape(14.dp)
                 ) {
-                    Icon(Icons.Rounded.Build, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
                     Text("Salvar alteracoes", color = Color.White, fontWeight = FontWeight.Bold)
                 }
 
-                TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
-                    Text("Cancelar", color = Color(0xFF94A3B8))
+                OutlinedButton(
+                    onClick = onExcluir,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(54.dp),
+                    border = BorderStroke(1.dp, actionOutline),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = actionOutline)
+                ) {
+                    Text(
+                        text = "Excluir veiculo",
+                        color = actionOutline,
+                        fontWeight = FontWeight.SemiBold,
+                        textAlign = TextAlign.Center
+                    )
                 }
             }
         }
@@ -462,56 +279,49 @@ fun EditarCarroScreen(
 private fun EditHeroCard(
     nome: String,
     modelo: String,
-    marca: String,
     tipoVeiculo: TipoVeiculo,
     cor: Int,
-    accent: Color
+    accent: Color,
+    isDark: Boolean
 ) {
     val baseColor = Color(cor)
-    val gradient = Brush.linearGradient(
-        colors = listOf(baseColor.copy(alpha = 0.6f), Color(0xFF0F172A))
-    )
+    val cardBase = if (isDark) Color(0xFF0B1224) else Color.White
+    val borderColor = if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.10f)
+    val iconCircleBg = if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.05f)
+    val iconCircleBorder = if (isDark) Color.White.copy(alpha = 0.20f) else Color.Black.copy(alpha = 0.14f)
+    val textPrimary = if (isDark) Color.White else Color(0xFF0F172A)
+    val textSecondary = if (isDark) Color.White.copy(alpha = 0.8f) else Color(0xFF334155)
+    val cardFill = if (isDark) baseColor.copy(alpha = 0.34f) else baseColor.copy(alpha = 0.20f)
     Card(
         shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF0B1224)),
-        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f))
+        colors = CardDefaults.cardColors(containerColor = cardBase),
+        border = BorderStroke(1.dp, borderColor)
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(gradient)
+                .background(cardFill)
                 .padding(16.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                val logoRes = logoResForMarca(marca, tipoVeiculo)
                 Box(
                     modifier = Modifier
                         .size(54.dp)
                         .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.08f))
-                        .border(1.dp, Color.White.copy(alpha = 0.2f), CircleShape),
+                        .background(iconCircleBg)
+                        .border(1.dp, iconCircleBorder, CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
-                    if (logoRes != null) {
-                        Image(
-                            painter = painterResource(logoRes),
-                            contentDescription = marca,
-                            modifier = Modifier.size(32.dp),
-                            colorFilter = ColorFilter.tint(Color.White)
-                        )
-                    } else {
-                        Icon(Icons.Rounded.DirectionsCar, contentDescription = null, tint = Color.White, modifier = Modifier.size(28.dp))
-                    }
+                    VehicleIcon(tipoVeiculo = tipoVeiculo, tint = textPrimary, size = 40.dp)
                 }
                 Spacer(Modifier.width(12.dp))
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(marca.ifBlank { "Marca" }, color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
-                    Text(nome.ifBlank { "Veiculo" }, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                    Text(nome.ifBlank { "Veiculo" }, color = textPrimary, fontSize = 20.sp, fontWeight = FontWeight.Bold)
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Rounded.Speed, null, tint = accent, modifier = Modifier.size(14.dp))
                         Spacer(Modifier.width(6.dp))
                         val modeloFallback = if (tipoVeiculo == TipoVeiculo.BICICLETA) "Aro" else "Motor"
-                        Text(modelo.ifBlank { modeloFallback }, color = Color.White.copy(alpha = 0.8f), fontSize = 12.sp)
+                        Text(modelo.ifBlank { modeloFallback }, color = textSecondary, fontSize = 12.sp)
                     }
                 }
             }
@@ -525,24 +335,29 @@ private fun EditSectionCard(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, contentDescription = null, tint = Color(0xFF94A3B8), modifier = Modifier.size(16.dp))
-            Spacer(Modifier.width(8.dp))
-            Text(title, color = Color(0xFFCBD5E1), fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
-        }
-        Card(
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
-            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f))
+    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val cardSurface = if (isDark) Color(0xFF0F172A) else Color.White
+    val borderColor = if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.10f)
+    val titleColor = if (isDark) Color(0xFFCBD5E1) else Color(0xFF334155)
+    val iconColor = if (isDark) Color(0xFF94A3B8) else Color(0xFF475569)
+
+    Card(
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = cardSurface),
+        border = BorderStroke(1.dp, borderColor)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-                content = content
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(icon, contentDescription = null, tint = iconColor, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(title, color = titleColor, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+            }
+            content()
         }
     }
 }
@@ -552,6 +367,9 @@ private fun ColorRow(
     selecionada: Int,
     onSelect: (Int) -> Unit
 ) {
+    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val labelColor = if (isDark) Color(0xFF94A3B8) else Color(0xFF475569)
+    val selectedAccent = Color(0xFF2563EB)
     val cores = listOf(
         "Branco" to Color(0xFFFFFFFF),
         "Preto" to Color(0xFF0F172A),
@@ -579,25 +397,33 @@ private fun ColorRow(
     ) {
         cores.forEach { (label, cor) ->
             val selecionadaCor = selecionada == cor.toArgb()
+            val corContraste = if (cor.luminance() > 0.62f) Color.Black else Color.White
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 Box(
                     modifier = Modifier
-                        .size(36.dp)
+                        .size(38.dp)
+                        .clip(CircleShape)
+                        .border(
+                            width = if (selecionadaCor) 3.dp else 1.5.dp,
+                            color = if (selecionadaCor) selectedAccent else corContraste.copy(alpha = 0.95f),
+                            shape = CircleShape
+                        )
+                        .padding(if (selecionadaCor) 2.dp else 1.dp)
                         .clip(CircleShape)
                         .background(cor)
                         .border(
-                            width = if (selecionadaCor) 3.dp else 1.dp,
-                            color = if (selecionadaCor) Color.White else Color.White.copy(alpha = 0.2f),
+                            width = 1.dp,
+                            color = corContraste.copy(alpha = if (selecionadaCor) 0.9f else 0.55f),
                             shape = CircleShape
                         )
                         .clickable { onSelect(cor.toArgb()) }
                 )
                 Text(
                     text = label,
-                    color = Color(0xFF94A3B8),
+                    color = labelColor,
                     fontSize = 10.sp,
                     maxLines = 1
                 )

@@ -35,7 +35,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -121,6 +120,13 @@ fun AuthScreen(onSignedIn: () -> Unit) {
         }
         auth.createUserWithEmailAndPassword(email, senha).addOnCompleteListener { task ->
             if (task.isSuccessful) {
+                auth.currentUser?.sendEmailVerification()?.addOnCompleteListener { emailTask ->
+                    if (emailTask.isSuccessful) {
+                        Toast.makeText(context, "Conta criada! Enviamos um e-mail de confirmação.", Toast.LENGTH_LONG).show()
+                    } else {
+                        Toast.makeText(context, "Conta criada, mas não foi possível enviar o e-mail.", Toast.LENGTH_LONG).show()
+                    }
+                }
                 onSignedIn()
             } else {
                 Toast.makeText(context, "Falha ao criar conta", Toast.LENGTH_SHORT).show()
@@ -131,7 +137,7 @@ fun AuthScreen(onSignedIn: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF0F2A4A))
+            .background(Color(0xFFF8FAFC))
             .padding(24.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
@@ -141,7 +147,7 @@ fun AuthScreen(onSignedIn: () -> Unit) {
                 .fillMaxWidth()
                 .shadow(12.dp, RoundedCornerShape(24.dp)),
             shape = RoundedCornerShape(24.dp),
-            color = Color(0xFF111827)
+            color = Color.White
         ) {
             Column(
                 modifier = Modifier
@@ -153,11 +159,11 @@ fun AuthScreen(onSignedIn: () -> Unit) {
                 Text(
                     text = if (modoCadastro) "Criar conta" else "Entrar",
                     style = MaterialTheme.typography.headlineSmall,
-                    color = Color.White
+                    color = Color(0xFF0F172A)
                 )
                 Text(
                     text = "Use email e senha ou continue com Google",
-                    color = Color(0xFF94A3B8),
+                    color = Color(0xFF64748B),
                     style = MaterialTheme.typography.bodySmall
                 )
                 Spacer(Modifier.height(8.dp))
@@ -169,13 +175,13 @@ fun AuthScreen(onSignedIn: () -> Unit) {
                     singleLine = true,
                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Email),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White,
-                        focusedBorderColor = Color(0xFF334155),
-                        unfocusedBorderColor = Color(0xFF1E293B),
-                        focusedContainerColor = Color(0xFF111C2E),
-                        unfocusedContainerColor = Color(0xFF111C2E),
-                        cursorColor = Color.White
+                        focusedTextColor = Color(0xFF0F172A),
+                        unfocusedTextColor = Color(0xFF0F172A),
+                        focusedBorderColor = Color(0xFF94A3B8),
+                        unfocusedBorderColor = Color(0xFFCBD5E1),
+                        focusedContainerColor = Color.White,
+                        unfocusedContainerColor = Color.White,
+                        cursorColor = Color(0xFF0F172A)
                     )
                 )
                 if (modoRecuperacao) {
@@ -203,12 +209,12 @@ fun AuthScreen(onSignedIn: () -> Unit) {
                     }
                     Text(
                         text = "Não recebeu? Verifique a caixa de spam e a lixeira.",
-                        color = Color(0xFF94A3B8),
+                        color = Color(0xFF64748B),
                         style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier.align(Alignment.Start)
                     )
                     TextButton(onClick = { modoRecuperacao = false }) {
-                        Text("Voltar ao login", color = Color(0xFF94A3B8))
+                        Text("Voltar ao login", color = Color(0xFF64748B))
                     }
                 } else {
                     OutlinedTextField(
@@ -224,25 +230,25 @@ fun AuthScreen(onSignedIn: () -> Unit) {
                                 Icon(
                                     imageVector = if (senhaVisivel) Icons.Default.VisibilityOff else Icons.Default.Visibility,
                                     contentDescription = if (senhaVisivel) "Ocultar senha" else "Mostrar senha",
-                                    tint = Color(0xFF94A3B8)
+                                    tint = Color(0xFF64748B)
                                 )
                             }
                         },
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White,
-                            focusedBorderColor = Color(0xFF334155),
-                            unfocusedBorderColor = Color(0xFF1E293B),
-                            focusedContainerColor = Color(0xFF111C2E),
-                            unfocusedContainerColor = Color(0xFF111C2E),
-                            cursorColor = Color.White
+                            focusedTextColor = Color(0xFF0F172A),
+                            unfocusedTextColor = Color(0xFF0F172A),
+                            focusedBorderColor = Color(0xFF94A3B8),
+                            unfocusedBorderColor = Color(0xFFCBD5E1),
+                            focusedContainerColor = Color.White,
+                            unfocusedContainerColor = Color.White,
+                            cursorColor = Color(0xFF0F172A)
                         )
                     )
                     TextButton(
                         onClick = { modoRecuperacao = true },
                         modifier = Modifier.align(Alignment.End)
                     ) {
-                        Text("Esqueci a senha", color = Color(0xFF94A3B8))
+                        Text("Esqueci a senha", color = Color(0xFF64748B))
                     }
                     Button(
                         onClick = { if (modoCadastro) criarContaEmailSenha() else entrarEmailSenha() },
@@ -265,16 +271,16 @@ fun AuthScreen(onSignedIn: () -> Unit) {
                     ) {
                         Text(
                             if (modoCadastro) "Já tenho conta" else "Quero criar conta",
-                            color = Color(0xFF94A3B8)
+                            color = Color(0xFF64748B)
                         )
                     }
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Divider(color = Color(0xFF1E293B), modifier = Modifier.weight(1f))
+                        Divider(color = Color(0xFFE2E8F0), modifier = Modifier.weight(1f))
                         Text("ou", color = Color(0xFF64748B), modifier = Modifier.padding(horizontal = 12.dp))
-                        Divider(color = Color(0xFF1E293B), modifier = Modifier.weight(1f))
+                        Divider(color = Color(0xFFE2E8F0), modifier = Modifier.weight(1f))
                     }
                     OutlinedButton(
                         onClick = { googleLauncher.launch(googleSignInClient.signInIntent) },
@@ -282,7 +288,7 @@ fun AuthScreen(onSignedIn: () -> Unit) {
                             .fillMaxWidth()
                             .height(56.dp),
                         shape = RoundedCornerShape(14.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF0F172A)),
                         border = ButtonDefaults.outlinedButtonBorder.copy(width = 1.dp)
                     ) {
                         Image(

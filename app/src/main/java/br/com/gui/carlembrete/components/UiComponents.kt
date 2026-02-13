@@ -230,31 +230,12 @@ fun TipoIcon(
     size: Dp,
     textSize: TextUnit = 12.sp
 ) {
-    if (tipo == TipoManutencao.FREIO) {
-        val finalSize = (size.value * 0.5f).sp
-        Box(
-            modifier = Modifier.size(size),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = "ABS",
-                color = tint,
-                fontWeight = FontWeight.Black,
-                fontSize = finalSize,
-                letterSpacing = (-0.6).sp,
-                maxLines = 1,
-                softWrap = false,
-                modifier = Modifier.scale(0.95f)
-            )
-        }
-    } else {
-        Icon(
-            imageVector = tipo.getIcon(),
-            contentDescription = tipo.label,
-            tint = tint,
-            modifier = Modifier.size(size)
-        )
-    }
+    Icon(
+        imageVector = tipo.getIcon(),
+        contentDescription = tipo.label,
+        tint = tint,
+        modifier = Modifier.size(size)
+    )
 }
 
 
