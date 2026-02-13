@@ -4,7 +4,6 @@ import android.app.Activity
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,7 +20,6 @@ import androidx.compose.material.icons.filled.ArrowForwardIos
 import androidx.compose.material.icons.filled.Diamond
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Payments
-import androidx.compose.material.icons.filled.RequestQuote
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -53,18 +51,16 @@ fun PremiumHubScreen(
     onOpenGuardian: () -> Unit,
     onOpenFinance: () -> Unit,
     onOpenAiAssistant: () -> Unit,
-    onOpenBudgetAuditor: () -> Unit,
     onOpenSubscribe: () -> Unit
 ) {
     val view = LocalView.current
-    val isDark = isSystemInDarkTheme()
-    val textPrimary = if (isDark) Color(0xFFFFF4D6) else Color(0xFF3A2500)
-    val textDim = if (isDark) Color(0xFFE7D7AF) else Color(0xFF7A5A1F)
+    val textPrimary = Color(0xFF3A2500)
+    val textDim = Color(0xFF7A5A1F)
     val accentGold = Color(0xFFD4A017)
-    val borderColor = if (isDark) Color(0xFF7C5A14) else Color(0xFFE9C46A)
-    val screenBg = if (isDark) Color(0xFF151515) else Color(0xFFFFFBEB)
-    val cardSurface = if (isDark) Color(0xFF1B1B1B) else Color.White
-    val featureCardSurface = if (isDark) Color(0xFF221A0D) else Color(0xFFFFFEF8)
+    val borderColor = Color(0xFFE9C46A)
+    val cardSurface = Color.White
+    val screenBg = cardSurface
+    val featureCardSurface = Color(0xFFFFFEF8)
 
     DisposableEffect(view) {
         val activity = view.context as? Activity
@@ -74,9 +70,8 @@ fun PremiumHubScreen(
         val oldLightStatus = insetsController?.isAppearanceLightStatusBars
 
         if (window != null && insetsController != null) {
-            // Igual ao comportamento da tela de carregamento: ícones brancos na barra superior.
-            window.statusBarColor = Color(0xFF0F172A).toArgb()
-            insetsController.isAppearanceLightStatusBars = false
+            window.statusBarColor = screenBg.toArgb()
+            insetsController.isAppearanceLightStatusBars = true
         }
 
         onDispose {
@@ -154,7 +149,7 @@ fun PremiumHubScreen(
                 }
 
                 PremiumFeatureCard(
-                    title = "Gestor Financeiro",
+                    title = "Gestor de Frota",
                     subtitle = "Visao de gastos e relatorios",
                     iconColor = Color(0xFF7C3AED),
                     textPrimary = textPrimary,
@@ -179,18 +174,6 @@ fun PremiumHubScreen(
                     Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = Color(0xFFEA580C))
                 }
 
-                PremiumFeatureCard(
-                    title = "Auditor de Orcamentos",
-                    subtitle = "Compare valores e valide propostas",
-                    iconColor = Color(0xFF0EA5E9),
-                    textPrimary = textPrimary,
-                    textDim = textDim,
-                    borderColor = borderColor,
-                    cardSurface = featureCardSurface,
-                    onClick = onOpenBudgetAuditor
-                ) {
-                    Icon(Icons.Default.RequestQuote, contentDescription = null, tint = Color(0xFF0EA5E9))
-                }
             }
         }
     }

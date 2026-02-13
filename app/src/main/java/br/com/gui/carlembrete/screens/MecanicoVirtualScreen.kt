@@ -5,6 +5,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -58,11 +59,19 @@ fun MecanicoVirtualScreen(
     onPremiumRequired: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    // Paleta de Cores Modernizada
-    val primaryDark = Color(0xFF0F172A)     // Fundo principal
-    val surfaceDark = Color(0xFF1E293B)     // Cards
-    val textLight = Color(0xFFF1F5F9)       // Texto principal
-    val textDim = Color(0xFF94A3B8)         // Texto secundario
+    val context = LocalContext.current
+    val themeMode = AppPreferences.getThemeMode(context)
+    val isDark = when (themeMode) {
+        AppThemeMode.SYSTEM -> isSystemInDarkTheme()
+        AppThemeMode.LIGHT -> false
+        AppThemeMode.DARK -> true
+    }
+    val primaryDark = if (isDark) Color(0xFF0B1224) else Color(0xFFF8FAFC)
+    val surfaceDark = if (isDark) Color(0xFF0F172A) else Color.White
+    val textLight = if (isDark) Color.White else Color(0xFF0F172A)
+    val textDim = if (isDark) Color(0xFF94A3B8) else Color(0xFF64748B)
+    val cardBorder = if (isDark) Color(0xFF334155) else Color(0xFF94A3B8)
+    val searchBorder = if (isDark) Color(0xFF334155) else Color.Black
     val accent = Color(0xFF3B82F6)          // Azul destaque
     val success = Color(0xFF10B981)         // Verde sucesso
     val warning = Color(0xFFF59E0B)         // Amarelo alerta
@@ -70,19 +79,12 @@ fun MecanicoVirtualScreen(
 
     val kmMesInput = remember { mutableStateOf("1200") }
     val kmMes = kmMesInput.value.toDoubleOrNull()?.coerceAtLeast(1.0) ?: 1200.0
-    val context = LocalContext.current
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
 
     val totalGastoCombustivel = abastecimentos.sumOf { it.valorPago }
     val gastoTotalTexto = if (totalGastoCombustivel > 0.0) formatarMoedaMV(totalGastoCombustivel) else "--"
     val (tituloReputacao, _) = calcularReputacao(lembretes)
-    val corReputacao = when (tituloReputacao) {
-        "Excelente" -> Color(0xFF10B981)
-        "Critica" -> Color(0xFFEF4444)
-        "Em atencao" -> Color(0xFFF59E0B)
-        else -> textDim
-    }
 
     // Calcula o valor total mensal necessario com base nos lembretes ativos
     val totalMensalParaGuardar = lembretes.fold(0.0) { total, lembrete ->
@@ -135,7 +137,7 @@ fun MecanicoVirtualScreen(
                     Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar", tint = textLight)
                 }
                 Text(
-                    "Gestor Financeiro (Frota)",
+                    "Gestor de Frota",
                     color = textLight,
                     fontWeight = FontWeight.Bold,
                     style = MaterialTheme.typography.titleMedium,
@@ -148,9 +150,9 @@ fun MecanicoVirtualScreen(
                             compartilharPdf(context, uri)
                         }
                     },
-                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.5f)),
+                    border = BorderStroke(1.dp, if (isDark) Color(0xFF334155) else Color(0xFF94A3B8)),
                     colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = Color.White
+                        contentColor = textLight
                     ),
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                     shape = RoundedCornerShape(8.dp)
@@ -173,7 +175,7 @@ fun MecanicoVirtualScreen(
                     .clip(RoundedCornerShape(24.dp))
                     .background(
                         Brush.verticalGradient(
-                            colors = listOf(Color(0xFF059669), Color(0xFF064E3B))
+                            colors = listOf(Color(0xFF059669), Color(0xFF047857))
                         )
                     )
             ) {
@@ -209,14 +211,14 @@ fun MecanicoVirtualScreen(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(20.dp),
                 colors = CardDefaults.cardColors(containerColor = surfaceDark),
-                border = BorderStroke(1.dp, Color(0xFF23324D))
+                border = BorderStroke(1.dp, cardBorder)
             ) {
                 Column(
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.LocalGasStation, contentDescription = null, tint = Color.White)
+                        Icon(Icons.Default.LocalGasStation, contentDescription = null, tint = textLight)
                         Spacer(Modifier.width(8.dp))
                         Text("Gestao de combustivel (Frota)", color = textLight, fontWeight = FontWeight.SemiBold)
                     }
@@ -227,6 +229,8 @@ fun MecanicoVirtualScreen(
                             textColor = textLight,
                             dimColor = textDim,
                             valueColor = warning,
+                            backgroundColor = if (isDark) Color(0xFF111827) else Color(0xFFF8FAFC),
+                            borderColor = cardBorder,
                             modifier = Modifier.weight(1f)
                         )
                         UsageStat(
@@ -235,6 +239,8 @@ fun MecanicoVirtualScreen(
                             textColor = textLight,
                             dimColor = textDim,
                             valueColor = accent,
+                            backgroundColor = if (isDark) Color(0xFF111827) else Color(0xFFF8FAFC),
+                            borderColor = cardBorder,
                             modifier = Modifier.weight(1f)
                         )
                     }
@@ -250,47 +256,7 @@ fun MecanicoVirtualScreen(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(20.dp),
                 colors = CardDefaults.cardColors(containerColor = surfaceDark),
-                border = BorderStroke(1.dp, Color(0xFF23324D))
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Info, contentDescription = null, tint = accent)
-                        Spacer(Modifier.width(10.dp))
-                        Text(
-                            "Resumo de uso",
-                            color = textLight,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 14.sp
-                        )
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        UsageStat(
-                            label = "Estado da frota",
-                            value = tituloReputacao,
-                            textColor = textLight,
-                            dimColor = textDim,
-                            valueColor = corReputacao,
-                            modifier = Modifier.weight(1f)
-                        )
-                        UsageStat(
-                            label = "Total gasto combustivel",
-                            value = gastoTotalTexto,
-                            textColor = textLight,
-                            dimColor = textDim,
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                }
-            }
-
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(containerColor = surfaceDark),
-                border = BorderStroke(1.dp, Color(0xFF23324D))
+                border = BorderStroke(1.dp, cardBorder)
             ) {
                 Column(
                     modifier = Modifier.padding(16.dp),
@@ -310,14 +276,14 @@ fun MecanicoVirtualScreen(
                             placeholder = "Buscar veiculo",
                             textColor = textLight,
                             placeholderColor = textDim,
-                            borderColor = Color.White.copy(alpha = 0.55f),
+                            borderColor = searchBorder,
                             modifier = Modifier
                                 .weight(0.75f)
                                 .height(46.dp)
                         )
                         OutlinedButton(
                             onClick = { termoBusca = buscaVeiculo; keyboardController?.hide(); focusManager.clearFocus() },
-                            border = BorderStroke(1.dp, Color.White),
+                            border = BorderStroke(1.dp, if (isDark) Color(0xFF334155) else Color(0xFFCBD5E1)),
                             colors = ButtonDefaults.outlinedButtonColors(
                                 containerColor = Color(0xFF3B82F6),
                                 contentColor = Color.White
@@ -383,8 +349,10 @@ fun MecanicoVirtualScreen(
                                 combustivelMes = combustivelMesCarro,
                                 manutencoesMes = manutencoesMesCarro,
                                 manutencoesFuturas = manutencoesFuturasCarro,
+                                isDark = isDark,
                                 textLight = textLight,
                                 textDim = textDim,
+                                borderColor = cardBorder,
                                 accent = accent,
                                 warning = warning,
                                 danger = danger,
@@ -594,11 +562,14 @@ private fun UsageStat(
     textColor: Color,
     dimColor: Color,
     modifier: Modifier = Modifier,
-    valueColor: Color = textColor
+    valueColor: Color = textColor,
+    backgroundColor: Color = Color(0xFFF8FAFC),
+    borderColor: Color = Color(0xFFE2E8F0)
 ) {
     Column(
         modifier = modifier
-            .background(Color(0xFF0B1224), RoundedCornerShape(12.dp))
+            .background(backgroundColor, RoundedCornerShape(12.dp))
+            .border(1.dp, borderColor, RoundedCornerShape(12.dp))
             .padding(12.dp)
     ) {
         Text(label, color = dimColor, fontSize = 11.sp)
@@ -633,6 +604,7 @@ private fun impactoSeNaoTrocar(tipo: TipoManutencao): String = when (tipo) {
     TipoManutencao.OLEO -> "Desgaste severo do motor"
     TipoManutencao.BATERIA -> "Falha na partida (pane)"
     TipoManutencao.MECANICA -> "Quebras maiores e guincho"
+    TipoManutencao.FUNILARIA -> "Risco de corrosao e perda de acabamento"
     TipoManutencao.FREIO -> "Perda de freio (acidente)"
     TipoManutencao.LICENCIAMENTO -> "Apreensao do veiculo"
     TipoManutencao.IPVA -> "Bloqueio de documento"
@@ -680,7 +652,7 @@ private fun SearchTextField(
             value = value,
             onValueChange = onValueChange,
             singleLine = true,
-            cursorBrush = SolidColor(Color.White),
+            cursorBrush = SolidColor(textColor),
             textStyle = TextStyle(color = textColor, fontSize = 13.sp),
             modifier = Modifier.fillMaxWidth()
         )

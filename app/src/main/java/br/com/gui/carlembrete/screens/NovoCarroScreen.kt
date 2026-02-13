@@ -28,6 +28,7 @@ import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.Motorcycle
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -75,6 +76,8 @@ fun NovoCarroScreen(
     var tipoSelecionadoConfirmado by remember { mutableStateOf(false) }
     var corSelecionada by remember { mutableStateOf(carroBase.corArgb) }
     var alvoVoz by remember { mutableStateOf("nome") }
+    val contentScrollState = rememberScrollState()
+    val showTopBar by remember { derivedStateOf { contentScrollState.value <= 8 } }
 
     val speechLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
@@ -120,15 +123,17 @@ fun NovoCarroScreen(
     Scaffold(
         containerColor = bgLight,
         topBar = {
-            TopAppBar(
-                title = { Text("Adicionar veiculo", color = textPrimary, fontWeight = FontWeight.Bold) },
-                navigationIcon = {
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar", tint = textPrimary)
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = bgLight)
-            )
+            if (showTopBar) {
+                TopAppBar(
+                    title = { Text("Adicionar veiculo", color = textPrimary, fontWeight = FontWeight.Bold) },
+                    navigationIcon = {
+                        IconButton(onClick = onDismiss) {
+                            Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar", tint = textPrimary)
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = bgLight)
+                )
+            }
         }
     ) { innerPadding ->
         Box(
@@ -140,7 +145,7 @@ fun NovoCarroScreen(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
+                    .verticalScroll(contentScrollState)
                     .padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {

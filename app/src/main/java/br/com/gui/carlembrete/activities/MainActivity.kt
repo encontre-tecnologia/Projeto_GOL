@@ -214,40 +214,42 @@ fun String.unaccent(): String {
 
 fun calcularProximaData(tipo: TipoManutencao, dataServico: LocalDate): String {
     val mesesParaAdicionar = when (tipo) {
-        TipoManutencao.CORRENTE -> 3L
-        TipoManutencao.LUBRIFICACAO -> 2L
-        TipoManutencao.PEDIVELA -> 6L
+        TipoManutencao.CORRENTE -> 2L
+        TipoManutencao.LUBRIFICACAO -> 1L
+        TipoManutencao.PEDIVELA -> 12L
         TipoManutencao.ACESSORIOS -> 12L
-        TipoManutencao.CONFORTO -> 12L
-        TipoManutencao.PNEU -> 6L
-        TipoManutencao.TRANSMISSAO -> 6L
+        TipoManutencao.CONFORTO -> 18L
+        TipoManutencao.PNEU -> 12L
+        TipoManutencao.TRANSMISSAO -> 12L
         TipoManutencao.REVISAO -> 12L
         TipoManutencao.OLEO -> 6L
         TipoManutencao.BATERIA -> 24L
         TipoManutencao.FREIO -> 12L
-        TipoManutencao.MECANICA -> 6L
+        TipoManutencao.MECANICA -> 12L
+        TipoManutencao.FUNILARIA -> 6L
         TipoManutencao.LICENCIAMENTO -> 12L
         TipoManutencao.IPVA -> 12L
         TipoManutencao.SEGURO -> 12L
-        TipoManutencao.OUTROS -> 3L
+        TipoManutencao.OUTROS -> 6L
     }
     return dataServico.plusMonths(mesesParaAdicionar).format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))
 }
 
 fun getKmAdicionalPorTipo(tipo: TipoManutencao): Int {
     return when (tipo) {
-        TipoManutencao.CORRENTE -> 1500
-        TipoManutencao.LUBRIFICACAO -> 500
-        TipoManutencao.PEDIVELA -> 2000
+        TipoManutencao.CORRENTE -> 1000
+        TipoManutencao.LUBRIFICACAO -> 300
+        TipoManutencao.PEDIVELA -> 5000
         TipoManutencao.ACESSORIOS -> 0
         TipoManutencao.CONFORTO -> 0
-        TipoManutencao.PNEU -> 3000
-        TipoManutencao.TRANSMISSAO -> 5000
+        TipoManutencao.PNEU -> 10000
+        TipoManutencao.TRANSMISSAO -> 10000
         TipoManutencao.REVISAO -> 10000
         TipoManutencao.OLEO -> 10000
         TipoManutencao.BATERIA -> 40000
-        TipoManutencao.FREIO -> 20000
-        TipoManutencao.MECANICA -> 10000
+        TipoManutencao.FREIO -> 15000
+        TipoManutencao.MECANICA -> 15000
+        TipoManutencao.FUNILARIA -> 10000
         TipoManutencao.LICENCIAMENTO -> 0
         TipoManutencao.IPVA -> 0
         TipoManutencao.SEGURO -> 0

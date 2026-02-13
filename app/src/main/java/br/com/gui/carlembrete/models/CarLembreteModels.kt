@@ -297,11 +297,12 @@ enum class TipoManutencao(val label: String) {
     OLEO("Óleo"),
     BATERIA("Bateria"),
     MECANICA("Mecânica"),
+    FUNILARIA("Funilaria"),
     FREIO("Freio"),
     LICENCIAMENTO("Licença"),
     IPVA("IPVA"),
     SEGURO("Seguro"),
-    OUTROS("Outros");
+    OUTROS("Geral");
 
     fun getIcon(): ImageVector = when(this) {
         CORRENTE -> Icons.Rounded.Link
@@ -315,6 +316,7 @@ enum class TipoManutencao(val label: String) {
         OLEO -> Icons.Rounded.WaterDrop
         BATERIA -> Icons.Rounded.BatteryChargingFull
         MECANICA -> Icons.Rounded.Build
+        FUNILARIA -> Icons.Rounded.Build
         FREIO -> Icons.Rounded.DiscFull
         LICENCIAMENTO -> Icons.Rounded.Description
         IPVA -> Icons.Rounded.Payments

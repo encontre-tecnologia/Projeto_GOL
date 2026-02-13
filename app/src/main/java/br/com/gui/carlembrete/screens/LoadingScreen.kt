@@ -80,6 +80,7 @@ fun LoadingScreen(
                                 setVideoURI(uri)
                                 setOnPreparedListener { player ->
                                     player.isLooping = false
+                                    player.setVolume(0f, 0f)
                                     start()
                                 }
                                 setOnCompletionListener {
