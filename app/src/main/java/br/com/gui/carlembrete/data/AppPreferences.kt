@@ -20,6 +20,8 @@ object AppPreferences {
     private const val KEY_PARKING_FIXED_VALUE = "parking_fixed_value"
     private const val KEY_PARKING_HOURLY_VALUE = "parking_hourly_value"
     private const val KEY_PARKING_SELECTED_HOURS = "parking_selected_hours"
+    private const val KEY_LAST_SELECTED_CAR_ID = "last_selected_car_id"
+    private const val KEY_PARKING_PHOTO_URIS = "parking_photo_uris"
 
     fun needsOnboarding(context: Context): Boolean {
         return context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getBoolean(KEY_FIRST_RUN, true)
@@ -67,6 +69,19 @@ object AppPreferences {
         val value = context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
             .getInt(KEY_FUEL_START_KM_PREFIX + carroId, -1)
         return if (value >= 0) value else null
+    }
+
+    fun getLastSelectedCarId(context: Context): String? {
+        return context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+            .getString(KEY_LAST_SELECTED_CAR_ID, null)
+            ?.takeIf { it.isNotBlank() }
+    }
+
+    fun setLastSelectedCarId(context: Context, carroId: String?) {
+        context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+            .edit()
+            .putString(KEY_LAST_SELECTED_CAR_ID, carroId)
+            .apply()
     }
 
     fun setFuelStartKm(context: Context, carroId: String, km: Int) {
@@ -147,6 +162,36 @@ object AppPreferences {
         context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
             .edit()
             .putBoolean(KEY_PARKING_FINALIZED, finalized)
+            .apply()
+    }
+
+    fun getParkingPhotoUris(context: Context): List<String> {
+        return context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+            .getStringSet(KEY_PARKING_PHOTO_URIS, emptySet())
+            ?.toList()
+            .orEmpty()
+    }
+
+    fun setParkingPhotoUris(context: Context, uris: List<String>) {
+        context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+            .edit()
+            .putStringSet(KEY_PARKING_PHOTO_URIS, uris.toSet())
+            .apply()
+    }
+
+    fun addParkingPhotoUri(context: Context, uri: String) {
+        val current = getParkingPhotoUris(context).toMutableSet()
+        current.add(uri)
+        context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+            .edit()
+            .putStringSet(KEY_PARKING_PHOTO_URIS, current)
+            .apply()
+    }
+
+    fun clearParkingPhotoUris(context: Context) {
+        context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+            .edit()
+            .remove(KEY_PARKING_PHOTO_URIS)
             .apply()
     }
 

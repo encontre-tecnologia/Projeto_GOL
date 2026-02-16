@@ -60,6 +60,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.text.Normalizer
 import java.time.LocalDate
+import java.util.Base64
 import java.util.Locale
 import java.util.concurrent.Executors
 import kotlin.math.roundToInt
@@ -302,7 +303,8 @@ private fun captureAndExtractItems(context: Context, imageCapture: ImageCapture,
             val bitmapRotacionado = Bitmap.createBitmap(bitmapBuffer, 0, 0, bitmapBuffer.width, bitmapBuffer.height, matrix, true)
             val bitmapFocado = recortarAreaCentral(bitmapRotacionado)
             val arquivo = File(context.filesDir, "servico_scan_${System.currentTimeMillis()}.jpg")
-            FileOutputStream(arquivo).use { out -> bitmapFocado.compress(Bitmap.CompressFormat.JPEG, 80, out) }
+            // Salva a imagem completa para permitir OCR de documento (CRLV etc.).
+            FileOutputStream(arquivo).use { out -> bitmapRotacionado.compress(Bitmap.CompressFormat.JPEG, 85, out) }
 
             // Para QR Code, analisamos a imagem inteira (não o recorte central),
             // pois o código pode estar fora da área focada.
@@ -316,15 +318,7 @@ private fun captureAndExtractItems(context: Context, imageCapture: ImageCapture,
 
             scanner.process(inputImage)
                 .addOnSuccessListener { barcodes ->
-                    val qrUrl = barcodes
-                        .firstOrNull { it.format == Barcode.FORMAT_QR_CODE }
-                        ?.rawValue
-                        ?.takeIf { it.isNotBlank() }
-                        ?: barcodes
-                            .firstOrNull { it.format == Barcode.FORMAT_QR_CODE }
-                            ?.displayValue
-                        ?.trim()
-                        ?.takeIf { it.isNotBlank() }
+                    val qrUrl = barcodes.firstOrNull { it.format == Barcode.FORMAT_QR_CODE }?.toUsableQrText()
                     Log.i(CAMERA_QR_TAG, "Passo1 - barcodes=${barcodes.size} qrUrl=$qrUrl")
                     if (!qrUrl.isNullOrBlank()) {
                         ContextCompat.getMainExecutor(context).execute {
@@ -346,15 +340,7 @@ private fun captureAndExtractItems(context: Context, imageCapture: ImageCapture,
 
                     scanner.process(inputImageSemRotacao)
                         .addOnSuccessListener { barcodesSemRotacao ->
-                            val qrUrlSemRotacao = barcodesSemRotacao
-                                .firstOrNull { it.format == Barcode.FORMAT_QR_CODE }
-                                ?.rawValue
-                                ?.takeIf { it.isNotBlank() }
-                                ?: barcodesSemRotacao
-                                    .firstOrNull { it.format == Barcode.FORMAT_QR_CODE }
-                                    ?.displayValue
-                                ?.trim()
-                                ?.takeIf { it.isNotBlank() }
+                            val qrUrlSemRotacao = barcodesSemRotacao.firstOrNull { it.format == Barcode.FORMAT_QR_CODE }?.toUsableQrText()
                             Log.i(
                                 CAMERA_QR_TAG,
                                 "Passo2 (sem rotacao) - barcodes=${barcodesSemRotacao.size} qrUrl=$qrUrlSemRotacao"
@@ -379,15 +365,7 @@ private fun captureAndExtractItems(context: Context, imageCapture: ImageCapture,
 
                             scanner.process(inputImageFocado)
                                 .addOnSuccessListener { barcodesFoco ->
-                                    val qrUrlFoco = barcodesFoco
-                                        .firstOrNull { it.format == Barcode.FORMAT_QR_CODE }
-                                        ?.rawValue
-                                        ?.takeIf { it.isNotBlank() }
-                                        ?: barcodesFoco
-                                            .firstOrNull { it.format == Barcode.FORMAT_QR_CODE }
-                                            ?.displayValue
-                                        ?.trim()
-                                        ?.takeIf { it.isNotBlank() }
+                                    val qrUrlFoco = barcodesFoco.firstOrNull { it.format == Barcode.FORMAT_QR_CODE }?.toUsableQrText()
                                     Log.i(CAMERA_QR_TAG, "Passo3 (foco) - barcodes=${barcodesFoco.size} qrUrl=$qrUrlFoco")
                                     ContextCompat.getMainExecutor(context).execute {
                                         onResult(
@@ -457,9 +435,41 @@ private fun captureAndExtractItems(context: Context, imageCapture: ImageCapture,
                     }
                     scanner.close()
                 }
-        }
+                }
         override fun onError(exception: ImageCaptureException) {}
     })
+}
+
+private fun Barcode.toUsableQrText(): String? {
+    if (format != Barcode.FORMAT_QR_CODE) return null
+
+    val candidates = buildList {
+        url?.url?.trim()?.takeIf { it.isNotBlank() }?.let { add(it) }
+        rawValue?.trim()?.takeIf { it.isNotBlank() }?.let { add(it) }
+        displayValue?.trim()?.takeIf { it.isNotBlank() }?.let { add(it) }
+    }
+
+    candidates.firstOrNull { it.looksLikeUsefulText() }?.let { return it }
+
+    val bytes = rawBytes ?: return null
+    val decodedCandidates = listOf(
+        runCatching { String(bytes, Charsets.UTF_8) }.getOrNull(),
+        runCatching { String(bytes, Charsets.ISO_8859_1) }.getOrNull(),
+        runCatching { String(bytes, Charsets.UTF_16) }.getOrNull()
+    ).mapNotNull { it?.trim()?.takeIf { text -> text.isNotBlank() } }
+
+    decodedCandidates.firstOrNull { it.looksLikeUsefulText() }?.let { return it }
+
+    // Fallback para QR binário/assinado: preserva conteúdo sem gerar caracteres inválidos.
+    return "B64:${Base64.getEncoder().encodeToString(bytes)}"
+}
+
+private fun String.looksLikeUsefulText(): Boolean {
+    if (isBlank()) return false
+    if (startsWith("http://", true) || startsWith("https://", true)) return true
+    val printable = count { it.code in 32..126 || it == '\n' || it == '\r' || it == '\t' }
+    val ratio = printable.toFloat() / length.coerceAtLeast(1)
+    return ratio >= 0.85f
 }
 
 private data class CandidatoProduto(

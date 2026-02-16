@@ -76,7 +76,6 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -230,7 +229,6 @@ fun EditarCarroDialog(carroAtual: CarroInfo, titulo: String, onDismiss: () -> Un
                 )
                 Spacer(Modifier.height(8.dp))
                 var marcaExpanded by remember { mutableStateOf(false) }
-                val marcaLogo = logoResForMarca(marca)
                 ExposedDropdownMenuBox(expanded = marcaExpanded, onExpandedChange = { marcaExpanded = !marcaExpanded }) {
                     OutlinedTextField(
                         value = marca,
@@ -242,59 +240,18 @@ fun EditarCarroDialog(carroAtual: CarroInfo, titulo: String, onDismiss: () -> Un
                             .menuAnchor()
                             .fillMaxWidth(),
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = marcaExpanded) },
-                        leadingIcon = {
-                            val tipoLocal = tipoSelecionado
-                            if (marcaLogo != null) {
-                                Image(
-                                    painter = painterResource(marcaLogo),
-                                    contentDescription = marca,
-                                    modifier = Modifier.size(24.dp),
-                                    colorFilter = ColorFilter.tint(Color.White)
-                                )
-                            } else if (tipoLocal != null) {
-                                VehicleIcon(
-                                    tipoVeiculo = tipoLocal,
-                                    tint = Color(0xFF3B82F6),
-                                    size = 20.dp
-                                )
-                            } else {
-                                Icon(Icons.Rounded.DirectionsCar, contentDescription = null, tint = Color(0xFF3B82F6))
-                            }
-                        },
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedTextColor = Color.White,
                             unfocusedTextColor = Color.White
                         )
                     )
                     ExposedDropdownMenu(expanded = marcaExpanded, onDismissRequest = { marcaExpanded = false }) {
-                        marcasSuportadas.forEach { marcaNome ->
+                        marcasPorTipo(tipoSelecionado).forEach { marcaNome ->
                             DropdownMenuItem(
                                 text = { Text(marcaNome) },
                                 onClick = {
                                     marca = marcaNome
                                     marcaExpanded = false
-                                },
-                                leadingIcon = {
-                                    val res = logoResForMarca(marcaNome)
-                                    if (res != null) {
-                                        Image(
-                                            painter = painterResource(res),
-                                            contentDescription = marcaNome,
-                                            modifier = Modifier.size(20.dp),
-                                            colorFilter = ColorFilter.tint(Color.White)
-                                        )
-                                    } else {
-                                        val tipoLocal = tipoSelecionado
-                                        if (tipoLocal != null) {
-                                            VehicleIcon(
-                                                tipoVeiculo = tipoLocal,
-                                                tint = Color.White,
-                                                size = 18.dp
-                                            )
-                                        } else {
-                                            Icon(Icons.Rounded.DirectionsCar, contentDescription = null)
-                                        }
-                                    }
                                 }
                             )
                         }

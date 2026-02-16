@@ -1,5 +1,6 @@
-package br.com.gui.carlembrete
+﻿package br.com.gui.carlembrete
 
+import HistoricoAbastecimentoScreen
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -27,13 +28,14 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.window.Dialog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
 import android.app.DatePickerDialog
-import android.widget.Toast
 import androidx.compose.material.icons.filled.CalendarMonth
 import java.util.Locale
 
@@ -49,19 +51,20 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
     val cardStroke = if (isDark) Color(0xFF1F2A44) else Color(0xFFCBD5E1)
     val textPrimary = if (isDark) Color.White else Color.Black
     val textDim = if (isDark) Color(0xFF94A3B8) else Color(0xFF475569)
-    val headerBackground = if (isDark) {
-        Brush.horizontalGradient(
-            listOf(Color(0xFF0B1224), Color(0xFF0F172A), Color(0xFF111827))
-        )
-    } else {
-        SolidColor(Color.White)
-    }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var precoGasolina by remember { mutableStateOf("") }
-    var valorAbastecido by remember { mutableStateOf("") }
+    var precoGasolina by remember { mutableStateOf("5,60") }
+    var valorAbastecido by remember { mutableStateOf("20,00") }
+    val opcoesCombustivel = listOf("Gasolina", "Etanol", "Diesel", "GNV", "Flex")
+    var tipoCombustivel by remember { mutableStateOf("") }
+    var combustivelExpanded by remember { mutableStateOf(false) }
+    var precoEditado by remember { mutableStateOf(false) }
+    var valorEditado by remember { mutableStateOf(false) }
     var abastecimentos by remember { mutableStateOf<List<Abastecimento>>(emptyList()) }
+    var kmAtualVeiculo by remember { mutableStateOf(0) }
     var isSaving by remember { mutableStateOf(false) }
+    var showSalvarSucessoDialog by remember { mutableStateOf(false) }
+    var showHistoricoScreen by remember { mutableStateOf(false) }
     val dateFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
     var dataSelecionada by remember { mutableStateOf(LocalDate.now()) }
     val preco = precoGasolina.replace(",", ".").toDoubleOrNull()
@@ -69,7 +72,22 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
     val litros = if (preco != null && total != null && preco > 0.0) total / preco else null
     val litrosTexto = litros?.let { String.format(Locale("pt", "BR"), "%.2f L", it) } ?: "--"
     val gastoTexto = total?.let { formatarMoeda(it) } ?: "--"
-    val canSave = preco != null && total != null && preco > 0.0 && total > 0.0 && !isSaving
+    val resumoConsumo = remember(abastecimentos, kmAtualVeiculo) {
+        calcularResumoConsumo(
+            abastecimentos = abastecimentos.filter { it.carroId == carroId },
+            formatter = dateFormatter,
+            kmAtual = kmAtualVeiculo,
+            kmInicial = AppPreferences.getFuelStartKm(context, carroId)
+        )
+    }
+    val canSave = preco != null &&
+        total != null &&
+        preco > 0.0 &&
+        total > 0.0 &&
+        tipoCombustivel.isNotBlank() &&
+        precoEditado &&
+        valorEditado &&
+        !isSaving
     val fieldColors = OutlinedTextFieldDefaults.colors(
         focusedTextColor = textPrimary,
         unfocusedTextColor = textPrimary,
@@ -86,13 +104,24 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
 
     LaunchedEffect(Unit) {
         abastecimentos = BancoDeDados.carregarAbastecimentos(context)
+        kmAtualVeiculo = BancoDeDados.carregarCarros(context)
+            ?.firstOrNull { it.id == carroId }
+            ?.kmAtual ?: 0
+    }
+
+    if (showHistoricoScreen) {
+        HistoricoAbastecimentoScreen(
+            carroId = carroId,
+            onDismiss = { showHistoricoScreen = false }
+        )
+        return
     }
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         containerColor = primaryDark,
         topBar = {
-            TopAppBar(
+            CenterAlignedTopAppBar(
                 title = {
                     Text(
                         "Abastecimento",
@@ -122,49 +151,6 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
                 modifier = Modifier.fillMaxWidth(),
                 border = BorderStroke(1.dp, cardStroke)
             ) {
-                Box(
-                    modifier = Modifier
-                        .background(headerBackground)
-                        .padding(16.dp)
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(64.dp)
-                                .clip(RoundedCornerShape(16.dp))
-                                .border(1.dp, accentBlue, RoundedCornerShape(16.dp)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.LocalGasStation,
-                                contentDescription = null,
-                                tint = textPrimary,
-                                modifier = Modifier.size(28.dp)
-                            )
-                        }
-                        Spacer(Modifier.width(14.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                "Abastecimento",
-                                color = textPrimary,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 20.sp
-                            )
-                            Text(
-                                "Registre o gasto e calcule os litros",
-                                color = textDim,
-                                fontSize = 12.sp
-                            )
-                        }
-                    }// TSW
-                }
-            }
-
-            Card(
-                colors = CardDefaults.cardColors(containerColor = surfaceDark),
-                modifier = Modifier.fillMaxWidth(),
-                border = BorderStroke(1.dp, cardStroke)
-            ) {
                 Column(
                     modifier = Modifier.padding(24.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -175,10 +161,45 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
                         fontWeight = FontWeight.Bold,
                         fontSize = 16.sp
                     )
+                    ExposedDropdownMenuBox(
+                        expanded = combustivelExpanded,
+                        onExpandedChange = { combustivelExpanded = !combustivelExpanded }
+                    ) {
+                        OutlinedTextField(
+                            value = if (tipoCombustivel.isBlank()) "Selecione o tipo" else tipoCombustivel,
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("Combustivel") },
+                            modifier = Modifier
+                                .menuAnchor()
+                                .fillMaxWidth()
+                                .height(58.dp),
+                            shape = RoundedCornerShape(14.dp),
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = combustivelExpanded) },
+                            colors = fieldColors
+                        )
+                        ExposedDropdownMenu(
+                            expanded = combustivelExpanded,
+                            onDismissRequest = { combustivelExpanded = false }
+                        ) {
+                            opcoesCombustivel.forEach { opcao ->
+                                DropdownMenuItem(
+                                    text = { Text(opcao) },
+                                    onClick = {
+                                        tipoCombustivel = opcao
+                                        combustivelExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
                     OutlinedTextField(
                         value = precoGasolina,
-                        onValueChange = { precoGasolina = it },
-                        label = { Text("Valor da gasolina (R$/L)") },
+                        onValueChange = {
+                            precoGasolina = it
+                            precoEditado = true
+                        },
+                        label = { Text("Valor do combustivel (R$/L)") },
                         leadingIcon = {
                             Icon(
                                 imageVector = Icons.Rounded.LocalGasStation,
@@ -196,7 +217,10 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
                     )
                     OutlinedTextField(
                         value = valorAbastecido,
-                        onValueChange = { valorAbastecido = it },
+                        onValueChange = {
+                            valorAbastecido = it
+                            valorEditado = true
+                        },
                         label = { Text("Valor abastecido (R$)") },
                         leadingIcon = {
                             Icon(
@@ -225,24 +249,35 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
                             dataAtual.dayOfMonth
                         ).show()
                     }
-                    OutlinedTextField(
+                    TextField(
                         value = dataSelecionada.format(dateFormatter),
                         onValueChange = {},
                         readOnly = true,
                         label = { Text("Data do registro") },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(58.dp)
-                            .clickable(onClick = abrirDatePicker),
+                            .height(58.dp),
                         shape = RoundedCornerShape(14.dp),
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Default.CalendarMonth,
-                                contentDescription = null,
-                                tint = Color(0xFFCBD5F5)
-                            )
+                        trailingIcon = {
+                            IconButton(onClick = abrirDatePicker) {
+                                Icon(
+                                    imageVector = Icons.Default.CalendarMonth,
+                                    contentDescription = "Selecionar data",
+                                    tint = if (isDark) Color(0xFFCBD5F5) else Color(0xFF334155)
+                                )
+                            }
                         },
-                        colors = fieldColors
+                        colors = TextFieldDefaults.colors(
+                            focusedTextColor = textPrimary,
+                            unfocusedTextColor = textPrimary,
+                            focusedContainerColor = if (isDark) Color(0xFF0B1224) else Color(0xFFF8FAFC),
+                            unfocusedContainerColor = if (isDark) Color(0xFF0B1224) else Color(0xFFF8FAFC),
+                            focusedIndicatorColor = if (isDark) Color(0xFF1F2A44) else Color(0xFFCBD5E1),
+                            unfocusedIndicatorColor = if (isDark) Color(0xFF1F2A44) else Color(0xFFCBD5E1),
+                            focusedLabelColor = textDim,
+                            unfocusedLabelColor = textDim,
+                            cursorColor = textPrimary
+                        )
                     )
                 }
             }
@@ -279,6 +314,25 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
                             modifier = Modifier.weight(1f)
                         )
                     }
+                    HorizontalDivider(color = cardStroke.copy(alpha = 0.65f))
+                    InfoRow(
+                        label = "Consumo medio (km/L)",
+                        value = resumoConsumo.consumoKmPorLitro?.let { String.format(Locale("pt", "BR"), "%.1f", it) } ?: "--",
+                        textLight = textPrimary,
+                        textDim = textDim
+                    )
+                    InfoRow(
+                        label = "Abastecimento semanal",
+                        value = resumoConsumo.custoSemana?.let { formatarMoeda(it) } ?: "--",
+                        textLight = textPrimary,
+                        textDim = textDim
+                    )
+                    InfoRow(
+                        label = "Abastecimento mensal",
+                        value = resumoConsumo.custoMes?.let { formatarMoeda(it) } ?: "--",
+                        textLight = textPrimary,
+                        textDim = textDim
+                    )
                 }
             }
 
@@ -307,10 +361,13 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
                             BancoDeDados.salvarAbastecimentos(context, atualizada)
                         }
                         abastecimentos = atualizada
-                        precoGasolina = ""
-                        valorAbastecido = ""
+                        precoGasolina = "5,60"
+                        valorAbastecido = "20,00"
+                        tipoCombustivel = ""
+                        precoEditado = false
+                        valorEditado = false
                         isSaving = false
-                        Toast.makeText(context, "Abastecimento salvo!", Toast.LENGTH_SHORT).show()
+                        showSalvarSucessoDialog = true
                     }
                 },
                 enabled = canSave,
@@ -327,6 +384,83 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
                 )
             }
 
+        }
+    }
+
+    if (showSalvarSucessoDialog) {
+        Dialog(onDismissRequest = { showSalvarSucessoDialog = false }) {
+            Card(
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = surfaceDark),
+                modifier = Modifier.fillMaxWidth(),
+                border = BorderStroke(1.dp, cardStroke)
+            ) {
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(20.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(80.dp)
+                            .background(accentBlue.copy(alpha = 0.15f), RoundedCornerShape(40.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.LocalGasStation,
+                            contentDescription = null,
+                            tint = accentBlue,
+                            modifier = Modifier.size(40.dp)
+                        )
+                    }
+
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            "Abastecimento registrado",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = textPrimary
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "O gasto registrado esta na tela Historico de abastecimento.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = textDim,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = { showSalvarSucessoDialog = false },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(50.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, accentBlue)
+                        ) {
+                            Text("Fechar", color = accentBlue)
+                        }
+
+                        Button(
+                            onClick = {
+                                showSalvarSucessoDialog = false
+                                showHistoricoScreen = true
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(50.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = accentBlue)
+                        ) {
+                            Text("Historico", fontWeight = FontWeight.Bold, color = Color.White)
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -368,3 +502,57 @@ private fun ResumoItem(
         Text(value, color = accent, fontWeight = FontWeight.Bold, fontSize = 16.sp, textAlign = TextAlign.Center)
     }
 }
+
+private data class ResumoConsumo(
+    val consumoKmPorLitro: Double?,
+    val custoSemana: Double?,
+    val custoMes: Double?
+)
+
+private fun calcularResumoConsumo(
+    abastecimentos: List<Abastecimento>,
+    formatter: DateTimeFormatter,
+    kmAtual: Int,
+    kmInicial: Int?
+): ResumoConsumo {
+    val entries = abastecimentos.mapNotNull { item ->
+        val data = runCatching { LocalDate.parse(item.data, formatter) }.getOrNull()
+        if (data != null && item.litros > 0.0 && item.valorPago > 0.0) {
+            Triple(data, item.litros, item.valorPago)
+        } else {
+            null
+        }
+    }.sortedBy { it.first }
+
+    if (entries.isEmpty()) {
+        return ResumoConsumo(
+            consumoKmPorLitro = null,
+            custoSemana = null,
+            custoMes = null
+        )
+    }
+
+    val mediaDias = entries.windowed(2).mapNotNull { (anterior, atual) ->
+        val dias = ChronoUnit.DAYS.between(anterior.first, atual.first)
+        if (dias <= 0) null else dias.toDouble()
+    }.average().takeIf { !it.isNaN() } ?: 7.0
+
+    val mediaCustoDia = entries.windowed(2).mapNotNull { (anterior, atual) ->
+        val dias = ChronoUnit.DAYS.between(anterior.first, atual.first)
+        if (dias <= 0) null else atual.third / dias.toDouble()
+    }.average().takeIf { !it.isNaN() } ?: (entries.last().third / mediaDias)
+
+    val totalLitros = entries.sumOf { it.second }
+    val consumoKmPorLitro = if (kmInicial != null && kmAtual > kmInicial && totalLitros > 0.0) {
+        (kmAtual - kmInicial) / totalLitros
+    } else {
+        null
+    }
+
+    return ResumoConsumo(
+        consumoKmPorLitro = consumoKmPorLitro,
+        custoSemana = mediaCustoDia * 7.0,
+        custoMes = mediaCustoDia * 30.0
+    )
+}
+

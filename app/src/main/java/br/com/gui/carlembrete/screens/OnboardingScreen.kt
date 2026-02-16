@@ -73,7 +73,6 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -209,49 +208,15 @@ fun OnboardingScreen(onFinish: () -> Unit) {
                                 modifier = Modifier
                                     .menuAnchor()
                                     .fillMaxWidth(),
-                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = marcaExpanded) },
-                                leadingIcon = {
-                                    val logoMarca = logoResForMarca(carroMarca)
-                                    if (logoMarca != null) {
-                                        Image(
-                                            painter = painterResource(id = logoMarca),
-                                            contentDescription = carroMarca,
-                                            modifier = Modifier.size(24.dp),
-                                            colorFilter = ColorFilter.tint(Color.White)
-                                        )
-                                    } else {
-                                        VehicleIcon(
-                                            tipoVeiculo = carroTipo,
-                                            tint = Color(0xFF3B82F6),
-                                            size = 20.dp
-                                        )
-                                    }
-                                }
+                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = marcaExpanded) }
                             )
                             ExposedDropdownMenu(expanded = marcaExpanded, onDismissRequest = { marcaExpanded = false }) {
-                                marcasSuportadas.forEach { marcaNome ->
+                                marcasPorTipo(carroTipo).forEach { marcaNome ->
                                     DropdownMenuItem(
                                         text = { Text(marcaNome) },
                                         onClick = {
                                             carroMarca = marcaNome
                                             marcaExpanded = false
-                                        },
-                                        leadingIcon = {
-                                            val res = logoResForMarca(marcaNome)
-                                            if (res != null) {
-                                                Image(
-                                                    painter = painterResource(id = res),
-                                                    contentDescription = marcaNome,
-                                                    modifier = Modifier.size(20.dp),
-                                                    colorFilter = ColorFilter.tint(Color.White)
-                                                )
-                                            } else {
-                                                VehicleIcon(
-                                                    tipoVeiculo = carroTipo,
-                                                    tint = Color.White,
-                                                    size = 18.dp
-                                                )
-                                            }
                                         }
                                     )
                                 }

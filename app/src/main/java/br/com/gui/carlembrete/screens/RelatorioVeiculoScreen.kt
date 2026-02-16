@@ -85,7 +85,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import br.com.gui.carlembrete.VehicleIcon
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
@@ -214,21 +213,6 @@ fun RelatorioVeiculoScreen(carroAtual: CarroInfo, lembretes: List<Lembrete>, isP
                         ) {
                             Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                                    val isBikeIcon = carroAtual.tipoVeiculo == TipoVeiculo.BICICLETA
-                                    Box(
-                                        modifier = Modifier
-                                            .size(148.dp)
-                                            .clip(CircleShape)
-                                            .background(Color(0xFFFFF3D6))
-                                            .border(2.dp, Color(0xFFF59E0B), CircleShape),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        VehicleIcon(
-                                            tipoVeiculo = carroAtual.tipoVeiculo,
-                                            tint = if (isBikeIcon) Color(0xFF92400E) else null,
-                                            size = if (isBikeIcon) 92.dp else 104.dp
-                                        )
-                                    }
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(carroAtual.nome, color = textoPrimario, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold)
                                         if (infoModelo.isNotBlank()) {

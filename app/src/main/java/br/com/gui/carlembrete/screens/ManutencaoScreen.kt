@@ -175,11 +175,29 @@ fun ManutencaoScreen(
     LaunchedEffect(todosLembretes) { if (!isLoading) withContext(Dispatchers.IO) { BancoDeDados.salvarLembretes(context, todosLembretes) } }
 
     var indiceCarroAtual by remember { mutableIntStateOf(0) }
+    var restoredLastCar by remember { mutableStateOf(false) }
     val carroAtual = if (listaCarros.isNotEmpty()) {
         if (indiceCarroAtual >= listaCarros.size) indiceCarroAtual = 0
         listaCarros[indiceCarroAtual]
     } else {
         CarroInfo()
+    }
+
+    LaunchedEffect(isLoading, listaCarros, restoredLastCar) {
+        if (!isLoading && listaCarros.isNotEmpty() && !restoredLastCar) {
+            val lastCarId = AppPreferences.getLastSelectedCarId(context)
+            val savedIndex = lastCarId?.let { id -> listaCarros.indexOfFirst { it.id == id } } ?: -1
+            if (savedIndex >= 0) {
+                indiceCarroAtual = savedIndex
+            }
+            restoredLastCar = true
+        }
+    }
+
+    LaunchedEffect(isLoading, carroAtual.id) {
+        if (!isLoading && listaCarros.isNotEmpty()) {
+            AppPreferences.setLastSelectedCarId(context, carroAtual.id)
+        }
     }
 
     // Estados de Controle de Interface
@@ -200,6 +218,7 @@ fun ManutencaoScreen(
     var showBikeDistanceRegister by remember { mutableStateOf(false) }
     var showBikeDistanceHistory by remember { mutableStateOf(false) }
     var showPremiumHubScreen by remember { mutableStateOf(false) }
+    var showPerfilScreen by remember { mutableStateOf(false) }
     var showShareVehicleScreen by remember { mutableStateOf(false) }
     var showAondePareiScreen by remember { mutableStateOf(openAondePareiOnStart) }
     var showAiAssistantScreen by remember { mutableStateOf(false) }
@@ -226,7 +245,7 @@ fun ManutencaoScreen(
             add("Menu principal: toque aqui para acessar veículos, configurações, segurança e outros serviços." to "menu")
             add("Zellu Premium: toque aqui para ver recursos avançados e benefícios do plano." to "premium")
             add("Card do veículo: aqui você acompanha os dados atuais e acessa rapidamente as ações principais." to "car")
-            if (carroAtual.tipoVeiculo != TipoVeiculo.BICICLETA) {
+            if (!isBikeCategory(carroAtual.tipoVeiculo)) {
                 add("Histórico de abastecimento: toque aqui para consultar os registros, valores e médias do seu veículo." to "fuel_history")
             }
             add("Card de avisos: aqui ficam lembretes e manutenções. Toque em qualquer item para ver detalhes e atualizar informações." to "reminders")
@@ -289,6 +308,7 @@ fun ManutencaoScreen(
     val isSubscribed by subscriptionManager.isSubscribed.collectAsState()
     var showPremiumDialog by remember { mutableStateOf(false) }
     var showPremiumInfo by remember { mutableStateOf(false) }
+    var showPremiumBeneficiosScreen by remember { mutableStateOf(false) }
     var showAvisosNotificacoesDialog by remember { mutableStateOf(false) }
     var notificacoesDisparadas by remember { mutableStateOf<List<NotificacaoDisparada>>(emptyList()) }
 
@@ -368,34 +388,8 @@ fun ManutencaoScreen(
     }
     BackHandler(enabled = showTipoAvisoDialog) { showTipoAvisoDialog = false }
     if (showTipoAvisoDialog) {
-        val isBike = carroAtual.tipoVeiculo == TipoVeiculo.BICICLETA
-        val tiposAviso = if (isBike) {
-            listOf(
-                TipoManutencao.CORRENTE,
-                TipoManutencao.LUBRIFICACAO,
-                TipoManutencao.PEDIVELA,
-                TipoManutencao.ACESSORIOS,
-                TipoManutencao.CONFORTO,
-                TipoManutencao.FREIO,
-                TipoManutencao.PNEU,
-                TipoManutencao.TRANSMISSAO,
-                TipoManutencao.REVISAO,
-                TipoManutencao.OUTROS
-            )
-        } else {
-            listOf(
-                TipoManutencao.OLEO,
-                TipoManutencao.MECANICA,
-                TipoManutencao.FUNILARIA,
-                TipoManutencao.FREIO,
-                TipoManutencao.BATERIA,
-                TipoManutencao.PNEU,
-                TipoManutencao.LICENCIAMENTO,
-                TipoManutencao.IPVA,
-                TipoManutencao.SEGURO,
-                TipoManutencao.OUTROS
-            )
-        }
+        val isBike = isBikeCategory(carroAtual.tipoVeiculo)
+        val tiposAviso = tiposAvisoPorVeiculo(carroAtual.tipoVeiculo)
         val itensAviso = listOf(
             AvisoItem(
                 label = "Lembrar aonde estacionei",
@@ -406,19 +400,19 @@ fun ManutencaoScreen(
                 showTipoAvisoDialog = false
                 showAondePareiScreen = true
             }
-        ) + (if (isBike) emptyList() else listOf(
-            AvisoItem("Gasolina", Icons.Rounded.LocalGasStation, accentBlue) {
+        ) + (if (showFuelReminder(carroAtual.tipoVeiculo)) listOf(
+            AvisoItem("Combustível", Icons.Rounded.LocalGasStation, accentBlue) {
                 showTipoAvisoDialog = false
                 showAbastecimentoScreen = true
             }
-        )) + tiposAviso.map { tipo ->
+        ) else emptyList()) + tiposAviso.map { tipo ->
             val label = if (isBike && tipo == TipoManutencao.REVISAO) "Peças" else tipo.label
             AvisoItem(
                 label,
                 tipo.getIcon(),
                 calcularCorStatusLocal(lembretesDoCarroAtual, tipo),
                 tipo = tipo,
-                iconOverride = if (isBike && tipo == TipoManutencao.FREIO) Icons.Rounded.DirectionsBike else null
+                iconOverride = if (isBike && tipo == TipoManutencao.FREIO) Icons.Rounded.TireRepair else null
             ) {
                 showTipoAvisoDialog = false
                 iniciarCameraProduto = false
@@ -552,6 +546,16 @@ fun ManutencaoScreen(
     if (showPrivacidadeDialog) {
         PrivacidadeTermosDialog(onDismiss = { showPrivacidadeDialog = false })
     }
+    BackHandler(enabled = showPremiumBeneficiosScreen) { showPremiumBeneficiosScreen = false }
+    if (showPremiumBeneficiosScreen) {
+        PremiumBeneficiosScreen(
+            onDismiss = { showPremiumBeneficiosScreen = false },
+            onSubscribeNow = {
+                activity?.let { subscriptionManager.launchPurchaseFlow(it) }
+            }
+        )
+        return
+    }
     if (showPremiumDialog) {
         AlertDialog(
             onDismissRequest = { showPremiumDialog = false },
@@ -580,6 +584,11 @@ fun ManutencaoScreen(
         )
     }
     if (showPremiumInfo) {
+        val premiumDialogBg = if (isDark) Color(0xFF0F172A) else Color(0xFFFFFBF2)
+        val premiumTitle = if (isDark) Color(0xFFF8FAFC) else Color(0xFF7A5600)
+        val premiumText = if (isDark) Color(0xFFCBD5E1) else Color(0xFF334155)
+        val premiumSubtitle = if (isDark) Color(0xFF94A3B8) else Color(0xFF475569)
+        val premiumBorder = if (isDark) Color(0xFFB88915).copy(alpha = 0.7f) else Color(0xFFB88915)
         AlertDialog(
             onDismissRequest = { showPremiumInfo = false },
             title = {
@@ -594,24 +603,24 @@ fun ManutencaoScreen(
                         modifier = Modifier.size(64.dp)
                     )
                     Spacer(Modifier.height(8.dp))
-                    Text("Zellu Premium", color = Color(0xFF7A5600), fontWeight = FontWeight.Bold, fontSize = 24.sp)
+                    Text("Zellu Premium", color = premiumTitle, fontWeight = FontWeight.Bold, fontSize = 24.sp)
                 }
             },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
                         "Desbloqueie recursos que economizam tempo, reduzem erros e elevam o cuidado com seu veículo.",
-                        color = Color(0xFF334155),
+                        color = premiumText,
                         fontWeight = FontWeight.Medium
                     )
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.Shield, contentDescription = null, tint = Color(0xFFF59E0B))
                         Spacer(Modifier.width(8.dp))
                         Column {
-                            Text("Zellu Guardião", color = Color(0xFF0F172A), fontWeight = FontWeight.Bold)
+                            Text("Zellu Guardião", color = premiumTitle, fontWeight = FontWeight.Bold)
                             Text(
                                 "Proteção inteligente com alertas em tempo real para você agir rápido e evitar dor de cabeça.",
-                                color = Color(0xFF475569),
+                                color = premiumSubtitle,
                                 fontSize = 13.sp
                             )
                         }
@@ -620,10 +629,10 @@ fun ManutencaoScreen(
                         Icon(Icons.Default.Payments, contentDescription = null, tint = Color(0xFFF59E0B))
                         Spacer(Modifier.width(8.dp))
                         Column {
-                            Text("Gestor Financeiro", color = Color(0xFF0F172A), fontWeight = FontWeight.Bold)
+                            Text("Gestor Financeiro", color = premiumTitle, fontWeight = FontWeight.Bold)
                             Text(
                                 "Controle completo dos gastos para enxergar onde economizar e tomar decisões com confiança.",
-                                color = Color(0xFF475569),
+                                color = premiumSubtitle,
                                 fontSize = 13.sp
                             )
                         }
@@ -632,10 +641,10 @@ fun ManutencaoScreen(
                         Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = Color(0xFFF59E0B))
                         Spacer(Modifier.width(8.dp))
                         Column {
-                            Text("Viagem", color = Color(0xFF0F172A), fontWeight = FontWeight.Bold)
+                            Text("Viagem", color = premiumTitle, fontWeight = FontWeight.Bold)
                             Text(
                                 "Registre despesas e notas com praticidade e gere relatórios profissionais em poucos toques.",
-                                color = Color(0xFF475569),
+                                color = premiumSubtitle,
                                 fontSize = 13.sp
                             )
                         }
@@ -646,7 +655,7 @@ fun ManutencaoScreen(
                 Button(
                     onClick = {
                         showPremiumInfo = false
-                        activity?.let { subscriptionManager.launchPurchaseFlow(it) }
+                        showPremiumBeneficiosScreen = true
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF59E0B))
                 ) {
@@ -656,12 +665,12 @@ fun ManutencaoScreen(
             dismissButton = {
                 OutlinedButton(
                     onClick = { showPremiumInfo = false },
-                    border = BorderStroke(1.dp, Color(0xFFB88915))
+                    border = BorderStroke(1.dp, premiumBorder)
                 ) {
-                    Text("Agora não", color = Color(0xFF7A5600))
+                    Text("Agora não", color = premiumTitle)
                 }
             },
-            containerColor = Color(0xFFFFFBF2)
+            containerColor = premiumDialogBg
         )
     }
 
@@ -687,6 +696,15 @@ fun ManutencaoScreen(
             lembretes = lembretesDoCarroAtual,
             isPremium = planTier != PlanTier.FREE,
             onDismiss = { showCarInfoScreen = false }
+        )
+        return
+    }
+    BackHandler(enabled = showPerfilScreen) { showPerfilScreen = false }
+    if (showPerfilScreen) {
+        PerfilScreen(
+            onDismiss = { showPerfilScreen = false },
+            planTier = planTier,
+            totalVeiculos = listaCarros.size
         )
         return
     }
@@ -832,7 +850,14 @@ fun ManutencaoScreen(
                 ) {
                     val fotoGoogle = FirebaseAuth.getInstance().currentUser?.photoUrl?.toString()
                     Row(
-                        modifier = Modifier.padding(top = 12.dp),
+                        modifier = Modifier
+                            .padding(top = 12.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable {
+                                showPerfilScreen = true
+                                drawerScope.launch { drawerState.close() }
+                            }
+                            .padding(4.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Box(
@@ -1002,18 +1027,20 @@ fun ManutencaoScreen(
                                 horizontalArrangement = Arrangement.spacedBy(0.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                IconButton(
-                                    onClick = { showPremiumInfo = true },
-                                    modifier = Modifier
-                                        .size(38.dp)
-                                        .onGloballyPositioned { premiumButtonRect = it.boundsInRoot() }
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Diamond,
-                                        contentDescription = "Premium",
-                                        tint = Color(0xFFD4A017),
-                                        modifier = Modifier.size(24.dp)
-                                    )
+                                if (planTier == PlanTier.FREE) {
+                                    IconButton(
+                                        onClick = { showPremiumBeneficiosScreen = true },
+                                        modifier = Modifier
+                                            .size(38.dp)
+                                            .onGloballyPositioned { premiumButtonRect = it.boundsInRoot() }
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Diamond,
+                                            contentDescription = "Premium",
+                                            tint = Color(0xFFD4A017),
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                    }
                                 }
                                 Box(
                                     modifier = Modifier.size(38.dp),
@@ -1082,9 +1109,11 @@ fun ManutencaoScreen(
                             onNextCar = {
                                 if (indiceCarroAtual < listaCarros.lastIndex) indiceCarroAtual++ else indiceCarroAtual = 0
                             },
-                            onOpenCarInfo = { showCarInfoScreen = true },
+                            onOpenCarInfo = { showGaragemScreen = true },
                             onEditCar = { showEditCarScreen = true },
                             onOpenRelatorio = { showCarInfoScreen = true },
+                            onOpenFuelHistory = { showHistoricoAbastecimentoScreen = true },
+                            showFuelHistoryAction = !isBikeCategory(carroAtual.tipoVeiculo),
                             onNovoLembrete = {
                                 iniciarCameraProduto = false
                                 showTipoAvisoDialog = true
@@ -1097,25 +1126,7 @@ fun ManutencaoScreen(
 
                     Spacer(Modifier.height(8.dp))
 
-                    if (carroAtual.tipoVeiculo != TipoVeiculo.BICICLETA) {
-                        OutlinedButton(
-                            onClick = { showHistoricoAbastecimentoScreen = true },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp)
-                                .height(44.dp)
-                                .onGloballyPositioned { fuelHistoryButtonRect = it.boundsInRoot() },
-                            shape = RoundedCornerShape(12.dp),
-                            border = BorderStroke(1.dp, if (isDark) Color.White.copy(alpha = 0.25f) else Color.Black),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = if (isDark) Color.White else Color.Black)
-                        ) {
-                            Icon(Icons.Default.LocalGasStation, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text("Historico de abastecimento", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                        }
-                    }
-
-                    if (carroAtual.tipoVeiculo == TipoVeiculo.BICICLETA) {
+                    if (isBikeCategory(carroAtual.tipoVeiculo)) {
                         val formatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
                         val pedaladasDoCarro = pedaladas.filter { it.carroId == carroAtual.id }
                         val hoje = LocalDate.now()
@@ -1151,39 +1162,13 @@ fun ManutencaoScreen(
                         Spacer(Modifier.height(16.dp))
                     }
 
-                    val categoriasDisponiveis = if (carroAtual.tipoVeiculo == TipoVeiculo.BICICLETA) {
-                        listOf(
-                            TipoManutencao.CORRENTE,
-                            TipoManutencao.LUBRIFICACAO,
-                            TipoManutencao.PEDIVELA,
-                            TipoManutencao.ACESSORIOS,
-                            TipoManutencao.CONFORTO,
-                            TipoManutencao.FREIO,
-                            TipoManutencao.PNEU,
-                            TipoManutencao.TRANSMISSAO,
-                            TipoManutencao.REVISAO,
-                            TipoManutencao.OUTROS
-                        )
-                    } else {
-                        listOf(
-                            TipoManutencao.OLEO,
-                            TipoManutencao.MECANICA,
-                            TipoManutencao.FUNILARIA,
-                            TipoManutencao.BATERIA,
-                            TipoManutencao.FREIO,
-                            TipoManutencao.PNEU,
-                            TipoManutencao.LICENCIAMENTO,
-                            TipoManutencao.IPVA,
-                            TipoManutencao.SEGURO,
-                            TipoManutencao.OUTROS
-                        )
-                    }
-                    val iconOverrides = if (carroAtual.tipoVeiculo == TipoVeiculo.BICICLETA) {
-                        mapOf(TipoManutencao.FREIO to Icons.Rounded.DirectionsBike)
+                    val categoriasDisponiveis = tiposAvisoPorVeiculo(carroAtual.tipoVeiculo)
+                    val iconOverrides = if (isBikeCategory(carroAtual.tipoVeiculo)) {
+                        mapOf(TipoManutencao.FREIO to Icons.Rounded.TireRepair)
                     } else {
                         emptyMap()
                     }
-                    val labelOverrides = if (carroAtual.tipoVeiculo == TipoVeiculo.BICICLETA) {
+                    val labelOverrides = if (isBikeCategory(carroAtual.tipoVeiculo)) {
                         mapOf(TipoManutencao.REVISAO to "Peças")
                     } else {
                         emptyMap()
@@ -2150,6 +2135,81 @@ private fun LembreteDetalhesScreen(
 }
 
 // ----------------- FUNÇÕES AUXILIARES DE ESTILO E LÓGICA -----------------
+
+private fun isBikeCategory(tipoVeiculo: TipoVeiculo): Boolean =
+    tipoVeiculo == TipoVeiculo.BICICLETA || tipoVeiculo == TipoVeiculo.BIKE_ELETRICA
+
+private fun showFuelReminder(tipoVeiculo: TipoVeiculo): Boolean =
+    tipoVeiculo != TipoVeiculo.BICICLETA &&
+        tipoVeiculo != TipoVeiculo.BIKE_ELETRICA &&
+        tipoVeiculo != TipoVeiculo.VEICULO_ELETRICO
+
+private fun tiposAvisoPorVeiculo(tipoVeiculo: TipoVeiculo): List<TipoManutencao> = when (tipoVeiculo) {
+    TipoVeiculo.BICICLETA -> listOf(
+        TipoManutencao.CORRENTE,
+        TipoManutencao.LUBRIFICACAO,
+        TipoManutencao.PEDIVELA,
+        TipoManutencao.ACESSORIOS,
+        TipoManutencao.CONFORTO,
+        TipoManutencao.FREIO,
+        TipoManutencao.PNEU,
+        TipoManutencao.TRANSMISSAO,
+        TipoManutencao.REVISAO,
+        TipoManutencao.OUTROS
+    )
+    TipoVeiculo.BIKE_ELETRICA -> listOf(
+        TipoManutencao.CORRENTE,
+        TipoManutencao.LUBRIFICACAO,
+        TipoManutencao.PEDIVELA,
+        TipoManutencao.ACESSORIOS,
+        TipoManutencao.CONFORTO,
+        TipoManutencao.FREIO,
+        TipoManutencao.PNEU,
+        TipoManutencao.TRANSMISSAO,
+        TipoManutencao.BATERIA,
+        TipoManutencao.REVISAO,
+        TipoManutencao.OUTROS
+    )
+    TipoVeiculo.VEICULO_ELETRICO -> listOf(
+        TipoManutencao.BATERIA,
+        TipoManutencao.PNEU,
+        TipoManutencao.MECANICA,
+        TipoManutencao.REVISAO,
+        TipoManutencao.LICENCIAMENTO,
+        TipoManutencao.IPVA,
+        TipoManutencao.SEGURO,
+        TipoManutencao.OUTROS
+    )
+    TipoVeiculo.ONIBUS,
+    TipoVeiculo.CAMINHAO,
+    TipoVeiculo.TRATOR -> listOf(
+        TipoManutencao.OLEO,
+        TipoManutencao.MECANICA,
+        TipoManutencao.BATERIA,
+        TipoManutencao.PNEU,
+        TipoManutencao.REVISAO,
+        TipoManutencao.LICENCIAMENTO,
+        TipoManutencao.SEGURO,
+        TipoManutencao.OUTROS
+    )
+    TipoVeiculo.CARRETINHA -> listOf(
+        TipoManutencao.PNEU,
+        TipoManutencao.LICENCIAMENTO,
+        TipoManutencao.SEGURO,
+        TipoManutencao.OUTROS
+    )
+    else -> listOf(
+        TipoManutencao.OLEO,
+        TipoManutencao.MECANICA,
+        TipoManutencao.FUNILARIA,
+        TipoManutencao.BATERIA,
+        TipoManutencao.PNEU,
+        TipoManutencao.LICENCIAMENTO,
+        TipoManutencao.IPVA,
+        TipoManutencao.SEGURO,
+        TipoManutencao.OUTROS
+    )
+}
 
 fun calcularCorStatusLocal(lembretes: List<Lembrete>, tipo: TipoManutencao): Color {
     return when (tipo) {

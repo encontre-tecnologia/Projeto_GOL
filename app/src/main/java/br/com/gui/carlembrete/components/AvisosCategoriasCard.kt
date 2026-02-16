@@ -15,35 +15,26 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.EventNote
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.rounded.Message
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -63,6 +54,7 @@ private data class AvisosPalette(
     val cardBackground: Color,
     val itemBackground: Color,
     val surfaceHighlight: Color,
+    val categoryBadgeBorder: Color,
     val textPrimary: Color,
     val textSecondary: Color,
     val accent: Color,
@@ -74,9 +66,10 @@ private fun avisosPalette(): AvisosPalette {
     val scheme = MaterialTheme.colorScheme
     val isDark = scheme.background.luminance() < 0.5f
     return AvisosPalette(
-        cardBackground = if (isDark) Color(0xFF2B3950) else Color.White,
-        itemBackground = if (isDark) Color(0xFF0F172A) else Color(0xFFF8FAFC),
+        cardBackground = if (isDark) Color(0xFF334155) else Color.White,
+        itemBackground = if (isDark) Color(0xFF1E293B) else Color(0xFFF8FAFC),
         surfaceHighlight = if (isDark) Color(0xFF334155) else Color(0xFFCBD5E1),
+        categoryBadgeBorder = if (isDark) Color(0xFF2B3950) else Color.White,
         textPrimary = scheme.onSurface,
         textSecondary = scheme.onSurfaceVariant,
         accent = scheme.primary,
@@ -112,14 +105,7 @@ fun AvisosCategoriasCard(
 ) {
     val palette = avisosPalette()
     val cardBorderColor = if (palette.isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.35f)
-    val searchBorderColor = if (palette.isDark) Color.White.copy(alpha = 0.55f) else Color.Black.copy(alpha = 0.65f)
     val scrollState = rememberScrollState()
-    val keyboardController = LocalSoftwareKeyboardController.current
-    val focusManager = LocalFocusManager.current
-    var buscaLocal by remember { mutableStateOf(buscaTexto) }
-    androidx.compose.runtime.LaunchedEffect(buscaTexto) {
-        if (buscaLocal != buscaTexto) buscaLocal = buscaTexto
-    }
 
     // Container Pai com Sombra
     Box(
@@ -263,44 +249,7 @@ fun AvisosCategoriasCard(
                 }
 
                 Spacer(Modifier.height(16.dp))
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    SearchTextFieldLocal(
-                        value = buscaLocal,
-                        onValueChange = { buscaLocal = it },
-                        placeholder = "Buscar lembrete",
-                        textColor = palette.textPrimary,
-                        placeholderColor = palette.textSecondary,
-                        borderColor = searchBorderColor,
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(44.dp)
-                    )
-                    OutlinedButton(
-                        onClick = {
-                            onBuscar(buscaLocal)
-                            keyboardController?.hide()
-                            focusManager.clearFocus()
-                        },
-                        border = BorderStroke(1.dp, searchBorderColor),
-                        colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
-                            containerColor = palette.accent,
-                            contentColor = Color.White
-                        ),
-                        contentPadding = PaddingValues(0.dp),
-                        shape = CircleShape,
-                        modifier = Modifier.size(40.dp)
-                    ) {
-                        Icon(Icons.Default.Search, contentDescription = "Buscar", modifier = Modifier.size(20.dp))
-                    }
-                }
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(8.dp))
 
                 // --- LISTA DE LEMBRETES ---
                 if (lembretesComBusca.isEmpty()) {
@@ -422,33 +371,6 @@ fun LembreteCardLocal(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-
-                // Valor (Design Clean)
-                Surface(
-                    color = Color.Transparent,
-                    shape = RoundedCornerShape(8.dp),
-                    border = BorderStroke(1.dp, MoneyGreen.copy(alpha = 0.3f))
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "R$",
-                            color = MoneyGreen,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(end = 2.dp)
-                        )
-                        Text(
-                            text = valorFormatado.replace("R$", "").trim(),
-                            color = MoneyGreen,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-
                 // BotÃ£o WhatsApp
                 if (contato != null) {
                     Surface(
@@ -521,6 +443,32 @@ fun LembreteCardLocal(
                         }
                     }
                 }
+
+                // Valor (Design Clean)
+                Surface(
+                    color = Color.Transparent,
+                    shape = RoundedCornerShape(8.dp),
+                    border = BorderStroke(1.dp, MoneyGreen.copy(alpha = 0.3f))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "R$",
+                            color = MoneyGreen,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(end = 2.dp)
+                        )
+                        Text(
+                            text = valorFormatado.replace("R$", "").trim(),
+                            color = MoneyGreen,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
             }
         }
     }
@@ -562,8 +510,12 @@ fun MonitorIcon(
                     .clip(CircleShape)
                     .background(animatedColor)
                     .border(
-                        width = if(selected) 2.dp else 0.dp,
-                        color = if(selected) Color.White.copy(alpha=0.2f) else Color.Transparent,
+                        width = if (selected) 2.dp else 1.5.dp,
+                        color = if (selected) {
+                            Color.White.copy(alpha = 0.2f)
+                        } else {
+                            palette.textSecondary.copy(alpha = 0.35f)
+                        },
                         shape = CircleShape
                     ),
                 contentAlignment = Alignment.Center
@@ -587,7 +539,7 @@ fun MonitorIcon(
                         .offset(x = 4.dp, y = (-2).dp)
                         .size(24.dp)
                         .background(Color(0xFFEF4444), CircleShape)
-                        .border(2.dp, palette.cardBackground, CircleShape),
+                        .border(2.dp, palette.categoryBadgeBorder, CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
@@ -636,8 +588,12 @@ private fun MonitorAllIcon(selected: Boolean, onClick: () -> Unit) {
                 .clip(CircleShape)
                 .background(animatedColor)
                 .border(
-                    width = if(selected) 2.dp else 0.dp,
-                    color = if(selected) Color.White.copy(alpha=0.2f) else Color.Transparent,
+                    width = if (selected) 2.dp else 1.5.dp,
+                    color = if (selected) {
+                        Color.White.copy(alpha = 0.2f)
+                    } else {
+                        palette.textSecondary.copy(alpha = 0.35f)
+                    },
                     shape = CircleShape
                 ),
             contentAlignment = Alignment.Center
@@ -683,37 +639,6 @@ private fun EmptyStateView(textColor: Color) {
         Spacer(Modifier.height(16.dp))
         Text("Tudo 100%!", color = palette.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
         Text("Nenhum aviso nessa categoria.", color = textColor, fontSize = 13.sp)
-    }
-}
-
-@Composable
-private fun SearchTextFieldLocal(
-    value: String,
-    onValueChange: (String) -> Unit,
-    placeholder: String,
-    textColor: Color,
-    placeholderColor: Color,
-    borderColor: Color,
-    modifier: Modifier = Modifier
-) {
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(8.dp))
-            .border(1.dp, borderColor, RoundedCornerShape(8.dp))
-            .padding(horizontal = 12.dp),
-        contentAlignment = Alignment.CenterStart
-    ) {
-        androidx.compose.foundation.text.BasicTextField(
-            value = value,
-            onValueChange = onValueChange,
-            singleLine = true,
-            cursorBrush = SolidColor(textColor),
-            textStyle = TextStyle(color = textColor, fontSize = 13.sp),
-            modifier = Modifier.fillMaxWidth()
-        )
-        if (value.isEmpty()) {
-            Text(placeholder, color = placeholderColor, fontSize = 13.sp)
-        }
     }
 }
 

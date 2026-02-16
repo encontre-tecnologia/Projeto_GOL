@@ -17,7 +17,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBackIosNew
 import androidx.compose.material.icons.filled.Mic
@@ -35,7 +34,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
@@ -59,14 +57,13 @@ fun EditarCarroScreen(
     onExcluir: () -> Unit
 ) {
     val context = LocalContext.current
-    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
-    val primaryDark = Color(0xFF121B30)
-    val accentBlue = Color(0xFF3B82F6)
-    val screenBackground = if (isDark) Brush.verticalGradient(listOf(Color(0xFF16233A), primaryDark, Color(0xFF0F172A))) else Brush.verticalGradient(listOf(Color(0xFFF4F7FB), Color(0xFFEFF3FA)))
-    val sectionBorder = if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.10f)
-    val titleColor = if (isDark) Color.White else Color(0xFF0F172A)
-    val textSecondary = if (isDark) Color(0xFFCBD5E1) else Color(0xFF334155)
-    val actionOutline = if (isDark) Color.White else Color.Black
+    val scheme = MaterialTheme.colorScheme
+    val titleColor = scheme.onBackground
+    val textSecondary = scheme.onSurfaceVariant
+    val accentBlue = scheme.primary
+    val actionOutline = scheme.onBackground
+    val sectionBorder = scheme.outlineVariant
+    val bgLight = scheme.background
     val textFieldColors = OutlinedTextFieldDefaults.colors(
         focusedTextColor = titleColor,
         unfocusedTextColor = titleColor,
@@ -91,6 +88,7 @@ fun EditarCarroScreen(
     var alvoVoz by remember { mutableStateOf("nome") }
     val contentScrollState = rememberScrollState()
     val showTopBar by remember { derivedStateOf { contentScrollState.value <= 8 } }
+    val isBikeType = tipoSelecionado == TipoVeiculo.BICICLETA || tipoSelecionado == TipoVeiculo.BIKE_ELETRICA
 
     val speechLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
@@ -134,17 +132,23 @@ fun EditarCarroScreen(
     }
 
     Scaffold(
-        containerColor = Color.Transparent,
+        containerColor = bgLight,
         topBar = {
             if (showTopBar) {
-                TopAppBar(
-                    title = { Text("Editar veiculo", color = titleColor, fontWeight = FontWeight.Bold) },
+                CenterAlignedTopAppBar(
+                    title = {
+                        Text(
+                            if (isBikeType) "Editar bike" else "Editar veiculo",
+                            color = titleColor,
+                            fontWeight = FontWeight.Bold
+                        )
+                    },
                     navigationIcon = {
                         IconButton(onClick = onDismiss) {
                             Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar", tint = titleColor)
                         }
                     },
-                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = bgLight)
                 )
             }
         }
@@ -152,7 +156,7 @@ fun EditarCarroScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(screenBackground)
+                .background(bgLight)
                 .padding(innerPadding)
         ) {
             Column(
@@ -162,16 +166,29 @@ fun EditarCarroScreen(
                     .padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                EditHeroCard(
-                    nome = if (nome.isNotBlank()) nome else carroAtual.nome,
-                    modelo = if (modelo.isNotBlank()) modelo else carroAtual.modelo,
-                    tipoVeiculo = tipoSelecionado,
-                    cor = corSelecionada,
-                    accent = accentBlue,
-                    isDark = isDark
-                )
+                EditSectionCard(title = "", icon = null) {
+                    OutlinedTextField(
+                        value = tipoSelecionado.label,
+                        onValueChange = {},
+                        readOnly = true,
+                        enabled = false,
+                        label = { Text("Tipo") },
+                        singleLine = true,
+                        colors = textFieldColors,
+                        modifier = Modifier.fillMaxWidth()
+                    )
 
-                EditSectionCard(title = "Dados do veiculo", icon = Icons.Rounded.DirectionsCar) {
+                    OutlinedTextField(
+                        value = marca,
+                        onValueChange = {},
+                        readOnly = true,
+                        enabled = false,
+                        label = { Text("Marca") },
+                        singleLine = true,
+                        colors = textFieldColors,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
                     OutlinedTextField(
                         value = nome,
                         onValueChange = { nome = it },
@@ -189,25 +206,27 @@ fun EditarCarroScreen(
                     val motorLabel = if (tipoSelecionado == TipoVeiculo.BICICLETA) "Aro" else "Motor"
                     OutlinedTextField(
                         value = modelo,
-                        onValueChange = { modelo = it },
+                        onValueChange = {},
+                        readOnly = true,
+                        enabled = false,
                         label = { Text(motorLabel) },
                         singleLine = true,
-                        trailingIcon = {
-                            IconButton(onClick = ::iniciarCapturaVozMotor) {
-                                Icon(Icons.Default.Mic, contentDescription = "Falar motor")
-                            }
-                        },
                         colors = textFieldColors,
                         modifier = Modifier.fillMaxWidth()
                     )
 
-                }
-
-                EditSectionCard(title = "Proprietario e uso", icon = Icons.Rounded.Person) {
+                    val labelQuemUsa = if (
+                        tipoSelecionado == TipoVeiculo.BICICLETA ||
+                        tipoSelecionado == TipoVeiculo.BIKE_ELETRICA
+                    ) {
+                        "Quem usa essa bike?"
+                    } else {
+                        "Quem usa esse veiculo?"
+                    }
                     OutlinedTextField(
                         value = proprietario,
                         onValueChange = { proprietario = it },
-                        label = { Text("Proprietario") },
+                        label = { Text(labelQuemUsa) },
                         singleLine = true,
                         colors = textFieldColors,
                         modifier = Modifier.fillMaxWidth()
@@ -216,18 +235,11 @@ fun EditarCarroScreen(
                     OutlinedTextField(
                         value = kmAtualStr,
                         onValueChange = { kmAtualStr = formatarKmTextoLocal(it) },
-                        label = { Text("KM Atual (Painel)") },
+                        label = { Text("KM atual") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         singleLine = true,
                         colors = textFieldColors,
                         modifier = Modifier.fillMaxWidth()
-                    )
-                }
-
-                EditSectionCard(title = "Cor do veiculo", icon = Icons.Rounded.Edit) {
-                    ColorRow(
-                        selecionada = corSelecionada,
-                        onSelect = { corSelecionada = it }
                     )
                 }
 
@@ -251,7 +263,7 @@ fun EditarCarroScreen(
                     colors = ButtonDefaults.buttonColors(containerColor = accentBlue),
                     shape = RoundedCornerShape(14.dp)
                 ) {
-                    Text("Salvar alteracoes", color = Color.White, fontWeight = FontWeight.Bold)
+                    Text("Salvar Alterações", color = Color.White, fontWeight = FontWeight.Bold)
                 }
 
                 OutlinedButton(
@@ -332,7 +344,7 @@ private fun EditHeroCard(
 @Composable
 private fun EditSectionCard(
     title: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    icon: androidx.compose.ui.graphics.vector.ImageVector?,
     content: @Composable ColumnScope.() -> Unit
 ) {
     val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
@@ -352,10 +364,12 @@ private fun EditSectionCard(
                 .padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(icon, contentDescription = null, tint = iconColor, modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(title, color = titleColor, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+            if (title.isNotBlank() && icon != null) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(icon, contentDescription = null, tint = iconColor, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(title, color = titleColor, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                }
             }
             content()
         }

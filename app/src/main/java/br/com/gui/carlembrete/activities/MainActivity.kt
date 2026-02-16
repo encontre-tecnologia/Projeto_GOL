@@ -74,14 +74,14 @@ class MainActivity : ComponentActivity() {
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { isGranted ->
-        if (!isGranted) Toast.makeText(this, "Permiss�o de c�mera necess�ria", Toast.LENGTH_SHORT).show()
+        if (!isGranted) Toast.makeText(this, "Permissão de câmera necessária", Toast.LENGTH_SHORT).show()
     }
 
     private val requestNotificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (!granted) {
-            Toast.makeText(this, "Ative as notifica��es para receber os avisos programados", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Ative as notificações para receber os avisos programados", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -261,12 +261,12 @@ fun formatarMoeda(valor: Double): String = NumberFormat.getCurrencyInstance(Loca
 
 fun gerarResumoRelatorio(carro: CarroInfo, lembretes: List<Lembrete>, isPremium: Boolean): String {
     val builder = StringBuilder()
-    builder.appendLine("Relat�rio do ve�culo")
+    builder.appendLine("Relatório do veículo")
     builder.appendLine("Nome: ${carro.nome}")
-    builder.appendLine("Propriet�rio: ${carro.proprietario.ifBlank { "N�o informado" }}")
-    builder.appendLine("Marca: ${carro.marca.ifBlank { "N�o informada" }}")
+    builder.appendLine("Proprietário: ${carro.proprietario.ifBlank { "Não informado" }}")
+    builder.appendLine("Marca: ${carro.marca.ifBlank { "Não informada" }}")
     builder.appendLine("Modelo: ${carro.modelo}")
-    builder.appendLine("Od�metro: ${if (carro.kmAtual > 0) "${carro.kmAtual} km" else "N�o informado"}")
+    builder.appendLine("Odômetro: ${if (carro.kmAtual > 0) "${carro.kmAtual} km" else "Não informado"}")
     builder.appendLine()
     builder.appendLine("Avisos ativos: ${lembretes.size}")
     TipoManutencao.values().forEach { tipo ->
@@ -275,7 +275,7 @@ fun gerarResumoRelatorio(carro: CarroInfo, lembretes: List<Lembrete>, isPremium:
     }
     if (lembretes.isNotEmpty()) {
         builder.appendLine()
-        builder.appendLine("Detalhes dos próximos serviçõs:")
+        builder.appendLine("Detalhes dos próximos serviços:")
         lembretes.sortedBy { it.dataLimite }.forEach { lembrete ->
             builder.appendLine("* ${lembrete.titulo} - Data: ${lembrete.dataLimite.ifBlank { "Sem data" }} - KM: ${lembrete.kmLimite.ifBlank { "-" }}")
         }
@@ -292,7 +292,7 @@ fun compartilharRelatorio(context: Context, texto: String) {
         type = "text/plain"
         putExtra(Intent.EXTRA_TEXT, texto)
     }
-    context.startActivity(Intent.createChooser(intent, "Compartilhar relat�rio"))
+    context.startActivity(Intent.createChooser(intent, "Compartilhar relatório"))
 }
 
 fun gerarPdfRelatorio(context: Context, carro: CarroInfo, lembretes: List<Lembrete>, isPremium: Boolean): Uri? {

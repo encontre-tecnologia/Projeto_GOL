@@ -5,14 +5,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ChevronLeft
-import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.rounded.Build
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Event
-import androidx.compose.material.icons.rounded.Person
-import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.WaterDrop
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -39,6 +34,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import br.com.gui.carlembrete.CarroInfo
+import br.com.gui.carlembrete.TipoVeiculo
 import br.com.gui.carlembrete.VehicleIcon
 
 private data class CarCardPalette(
@@ -72,6 +68,8 @@ fun CarroInfoCard(
     onOpenCarInfo: () -> Unit,
     onEditCar: () -> Unit,
     onOpenRelatorio: () -> Unit,
+    onOpenFuelHistory: () -> Unit,
+    showFuelHistoryAction: Boolean = false,
     onNovoLembrete: () -> Unit,
     nomeMantedor: String,
     textLight: Color,
@@ -81,6 +79,20 @@ fun CarroInfoCard(
     val palette = carCardPalette()
     val heroTextColor = Color.White
     val cardBorderColor = if (palette.isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.35f)
+    val nomeProprietarioExibido = carroAtual.proprietario
+        .trim()
+        .ifBlank { nomeMantedor.trim() }
+        .split(" ")
+        .firstOrNull()
+        .orEmpty()
+    val anoVeiculo = extrairAnoVeiculo(carroAtual.modelo)
+    val modeloSemAno = removerAnoDoModelo(carroAtual.modelo).ifBlank { carroAtual.modelo.ifBlank { "N/A" } }
+    val vehicleIconOffsetY = if (carroAtual.tipoVeiculo == TipoVeiculo.BICICLETA) (-12).dp else 0.dp
+    val marcaModeloAno = listOf(
+        carroAtual.marca.uppercase().takeIf { it.isNotBlank() },
+        modeloSemAno.takeIf { it.isNotBlank() },
+        anoVeiculo
+    ).filterNotNull().joinToString(" • ")
     // Cores DinÃ¢micas baseadas no carro (Apenas para o card interno do carro)
     val baseColor = carroAtual.getCorUI()
     val carDisplayGradientStart = lerp(Color(0xFF1E293B), baseColor, 0.55f)
@@ -113,7 +125,7 @@ fun CarroInfoCard(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(260.dp)
+                        .height(248.dp)
                         .clip(RoundedCornerShape(22.dp))
                         // O degradÃª fica SÃ“ aqui dentro, na imagem do carro
                         .background(
@@ -133,25 +145,21 @@ fun CarroInfoCard(
                     Column(
                         modifier = Modifier.fillMaxSize()
                     ) {
-                        // CABEÃ‡ALHO (Nav + Nome)
+                        // CABEÇALHO (Nome)
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(top = 16.dp, start = 8.dp, end = 8.dp),
+                                .padding(top = 18.dp, start = 8.dp, end = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                            horizontalArrangement = Arrangement.Center
                         ) {
-                            IconButton(onClick = onPrevCar) {
-                                Icon(Icons.Default.ChevronLeft, null, tint = heroTextColor.copy(0.75f), modifier = Modifier.size(32.dp))
-                            }
-
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Text(
-                                    text = carroAtual.marca.uppercase(),
+                                    text = marcaModeloAno,
                                     fontSize = 12.sp,
                                     color = heroTextColor.copy(alpha = 0.7f),
                                     fontWeight = FontWeight.SemiBold,
-                                    letterSpacing = 2.sp
+                                    letterSpacing = 1.sp
                                 )
                                 Text(
                                     text = carroAtual.nome,
@@ -161,21 +169,6 @@ fun CarroInfoCard(
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
-                                val subtitulo = if (carroAtual.tipoVeiculo == br.com.gui.carlembrete.TipoVeiculo.BICICLETA) {
-                                    "Aro: ${carroAtual.modelo.ifBlank { "Nao informado" }}"
-                                } else {
-                                    carroAtual.modelo.ifBlank { "Padrao" }
-                                }
-                                Text(
-                                    text = subtitulo,
-                                    fontSize = 14.sp,
-                                    color = heroTextColor.copy(alpha = 0.9f),
-                                    fontWeight = FontWeight.Medium
-                                )
-                            }
-
-                            IconButton(onClick = onNextCar) {
-                                Icon(Icons.Default.ChevronRight, null, tint = heroTextColor.copy(0.75f), modifier = Modifier.size(32.dp))
                             }
                         }
 
@@ -197,53 +190,22 @@ fun CarroInfoCard(
                                     )
                             )
 
-                            val isBikeIcon = carroAtual.tipoVeiculo == br.com.gui.carlembrete.TipoVeiculo.BICICLETA
                             VehicleIcon(
                                 tipoVeiculo = carroAtual.tipoVeiculo,
-                                tint = if (isBikeIcon) heroTextColor else null,
-                                size = if (isBikeIcon) 88.dp else 210.dp
+                                tint = null,
+                                size = 210.dp,
+                                modifier = Modifier.offset(y = vehicleIconOffsetY)
                             )
-                        }
 
-                        // RODAPÃ‰ DO DISPLAY (Barra de Status Glassmorphic)
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(Color.Black.copy(alpha = 0.3f))
-                                .padding(vertical = 12.dp, horizontal = 16.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            // Info Mantedor
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Rounded.Person, null, tint = baseColor, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(6.dp))
-                                Text(
-                                    text = if (nomeMantedor.isNotBlank()) nomeMantedor else carroAtual.proprietario.split(" ").first(),
-                                    color = heroTextColor.copy(0.92f),
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-
-                            if (carroAtual.tipoVeiculo != br.com.gui.carlembrete.TipoVeiculo.BICICLETA) {
-                                // Separador vertical
-                                Box(modifier = Modifier.width(1.dp).height(12.dp).background(heroTextColor.copy(0.25f)))
-                            }
-
-                            if (carroAtual.tipoVeiculo != br.com.gui.carlembrete.TipoVeiculo.BICICLETA) {
-                                // Info KM
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Rounded.Speed, null, tint = baseColor, modifier = Modifier.size(16.dp))
-                                    Spacer(Modifier.width(6.dp))
-                                    Text(
-                                        text = if (carroAtual.kmAtual > 0) "${carroAtual.kmAtual} KM" else "--",
-                                        color = heroTextColor.copy(0.92f),
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                            }
+                            Text(
+                                text = "Veículo de: $nomeProprietarioExibido",
+                                modifier = Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .padding(bottom = 24.dp),
+                                color = heroTextColor.copy(alpha = 0.95f),
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
                         }
                     }
                 }
@@ -293,21 +255,22 @@ fun CarroInfoCard(
     }
 }
 
+private fun extrairAnoVeiculo(modelo: String): String? {
+    val match = Regex("(19|20)\\d{2}(?:/(19|20)\\d{2})?").find(modelo)
+    return match?.value
+}
+
+private fun removerAnoDoModelo(modelo: String): String {
+    return modelo
+        .replace(Regex("(19|20)\\d{2}(?:/(19|20)\\d{2})?"), "")
+        .replace(Regex("\\s{2,}"), " ")
+        .trim()
+}
+
 // Sub-componente de decoraÃ§Ãµes
 @Composable
 fun DecoracoesDeFundo(color: Color) {
-    Box(Modifier.fillMaxSize()) {
-        Icon(
-            imageVector = Icons.Rounded.Build,
-            contentDescription = null,
-            tint = color.copy(alpha = 0.05f),
-            modifier = Modifier
-                .size(160.dp)
-                .align(Alignment.BottomEnd)
-                .offset(x = 40.dp, y = 40.dp)
-                .rotate(-20f)
-        )
-    }
+    Box(Modifier.fillMaxSize())
 }
 
 @Composable

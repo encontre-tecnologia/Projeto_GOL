@@ -1,12 +1,12 @@
 ﻿package br.com.gui.carlembrete
 
 import android.widget.Toast
+import HistoricoAbastecimentoScreen
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -32,7 +32,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import br.com.gui.carlembrete.VehicleIcon
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowInsetsControllerCompat
 import java.time.LocalDate
@@ -62,6 +61,7 @@ fun CarroInfoScreen(
     val totalGastos = lembretes.sumOf { it.valor }
     val context = LocalContext.current
     val view = LocalView.current
+    var showHistoricoConsumo by remember { mutableStateOf(false) }
 
     DisposableEffect(view, isDark) {
         val activity = view.context as? android.app.Activity
@@ -94,6 +94,8 @@ fun CarroInfoScreen(
         val data = dataParaOrdenacao(it)
         if (data == LocalDate.MAX) null else data.format(DateTimeFormatter.ofPattern("dd/MM"))
     } ?: "--"
+    val anoVeiculo = extrairAnoVeiculo(carro.modelo) ?: "--"
+    val modeloSemAno = removerAnoDoModelo(carro.modelo).ifBlank { carro.modelo.ifBlank { "--" } }
 
     val corNome = corNomePorArgb(carro.corArgb)
     val (tituloSaude, descricaoSaude) = calcularReputacao(lembretes)
@@ -155,6 +157,14 @@ fun CarroInfoScreen(
         }
         .sortedByDescending { it.count }
         .take(5)
+
+    if (showHistoricoConsumo) {
+        HistoricoAbastecimentoScreen(
+            carroId = carro.id,
+            onDismiss = { showHistoricoConsumo = false }
+        )
+        return
+    }
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
@@ -224,28 +234,6 @@ fun CarroInfoScreen(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier.size(90.dp)
-                ) {
-                    val isBikeIcon = carro.tipoVeiculo == TipoVeiculo.BICICLETA
-                    Box(
-                        modifier = Modifier
-                            .size(84.dp)
-                            .background(if (isDark) Color(carro.corArgb).copy(alpha = 0.72f) else Color(carro.corArgb), CircleShape)
-                            .border(1.dp, cardBorder, CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        VehicleIcon(
-                            tipoVeiculo = carro.tipoVeiculo,
-                            tint = if (isBikeIcon) textLight else null,
-                            size = if (isBikeIcon) 72.dp else 78.dp
-                        )
-                    }
-                }
-
-                Spacer(Modifier.height(0.dp))
-
                 Text(
                     text = carro.nome,
                     style = MaterialTheme.typography.headlineSmall,
@@ -254,13 +242,37 @@ fun CarroInfoScreen(
                 )
 
                 Text(
-                    text = "${carro.marca} • ${carro.modelo.ifBlank { "N/A" }}",
+                    text = listOf(carro.marca, modeloSemAno, anoVeiculo.takeIf { it != "--" })
+                        .filterNotNull()
+                        .filter { it.isNotBlank() }
+                        .joinToString(" • ")
+                        .ifBlank { "N/A" },
                     style = MaterialTheme.typography.bodyMedium,
                     color = textDim
                 )
 
                 Spacer(Modifier.height(24.dp))
             }
+
+            FilledTonalButton(
+                onClick = { showHistoricoConsumo = true },
+                colors = ButtonDefaults.filledTonalButtonColors(
+                    containerColor = pdfContainer,
+                    contentColor = pdfAccent
+                ),
+                border = BorderStroke(1.dp, cardBorder),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+            ) {
+                Icon(Icons.Default.LocalGasStation, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Ver consumo", fontWeight = FontWeight.SemiBold)
+            }
+
+            Spacer(Modifier.height(12.dp))
 
             // --- DASHBOARD STATS (Grid Rápido) ---
             Row(
@@ -296,6 +308,7 @@ fun CarroInfoScreen(
                     modifier = Modifier.weight(1f),
                     title = "Km Atual",
                     value = if(carro.kmAtual > 0) "${carro.kmAtual / 1000}k" else "--",
+                    subValue = "Ano: $anoVeiculo",
                     valueColor = accentColor,
                     icon = Icons.Default.Speed,
                     cardColor = cardColor,
@@ -316,11 +329,15 @@ fun CarroInfoScreen(
                 ContentSection(title = "Ficha Técnica", icon = Icons.Outlined.Build, cardColor = cardColor, titleColor = textLight, borderColor = cardBorder) {
                     InfoRowModern("Cor", corNome, textDim, textLight)
                     Divider(color = dividerColor)
+                    InfoRowModern("Modelo", modeloSemAno, textDim, textLight)
+                    Divider(color = dividerColor)
+                    InfoRowModern("Ano", anoVeiculo, textDim, textLight)
+                    Divider(color = dividerColor)
                     InfoRowModern("Código ID", codigoCurto(carro.id), textDim, textLight)
                     Divider(color = dividerColor)
                     InfoRowModern("Próx. Serviço", proximo, textDim, if(proximo == "--") textDim else accentColor)
                     Divider(color = dividerColor)
-                    InfoRowModern("Proprietário", carro.proprietario.ifBlank { "--" }, textDim, textLight)
+                    InfoRowModern("Mantenedor", carro.proprietario.ifBlank { "--" }, textDim, textLight)
                 }
 
                 // Seção Documentos (apenas para veículos com documentação)
@@ -412,6 +429,7 @@ fun DashboardCard(
     modifier: Modifier = Modifier,
     title: String,
     value: String,
+    subValue: String? = null,
     valueColor: Color,
     icon: ImageVector,
     cardColor: Color,
@@ -435,6 +453,9 @@ fun DashboardCard(
             Icon(icon, contentDescription = null, tint = dimColor.copy(alpha = 0.5f), modifier = Modifier.size(20.dp))
             Column {
                 Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = valueColor, maxLines = 1)
+                if (!subValue.isNullOrBlank()) {
+                    Text(subValue, style = MaterialTheme.typography.labelSmall, color = dimColor, maxLines = 1)
+                }
                 Text(title, style = MaterialTheme.typography.labelSmall, color = dimColor)
             }
         }
@@ -519,3 +540,15 @@ private data class PecaResumo(
     val count: Int,
     val tipo: TipoManutencao
 )
+
+private fun extrairAnoVeiculo(modelo: String): String? {
+    val match = Regex("(19|20)\\d{2}(?:/(19|20)\\d{2})?").find(modelo)
+    return match?.value
+}
+
+private fun removerAnoDoModelo(modelo: String): String {
+    return modelo
+        .replace(Regex("(19|20)\\d{2}(?:/(19|20)\\d{2})?"), "")
+        .replace(Regex("\\s{2,}"), " ")
+        .trim()
+}
