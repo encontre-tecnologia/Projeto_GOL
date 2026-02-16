@@ -1,6 +1,7 @@
 ﻿package br.com.gui.carlembrete
 
 import android.Manifest
+import android.app.Activity
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -24,8 +25,13 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
@@ -54,6 +60,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -63,7 +70,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.core.app.NotificationCompat
@@ -84,9 +90,13 @@ fun AondePareiScreen(
     val prefs = remember { context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE) }
 
     // --- TEMAS E CORES ---
-    val primaryColor = Color(0xFF2563EB) // Azul Zellu
+    val primaryColor = Color(0xFF3B82F6) // Azul Zellu suavizado
     val secondaryColor = Color(0xFF64748B)
     val successColor = Color(0xFF10B981)
+    val themedIconTint = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) Color.White else Color.Black
+    val subscriptionManager = remember { SubscriptionManager(context) }
+    val planTier by subscriptionManager.planTier.collectAsState()
+    val activity = context as? Activity
 
     // --- ESTADOS ---
     var savedLocation by remember { mutableStateOf(AppPreferences.getParkedLocation(context)) }
@@ -94,12 +104,38 @@ fun AondePareiScreen(
 
     val isParkedState = savedLocation != null && !parkingFinalized
 
-    val photoUris = remember { mutableStateListOf<Uri>() }
+    val photoUris = remember {
+        mutableStateListOf<Uri>().apply {
+            addAll(AppPreferences.getParkingPhotoUris(context).map { Uri.parse(it) })
+        }
+    }
     var pendingPhotoUri by remember { mutableStateOf<Uri?>(null) }
     var selectedPhotoUri by remember { mutableStateOf<Uri?>(null) }
 
     var showParkingFinishedDialog by remember { mutableStateOf(false) }
     var showNavigationDialog by remember { mutableStateOf(false) }
+    var showGuardiaoPremiumDialog by remember { mutableStateOf(false) }
+    var showGuardiaoScreen by remember { mutableStateOf(false) }
+    var showPremiumBeneficiosScreen by remember { mutableStateOf(false) }
+    val shieldPulseTransition = rememberInfiniteTransition(label = "shieldButtonPulse")
+    val shieldPulseScale by shieldPulseTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = 1.8f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1700),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "shieldButtonPulseScale"
+    )
+    val shieldPulseAlpha by shieldPulseTransition.animateFloat(
+        initialValue = 0.55f,
+        targetValue = 0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1700),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "shieldButtonPulseAlpha"
+    )
 
     var finishedParkingDurationText by remember { mutableStateOf<String?>(null) }
     var finalizedLocation by remember { mutableStateOf<ParkedLocation?>(null) }
@@ -108,15 +144,20 @@ fun AondePareiScreen(
 
     // --- VEICULOS ---
     val otherVehicleLabel = "Outro"
-    val registeredVehicleNames = remember {
+    val registeredVehicles = remember {
         BancoDeDados.carregarCarros(context).orEmpty()
-            .map { it.nome.ifBlank { "${it.marca} ${it.modelo}".trim().ifBlank { "Veículo sem nome" } } }
-            .filter { it.isNotBlank() }
-            .distinct()
+    }
+    val vehicleDisplayName: (CarroInfo) -> String = { carro ->
+        carro.nome.ifBlank { "${carro.marca} ${carro.modelo}".trim().ifBlank { "Veículo sem nome" } }
+    }
+    val registeredVehicleNames = remember(registeredVehicles) {
+        registeredVehicles.map(vehicleDisplayName).filter { it.isNotBlank() }.distinct()
     }
     var showVehicleSelectorDialog by remember { mutableStateOf(false) }
     var selectedVehicleName by remember { mutableStateOf(registeredVehicleNames.firstOrNull().orEmpty()) }
     var customVehicleName by remember { mutableStateOf("") }
+    var showVehicleImageDialog by remember { mutableStateOf(false) }
+    var previewVehicleType by remember { mutableStateOf(TipoVeiculo.HATCH) }
 
     // --- LAUNCHERS ---
     val locationPermissionLauncher = rememberLauncherForActivityResult(
@@ -126,6 +167,8 @@ fun AondePareiScreen(
             savedLocation = it
             parkingFinalized = false
             AppPreferences.setParkingFinalized(context, false)
+            photoUris.clear()
+            AppPreferences.clearParkingPhotoUris(context)
             showParkingOngoingNotification(context, it)
         }
         else Toast.makeText(context, "Permissão necessária para salvar o local.", Toast.LENGTH_SHORT).show()
@@ -134,7 +177,17 @@ fun AondePareiScreen(
     val cameraLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.TakePicture()
     ) { success ->
-        if (success) pendingPhotoUri?.let { photoUris.add(it) }
+        if (success) {
+            pendingPhotoUri?.let {
+                photoUris.add(it)
+                AppPreferences.addParkingPhotoUri(context, it.toString())
+            }
+        }
+    }
+
+    DisposableEffect(Unit) {
+        subscriptionManager.connect()
+        onDispose { subscriptionManager.disconnect() }
     }
 
     LaunchedEffect(savedLocation, parkingFinalized) {
@@ -152,6 +205,8 @@ fun AondePareiScreen(
                 savedLocation = it
                 parkingFinalized = false
                 AppPreferences.setParkingFinalized(context, false)
+                photoUris.clear()
+                AppPreferences.clearParkingPhotoUris(context)
                 showParkingOngoingNotification(context, it)
             }
         } else {
@@ -168,9 +223,23 @@ fun AondePareiScreen(
         }
     }
 
+    if (showGuardiaoScreen) {
+        AnjoDaGuardaScreen(onDismiss = { showGuardiaoScreen = false })
+        return
+    }
+    if (showPremiumBeneficiosScreen) {
+        PremiumBeneficiosScreen(
+            onDismiss = { showPremiumBeneficiosScreen = false },
+            onSubscribeNow = {
+                if (activity != null) subscriptionManager.launchPurchaseFlow(activity)
+            }
+        )
+        return
+    }
+
     Scaffold(
         topBar = {
-            TopAppBar(
+            CenterAlignedTopAppBar(
                 title = {
                     Text(
                         text = "Onde parei",
@@ -182,6 +251,28 @@ fun AondePareiScreen(
                 navigationIcon = {
                     IconButton(onClick = onDismiss) {
                         Icon(Icons.Default.ArrowBackIosNew, "Voltar")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = {
+                        if (planTier != PlanTier.FREE) {
+                            showGuardiaoScreen = true
+                        } else {
+                            showGuardiaoPremiumDialog = true
+                        }
+                    }) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Box(
+                                modifier = Modifier
+                                    .size((24f * shieldPulseScale).dp)
+                                    .background(Color(0xFF93C5FD).copy(alpha = shieldPulseAlpha), CircleShape)
+                            )
+                            Icon(
+                                imageVector = Icons.Default.Shield,
+                                contentDescription = "Zellu Guardiao",
+                                tint = Color(0xFFD4A017)
+                            )
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
@@ -242,9 +333,25 @@ fun AondePareiScreen(
                                     finalizedEndedAtMillis = finishedAt
                                     parkingFinalized = true
 
+                                    val selectedVehicle = registeredVehicles.firstOrNull {
+                                        vehicleDisplayName(it) == selectedVehicleName
+                                    }
+                                    val targetCarId = selectedVehicle?.id
+                                        ?: AppPreferences.getLastSelectedCarId(context)
+                                        ?: registeredVehicles.firstOrNull()?.id
+
+                                    saveParkingPhotosToTechnicalReport(
+                                        context = context,
+                                        carroId = targetCarId,
+                                        vehicleName = if (selectedVehicleName == otherVehicleLabel) customVehicleName else selectedVehicleName,
+                                        photos = photoUris.toList(),
+                                        startedAtMillis = startedAt ?: finishedAt,
+                                        endedAtMillis = finishedAt
+                                    )
                                     AppPreferences.setParkingFinalized(context, true)
                                     AppPreferences.clearParkedLocation(context)
                                     cancelParkingOngoingNotification(context)
+                                    AppPreferences.clearParkingPhotoUris(context)
 
                                     photoUris.clear()
                                     pendingPhotoUri = null
@@ -306,17 +413,39 @@ fun AondePareiScreen(
                             modifier = Modifier.padding(16.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(Icons.Default.DirectionsCar, null, tint = primaryColor)
+                            val selectedVehicleMatch = registeredVehicles.firstOrNull { vehicleDisplayName(it) == selectedVehicleName }
+                            if (selectedVehicleMatch != null) {
+                                VehicleIcon(
+                                    tipoVeiculo = selectedVehicleMatch.tipoVeiculo,
+                                    tint = themedIconTint,
+                                    size = 30.dp,
+                                    modifier = Modifier.clickable {
+                                        previewVehicleType = selectedVehicleMatch.tipoVeiculo
+                                        showVehicleImageDialog = true
+                                    }
+                                )
+                            } else {
+                                VehicleIcon(
+                                    tipoVeiculo = TipoVeiculo.HATCH,
+                                    tint = themedIconTint,
+                                    size = 30.dp,
+                                    modifier = Modifier.clickable {
+                                        previewVehicleType = TipoVeiculo.HATCH
+                                        showVehicleImageDialog = true
+                                    }
+                                )
+                            }
                             Spacer(Modifier.width(12.dp))
                             Text(
                                 text = selectedVehicleName.ifBlank { "Selecionar veículo" },
                                 style = MaterialTheme.typography.bodyLarge,
                                 fontWeight = FontWeight.Medium,
+                                color = themedIconTint,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f)
                             )
-                            Icon(Icons.Default.ArrowDropDown, null, tint = secondaryColor)
+                            Icon(Icons.Default.ArrowDropDown, null, tint = themedIconTint)
                         }
                     }
 
@@ -338,11 +467,16 @@ fun AondePareiScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text("Fotos de referência", style = MaterialTheme.typography.labelLarge, color = secondaryColor)
-                        TextButton(onClick = {
-                            val uri = createTempImageUri(context)
-                            pendingPhotoUri = uri
-                            cameraLauncher.launch(uri)
-                        }) {
+                        OutlinedButton(
+                            onClick = {
+                                val uri = createTempImageUri(context)
+                                pendingPhotoUri = uri
+                                cameraLauncher.launch(uri)
+                            },
+                            enabled = isParkedState,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
                             Icon(Icons.Outlined.PhotoCamera, null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(4.dp))
                             Text("Adicionar")
@@ -386,6 +520,76 @@ fun AondePareiScreen(
     }
 
     // --- DIALOGS ---
+    if (showGuardiaoPremiumDialog) {
+        AlertDialog(
+            onDismissRequest = { showGuardiaoPremiumDialog = false },
+            title = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Shield,
+                        contentDescription = null,
+                        tint = Color(0xFFD4A017),
+                        modifier = Modifier.size(52.dp)
+                    )
+                    Text(
+                        "Zellu Guardiao",
+                        textAlign = TextAlign.Center,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "Com o Zellu Guardiao voce tem:",
+                        textAlign = TextAlign.Center,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF10B981), modifier = Modifier.size(16.dp))
+                        Text("Avisos se alguem tentar roubar seu carro")
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF10B981), modifier = Modifier.size(16.dp))
+                        Text("Alertas de movimento suspeito em tempo real")
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF10B981), modifier = Modifier.size(16.dp))
+                        Text("Mais seguranca para acompanhar seu veiculo")
+                    }
+                }
+            },
+            confirmButton = {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedButton(onClick = { showGuardiaoPremiumDialog = false }) {
+                        Text("Agora nao")
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    Button(
+                        onClick = {
+                            showGuardiaoPremiumDialog = false
+                            showPremiumBeneficiosScreen = true
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFFD4A017),
+                            contentColor = Color.Black
+                        )
+                    ) {
+                        Text("Assine agora", fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        )
+    }
 
     // 1. AVISO ANTES DO MAPS (COM CHECKBOX E ALINHAMENTO ESQUERDA)
     if (showNavigationDialog) {
@@ -470,32 +674,33 @@ fun AondePareiScreen(
 
     // 2. Zoom Foto
     if (selectedPhotoUri != null) {
-        Dialog(
-            onDismissRequest = { selectedPhotoUri = null },
-            properties = DialogProperties(usePlatformDefaultWidth = false)
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.95f))
-                    .clickable { selectedPhotoUri = null }
+        Dialog(onDismissRequest = { selectedPhotoUri = null }) {
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                modifier = Modifier.width(320.dp)
             ) {
-                AsyncImage(
-                    model = selectedPhotoUri,
-                    contentDescription = null,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .align(Alignment.Center),
-                    contentScale = ContentScale.Fit
-                )
-                IconButton(
-                    onClick = { selectedPhotoUri = null },
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(24.dp)
-                        .background(Color.White.copy(alpha = 0.2f), CircleShape)
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Icon(Icons.Default.Close, null, tint = Color.White)
+                    AsyncImage(
+                        model = selectedPhotoUri,
+                        contentDescription = null,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(260.dp)
+                            .clip(RoundedCornerShape(16.dp)),
+                        contentScale = ContentScale.Crop
+                    )
+                    OutlinedButton(
+                        onClick = { selectedPhotoUri = null },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Text("Fechar")
+                    }
                 }
             }
         }
@@ -505,7 +710,7 @@ fun AondePareiScreen(
     if (showVehicleSelectorDialog) {
         Dialog(onDismissRequest = { showVehicleSelectorDialog = false }) {
             Card(
-                shape = RoundedCornerShape(24.dp),
+                shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 modifier = Modifier.fillMaxWidth()
             ) {
@@ -527,10 +732,15 @@ fun AondePareiScreen(
                         val list = registeredVehicleNames + otherVehicleLabel
                         items(list) { name ->
                             val isSelected = selectedVehicleName == name
+                            val vehicleMatch = registeredVehicles.firstOrNull { vehicleDisplayName(it) == name }
                             Surface(
                                 shape = RoundedCornerShape(12.dp),
                                 color = if (isSelected) primaryColor.copy(alpha = 0.1f) else Color.Transparent,
-                                border = if(isSelected) BorderStroke(1.dp, primaryColor) else null,
+                                border = if (isSelected) {
+                                    BorderStroke(1.dp, primaryColor)
+                                } else {
+                                    BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
+                                },
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clickable {
@@ -543,27 +753,96 @@ fun AondePareiScreen(
                                     modifier = Modifier.padding(vertical = 12.dp, horizontal = 16.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Icon(Icons.Default.DirectionsCar, null, tint = if (isSelected) primaryColor else secondaryColor)
+                                    if (vehicleMatch != null) {
+                                        VehicleIcon(
+                                            tipoVeiculo = vehicleMatch.tipoVeiculo,
+                                            tint = themedIconTint,
+                                            size = 30.dp,
+                                            modifier = Modifier.clickable {
+                                                previewVehicleType = vehicleMatch.tipoVeiculo
+                                                showVehicleImageDialog = true
+                                            }
+                                        )
+                                    } else {
+                                        VehicleIcon(
+                                            tipoVeiculo = TipoVeiculo.HATCH,
+                                            tint = themedIconTint,
+                                            size = 30.dp,
+                                            modifier = Modifier.clickable {
+                                                previewVehicleType = TipoVeiculo.HATCH
+                                                showVehicleImageDialog = true
+                                            }
+                                        )
+                                    }
                                     Spacer(Modifier.width(16.dp))
                                     Text(
                                         name,
                                         modifier = Modifier.weight(1f),
                                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                        color = if (isSelected) primaryColor else MaterialTheme.colorScheme.onSurface
+                                        color = if (isSelected) primaryColor else themedIconTint
                                     )
                                     if (isSelected) {
-                                        Icon(Icons.Default.CheckCircle, null, tint = primaryColor, modifier = Modifier.size(20.dp))
+                                        Icon(Icons.Default.CheckCircle, null, tint = themedIconTint, modifier = Modifier.size(20.dp))
                                     }
                                 }
                             }
                         }
                     }
 
-                    TextButton(
+                    OutlinedButton(
                         onClick = { showVehicleSelectorDialog = false },
+                        modifier = Modifier.fillMaxWidth(),
+                        border = BorderStroke(
+                            1.dp,
+                            if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
+                                Color.White.copy(alpha = 0.7f)
+                            } else {
+                                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.8f)
+                            }
+                        ),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Text(
+                            "Cancelar",
+                            color = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
+                                Color.White.copy(alpha = 0.92f)
+                            } else {
+                                secondaryColor
+                            }
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    if (showVehicleImageDialog) {
+        Dialog(onDismissRequest = { showVehicleImageDialog = false }) {
+            Card(
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                modifier = Modifier.width(280.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    VehicleIcon(
+                        tipoVeiculo = previewVehicleType,
+                        tint = themedIconTint,
+                        size = 96.dp
+                    )
+                    Text(
+                        text = previewVehicleType.label,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    OutlinedButton(
+                        onClick = { showVehicleImageDialog = false },
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text("Cancelar", color = secondaryColor)
+                        Text("Fechar")
                     }
                 }
             }
@@ -732,15 +1011,16 @@ fun BigActionButton(text: String, icon: ImageVector, color: Color, onClick: () -
         onClick = onClick,
         modifier = Modifier.fillMaxWidth().height(64.dp),
         shape = RoundedCornerShape(16.dp),
-        colors = ButtonDefaults.buttonColors(containerColor = color),
+        colors = ButtonDefaults.buttonColors(containerColor = color, contentColor = Color.White),
         elevation = ButtonDefaults.buttonElevation(defaultElevation = 6.dp)
     ) {
-        Icon(icon, null, modifier = Modifier.size(24.dp))
+        Icon(icon, null, modifier = Modifier.size(24.dp), tint = Color.White)
         Spacer(Modifier.width(12.dp))
         Text(
             text = text,
             fontSize = 17.sp,
             fontWeight = FontWeight.Bold,
+            color = Color.White,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
@@ -772,7 +1052,8 @@ fun salvarLocalizacao(context: Context, onSaved: (ParkedLocation) -> Unit) {
 }
 
 private fun createTempImageUri(context: Context): Uri {
-    val file = File(context.cacheDir, "parked_${System.currentTimeMillis()}.jpg")
+    val dir = File(context.filesDir, "parking_photos").apply { mkdirs() }
+    val file = File(dir, "parked_${System.currentTimeMillis()}.jpg")
     return FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
 }
 
@@ -851,6 +1132,42 @@ private fun createParkingNotificationChannel(context: Context) {
 private fun hasNotificationPermission(context: Context): Boolean {
     return Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
         ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+}
+
+private fun saveParkingPhotosToTechnicalReport(
+    context: Context,
+    carroId: String?,
+    vehicleName: String,
+    photos: List<Uri>,
+    startedAtMillis: Long,
+    endedAtMillis: Long
+) {
+    if (carroId.isNullOrBlank() || photos.isEmpty()) return
+
+    val lembretes = BancoDeDados.carregarLembretes(context).toMutableList()
+    val date = SimpleDateFormat("dd/MM/yyyy", Locale("pt", "BR")).format(Date(endedAtMillis))
+    val hour = SimpleDateFormat("HH:mm", Locale("pt", "BR")).format(Date(endedAtMillis))
+    val startedText = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale("pt", "BR")).format(Date(startedAtMillis))
+    val endedText = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale("pt", "BR")).format(Date(endedAtMillis))
+    val nameText = vehicleName.ifBlank { "Veículo" }
+
+    photos.forEachIndexed { index, uri ->
+        lembretes.add(
+            Lembrete(
+                carroId = carroId,
+                titulo = "Foto estacionamento ${index + 1}",
+                peca = "$nameText | Inicio: $startedText | Fim: $endedText",
+                dataLimite = date,
+                kmLimite = "",
+                tipo = TipoManutencao.OUTROS,
+                valor = 0.0,
+                fotoPath = uri.toString(),
+                horaAviso = hour
+            )
+        )
+    }
+
+    BancoDeDados.salvarLembretes(context, lembretes)
 }
 
 // --- GERAÇÃO DE PDF ---
@@ -967,4 +1284,3 @@ private fun toPortraitBitmapForPdf(bitmap: Bitmap): Bitmap {
     val matrix = Matrix().apply { postRotate(90f) }
     return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
 }
-

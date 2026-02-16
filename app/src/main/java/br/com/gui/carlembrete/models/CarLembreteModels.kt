@@ -18,6 +18,7 @@ import androidx.compose.material.icons.rounded.DirectionsBike
 import androidx.compose.material.icons.rounded.DirectionsCar
 import androidx.compose.material.icons.rounded.DiscFull
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.FormatPaint
 import androidx.compose.material.icons.rounded.Inventory2
 import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.LocalShipping
@@ -85,11 +86,18 @@ data class Lembrete(
 
 enum class TipoVeiculo(val label: String, val icon: ImageVector) {
     BICICLETA("Bicicleta", Icons.Rounded.DirectionsBike),
+    BIKE_ELETRICA("Bike elétrica", Icons.Rounded.DirectionsBike),
+    VEICULO_ELETRICO("Veículo elétrico", Icons.Rounded.DirectionsCar),
     CARRETINHA("Carretinha", Icons.Rounded.Inventory2),
-    CARRO("Carro", Icons.Rounded.DirectionsCar),
+    CARRO("Sedan", Icons.Rounded.DirectionsCar),
+    HATCH("Hatch", Icons.Rounded.DirectionsCar),
     MOTO("Moto", Icons.Rounded.Motorcycle),
-    CAMINHONETE("Caminhonete", Icons.Rounded.LocalShipping),
-    CAMINHAO("Caminhao", Icons.Rounded.LocalShipping),
+    CAMINHONETE("Pickup", Icons.Rounded.LocalShipping),
+    FURGAO("Furgão", Icons.Rounded.LocalShipping),
+    CAMINHAO("Caminhao leve/pesado", Icons.Rounded.LocalShipping),
+    ONIBUS("Ônibus", Icons.Rounded.LocalShipping),
+    SUV("SUV", Icons.Rounded.DirectionsCar),
+    VAN("Van", Icons.Rounded.LocalShipping),
     TRATOR("Trator", Icons.Rounded.Agriculture)
 }
 
@@ -142,6 +150,133 @@ val marcasCaminhao = listOf(
     "MAN"
 )
 
+val marcasCaminhonete = listOf(
+    "Toyota",
+    "Chevrolet",
+    "Ford",
+    "Volkswagen",
+    "Fiat",
+    "Nissan",
+    "Mitsubishi",
+    "Ram",
+    "Renault",
+    "Jeep",
+    "Honda",
+    "Hyundai"
+)
+
+val marcasOnibus = listOf(
+    "Mercedes-Benz",
+    "Scania",
+    "Volvo",
+    "Iveco",
+    "Agrale",
+    "Marcopolo",
+    "Caio",
+    "Mascarello",
+    "Neobus",
+    "Comil",
+    "Busscar",
+    "Irizar"
+)
+
+val marcasSuv = listOf(
+    "Volkswagen",
+    "Hyundai",
+    "Jeep",
+    "Honda",
+    "Chevrolet",
+    "Toyota",
+    "Nissan",
+    "Fiat",
+    "Renault",
+    "BYD",
+    "CAOA Chery",
+    "GWM",
+    "Citroen",
+    "Peugeot",
+    "Mitsubishi",
+    "Ford"
+)
+
+val marcasVan = listOf(
+    "Renault",
+    "Iveco",
+    "Mercedes-Benz",
+    "Fiat",
+    "Ford",
+    "Peugeot",
+    "Citroen",
+    "Toyota",
+    "JAC",
+    "Foton"
+)
+
+val marcasHatch = listOf(
+    "Volkswagen",
+    "Chevrolet",
+    "Fiat",
+    "Hyundai",
+    "Renault",
+    "BYD",
+    "Honda",
+    "Citroen",
+    "Peugeot",
+    "Toyota",
+    "GWM",
+    "Mini",
+    "Audi",
+    "BMW"
+)
+
+val marcasBikeEletrica = listOf(
+    "Caloi",
+    "Sense",
+    "Oggi",
+    "Audax",
+    "Trek",
+    "Specialized",
+    "Cannondale",
+    "Houston",
+    "Soul Cycles",
+    "Two Dogs"
+)
+
+val marcasVeiculoEletrico = listOf(
+    "BYD",
+    "Tesla",
+    "GWM",
+    "JAC",
+    "Renault",
+    "Nissan",
+    "Volvo",
+    "BMW",
+    "Mercedes-Benz",
+    "Audi",
+    "Porsche",
+    "Mini",
+    "Hyundai",
+    "Kia",
+    "Peugeot",
+    "Citroen",
+    "Chevrolet"
+)
+
+fun marcasPorTipo(tipo: TipoVeiculo?): List<String> = when (tipo) {
+    TipoVeiculo.BICICLETA -> marcasBicicleta
+    TipoVeiculo.BIKE_ELETRICA -> marcasBikeEletrica
+    TipoVeiculo.VEICULO_ELETRICO -> marcasVeiculoEletrico
+    TipoVeiculo.CAMINHONETE -> marcasCaminhonete
+    TipoVeiculo.FURGAO -> marcasCaminhonete
+    TipoVeiculo.CAMINHAO -> marcasCaminhao
+    TipoVeiculo.ONIBUS -> marcasOnibus
+    TipoVeiculo.SUV -> marcasSuv
+    TipoVeiculo.VAN -> marcasVan
+    TipoVeiculo.HATCH -> marcasHatch
+    null -> emptyList()
+    else -> marcasSuportadas
+}.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+
 data class CarroInfo(
     val id: String = UUID.randomUUID().toString(),
     val nome: String = "Novo Veículo",
@@ -160,8 +295,16 @@ fun CarroInfo.tipoIcon(): ImageVector = tipoVeiculo.icon
 @DrawableRes
 fun TipoVeiculo.iconRes(): Int? = when (this) {
     TipoVeiculo.CARRO -> R.drawable.ic_carro
+    TipoVeiculo.VEICULO_ELETRICO -> R.drawable.carroeletrico
+    TipoVeiculo.HATCH -> R.drawable.hatch
     TipoVeiculo.CAMINHAO -> R.drawable.ic_caminhao
     TipoVeiculo.CAMINHONETE -> R.drawable.ic_camionete
+    TipoVeiculo.FURGAO -> R.drawable.camionetecapota
+    TipoVeiculo.ONIBUS -> R.drawable.onibus
+    TipoVeiculo.SUV -> R.drawable.suv
+    TipoVeiculo.VAN -> R.drawable.van
+    TipoVeiculo.BICICLETA -> R.drawable.bikenova
+    TipoVeiculo.BIKE_ELETRICA -> R.drawable.bikeeletrica
     TipoVeiculo.MOTO -> R.drawable.ic_moto
     TipoVeiculo.CARRETINHA -> R.drawable.ic_carreta
     TipoVeiculo.TRATOR -> R.drawable.ic_trator
@@ -176,19 +319,20 @@ fun VehicleIcon(
     modifier: Modifier = Modifier,
     contentDescription: String? = null
 ) {
+    val iconTint = tint ?: Color.White
     val res = tipoVeiculo.iconRes()
     if (res != null) {
         Image(
             painter = painterResource(id = res),
             contentDescription = contentDescription ?: tipoVeiculo.label,
             modifier = modifier.size(size),
-            colorFilter = if (tint != null) ColorFilter.tint(tint) else null
+            colorFilter = ColorFilter.tint(iconTint)
         )
     } else {
         Icon(
             imageVector = tipoVeiculo.icon,
             contentDescription = contentDescription ?: tipoVeiculo.label,
-            tint = tint ?: Color.Unspecified,
+            tint = iconTint,
             modifier = modifier.size(size)
         )
     }
@@ -316,7 +460,7 @@ enum class TipoManutencao(val label: String) {
         OLEO -> Icons.Rounded.WaterDrop
         BATERIA -> Icons.Rounded.BatteryChargingFull
         MECANICA -> Icons.Rounded.Build
-        FUNILARIA -> Icons.Rounded.Build
+        FUNILARIA -> Icons.Rounded.FormatPaint
         FREIO -> Icons.Rounded.DiscFull
         LICENCIAMENTO -> Icons.Rounded.Description
         IPVA -> Icons.Rounded.Payments
@@ -324,4 +468,8 @@ enum class TipoManutencao(val label: String) {
         OUTROS -> Icons.Rounded.Edit
     }
 }
+
+
+
+
 

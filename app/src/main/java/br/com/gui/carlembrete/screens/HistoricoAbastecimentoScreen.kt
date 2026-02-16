@@ -1,4 +1,4 @@
-import android.app.DatePickerDialog
+﻿import android.app.DatePickerDialog
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -27,9 +27,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import br.com.gui.carlembrete.Abastecimento
+import br.com.gui.carlembrete.AppPreferences
 import br.com.gui.carlembrete.BancoDeDados
 import br.com.gui.carlembrete.formatarMoedaLocal
 import kotlinx.coroutines.Dispatchers
@@ -37,6 +40,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
 import java.util.Locale
 
 // --- PALETA ZELLU ---
@@ -56,6 +60,7 @@ fun HistoricoAbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var abastecimentos by remember { mutableStateOf<List<Abastecimento>>(emptyList()) }
+    var kmAtualVeiculo by remember { mutableStateOf(0) }
     var itemEdicao by remember { mutableStateOf<Abastecimento?>(null) }
     var itemExcluir by remember { mutableStateOf<Abastecimento?>(null) }
     val formatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
@@ -64,6 +69,11 @@ fun HistoricoAbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
         scope.launch {
             abastecimentos = withContext(Dispatchers.IO) {
                 BancoDeDados.carregarAbastecimentos(context).filter { it.carroId == carroId }
+            }
+            kmAtualVeiculo = withContext(Dispatchers.IO) {
+                BancoDeDados.carregarCarros(context)
+                    ?.firstOrNull { it.id == carroId }
+                    ?.kmAtual ?: 0
             }
         }
     }
@@ -74,6 +84,14 @@ fun HistoricoAbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
     val totalGasto = remember(ordenados) { ordenados.sumOf { it.valorPago } }
     val mediaPorRegistro = remember(ordenados) {
         if (ordenados.isEmpty()) 0.0 else totalGasto / ordenados.size.toDouble()
+    }
+    val resumoConsumo = remember(ordenados, kmAtualVeiculo) {
+        calcularResumoConsumoHistorico(
+            abastecimentos = ordenados,
+            formatter = formatter,
+            kmAtual = kmAtualVeiculo,
+            kmInicial = AppPreferences.getFuelStartKm(context, carroId)
+        )
     }
 
     if (itemEdicao != null) {
@@ -114,8 +132,8 @@ fun HistoricoAbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
         modifier = Modifier.fillMaxSize(),
         containerColor = PrimaryDark,
         topBar = {
-            TopAppBar(
-                title = { Text("Histórico", color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 20.sp) },
+            CenterAlignedTopAppBar(
+                title = { Text("Historico", color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 20.sp) },
                 navigationIcon = {
                     IconButton(onClick = onDismiss) {
                         Icon(Icons.Rounded.ArrowBackIosNew, "Voltar", tint = TextWhite, modifier = Modifier.size(20.dp))
@@ -161,6 +179,23 @@ fun HistoricoAbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
                         ResumoChip("Registros", ordenados.size.toString(), modifier = Modifier.weight(1f))
                         ResumoChip("Total", formatarMoedaLocal(totalGasto), modifier = Modifier.weight(1f))
                         ResumoChip("Media", formatarMoedaLocal(mediaPorRegistro), modifier = Modifier.weight(1f))
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ResumoChip(
+                            "Consumo",
+                            resumoConsumo.mediaLitrosPorAbastecimento?.let { String.format(Locale("pt", "BR"), "%.1f L", it) } ?: "--",
+                            modifier = Modifier.weight(1f)
+                        )
+                        ResumoChip(
+                            "Semanal",
+                            resumoConsumo.custoSemana?.let { formatarMoedaLocal(it) } ?: "--",
+                            modifier = Modifier.weight(1f)
+                        )
+                        ResumoChip(
+                            "Mensal",
+                            resumoConsumo.custoMes?.let { formatarMoedaLocal(it) } ?: "--",
+                            modifier = Modifier.weight(1f)
+                        )
                     }
                 }
             }
@@ -253,7 +288,7 @@ fun TimelineItem(
 
         Spacer(Modifier.width(12.dp))
 
-        // CARD DE CONTEÚDO
+        // CARD DE CONTEÃšDO
         Box(
             modifier = Modifier
                 .padding(bottom = 24.dp)
@@ -309,7 +344,7 @@ fun TimelineItem(
                     HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
                     Spacer(Modifier.height(16.dp))
 
-                    // --- RODAPÉ COM INFORMAÇÕES INVERTIDAS ---
+                    // --- RODAPÃ‰ COM INFORMAÃ‡Ã•ES INVERTIDAS ---
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -339,9 +374,9 @@ fun TimelineItem(
                             }
                         }
 
-                        // 2. DIREITA: PREÇO/LITRO E LITROS (Moveram para cá)
+                        // 2. DIREITA: PREÃ‡O/LITRO E LITROS (Moveram para cÃ¡)
                         Column(horizontalAlignment = Alignment.End) {
-                            Text("Preço/Litro", color = TextGray, fontSize = 11.sp)
+                            Text("Preco/Litro", color = TextGray, fontSize = 11.sp)
                             Spacer(Modifier.height(2.dp))
                             Text(formatarMoedaLocal(item.precoLitro), color = TextWhite.copy(alpha = 0.9f), fontWeight = FontWeight.Medium, fontSize = 14.sp)
                             Spacer(Modifier.height(8.dp))
@@ -356,6 +391,54 @@ fun TimelineItem(
             }
         }
     }
+}
+
+private data class ResumoConsumoHistorico(
+    val mediaLitrosPorAbastecimento: Double?,
+    val custoSemana: Double?,
+    val custoMes: Double?
+)
+
+private fun calcularResumoConsumoHistorico(
+    abastecimentos: List<Abastecimento>,
+    formatter: DateTimeFormatter,
+    kmAtual: Int,
+    kmInicial: Int?
+): ResumoConsumoHistorico {
+    val entries = abastecimentos.mapNotNull { item ->
+        val data = runCatching { LocalDate.parse(item.data, formatter) }.getOrNull()
+        if (data != null && item.litros > 0.0 && item.valorPago > 0.0) {
+            Triple(data, item.litros, item.valorPago)
+        } else {
+            null
+        }
+    }.sortedBy { it.first }
+
+    if (entries.isEmpty()) {
+        return ResumoConsumoHistorico(
+            mediaLitrosPorAbastecimento = null,
+            custoSemana = null,
+            custoMes = null
+        )
+    }
+
+    val mediaDias = entries.windowed(2).mapNotNull { (anterior, atual) ->
+        val dias = ChronoUnit.DAYS.between(anterior.first, atual.first)
+        if (dias <= 0) null else dias.toDouble()
+    }.average().takeIf { !it.isNaN() } ?: 7.0
+
+    val mediaCustoDia = entries.windowed(2).mapNotNull { (anterior, atual) ->
+        val dias = ChronoUnit.DAYS.between(anterior.first, atual.first)
+        if (dias <= 0) null else atual.third / dias.toDouble()
+    }.average().takeIf { !it.isNaN() } ?: (entries.last().third / mediaDias)
+
+    val mediaLitrosPorAbastecimento = entries.map { it.second }.average().takeIf { !it.isNaN() }
+
+    return ResumoConsumoHistorico(
+        mediaLitrosPorAbastecimento = mediaLitrosPorAbastecimento,
+        custoSemana = mediaCustoDia * 7.0,
+        custoMes = mediaCustoDia * 30.0
+    )
 }
 
 // ... Dialogs mantidos iguais ...
@@ -381,7 +464,7 @@ fun DialogEditar(
                 OutlinedTextField(
                     value = precoTexto,
                     onValueChange = { precoTexto = it },
-                    label = { Text("Preço por Litro") },
+                    label = { Text("Preco por Litro") },
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = TextWhite, unfocusedTextColor = TextWhite,
                         focusedBorderColor = AccentBlue, unfocusedBorderColor = TextGray.copy(alpha = 0.5f),
@@ -432,11 +515,78 @@ fun DialogEditar(
 
 @Composable
 fun DialogExcluir(onDismiss: () -> Unit, onConfirm: () -> Unit) {
-    AlertDialog(
-        onDismissRequest = onDismiss, containerColor = SurfaceDark,
-        title = { Text("Excluir Registro", color = TextWhite, fontWeight = FontWeight.Bold) },
-        text = { Text("Tem certeza? O valor será removido dos cálculos mensais.", color = TextGray) },
-        confirmButton = { Button(onClick = onConfirm, colors = ButtonDefaults.buttonColors(containerColor = AlertRed)) { Text("Excluir", color = TextWhite) } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar", color = TextGray) } }
-    )
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+            modifier = Modifier.fillMaxWidth(),
+            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.10f))
+        ) {
+            Column(
+                modifier = Modifier.padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(20.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(80.dp)
+                        .background(AlertRed.copy(alpha = 0.15f), RoundedCornerShape(40.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Delete,
+                        contentDescription = null,
+                        tint = AlertRed,
+                        modifier = Modifier.size(40.dp)
+                    )
+                }
+
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        "Excluir registro?",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = TextWhite
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "Tem certeza que deseja apagar este abastecimento?",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = TextGray,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(50.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, AlertRed)
+                    ) {
+                        Text("Cancelar", color = AlertRed)
+                    }
+
+                    Button(
+                        onClick = onConfirm,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(50.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = AlertRed)
+                    ) {
+                        Text("Excluir", fontWeight = FontWeight.Bold, color = TextWhite)
+                    }
+                }
+            }
+        }
+    }
 }
+
+
