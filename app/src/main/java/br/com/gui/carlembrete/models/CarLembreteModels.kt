@@ -285,7 +285,9 @@ data class CarroInfo(
     val proprietario: String = "",
     val corArgb: Int = 0xFF3B82F6.toInt(),
     val kmAtual: Int = 0,
-    val tipoVeiculo: TipoVeiculo = TipoVeiculo.CARRO
+    val tipoVeiculo: TipoVeiculo = TipoVeiculo.CARRO,
+    val vezesBatido: Int? = null,
+    val tempoComVeiculo: String = ""
 ) : Serializable {
     fun getCorUI(): Color = Color(corArgb)
 }

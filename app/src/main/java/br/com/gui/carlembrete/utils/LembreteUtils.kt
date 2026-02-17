@@ -1,4 +1,4 @@
-package br.com.gui.carlembrete
+﻿package br.com.gui.carlembrete
 
 import android.Manifest
 import android.app.Activity
@@ -118,9 +118,28 @@ import java.util.UUID
 import java.util.concurrent.Executors
 import kotlin.math.roundToInt
 
-/* ----------------- LÓGICA GERAL ----------------- */
+/* ----------------- LÃ“GICA GERAL ----------------- */
 
 private val lembreteDateFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
+private const val LEMBRETE_REALIZADO_PREFIX = "__REALIZADO__:"
+
+fun isLembreteRealizado(lembrete: Lembrete): Boolean =
+    lembrete.estabelecimentoEndereco.startsWith(LEMBRETE_REALIZADO_PREFIX)
+
+fun dataRealizacaoLembrete(lembrete: Lembrete): LocalDate? {
+    if (!isLembreteRealizado(lembrete)) return null
+    val encoded = lembrete.estabelecimentoEndereco.removePrefix(LEMBRETE_REALIZADO_PREFIX)
+    return runCatching { LocalDate.parse(encoded) }.getOrNull()
+}
+
+fun marcarLembreteComoRealizado(lembrete: Lembrete, dataRealizacao: LocalDate = LocalDate.now()): Lembrete {
+    if (isLembreteRealizado(lembrete)) return lembrete
+    return lembrete.copy(
+        dataLimite = dataRealizacao.format(lembreteDateFormatter),
+        horaAviso = "00:00",
+        estabelecimentoEndereco = "$LEMBRETE_REALIZADO_PREFIX${dataRealizacao}"
+    )
+}
 
 private fun parseDataLimite(lembrete: Lembrete): LocalDate? =
     runCatching { LocalDate.parse(lembrete.dataLimite, lembreteDateFormatter) }.getOrNull()
@@ -129,6 +148,7 @@ private fun diasParaVencer(lembrete: Lembrete): Int? =
     parseDataLimite(lembrete)?.let { ChronoUnit.DAYS.between(LocalDate.now(), it).toInt() }
 
 fun textoStatusPrazo(lembrete: Lembrete): String {
+    if (isLembreteRealizado(lembrete)) return "Realizado"
     val dias = diasParaVencer(lembrete)
     return when {
         dias == null -> ""
@@ -140,10 +160,10 @@ fun textoStatusPrazo(lembrete: Lembrete): String {
 }
 
 fun dataParaOrdenacao(lembrete: Lembrete): LocalDate =
-    parseDataLimite(lembrete) ?: LocalDate.MAX
+    dataRealizacaoLembrete(lembrete) ?: parseDataLimite(lembrete) ?: LocalDate.MAX
 
 fun calcularCorStatus(lembretes: List<Lembrete>, tipoAlvo: TipoManutencao): Color {
-    val lembretesDoTipo = lembretes.filter { it.tipo == tipoAlvo }
+    val lembretesDoTipo = lembretes.filter { it.tipo == tipoAlvo && !isLembreteRealizado(it) }
     if (lembretesDoTipo.isEmpty()) return Color(0xFF334155) // Cinza escuro
     val hoje = LocalDate.now(); val formatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
     var temVencido = false; var temUrgente = false
@@ -152,15 +172,17 @@ fun calcularCorStatus(lembretes: List<Lembrete>, tipoAlvo: TipoManutencao): Colo
 }
 
 fun calcularReputacao(lembretes: List<Lembrete>): Pair<String, String> {
-    if (lembretes.isEmpty()) return "Sem histórico" to "Cadastre serviços para gerar uma reputação."
-    val cores = TipoManutencao.values().map { calcularCorStatus(lembretes, it) }
+    val lembretesAtivos = lembretes.filterNot(::isLembreteRealizado)
+    if (lembretesAtivos.isEmpty()) return "Sem histÃ³rico" to "Cadastre serviÃ§os para gerar uma reputaÃ§Ã£o."
+    val cores = TipoManutencao.values().map { calcularCorStatus(lembretesAtivos, it) }
     return when {
         cores.all { it == Color(0xFF10B981) || it == Color(0xFF334155) } ->
-            "Excelente" to "Todas as manutenções estão em dia."
+            "Excelente" to "Todas as manutenÃ§Ãµes estÃ£o em dia."
         cores.any { it == Color(0xFFEF4444) } ->
-            "Crítica" to "Existem manutenções vencidas. Agende o quanto antes."
+            "CrÃ­tica" to "Existem manutenÃ§Ãµes vencidas. Agende o quanto antes."
         else ->
-            "Em atenção" to "Alguns lembretes estão próximos do vencimento."
+            "Em atenÃ§Ã£o" to "Alguns lembretes estÃ£o prÃ³ximos do vencimento."
     }
 }
 fun abrirWhatsApp(context: Context, telefone: String, mensagem: String) { try { val numeroLimpo = telefone.filter { it.isDigit() }; val numeroFinal = if (!numeroLimpo.startsWith("55") && numeroLimpo.length >= 10) "55$numeroLimpo" else numeroLimpo; val uri = Uri.parse("https://api.whatsapp.com/send?phone=$numeroFinal&text=${Uri.encode(mensagem)}"); context.startActivity(Intent(Intent.ACTION_VIEW, uri)) } catch (e: Exception) { Toast.makeText(context, "Erro ao abrir WhatsApp.", Toast.LENGTH_SHORT).show() } }
+

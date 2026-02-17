@@ -70,6 +70,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.animation.animateContentSize
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -151,6 +152,7 @@ fun NovoAgendamentoDialog(
     val surfaceCardColor = if (isDark) Color(0xFF111827) else Color.White
     val cardBorder = if (isDark) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.12f)
     val textPrimary = if (isDark) Color.White else Color.Black
+    val textSecondary = if (isDark) Color(0xFF94A3B8) else Color(0xFF475569)
     val iconColor = if (isDark) Color.White else Color.Black
     val cameraIconColor = Color.White
     var descricao by remember { mutableStateOf("") }
@@ -472,6 +474,7 @@ fun adicionarContatoManual() {
     }
 
     if (isQrLoading) {
+        val loadingDialogBg = if (isDark) Color(0xFF0F172A) else Color.White
         AlertDialog(
             onDismissRequest = {},
             title = { Text("Lendo nota", color = textPrimary, fontWeight = FontWeight.Bold) },
@@ -483,11 +486,11 @@ fun adicionarContatoManual() {
                         color = Color(0xFF3B82F6)
                     )
                     Spacer(Modifier.width(12.dp))
-                    Text("Consultando dados no link do QR Code...", color = Color(0xFFCBD5E1))
+                    Text("Consultando dados no link do QR Code...", color = textSecondary)
                 }
             },
             confirmButton = {},
-            containerColor = Color(0xFF0F172A)
+            containerColor = loadingDialogBg
         )
     }
 
@@ -737,16 +740,21 @@ fun adicionarContatoManual() {
 
     val podeAvancarEtapa1 = (isModoLista && listaItensDetectados.isNotEmpty()) || descricao.isNotBlank()
     val accentBlue = Color(0xFF3B82F6)
+    val voltarUmaEtapaOuFechar = {
+        if (etapaAtual > 1) etapaAtual -= 1 else onDismiss()
+    }
+
+    BackHandler(onBack = voltarUmaEtapaOuFechar)
 
     Scaffold(
         containerColor = Color.Transparent,
         topBar = {
-            TopAppBar(
+            CenterAlignedTopAppBar(
                 title = {
                     Text("Criar novo Aviso", color = textPrimary, fontWeight = FontWeight.Bold)
                 },
                 navigationIcon = {
-                    IconButton(onClick = onDismiss) {
+                    IconButton(onClick = voltarUmaEtapaOuFechar) {
                         Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar", tint = iconColor)
                     }
                 },
@@ -782,20 +790,6 @@ fun adicionarContatoManual() {
                         modifier = Modifier.padding(horizontal = 14.dp, vertical = 16.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                val tituloCadastro = when (etapaAtual) {
-                    1 -> "Novo aviso"
-                    2 -> "Detalhes do aviso"
-                    else -> "Vincular profissional"
-                }
-                Text(
-                    text = tituloCadastro,
-                    color = textPrimary,
-                    fontSize = 26.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.fillMaxWidth(),
-                    textAlign = TextAlign.Center
-                )
-                Spacer(Modifier.height(6.dp))
                 when (etapaAtual) {
                     1 -> {
                         Button(
@@ -817,10 +811,15 @@ fun adicionarContatoManual() {
                         }
 
                         if (qrPossuiItensSeparaveis) {
+                            val splitCardBg = if (isDark) Color(0xFF111827) else Color(0xFFF8FAFC)
+                            val splitCardBorder = if (isDark) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.12f)
+                            val splitIdleButton = if (isDark) Color(0xFF1F2937) else Color(0xFFE2E8F0)
+                            val splitAllInOneSelected = Color(0xFF2563EB)
+                            val splitSeparateSelected = Color(0xFF059669)
                             Card(
-                                colors = CardDefaults.cardColors(containerColor = Color(0xFF111827)),
+                                colors = CardDefaults.cardColors(containerColor = splitCardBg),
                                 shape = RoundedCornerShape(12.dp),
-                                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.10f))
+                                border = BorderStroke(1.dp, splitCardBorder)
                             ) {
                                 Column(
                                     modifier = Modifier.padding(12.dp),
@@ -836,11 +835,12 @@ fun adicionarContatoManual() {
                                             },
                                             shape = RoundedCornerShape(10.dp),
                                             colors = ButtonDefaults.buttonColors(
-                                                containerColor = if (!qrModoSeparado) Color(0xFF3B82F6) else Color(0xFF1F2937)
+                                                containerColor = if (!qrModoSeparado) splitAllInOneSelected else splitIdleButton,
+                                                contentColor = if (!qrModoSeparado) Color.White else textPrimary
                                             ),
-                                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.45f)),
+                                            border = BorderStroke(1.dp, splitCardBorder),
                                             modifier = Modifier.weight(1f)
-                                        ) { Text("Tudo em 1", color = textPrimary) }
+                                        ) { Text("Tudo em 1") }
                                         Button(
                                             onClick = {
                                                 qrModoSeparado = true
@@ -848,17 +848,23 @@ fun adicionarContatoManual() {
                                             },
                                             shape = RoundedCornerShape(10.dp),
                                             colors = ButtonDefaults.buttonColors(
-                                                containerColor = if (qrModoSeparado) Color(0xFF10B981) else Color(0xFF1F2937)
+                                                containerColor = if (qrModoSeparado) splitSeparateSelected else splitIdleButton,
+                                                contentColor = if (qrModoSeparado) Color.White else textPrimary
                                             ),
-                                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.45f)),
+                                            border = BorderStroke(1.dp, splitCardBorder),
                                             modifier = Modifier.weight(1f)
-                                        ) { Text("Separar Avisos", color = textPrimary) }
+                                        ) { Text("Separar Avisos") }
                                     }
                                 }
                             }
                         }
 
                         if (isModoLista) {
+                            val splitPreviewItemBg = if (isDark) Color(0xFF0F172A) else Color(0xFFF8FAFC)
+                            val splitPreviewChipBg = if (isDark) Color(0xFF1E293B) else Color(0xFFE2E8F0)
+                            val splitPreviewChipText = if (isDark) Color(0xFF94A3B8) else Color(0xFF475569)
+                            val splitPreviewItemBorder = if (isDark) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.12f)
+                            Text("Previa dos avisos separados", color = textPrimary, fontWeight = FontWeight.SemiBold)
                             LazyColumn(modifier = Modifier.heightIn(max = 200.dp)) {
                                 items(listaItensDetectados) { item ->
                                     val kmAtualBase = kmBase.toIntOrNull() ?: 0
@@ -867,7 +873,8 @@ fun adicionarContatoManual() {
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .padding(vertical = 4.dp)
-                                            .background(Color(0xFF0F172A), RoundedCornerShape(8.dp))
+                                            .background(splitPreviewItemBg, RoundedCornerShape(8.dp))
+                                            .border(1.dp, splitPreviewItemBorder, RoundedCornerShape(8.dp))
                                             .padding(10.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
@@ -890,7 +897,7 @@ fun adicionarContatoManual() {
                                                         modifier = Modifier
                                                             .menuAnchor()
                                                             .clip(RoundedCornerShape(999.dp))
-                                                            .background(Color(0xFF1E293B))
+                                                            .background(splitPreviewChipBg)
                                                             .padding(horizontal = 8.dp, vertical = 2.dp)
                                                     ) {
                                                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -900,7 +907,7 @@ fun adicionarContatoManual() {
                                                                 size = 12.dp
                                                             )
                                                             Spacer(Modifier.width(4.dp))
-                                                            Text(item.tipo.label, color = Color(0xFF94A3B8), fontSize = 11.sp)
+                                                            Text(item.tipo.label, color = splitPreviewChipText, fontSize = 11.sp)
                                                         }
                                                     }
                                                     ExposedDropdownMenu(
@@ -945,23 +952,15 @@ fun adicionarContatoManual() {
                         } else {
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 OutlinedTextField(
-                                    value = localServicoInput,
-                                    onValueChange = { localServicoInput = it },
-                                    label = { Text("Local") },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    singleLine = true,
-                                    shape = RoundedCornerShape(12.dp)
-                                )
-                                OutlinedTextField(
                                     value = descricao,
                                     onValueChange = { descricao = it },
                                     label = { Text("Produtos (total e itens)") },
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .height(132.dp)
+                                        .heightIn(max = 280.dp)
+                                        .animateContentSize()
                                         .focusRequester(descricaoFocusRequester),
-                                    singleLine = false,
-                                    minLines = 4,
+                                    maxLines = 12,
                                     shape = RoundedCornerShape(12.dp),
                                     trailingIcon = {
                                         IconButton(onClick = ::iniciarCapturaVoz) {
@@ -1097,23 +1096,12 @@ fun adicionarContatoManual() {
                                 shape = RoundedCornerShape(12.dp)
                             )
                         } else {
-                            Text(
-                                "Ajustes por item (automatico, mas você pode editar):",
-                                color = Color(0xFFCBD5E1),
-                                fontSize = 13.sp
-                            )
-                            TextButton(
-                                onClick = {
-                                    itemDataAvisoOverrides = listaItensDetectados.associate { it.id to dataAviso }
-                                    itemHoraAvisoOverrides = listaItensDetectados.associate { it.id to horaNotificacao }
-                                }
-                            ) { Text("Aplicar data/hora padrao para todos") }
                             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                 listaItensDetectados.forEach { item ->
                                     Card(
-                                        colors = CardDefaults.cardColors(containerColor = Color(0xFF111827)),
+                                        colors = CardDefaults.cardColors(containerColor = if (isDark) Color(0xFF111827) else Color(0xFFF8FAFC)),
                                         shape = RoundedCornerShape(12.dp),
-                                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f))
+                                        border = BorderStroke(1.dp, if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.12f))
                                     ) {
                                         Column(
                                             modifier = Modifier.padding(10.dp),
@@ -1188,6 +1176,14 @@ fun adicionarContatoManual() {
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 Text("Adicionar novo profissional", color = textPrimary, fontWeight = FontWeight.SemiBold)
+                                OutlinedTextField(
+                                    value = localServicoInput,
+                                    onValueChange = { localServicoInput = it },
+                                    label = { Text("Local") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    singleLine = true,
+                                    shape = RoundedCornerShape(12.dp)
+                                )
                                 OutlinedTextField(
                                     value = novoContatoNome,
                                     onValueChange = { novoContatoNome = it },
@@ -1314,15 +1310,6 @@ fun adicionarContatoManual() {
                             shape = RoundedCornerShape(14.dp),
                             modifier = Modifier.fillMaxWidth().height(52.dp)
                         ) { Text("Próximo", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
-                        OutlinedButton(
-                            onClick = { etapaAtual = 1 },
-                            shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier.fillMaxWidth().height(52.dp),
-                            border = BorderStroke(1.dp, Color.Black),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.Black)
-                        ) {
-                            Text("Voltar ao anterior", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-                        }
                     }
                     else -> {
                         Button(
@@ -1341,15 +1328,6 @@ fun adicionarContatoManual() {
                             Spacer(Modifier.width(8.dp))
                             Text("Salvar Aviso", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                         }
-                        OutlinedButton(
-                            onClick = { etapaAtual = 2 },
-                            shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier.fillMaxWidth().height(52.dp),
-                            border = BorderStroke(1.dp, Color.Black),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.Black)
-                        ) {
-                            Text("Voltar ao anterior", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-                        }
                     }
                 }
             }
@@ -1357,4 +1335,6 @@ fun adicionarContatoManual() {
         }
     }
 }
+
+
 

@@ -212,22 +212,42 @@ fun RelatorioVeiculoScreen(carroAtual: CarroInfo, lembretes: List<Lembrete>, isP
                                 .padding(20.dp)
                         ) {
                             Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(carroAtual.nome, color = textoPrimario, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold)
-                                        if (infoModelo.isNotBlank()) {
-                                            Text(infoModelo, color = textoSecundario, fontSize = 13.sp)
-                                        }
+                                Column(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    VehicleIcon(
+                                        tipoVeiculo = carroAtual.tipoVeiculo,
+                                        tint = Color.Black,
+                                        size = 210.dp
+                                    )
+                                    Text(
+                                        text = carroAtual.nome,
+                                        color = textoPrimario,
+                                        style = MaterialTheme.typography.headlineSmall,
+                                        fontWeight = FontWeight.ExtraBold
+                                    )
+                                    if (infoModelo.isNotBlank()) {
+                                        Text(infoModelo, color = textoSecundario, fontSize = 13.sp)
                                     }
+                                    Spacer(Modifier.height(8.dp))
                                     Box(
                                         modifier = Modifier
                                             .height(34.dp)
+                                            .align(Alignment.End)
                                             .wrapContentWidth()
                                             .background(Color(0xFFE2E8F0), RoundedCornerShape(12.dp))
                                             .padding(horizontal = 12.dp),
                                         contentAlignment = Alignment.Center
                                     ) {
-                                        Text(text = resumoChip, color = textoPrimario, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        Text(
+                                            text = resumoChip,
+                                            color = textoPrimario,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
                                     }
                                 }
                                 Divider(color = Color(0xFFE2E8F0))
