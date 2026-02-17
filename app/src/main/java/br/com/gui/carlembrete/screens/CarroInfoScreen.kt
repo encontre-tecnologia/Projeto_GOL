@@ -22,6 +22,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -31,13 +32,24 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowInsetsControllerCompat
+import com.google.gson.annotations.SerializedName
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
+import retrofit2.Retrofit
+import retrofit2.converter.gson.GsonConverterFactory
+import retrofit2.http.GET
+import retrofit2.http.Path
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.abs
+import kotlin.math.max
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -58,10 +70,13 @@ fun CarroInfoScreen(
     val pdfAccent = if (isDark) Color.White else Color.Black
     val pdfContainer = Color.Transparent
 
+    val lembretesAtivos = lembretes.filterNot(::isLembreteRealizado)
+    val lembretesRealizados = lembretes.filter(::isLembreteRealizado)
     val totalGastos = lembretes.sumOf { it.valor }
     val context = LocalContext.current
     val view = LocalView.current
     var showHistoricoConsumo by remember { mutableStateOf(false) }
+    val isBikeType = carro.tipoVeiculo == TipoVeiculo.BICICLETA || carro.tipoVeiculo == TipoVeiculo.BIKE_ELETRICA
 
     DisposableEffect(view, isDark) {
         val activity = view.context as? android.app.Activity
@@ -90,12 +105,14 @@ fun CarroInfoScreen(
     }
 
     // Lógica de dados
-    val proximo = lembretes.minByOrNull { dataParaOrdenacao(it) }?.let {
+    val proximo = lembretesAtivos.minByOrNull { dataParaOrdenacao(it) }?.let {
         val data = dataParaOrdenacao(it)
         if (data == LocalDate.MAX) null else data.format(DateTimeFormatter.ofPattern("dd/MM"))
     } ?: "--"
     val anoVeiculo = extrairAnoVeiculo(carro.modelo) ?: "--"
     val modeloSemAno = removerAnoDoModelo(carro.modelo).ifBlank { carro.modelo.ifBlank { "--" } }
+    var precoTabelaFipe by remember(carro.id, carro.marca, carro.modelo, carro.tipoVeiculo) { mutableStateOf<String?>(null) }
+    var carregandoPrecoFipe by remember(carro.id, carro.marca, carro.modelo, carro.tipoVeiculo) { mutableStateOf(false) }
 
     val corNome = corNomePorArgb(carro.corArgb)
     val (tituloSaude, descricaoSaude) = calcularReputacao(lembretes)
@@ -107,20 +124,35 @@ fun CarroInfoScreen(
         else -> textLight
     }
 
-    val historicoManutencoes = lembretes
+    val historicoManutencoes = (
+        lembretesAtivos
+            .mapNotNull { lembrete ->
+                val data = dataParaOrdenacao(lembrete)
+                if (data == LocalDate.MAX) null else data to lembrete
+            }
+            .filter { (data, _) -> data.isBefore(LocalDate.now()) } +
+        lembretesRealizados.mapNotNull { lembrete ->
+            val data = dataRealizacaoLembrete(lembrete) ?: dataParaOrdenacao(lembrete)
+            if (data == LocalDate.MAX) null else data to lembrete
+        }
+    )
+        .distinctBy { (_, lembrete) -> lembrete.id }
+        .sortedByDescending { it.first }
+        .take(5)
+    val manutencoesFuturas = lembretesAtivos
         .mapNotNull { lembrete ->
             val data = dataParaOrdenacao(lembrete)
             if (data == LocalDate.MAX) null else data to lembrete
         }
-        .filter { (data, _) -> data.isBefore(LocalDate.now()) }
-        .sortedByDescending { it.first }
-        .take(5)
+        .filter { (data, _) -> !data.isBefore(LocalDate.now()) }
+        .sortedBy { it.first }
+        .take(10)
 
     val documentos = listOf(
         TipoManutencao.IPVA to "IPVA",
         TipoManutencao.LICENCIAMENTO to "Licenc."
     ).map { (tipo, label) ->
-        val ultimaData = lembretes
+        val ultimaData = lembretesAtivos
             .filter { it.tipo == tipo }
             .map { dataParaOrdenacao(it) }
             .filter { it != LocalDate.MAX }
@@ -158,6 +190,27 @@ fun CarroInfoScreen(
         .sortedByDescending { it.count }
         .take(5)
 
+    val valorFipeNumerico = remember(precoTabelaFipe) {
+        precoTabelaFipe?.let(::parseMoedaBrParaDouble)
+    }
+    val fatorVendaSugerido = remember(tituloSaude, lembretes.size) {
+        val fatorSaude = when (tituloSaude) {
+            "Excelente" -> 0.98
+            "Em atenção" -> 0.93
+            "Crítica" -> 0.86
+            else -> 0.94
+        }
+        val descontoAvisos = (lembretes.size * 0.012).coerceAtMost(0.10)
+        max(0.75, fatorSaude - descontoAvisos)
+    }
+    val valorVendaSugerido = valorFipeNumerico?.let { it * fatorVendaSugerido }
+
+    LaunchedEffect(carro.id, carro.marca, carro.modelo, carro.tipoVeiculo) {
+        carregandoPrecoFipe = true
+        precoTabelaFipe = withContext(Dispatchers.IO) { buscarPrecoFipeVeiculo(context, carro) }
+        carregandoPrecoFipe = false
+    }
+
     if (showHistoricoConsumo) {
         HistoricoAbastecimentoScreen(
             carroId = carro.id,
@@ -178,37 +231,43 @@ fun CarroInfoScreen(
                 .padding(bottom = 24.dp)
         ) {
             // --- TOP BAR ---
-            Row(
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                    .padding(horizontal = 16.dp, vertical = 2.dp),
+                contentAlignment = Alignment.Center
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(
-                        onClick = onDismiss,
-                        modifier = Modifier.size(40.dp)
-                    ) {
-                        Icon(
-                            Icons.Default.ArrowBackIosNew,
-                            contentDescription = "Voltar",
-                            tint = textLight,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        "Relatório Técnico",
-                        color = textLight,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp
+                Text(
+                    "Relatório Técnico",
+                    color = textLight,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 17.sp
+                )
+
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier
+                        .size(40.dp)
+                        .align(Alignment.CenterStart)
+                ) {
+                    Icon(
+                        Icons.Default.ArrowBackIosNew,
+                        contentDescription = "Voltar",
+                        tint = textLight,
+                        modifier = Modifier.size(18.dp)
                     )
                 }
 
                 FilledTonalButton(
                     onClick = {
-                        val uri = gerarPdfRelatorio(context, carro, lembretes, isPremium)
+                        val uri = gerarPdfRelatorio(
+                            context = context,
+                            carro = carro,
+                            lembretes = lembretes,
+                            isPremium = isPremium,
+                            valorTabela = precoTabelaFipe,
+                            valorParaVender = valorVendaSugerido?.let(::formatarMoedaLocal)
+                        )
                         if (uri != null) {
                             compartilharPdf(context, uri)
                         } else {
@@ -220,12 +279,13 @@ fun CarroInfoScreen(
                         contentColor = pdfAccent
                     ),
                     border = BorderStroke(1.dp, cardBorder),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                    shape = RoundedCornerShape(12.dp)
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                    shape = RoundedCornerShape(9.dp),
+                    modifier = Modifier.align(Alignment.CenterEnd)
                 ) {
-                    Icon(Icons.Default.Print, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("PDF", fontWeight = FontWeight.Bold)
+                    Icon(Icons.Default.Print, contentDescription = null, modifier = Modifier.size(14.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("PDF", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                 }
             }
 
@@ -238,45 +298,113 @@ fun CarroInfoScreen(
                     text = carro.nome,
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold,
-                    color = textLight
+                    color = textLight,
+                    modifier = Modifier.offset(y = (4).dp)
                 )
 
-                Text(
-                    text = listOf(carro.marca, modeloSemAno, anoVeiculo.takeIf { it != "--" })
-                        .filterNotNull()
-                        .filter { it.isNotBlank() }
-                        .joinToString(" • ")
-                        .ifBlank { "N/A" },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = textDim
+                VehicleIcon(
+                    tipoVeiculo = carro.tipoVeiculo,
+                    tint = if (isDark) Color.White else Color.Black,
+                    size = 210.dp,
+                    modifier = Modifier.offset(y = (-22).dp)
                 )
 
-                Spacer(Modifier.height(24.dp))
+                Surface(
+                    modifier = Modifier
+                        .offset(y = (-64).dp)
+                        .padding(horizontal = 16.dp)
+                        .fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    color = if (isDark) Color.White.copy(alpha = 0.06f) else Color.Black.copy(alpha = 0.035f),
+                    border = BorderStroke(1.dp, if (isDark) Color.White.copy(alpha = 0.14f) else Color.Black.copy(alpha = 0.12f))
+                ) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = "Marca • Modelo • Ano",
+                            color = textDim,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = listOf(carro.marca, modeloSemAno, anoVeiculo.takeIf { it != "--" })
+                                .filterNotNull()
+                                .filter { it.isNotBlank() }
+                                .joinToString(" • ")
+                                .ifBlank { "N/A" },
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = textLight,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+
+                if (carregandoPrecoFipe) {
+                    Text(
+                        text = "Buscando FIPE...",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = textDim,
+                        modifier = Modifier.offset(y = (-54).dp)
+                    )
+                } else if (!precoTabelaFipe.isNullOrBlank()) {
+                    Row(
+                        modifier = Modifier
+                            .offset(y = (-54).dp)
+                            .padding(horizontal = 16.dp)
+                            .fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        PriceInfoPill(
+                            title = "Tabela FIPE",
+                            value = precoTabelaFipe.orEmpty(),
+                            valueColor = Color(0xFF22C55E),
+                            modifier = Modifier.weight(1f),
+                            isDark = isDark
+                        )
+                        if (valorVendaSugerido != null) {
+                            PriceInfoPill(
+                                title = "Por quanto vender",
+                                value = formatarMoedaLocal(valorVendaSugerido),
+                                valueColor = Color(0xFF22C55E),
+                                modifier = Modifier.weight(1f),
+                                isDark = isDark
+                            )
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(0.dp))
             }
 
-            FilledTonalButton(
-                onClick = { showHistoricoConsumo = true },
-                colors = ButtonDefaults.filledTonalButtonColors(
-                    containerColor = pdfContainer,
-                    contentColor = pdfAccent
-                ),
-                border = BorderStroke(1.dp, cardBorder),
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
-            ) {
-                Icon(Icons.Default.LocalGasStation, contentDescription = null, modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("Ver consumo", fontWeight = FontWeight.SemiBold)
+            if (!isBikeType) {
+                FilledTonalButton(
+                    onClick = { showHistoricoConsumo = true },
+                    colors = ButtonDefaults.filledTonalButtonColors(
+                        containerColor = Color(0xFF3B82F6),
+                        contentColor = Color.White
+                    ),
+                    border = BorderStroke(1.dp, cardBorder),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .offset(y = (-46).dp)
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
+                ) {
+                    Icon(Icons.Default.LocalGasStation, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Ver consumo", fontWeight = FontWeight.SemiBold)
+                }
             }
 
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(0.dp))
 
             // --- DASHBOARD STATS (Grid Rápido) ---
             Row(
                 modifier = Modifier
+                    .offset(y = (-34).dp)
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -303,25 +431,28 @@ fun CarroInfoScreen(
                     dimColor = textDim,
                     borderColor = cardBorder
                 )
-                // Card 3: KM
-                DashboardCard(
-                    modifier = Modifier.weight(1f),
-                    title = "Km Atual",
-                    value = if(carro.kmAtual > 0) "${carro.kmAtual / 1000}k" else "--",
-                    subValue = "Ano: $anoVeiculo",
-                    valueColor = accentColor,
-                    icon = Icons.Default.Speed,
-                    cardColor = cardColor,
-                    dimColor = textDim,
-                    borderColor = cardBorder
-                )
+                if (!isBikeType) {
+                    DashboardCard(
+                        modifier = Modifier.weight(1f),
+                        title = "Km Atual",
+                        value = if(carro.kmAtual > 0) "${carro.kmAtual / 1000}k" else "--",
+                        subValue = null,
+                        valueColor = accentColor,
+                        icon = Icons.Default.Speed,
+                        cardColor = cardColor,
+                        dimColor = textDim,
+                        borderColor = cardBorder
+                    )
+                }
             }
 
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(8.dp))
 
             // --- CONTEÚDO DETALHADO ---
             Column(
-                modifier = Modifier.padding(horizontal = 16.dp),
+                modifier = Modifier
+                    .offset(y = (-34).dp)
+                    .padding(horizontal = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
 
@@ -330,8 +461,10 @@ fun CarroInfoScreen(
                     InfoRowModern("Cor", corNome, textDim, textLight)
                     Divider(color = dividerColor)
                     InfoRowModern("Modelo", modeloSemAno, textDim, textLight)
-                    Divider(color = dividerColor)
-                    InfoRowModern("Ano", anoVeiculo, textDim, textLight)
+                    if (!isBikeType) {
+                        Divider(color = dividerColor)
+                        InfoRowModern("Ano", anoVeiculo, textDim, textLight)
+                    }
                     Divider(color = dividerColor)
                     InfoRowModern("Código ID", codigoCurto(carro.id), textDim, textLight)
                     Divider(color = dividerColor)
@@ -362,7 +495,7 @@ fun CarroInfoScreen(
 
                 // Histórico Recente
                 ContentSection(
-                    title = "Últimas Manutenções",
+                    title = "Manutencoes Realizadas",
                     icon = Icons.Outlined.History,
                     cardColor = cardColor,
                     titleColor = textLight,
@@ -371,47 +504,190 @@ fun CarroInfoScreen(
                     if (historicoManutencoes.isEmpty()) {
                         Text("Nenhum registro encontrado.", color = textDim, fontSize = 12.sp, modifier = Modifier.padding(vertical = 8.dp))
                     } else {
-                        historicoManutencoes.forEachIndexed { index, (data, lembrete) ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 6.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(lembrete.titulo, color = textLight, fontWeight = FontWeight.Medium, fontSize = 13.sp, maxLines = 1)
-                                    Text(data.format(DateTimeFormatter.ofPattern("dd 'de' MMM, yyyy")), color = textDim, fontSize = 11.sp)
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            color = Color.Transparent,
+                            border = BorderStroke(1.dp, dividerColor),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Column {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(if (isDark) Color.White.copy(alpha = 0.08f) else Color(0xFFE2E8F0))
+                                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text("Item", color = textLight, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                                    Text("Data", color = textLight, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(92.dp))
+                                    Text("Valor", color = textLight, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(82.dp), textAlign = TextAlign.End)
                                 }
-                                Text(
-                                    formatarMoedaLocal(lembrete.valor),
-                                    color = textLight.copy(alpha = 0.8f),
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                            }
-                            if (index < historicoManutencoes.lastIndex) {
-                                Divider(color = dividerColor)
+                                historicoManutencoes.forEachIndexed { index, (data, lembrete) ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            lembrete.titulo,
+                                            color = textLight,
+                                            fontWeight = FontWeight.Medium,
+                                            fontSize = 12.sp,
+                                            maxLines = 1,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        Text(
+                                            data.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")),
+                                            color = textDim,
+                                            fontSize = 11.sp,
+                                            modifier = Modifier.width(92.dp)
+                                        )
+                                        Text(
+                                            formatarMoedaLocal(lembrete.valor),
+                                            color = textLight.copy(alpha = 0.9f),
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            modifier = Modifier.width(82.dp),
+                                            textAlign = TextAlign.End
+                                        )
+                                    }
+                                    if (index < historicoManutencoes.lastIndex) Divider(color = dividerColor)
+                                }
                             }
                         }
                     }
                 }
 
                 // Peças Trocadas
-                ContentSection(title = "Peças Recorrentes", icon = Icons.Default.Settings, cardColor = cardColor, titleColor = textLight, borderColor = cardBorder) {
+                ContentSection(title = "Trocas por Peca", icon = Icons.Default.Settings, cardColor = cardColor, titleColor = textLight, borderColor = cardBorder) {
                     if (trocasPorPeca.isEmpty()) {
                         Text("Sem dados de peças.", color = textDim, fontSize = 12.sp)
                     } else {
-                        OptIn(ExperimentalLayoutApi::class)
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            trocasPorPeca.forEach { (label, count, _) ->
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            color = Color.Transparent,
+                            border = BorderStroke(1.dp, dividerColor),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Column {
                                 Row(
-                                    modifier = Modifier.fillMaxWidth(),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(if (isDark) Color.White.copy(alpha = 0.08f) else Color(0xFFE2E8F0))
+                                        .padding(horizontal = 10.dp, vertical = 8.dp),
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text(label, color = textLight, fontSize = 12.sp)
-                                    Text("x$count", color = accentColor, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    Text("Peça", color = textLight, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                                    Text("Qtd.", color = textLight, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(82.dp), textAlign = TextAlign.End)
+                                }
+                                trocasPorPeca.forEachIndexed { index, (label, count, _) ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            label,
+                                            color = textLight,
+                                            fontSize = 12.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        Text(
+                                            "x$count",
+                                            color = accentColor,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.width(82.dp),
+                                            textAlign = TextAlign.End
+                                        )
+                                    }
+                                    if (index < trocasPorPeca.lastIndex) Divider(color = dividerColor)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                ContentSection(
+                    title = "Manutencoes Futuras",
+                    icon = Icons.Default.Event,
+                    cardColor = cardColor,
+                    titleColor = textLight,
+                    borderColor = cardBorder
+                ) {
+                    if (manutencoesFuturas.isEmpty()) {
+                        Text("Nenhum lembrete futuro.", color = textDim, fontSize = 12.sp)
+                    } else {
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            color = Color.Transparent,
+                            border = BorderStroke(1.dp, dividerColor),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Column {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(if (isDark) Color.White.copy(alpha = 0.08f) else Color(0xFFE2E8F0))
+                                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text("Item", color = textLight, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                                    Text("Data", color = textLight, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(94.dp))
+                                    Text("KM", color = textLight, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(64.dp), textAlign = TextAlign.End)
+                                    Text("Cat.", color = textLight, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(66.dp), textAlign = TextAlign.End)
+                                }
+                                manutencoesFuturas.forEachIndexed { index, (data, lembrete) ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            lembrete.titulo,
+                                            color = textLight,
+                                            fontWeight = FontWeight.Medium,
+                                            fontSize = 12.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        Text(
+                                            data.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")),
+                                            color = textDim,
+                                            fontSize = 11.sp,
+                                            modifier = Modifier.width(94.dp)
+                                        )
+                                        Text(
+                                            lembrete.kmLimite.ifBlank { "--" },
+                                            color = textLight,
+                                            fontSize = 11.sp,
+                                            modifier = Modifier.width(64.dp),
+                                            textAlign = TextAlign.End
+                                        )
+                                        Text(
+                                            lembrete.tipo.label,
+                                            color = accentColor,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.width(66.dp),
+                                            textAlign = TextAlign.End
+                                        )
+                                    }
+                                    if (index < manutencoesFuturas.lastIndex) Divider(color = dividerColor)
                                 }
                             }
                         }
@@ -505,6 +781,42 @@ fun InfoRowModern(label: String, value: String, labelColor: Color, valueColor: C
     }
 }
 
+@Composable
+private fun PriceInfoPill(
+    title: String,
+    value: String,
+    valueColor: Color,
+    modifier: Modifier = Modifier,
+    isDark: Boolean
+) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(12.dp),
+        color = if (isDark) Color.White.copy(alpha = 0.06f) else Color.Black.copy(alpha = 0.03f),
+        border = BorderStroke(1.dp, if (isDark) Color.White.copy(alpha = 0.14f) else Color.Black.copy(alpha = 0.12f))
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text(
+                text = title,
+                color = if (isDark) Color(0xFF94A3B8) else Color(0xFF64748B),
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1
+            )
+            Text(
+                text = value,
+                color = valueColor,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1
+            )
+        }
+    }
+}
+
 // --- FUNÇÕES UTILITÁRIAS ---
 
 private fun corNomePorArgb(argb: Int): String {
@@ -551,4 +863,168 @@ private fun removerAnoDoModelo(modelo: String): String {
         .replace(Regex("(19|20)\\d{2}(?:/(19|20)\\d{2})?"), "")
         .replace(Regex("\\s{2,}"), " ")
         .trim()
+}
+
+private fun parseMoedaBrParaDouble(valor: String): Double? {
+    return valor
+        .replace("R$", "", ignoreCase = true)
+        .replace(".", "")
+        .replace(",", ".")
+        .trim()
+        .toDoubleOrNull()
+}
+
+private data class FipeMarcaRelatorioDto(
+    val codigo: String,
+    val nome: String
+)
+
+private data class FipeModeloRelatorioDto(
+    val codigo: Int,
+    val nome: String
+)
+
+private data class FipeAnoRelatorioDto(
+    val codigo: String,
+    val nome: String
+)
+
+private data class FipeModelosRelatorioResponseDto(
+    val modelos: List<FipeModeloRelatorioDto> = emptyList()
+)
+
+private data class FipeValorRelatorioDto(
+    @SerializedName("Valor") val valor: String? = null
+)
+
+private interface FipeRelatorioApi {
+    @GET("api/v1/{tipo}/marcas")
+    suspend fun listarMarcas(@Path("tipo") tipo: String): List<FipeMarcaRelatorioDto>
+
+    @GET("api/v1/{tipo}/marcas/{codigoMarca}/modelos")
+    suspend fun listarModelos(
+        @Path("tipo") tipo: String,
+        @Path("codigoMarca") codigoMarca: String
+    ): FipeModelosRelatorioResponseDto
+
+    @GET("api/v1/{tipo}/marcas/{codigoMarca}/modelos/{codigoModelo}/anos")
+    suspend fun listarAnos(
+        @Path("tipo") tipo: String,
+        @Path("codigoMarca") codigoMarca: String,
+        @Path("codigoModelo") codigoModelo: Int
+    ): List<FipeAnoRelatorioDto>
+
+    @GET("api/v1/{tipo}/marcas/{codigoMarca}/modelos/{codigoModelo}/anos/{codigoAno}")
+    suspend fun consultarValor(
+        @Path("tipo") tipo: String,
+        @Path("codigoMarca") codigoMarca: String,
+        @Path("codigoModelo") codigoModelo: Int,
+        @Path("codigoAno") codigoAno: String
+    ): FipeValorRelatorioDto
+}
+
+private val fipeRelatorioApi: FipeRelatorioApi by lazy {
+    Retrofit.Builder()
+        .baseUrl("https://parallelum.com.br/fipe/")
+        .addConverterFactory(GsonConverterFactory.create())
+        .build()
+        .create(FipeRelatorioApi::class.java)
+}
+
+private const val FIPE_CACHE_PRECO_TTL_MS = 24L * 60L * 60L * 1000L
+
+private suspend fun buscarPrecoFipeVeiculo(context: android.content.Context, carro: CarroInfo): String? {
+    val tipoFipe = tipoFipeParaRelatorio(carro.tipoVeiculo) ?: return null
+    val marca = carro.marca.trim()
+    val modelo = removerAnoDoModelo(carro.modelo).ifBlank { carro.modelo }.trim()
+    if (marca.isBlank() || modelo.isBlank()) return null
+    val anoDesejado = Regex("(19|20)\\d{2}").find(carro.modelo)?.value.orEmpty()
+    val cacheKey = "preco_${gerarCacheKeyRelatorio(tipoFipe, marca, modelo, anoDesejado)}"
+
+    AppPreferences.getFipeCache(context, cacheKey, FIPE_CACHE_PRECO_TTL_MS)?.let { cached ->
+        if (cached.isNotBlank()) return cached
+    }
+
+    val valor = runCatching {
+        withFipeRetryRelatorio {
+            val marcas = fipeRelatorioApi.listarMarcas(tipoFipe)
+            val codigoMarca = encontrarCodigoMarcaRelatorio(marca, marcas) ?: return@withFipeRetryRelatorio null
+
+            val modelos = fipeRelatorioApi.listarModelos(tipoFipe, codigoMarca).modelos
+            val modeloNorm = normalizarTextoRelatorio(modelo)
+            val modeloMatch = modelos.firstOrNull {
+                val atual = normalizarTextoRelatorio(it.nome)
+                atual == modeloNorm || atual.contains(modeloNorm) || modeloNorm.contains(atual)
+            } ?: return@withFipeRetryRelatorio null
+
+            val anos = fipeRelatorioApi.listarAnos(tipoFipe, codigoMarca, modeloMatch.codigo)
+            if (anos.isEmpty()) return@withFipeRetryRelatorio null
+
+            val anoMatch = if (anoDesejado.isNotBlank()) {
+                anos.firstOrNull { it.nome.contains(anoDesejado) || it.codigo.startsWith(anoDesejado) }
+            } else null
+            val anoEscolhido = anoMatch ?: anos.first()
+
+            fipeRelatorioApi.consultarValor(tipoFipe, codigoMarca, modeloMatch.codigo, anoEscolhido.codigo).valor
+        }
+    }.getOrNull()
+
+    if (!valor.isNullOrBlank()) {
+        AppPreferences.putFipeCache(context, cacheKey, valor)
+    }
+    return valor
+}
+
+private fun tipoFipeParaRelatorio(tipo: TipoVeiculo): String? = when (tipo) {
+    TipoVeiculo.MOTO -> "motos"
+    TipoVeiculo.CAMINHAO, TipoVeiculo.ONIBUS -> "caminhoes"
+    TipoVeiculo.CARRO,
+    TipoVeiculo.HATCH,
+    TipoVeiculo.SUV,
+    TipoVeiculo.CAMINHONETE,
+    TipoVeiculo.FURGAO,
+    TipoVeiculo.VAN,
+    TipoVeiculo.VEICULO_ELETRICO -> "carros"
+    else -> null
+}
+
+private fun encontrarCodigoMarcaRelatorio(
+    marcaSelecionada: String,
+    marcasFipe: List<FipeMarcaRelatorioDto>
+): String? {
+    val alvo = normalizarTextoRelatorio(marcaSelecionada)
+    if (alvo.isBlank()) return null
+    marcasFipe.firstOrNull { normalizarTextoRelatorio(it.nome) == alvo }?.let { return it.codigo }
+    marcasFipe.firstOrNull {
+        val atual = normalizarTextoRelatorio(it.nome)
+        atual.contains(alvo) || alvo.contains(atual)
+    }?.let { return it.codigo }
+    return null
+}
+
+private fun normalizarTextoRelatorio(texto: String): String =
+    java.text.Normalizer.normalize(texto.trim(), java.text.Normalizer.Form.NFD)
+        .replace("\\p{Mn}+".toRegex(), "")
+        .replace("[^A-Za-z0-9 ]".toRegex(), "")
+        .replace("\\s+".toRegex(), " ")
+        .uppercase(Locale.ROOT)
+        .trim()
+
+private suspend fun <T> withFipeRetryRelatorio(block: suspend () -> T): T {
+    var lastError: Throwable? = null
+    val delays = listOf(0L, 350L, 900L)
+    for (waitMs in delays) {
+        try {
+            if (waitMs > 0) delay(waitMs)
+            return block()
+        } catch (e: Throwable) {
+            lastError = e
+        }
+    }
+    throw (lastError ?: IllegalStateException("Erro desconhecido em consulta FIPE (relatorio)"))
+}
+
+private fun gerarCacheKeyRelatorio(vararg partes: String): String {
+    val raw = partes.joinToString("|") { normalizarTextoRelatorio(it) }
+    return raw.hashCode().toUInt().toString()
 }

@@ -87,12 +87,12 @@ fun CarroInfoCard(
         .orEmpty()
     val anoVeiculo = extrairAnoVeiculo(carroAtual.modelo)
     val modeloSemAno = removerAnoDoModelo(carroAtual.modelo).ifBlank { carroAtual.modelo.ifBlank { "N/A" } }
-    val vehicleIconOffsetY = if (carroAtual.tipoVeiculo == TipoVeiculo.BICICLETA) (-12).dp else 0.dp
-    val marcaModeloAno = listOf(
-        carroAtual.marca.uppercase().takeIf { it.isNotBlank() },
+    val vehicleIconOffsetY = if (carroAtual.tipoVeiculo == TipoVeiculo.BICICLETA) (-26).dp else 0.dp
+    val modeloAno = listOf(
         modeloSemAno.takeIf { it.isNotBlank() },
         anoVeiculo
     ).filterNotNull().joinToString(" • ")
+    val marcaTexto = carroAtual.marca.uppercase().ifBlank { "N/A" }
     // Cores DinÃ¢micas baseadas no carro (Apenas para o card interno do carro)
     val baseColor = carroAtual.getCorUI()
     val carDisplayGradientStart = lerp(Color(0xFF1E293B), baseColor, 0.55f)
@@ -149,18 +149,11 @@ fun CarroInfoCard(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(top = 18.dp, start = 8.dp, end = 8.dp),
+                                .padding(top = 24.dp, start = 8.dp, end = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.Center
                         ) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text(
-                                    text = marcaModeloAno,
-                                    fontSize = 12.sp,
-                                    color = heroTextColor.copy(alpha = 0.7f),
-                                    fontWeight = FontWeight.SemiBold,
-                                    letterSpacing = 1.sp
-                                )
                                 Text(
                                     text = carroAtual.nome,
                                     fontSize = 24.sp,
@@ -168,6 +161,21 @@ fun CarroInfoCard(
                                     fontWeight = FontWeight.Black,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = modeloAno,
+                                    fontSize = 12.sp,
+                                    color = heroTextColor.copy(alpha = 0.7f),
+                                    fontWeight = FontWeight.SemiBold,
+                                    letterSpacing = 1.sp
+                                )
+                                Text(
+                                    text = marcaTexto,
+                                    fontSize = 11.sp,
+                                    color = heroTextColor.copy(alpha = 0.82f),
+                                    fontWeight = FontWeight.Bold,
+                                    letterSpacing = 0.8.sp,
+                                    modifier = Modifier.offset(y = (-2).dp)
                                 )
                             }
                         }
@@ -201,7 +209,7 @@ fun CarroInfoCard(
                                 text = "Veículo de: $nomeProprietarioExibido",
                                 modifier = Modifier
                                     .align(Alignment.BottomCenter)
-                                    .padding(bottom = 24.dp),
+                                    .padding(bottom = 20.dp),
                                 color = heroTextColor.copy(alpha = 0.95f),
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.SemiBold

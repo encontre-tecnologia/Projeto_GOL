@@ -141,6 +141,7 @@ fun AondePareiScreen(
     var finalizedLocation by remember { mutableStateOf<ParkedLocation?>(null) }
     var finalizedStartedAtMillis by remember { mutableStateOf<Long?>(null) }
     var finalizedEndedAtMillis by remember { mutableStateOf<Long?>(null) }
+    var finalizedPhotoUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
 
     // --- VEICULOS ---
     val otherVehicleLabel = "Outro"
@@ -331,23 +332,9 @@ fun AondePareiScreen(
                                     finalizedLocation = currentLocation
                                     finalizedStartedAtMillis = startedAt
                                     finalizedEndedAtMillis = finishedAt
+                                    finalizedPhotoUris = photoUris.toList()
                                     parkingFinalized = true
 
-                                    val selectedVehicle = registeredVehicles.firstOrNull {
-                                        vehicleDisplayName(it) == selectedVehicleName
-                                    }
-                                    val targetCarId = selectedVehicle?.id
-                                        ?: AppPreferences.getLastSelectedCarId(context)
-                                        ?: registeredVehicles.firstOrNull()?.id
-
-                                    saveParkingPhotosToTechnicalReport(
-                                        context = context,
-                                        carroId = targetCarId,
-                                        vehicleName = if (selectedVehicleName == otherVehicleLabel) customVehicleName else selectedVehicleName,
-                                        photos = photoUris.toList(),
-                                        startedAtMillis = startedAt ?: finishedAt,
-                                        endedAtMillis = finishedAt
-                                    )
                                     AppPreferences.setParkingFinalized(context, true)
                                     AppPreferences.clearParkedLocation(context)
                                     cancelParkingOngoingNotification(context)
@@ -913,7 +900,7 @@ fun AondePareiScreen(
                                         endedAtMillis = endedAt,
                                         durationText = finishedParkingDurationText.orEmpty(),
                                         vehicleName = if(selectedVehicleName == otherVehicleLabel) customVehicleName else selectedVehicleName,
-                                        photoUris = photoUris.toList()
+                                        photoUris = finalizedPhotoUris
                                     )
                                     if (pdf != null) shareParkingReceiptPdf(context, pdf)
                                     else Toast.makeText(context, "Erro ao gerar PDF", Toast.LENGTH_SHORT).show()
@@ -1132,42 +1119,6 @@ private fun createParkingNotificationChannel(context: Context) {
 private fun hasNotificationPermission(context: Context): Boolean {
     return Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
         ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
-}
-
-private fun saveParkingPhotosToTechnicalReport(
-    context: Context,
-    carroId: String?,
-    vehicleName: String,
-    photos: List<Uri>,
-    startedAtMillis: Long,
-    endedAtMillis: Long
-) {
-    if (carroId.isNullOrBlank() || photos.isEmpty()) return
-
-    val lembretes = BancoDeDados.carregarLembretes(context).toMutableList()
-    val date = SimpleDateFormat("dd/MM/yyyy", Locale("pt", "BR")).format(Date(endedAtMillis))
-    val hour = SimpleDateFormat("HH:mm", Locale("pt", "BR")).format(Date(endedAtMillis))
-    val startedText = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale("pt", "BR")).format(Date(startedAtMillis))
-    val endedText = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale("pt", "BR")).format(Date(endedAtMillis))
-    val nameText = vehicleName.ifBlank { "Veículo" }
-
-    photos.forEachIndexed { index, uri ->
-        lembretes.add(
-            Lembrete(
-                carroId = carroId,
-                titulo = "Foto estacionamento ${index + 1}",
-                peca = "$nameText | Inicio: $startedText | Fim: $endedText",
-                dataLimite = date,
-                kmLimite = "",
-                tipo = TipoManutencao.OUTROS,
-                valor = 0.0,
-                fotoPath = uri.toString(),
-                horaAviso = hour
-            )
-        )
-    }
-
-    BancoDeDados.salvarLembretes(context, lembretes)
 }
 
 // --- GERAÇÃO DE PDF ---

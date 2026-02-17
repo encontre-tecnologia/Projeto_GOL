@@ -19,7 +19,9 @@ fun BackupPayload.toMap(): Map<String, Any> = mapOf(
             "proprietario" to carro.proprietario,
             "corArgb" to carro.corArgb,
             "kmAtual" to carro.kmAtual,
-            "tipoVeiculo" to carro.tipoVeiculo.name
+            "tipoVeiculo" to carro.tipoVeiculo.name,
+            "vezesBatido" to (carro.vezesBatido ?: -1),
+            "tempoComVeiculo" to carro.tempoComVeiculo
         )
     },
     "lembretes" to lembretes.map { lembrete ->
@@ -60,7 +62,9 @@ fun backupPayloadFromMap(data: Map<String, Any>): BackupPayload {
             proprietario = mapa["proprietario"] as? String ?: "",
             corArgb = (mapa["corArgb"] as? Number)?.toInt() ?: 0xFF3B82F6.toInt(),
             kmAtual = (mapa["kmAtual"] as? Number)?.toInt() ?: 0,
-            tipoVeiculo = runCatching { TipoVeiculo.valueOf(tipoRaw) }.getOrDefault(TipoVeiculo.CARRO)
+            tipoVeiculo = runCatching { TipoVeiculo.valueOf(tipoRaw) }.getOrDefault(TipoVeiculo.CARRO),
+            vezesBatido = (mapa["vezesBatido"] as? Number)?.toInt()?.takeIf { it >= 0 },
+            tempoComVeiculo = mapa["tempoComVeiculo"] as? String ?: ""
         )
     } ?: emptyList()
 

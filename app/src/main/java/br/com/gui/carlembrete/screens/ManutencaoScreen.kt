@@ -9,11 +9,8 @@ import android.graphics.Paint
 import android.content.Context
 import android.content.ContextWrapper
 import android.speech.tts.TextToSpeech
-import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -64,7 +61,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -146,7 +142,30 @@ fun ManutencaoScreen(
     // ----------------- CARREGAMENTO DE DADOS -----------------
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) {
-            val carros = BancoDeDados.carregarCarrosComFallback(context)
+            val nomeUsuarioLogado = FirebaseAuth.getInstance().currentUser?.displayName
+                ?.trim()
+                ?.split("\\s+".toRegex())
+                ?.filter { it.isNotBlank() }
+                ?.let { partes ->
+                    when {
+                        partes.isEmpty() -> null
+                        partes.size == 1 -> partes.first()
+                        else -> "${partes.first()} ${partes.last()}"
+                    }
+                }
+
+            val carrosOriginais = BancoDeDados.carregarCarrosComFallback(context)
+            val carros = if (!nomeUsuarioLogado.isNullOrBlank()) {
+                carrosOriginais.map { carro ->
+                    if (carro.proprietario.equals("Eu mesmo", ignoreCase = true)) {
+                        carro.copy(proprietario = nomeUsuarioLogado)
+                    } else {
+                        carro
+                    }
+                }
+            } else {
+                carrosOriginais
+            }
             val contatos = BancoDeDados.carregarContatos(context)
             val lembretes = BancoDeDados.carregarLembretes(context)
             val abastecimentosDb = BancoDeDados.carregarAbastecimentos(context)
@@ -158,7 +177,10 @@ fun ManutencaoScreen(
                 abastecimentos = abastecimentosDb
                 pedaladas = pedaladasDb
                 isLoading = false
-                NotificacaoHelper.reagendarExistentes(context.applicationContext, lembretes)
+                NotificacaoHelper.reagendarExistentes(
+                    context.applicationContext,
+                    lembretes.filterNot(::isLembreteRealizado)
+                )
             }
         }
     }
@@ -279,10 +301,11 @@ fun ManutencaoScreen(
     var buscaTexto by remember { mutableStateOf("") }
 
     val lembretesDoCarroAtual = todosLembretes.filter { it.carroId == carroAtual.id }
+    val lembretesAtivosDoCarroAtual = lembretesDoCarroAtual.filterNot(::isLembreteRealizado)
     val lembretesFiltrados = if (filtroTipo == null) {
-        lembretesDoCarroAtual
+        lembretesAtivosDoCarroAtual
     } else {
-        lembretesDoCarroAtual.filter { it.tipo == filtroTipo }
+        lembretesAtivosDoCarroAtual.filter { it.tipo == filtroTipo }
     }
     val lembretesComBusca = if (buscaTexto.isBlank()) {
         lembretesFiltrados
@@ -292,7 +315,7 @@ fun ManutencaoScreen(
                     lembrete.peca.contains(buscaTexto, ignoreCase = true)
         }
     }
-    val totalGastos = lembretesDoCarroAtual.sumOf { it.valor }
+    val totalGastos = lembretesAtivosDoCarroAtual.sumOf { it.valor }
     val usuarioNome = FirebaseAuth.getInstance().currentUser?.displayName
     val nomeExibido = usuarioNome?.trim()?.split("\\s+".toRegex())?.let { partes ->
         if (partes.isEmpty()) null else if (partes.size == 1) partes[0] else "${partes.first()} ${partes.last()}"
@@ -301,7 +324,17 @@ fun ManutencaoScreen(
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val drawerScope = rememberCoroutineScope()
     val contentScrollState = rememberScrollState()
-    val showTopBar by remember { derivedStateOf { contentScrollState.value <= 12 } }
+    var showTopBar by remember { mutableStateOf(true) }
+    LaunchedEffect(contentScrollState.value) {
+        val scrollY = contentScrollState.value
+        val hideThreshold = 56
+        val showThreshold = 12
+        if (showTopBar && scrollY > hideThreshold) {
+            showTopBar = false
+        } else if (!showTopBar && scrollY < showThreshold) {
+            showTopBar = true
+        }
+    }
     val activity = remember(context) { context.findActivity() }
     val subscriptionManager = remember { SubscriptionManager(context) }
     val planTier by subscriptionManager.planTier.collectAsState()
@@ -530,6 +563,16 @@ fun ManutencaoScreen(
                 lembreteSelecionado = null
                 contatoDetalheSelecionado = null
                 showLembreteDetalhesScreen = false
+            },
+            onMarkAsDone = { selecionado ->
+                NotificacaoHelper.cancelarNotificacao(context.applicationContext, selecionado.id)
+                todosLembretes = todosLembretes.map {
+                    if (it.id == selecionado.id) marcarLembreteComoRealizado(it) else it
+                }
+                lembreteSelecionado = null
+                contatoDetalheSelecionado = null
+                showLembreteDetalhesScreen = false
+                Toast.makeText(context, "Manutenção marcada como realizada.", Toast.LENGTH_SHORT).show()
             },
             onSalvar = { atualizado ->
                 todosLembretes = todosLembretes.map { if (it.id == atualizado.id) atualizado else it }
@@ -1004,7 +1047,6 @@ fun ManutencaoScreen(
                                 color = textLight,
                                 style = MaterialTheme.typography.titleLarge,
                                 fontWeight = FontWeight.Bold,
-                                fontStyle = FontStyle.Italic,
                                 letterSpacing = 1.sp
                             )
                         },
@@ -1043,33 +1085,39 @@ fun ManutencaoScreen(
                                     }
                                 }
                                 Box(
-                                    modifier = Modifier.size(38.dp),
+                                    modifier = Modifier.size(44.dp),
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    IconButton(
-                                        onClick = {
-                                            notificacoesDisparadas = NotificacaoHelper.carregarNotificacoesDisparadas(context)
-                                            showAvisosNotificacoesDialog = true
-                                        },
-                                        modifier = Modifier.fillMaxSize()
+                                    BadgedBox(
+                                        badge = {
+                                            if (notificacoesDisparadas.isNotEmpty()) {
+                                                Badge(
+                                                    modifier = Modifier
+                                                        .offset(x = (-3).dp, y = 7.dp)
+                                                        .defaultMinSize(minWidth = 18.dp, minHeight = 18.dp),
+                                                    containerColor = Color(0xFFEF4444),
+                                                    contentColor = Color.White
+                                                ) {
+                                                    Text(
+                                                        text = if (notificacoesDisparadas.size > 99) "99+" else notificacoesDisparadas.size.toString(),
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                }
+                                            }
+                                        }
                                     ) {
-                                        Icon(
-                                            imageVector = Icons.Default.NotificationsNone,
-                                            contentDescription = "Notificações dos avisos",
-                                            tint = textLight
-                                        )
-                                    }
-                                    if (notificacoesDisparadas.isNotEmpty()) {
-                                        Badge(
-                                            modifier = Modifier
-                                                .align(Alignment.TopEnd)
-                                                .offset(x = 2.dp, y = (-2).dp),
-                                            containerColor = Color(0xFFEF4444),
-                                            contentColor = Color.White
+                                        IconButton(
+                                            onClick = {
+                                                notificacoesDisparadas = NotificacaoHelper.carregarNotificacoesDisparadas(context)
+                                                showAvisosNotificacoesDialog = true
+                                            },
+                                            modifier = Modifier.fillMaxSize()
                                         ) {
-                                            Text(
-                                                text = if (notificacoesDisparadas.size > 99) "99+" else notificacoesDisparadas.size.toString(),
-                                                fontSize = 10.sp
+                                            Icon(
+                                                imageVector = Icons.Default.NotificationsNone,
+                                                contentDescription = "Notificações dos avisos",
+                                                tint = textLight
                                             )
                                         }
                                     }
@@ -1175,7 +1223,7 @@ fun ManutencaoScreen(
                     }
                     Spacer(Modifier.height(14.dp))
                     AvisosCategoriasCard(
-                        lembretesDoCarroAtual = lembretesDoCarroAtual,
+                        lembretesDoCarroAtual = lembretesAtivosDoCarroAtual,
                         lembretesComBusca = lembretesComBusca,
                         buscaTexto = buscaTexto,
                         onBuscar = { buscaTexto = it },
@@ -1200,7 +1248,7 @@ fun ManutencaoScreen(
                             showLembreteDetalhesScreen = true
                         },
                         statusLabel = { textoStatusPrazoLocal(it) },
-                        statusColor = { tipo -> calcularCorStatusLocal(lembretesDoCarroAtual, tipo) },
+                        statusColor = { tipo -> calcularCorStatusLocal(lembretesAtivosDoCarroAtual, tipo) },
                         textDim = textDim,
                         modifier = Modifier
                             .fillMaxWidth()
@@ -1838,14 +1886,15 @@ private fun LembreteDetalhesScreen(
     carro: CarroInfo,
     onDismiss: () -> Unit,
     onDelete: (Lembrete) -> Unit,
+    onMarkAsDone: (Lembrete) -> Unit,
     onSalvar: (Lembrete) -> Unit
 ) {
     val colorScheme = MaterialTheme.colorScheme
     val isDark = colorScheme.background.luminance() < 0.5f
-    val screenBg = colorScheme.background
+    val screenBg = if (isDark) colorScheme.background else Color.White
     val appBarBg = colorScheme.surface
     val cardBg = colorScheme.surface
-    val cardBorder = if (isDark) colorScheme.outline.copy(alpha = 0.45f) else Color(0xFFE2E8F0)
+    val cardBorder = if (isDark) colorScheme.outline.copy(alpha = 0.45f) else Color(0xFFCBD5E1)
     val textPrimary = colorScheme.onSurface
     val textSecondary = colorScheme.onSurfaceVariant
 
@@ -1858,8 +1907,14 @@ private fun LembreteDetalhesScreen(
     var contatoSelecionadoId by remember(lembrete.id) { mutableStateOf(lembrete.contatoId) }
     var expandirSeletorPrestador by remember(lembrete.id) { mutableStateOf(false) }
     var fotoPathEditavel by remember(lembrete.id) { mutableStateOf(lembrete.fotoPath.orEmpty()) }
-    val selecionarFotoLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
-        if (uri != null) fotoPathEditavel = uri.toString()
+    val resetarEdicao = {
+        titulo = lembrete.titulo
+        dataAviso = lembrete.dataLimite
+        horaAviso = lembrete.horaAviso
+        kmLimite = lembrete.kmLimite
+        valorTexto = if (lembrete.valor > 0) lembrete.valor.toString() else ""
+        contatoSelecionadoId = lembrete.contatoId
+        fotoPathEditavel = lembrete.fotoPath.orEmpty()
     }
     val categoriaColor = remember(lembrete.tipo) {
         when (lembrete.tipo) {
@@ -1887,16 +1942,7 @@ private fun LembreteDetalhesScreen(
                     IconButton(
                         onClick = {
                             if (editando) {
-                                val atualizado = lembrete.copy(
-                                    titulo = titulo.ifBlank { lembrete.titulo },
-                                    dataLimite = dataAviso.ifBlank { lembrete.dataLimite },
-                                    horaAviso = horaAviso.ifBlank { lembrete.horaAviso },
-                                    kmLimite = kmLimite,
-                                    contatoId = contatoSelecionadoId,
-                                    valor = valorTexto.toDoubleOrNull() ?: 0.0,
-                                    fotoPath = fotoPathEditavel.ifBlank { null }
-                                )
-                                onSalvar(atualizado)
+                                resetarEdicao()
                                 editando = false
                             } else {
                                 editando = true
@@ -1904,9 +1950,9 @@ private fun LembreteDetalhesScreen(
                         }
                     ) {
                         Icon(
-                            imageVector = if (editando) Icons.Default.Save else Icons.Default.Edit,
-                            contentDescription = if (editando) "Salvar" else "Editar",
-                            tint = Color(0xFF2563EB)
+                            imageVector = if (editando) Icons.Default.Close else Icons.Default.Edit,
+                            contentDescription = if (editando) "Cancelar edição" else "Editar",
+                            tint = if (editando) Color(0xFFEF4444) else Color(0xFF2563EB)
                         )
                     }
                 },
@@ -1942,7 +1988,7 @@ private fun LembreteDetalhesScreen(
                         TipoIcon(tipo = lembrete.tipo, tint = categoriaColor, size = 22.dp)
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = if (editando) "Editar aviso" else "Visualizar aviso",
+                                text = titulo.ifBlank { lembrete.titulo },
                                 color = textPrimary,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 16.sp
@@ -2044,15 +2090,6 @@ private fun LembreteDetalhesScreen(
                                 }
                             }
                         }
-                        OutlinedButton(
-                            onClick = { selecionarFotoLauncher.launch("image/*") },
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(10.dp)
-                        ) {
-                            Icon(Icons.Default.AddAPhoto, contentDescription = null)
-                            Spacer(Modifier.width(6.dp))
-                            Text(if (fotoPathEditavel.isBlank()) "Adicionar foto" else "Trocar foto")
-                        }
                         if (fotoPathEditavel.isNotBlank()) {
                             val imageModel: Any = if (
                                 fotoPathEditavel.startsWith("content://") || fotoPathEditavel.startsWith("file://")
@@ -2077,7 +2114,6 @@ private fun LembreteDetalhesScreen(
                             )
                         }
                     } else {
-                        Text(lembrete.titulo, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, color = textPrimary)
                         InfoRow("Veículo", carro.nome, textPrimary, textSecondary)
                         InfoRow("Data", lembrete.dataLimite.ifBlank { "Sem data" }, textPrimary, textSecondary)
                         InfoRow("Hora", lembrete.horaAviso, textPrimary, textSecondary)
@@ -2119,8 +2155,44 @@ private fun LembreteDetalhesScreen(
             }
 
             if (editando) {
-                Spacer(Modifier.height(1.dp))
+                Button(
+                    onClick = {
+                        val atualizado = lembrete.copy(
+                            titulo = titulo.ifBlank { lembrete.titulo },
+                            dataLimite = dataAviso.ifBlank { lembrete.dataLimite },
+                            horaAviso = horaAviso.ifBlank { lembrete.horaAviso },
+                            kmLimite = kmLimite,
+                            contatoId = contatoSelecionadoId,
+                            valor = valorTexto.toDoubleOrNull() ?: 0.0,
+                            fotoPath = fotoPathEditavel.ifBlank { null }
+                        )
+                        onSalvar(atualizado)
+                        editando = false
+                    },
+                    modifier = Modifier.fillMaxWidth().height(50.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB), contentColor = Color.White),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("Salvar edição", fontWeight = FontWeight.Bold)
+                }
             } else {
+                Button(
+                    onClick = { onMarkAsDone(lembrete) },
+                    modifier = Modifier.fillMaxWidth().height(50.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF22C55E),
+                        contentColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CheckCircle,
+                        contentDescription = null,
+                        tint = Color.White
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text("Marcar manutenção como realizada", color = Color.White, fontWeight = FontWeight.Bold)
+                }
                 Button(
                     onClick = { onDelete(lembrete) },
                     modifier = Modifier.fillMaxWidth().height(50.dp),

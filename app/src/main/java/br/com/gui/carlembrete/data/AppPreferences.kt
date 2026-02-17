@@ -22,6 +22,8 @@ object AppPreferences {
     private const val KEY_PARKING_SELECTED_HOURS = "parking_selected_hours"
     private const val KEY_LAST_SELECTED_CAR_ID = "last_selected_car_id"
     private const val KEY_PARKING_PHOTO_URIS = "parking_photo_uris"
+    private const val KEY_FIPE_CACHE_VALUE_PREFIX = "fipe_cache_value_"
+    private const val KEY_FIPE_CACHE_TIME_PREFIX = "fipe_cache_time_"
 
     fun needsOnboarding(context: Context): Boolean {
         return context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getBoolean(KEY_FIRST_RUN, true)
@@ -192,6 +194,25 @@ object AppPreferences {
         context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
             .edit()
             .remove(KEY_PARKING_PHOTO_URIS)
+            .apply()
+    }
+
+    fun getFipeCache(context: Context, key: String, ttlMillis: Long): String? {
+        if (key.isBlank()) return null
+        val prefs = context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        val storedAt = prefs.getLong(KEY_FIPE_CACHE_TIME_PREFIX + key, 0L)
+        if (storedAt <= 0L) return null
+        val age = System.currentTimeMillis() - storedAt
+        if (age < 0L || age > ttlMillis) return null
+        return prefs.getString(KEY_FIPE_CACHE_VALUE_PREFIX + key, null)
+    }
+
+    fun putFipeCache(context: Context, key: String, value: String) {
+        if (key.isBlank()) return
+        context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+            .edit()
+            .putString(KEY_FIPE_CACHE_VALUE_PREFIX + key, value)
+            .putLong(KEY_FIPE_CACHE_TIME_PREFIX + key, System.currentTimeMillis())
             .apply()
     }
 

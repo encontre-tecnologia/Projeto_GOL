@@ -1,9 +1,11 @@
-﻿package br.com.gui.carlembrete
+package br.com.gui.carlembrete
 
 import android.app.Activity
+import android.content.Context
 import android.content.Intent
 import android.speech.RecognizerIntent
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
@@ -44,7 +46,9 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.text.NumberFormat
 import java.text.Normalizer
@@ -61,6 +65,17 @@ fun NovoCarroScreen(
     onSalvar: (CarroInfo) -> Unit
 ) {
     val context = LocalContext.current
+    val nomeUsuarioLogado = remember {
+        val displayName = FirebaseAuth.getInstance().currentUser?.displayName
+            ?.trim()
+            ?.split("\\s+".toRegex())
+            ?.filter { it.isNotBlank() }
+        when {
+            displayName.isNullOrEmpty() -> "Eu mesmo"
+            displayName.size == 1 -> displayName.first()
+            else -> "${displayName.first()} ${displayName.last()}"
+        }
+    }
     val scheme = MaterialTheme.colorScheme
     val bgLight = scheme.background
     val borderLight = scheme.outlineVariant
@@ -72,26 +87,85 @@ fun NovoCarroScreen(
     var nome by remember { mutableStateOf("") }
     var marca by remember { mutableStateOf("") }
     var modelo by remember { mutableStateOf("") }
-    var proprietario by remember { mutableStateOf("") }
+    var proprietario by remember { mutableStateOf(nomeUsuarioLogado) }
+    var quemUsaOpcao by remember { mutableStateOf("Eu mesmo") }
+    var quemUsaExpanded by remember { mutableStateOf(false) }
     var kmAtualStr by remember { mutableStateOf("100.000") }
     var tipoSelecionado by remember { mutableStateOf<TipoVeiculo?>(null) }
-    var corSelecionada by remember { mutableStateOf(carroBase.corArgb) }
+    var corSelecionada by remember { mutableStateOf<Int?>(null) }
+    var vezesBatido by remember { mutableStateOf<Int?>(null) }
+    var tempoComVeiculo by remember { mutableStateOf("") }
     var alvoVoz by remember { mutableStateOf("nome") }
     var modelosFipe by remember { mutableStateOf<List<FipeModeloDto>>(emptyList()) }
     var carregandoModelos by remember { mutableStateOf(false) }
     var modeloSelecionadoCodigo by remember { mutableStateOf<Int?>(null) }
     var anosFipe by remember { mutableStateOf<List<String>>(emptyList()) }
     var anoSelecionado by remember { mutableStateOf("") }
+    var etapaCadastro by remember { mutableStateOf(1) }
+    var tentouAvancarEtapa1 by remember { mutableStateOf(false) }
+    var tentouSalvarEtapa2 by remember { mutableStateOf(false) }
+    var tipoAnterior by remember { mutableStateOf<TipoVeiculo?>(null) }
     val contentScrollState = rememberScrollState()
     val showTopBar by remember { derivedStateOf { contentScrollState.value <= 8 } }
     val sugestoesNomeExibidas = remember(modelosFipe) { modelosFipe }
     val opcoesCor = remember { coresVeiculoDisponiveis() }
     val nomeCorSelecionada = remember(corSelecionada, opcoesCor) {
-        opcoesCor.firstOrNull { it.color.toArgb() == corSelecionada }?.name ?: "Selecione"
+        corSelecionada?.let { cor ->
+            opcoesCor.firstOrNull { it.color.toArgb() == cor }?.name
+        } ?: "Selecione"
     }
+    val etapa1Valida = tipoSelecionado != null &&
+        marca.isNotBlank() &&
+        nome.isNotBlank() &&
+        modelo.isNotBlank() &&
+        corSelecionada != null
+    val isBikeTypeGlobal =
+        tipoSelecionado == TipoVeiculo.BICICLETA || tipoSelecionado == TipoVeiculo.BIKE_ELETRICA
+    val etapaBikeValida = etapa1Valida &&
+        proprietario.isNotBlank() &&
+        kmAtualStr.filter(Char::isDigit).isNotEmpty()
+    val erroTipo = etapaCadastro == 1 && tentouAvancarEtapa1 && tipoSelecionado == null
+    val erroMarca = etapaCadastro == 1 && tentouAvancarEtapa1 && marca.isBlank()
+    val erroNome = etapaCadastro == 1 && tentouAvancarEtapa1 && nome.isBlank()
+    val erroModelo = etapaCadastro == 1 && tentouAvancarEtapa1 && modelo.isBlank()
+    val erroCor = etapaCadastro == 1 && tentouAvancarEtapa1 && corSelecionada == null
+    val erroKm =
+        (etapaCadastro == 2 && !isBikeTypeGlobal && tentouSalvarEtapa2 && kmAtualStr.filter(Char::isDigit).isEmpty()) ||
+        (etapaCadastro == 1 && isBikeTypeGlobal && tentouAvancarEtapa1 && kmAtualStr.filter(Char::isDigit).isEmpty())
+    val etapa2Valida = proprietario.isNotBlank() &&
+        vezesBatido != null &&
+        tempoComVeiculo.isNotBlank() &&
+        kmAtualStr.filter(Char::isDigit).isNotEmpty()
+    val erroProprietario =
+        (etapaCadastro == 2 && !isBikeTypeGlobal && tentouSalvarEtapa2 && proprietario.isBlank()) ||
+        (etapaCadastro == 1 && isBikeTypeGlobal && tentouAvancarEtapa1 && proprietario.isBlank())
+    val erroBatidas = etapaCadastro == 2 && tentouSalvarEtapa2 && vezesBatido == null
+    val erroTempo = etapaCadastro == 2 && tentouSalvarEtapa2 && tempoComVeiculo.isBlank()
 
     val marcasDisponiveis = marcasPorTipo(tipoSelecionado)
     LaunchedEffect(tipoSelecionado) {
+        if (tipoAnterior != null && tipoSelecionado != tipoAnterior) {
+            marca = ""
+            nome = ""
+            modelo = ""
+            proprietario = nomeUsuarioLogado
+            quemUsaOpcao = "Eu mesmo"
+            quemUsaExpanded = false
+            kmAtualStr = "100.000"
+            corSelecionada = null
+            vezesBatido = null
+            tempoComVeiculo = ""
+            modelosFipe = emptyList()
+            carregandoModelos = false
+            modeloSelecionadoCodigo = null
+            anosFipe = emptyList()
+            anoSelecionado = ""
+            etapaCadastro = 1
+            tentouAvancarEtapa1 = false
+            tentouSalvarEtapa2 = false
+        }
+        tipoAnterior = tipoSelecionado
+
         if (marca.isNotBlank() && !marcasDisponiveis.contains(marca)) {
             marca = ""
             modelosFipe = emptyList()
@@ -111,7 +185,7 @@ fun NovoCarroScreen(
             return@LaunchedEffect
         }
         carregandoModelos = true
-        modelosFipe = withContext(Dispatchers.IO) { carregarModelosFipePorMarca(marca, tipoSelecionado) }
+        modelosFipe = withContext(Dispatchers.IO) { carregarModelosFipePorMarca(context, marca, tipoSelecionado) }
         carregandoModelos = false
         modeloSelecionadoCodigo = modelosFipe.firstOrNull { normalizarTextoBusca(it.nome) == normalizarTextoBusca(modelo) }?.codigo
     }
@@ -122,7 +196,7 @@ fun NovoCarroScreen(
             anoSelecionado = ""
             return@LaunchedEffect
         }
-        anosFipe = withContext(Dispatchers.IO) { carregarAnosFipe(marca, codigoModelo, tipoSelecionado) }
+        anosFipe = withContext(Dispatchers.IO) { carregarAnosFipe(context, marca, codigoModelo, tipoSelecionado) }
         if (anosFipe.isEmpty()) {
             anoSelecionado = ""
         } else if (anoSelecionado !in anosFipe) {
@@ -171,6 +245,18 @@ fun NovoCarroScreen(
         }
     }
 
+    fun voltarTela() {
+        if (etapaCadastro == 2) {
+            etapaCadastro = 1
+        } else {
+            onDismiss()
+        }
+    }
+
+    BackHandler {
+        voltarTela()
+    }
+
     Scaffold(
         containerColor = bgLight,
         topBar = {
@@ -178,12 +264,101 @@ fun NovoCarroScreen(
                 CenterAlignedTopAppBar(
                     title = { Text("Adicionar veiculo", color = textPrimary, fontWeight = FontWeight.Bold) },
                     navigationIcon = {
-                        IconButton(onClick = onDismiss) {
+                        IconButton(onClick = ::voltarTela) {
                             Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar", tint = textPrimary)
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = bgLight)
                 )
+            }
+        },
+        bottomBar = {
+            Surface(color = bgLight, tonalElevation = 0.dp, shadowElevation = 0.dp) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 34.dp)
+                ) {
+                    if (etapaCadastro == 1) {
+                        Button(
+                            onClick = {
+                                tentouAvancarEtapa1 = true
+                                if (isBikeTypeGlobal) {
+                                    if (!etapaBikeValida || tipoSelecionado == null) {
+                                        Toast.makeText(context, "Preencha os campos obrigatorios", Toast.LENGTH_SHORT).show()
+                                        return@Button
+                                    }
+                                    onSalvar(
+                                        carroBase.copy(
+                                            nome = nome,
+                                            marca = marca,
+                                            modelo = combinarModeloAno(modelo, anoSelecionado),
+                                            proprietario = proprietario,
+                                            corArgb = corSelecionada ?: carroBase.corArgb,
+                                            kmAtual = kmAtualStr.filter(Char::isDigit).toIntOrNull() ?: 0,
+                                            tipoVeiculo = tipoSelecionado!!,
+                                            vezesBatido = null,
+                                            tempoComVeiculo = ""
+                                        )
+                                    )
+                                    return@Button
+                                }
+                                if (!etapa1Valida) {
+                                    Toast.makeText(context, "Preencha os campos obrigatorios", Toast.LENGTH_SHORT).show()
+                                    return@Button
+                                }
+                                etapaCadastro = 2
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(56.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (etapa1Valida) accentBlue else borderLight,
+                                contentColor = if (etapa1Valida) Color.White else textSecondary
+                            ),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text(
+                                if (isBikeTypeGlobal) "Cadastrar bike" else "Proximo",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 18.sp
+                            )
+                        }
+                    } else {
+                        Button(
+                            onClick = {
+                                tentouSalvarEtapa2 = true
+                                if (!etapa2Valida || tipoSelecionado == null) {
+                                    Toast.makeText(context, "Preencha os campos obrigatorios", Toast.LENGTH_SHORT).show()
+                                    return@Button
+                                }
+                                onSalvar(
+                                    carroBase.copy(
+                                        nome = nome,
+                                        marca = marca,
+                                        modelo = combinarModeloAno(modelo, anoSelecionado),
+                                        proprietario = proprietario,
+                                        corArgb = corSelecionada ?: carroBase.corArgb,
+                                        kmAtual = kmAtualStr.filter(Char::isDigit).toIntOrNull() ?: 0,
+                                        tipoVeiculo = tipoSelecionado!!,
+                                        vezesBatido = vezesBatido,
+                                        tempoComVeiculo = tempoComVeiculo
+                                    )
+                                )
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(56.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (etapa2Valida) accentBlue else borderLight,
+                                contentColor = if (etapa2Valida) Color.White else textSecondary
+                            ),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text("Cadastrar", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                        }
+                    }
+                }
             }
         }
     ) { innerPadding ->
@@ -195,10 +370,11 @@ fun NovoCarroScreen(
         ) {
             Column(
                 modifier = Modifier
-                    .fillMaxSize()
+                    .fillMaxWidth()
                     .verticalScroll(contentScrollState)
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                    .padding(bottom = 88.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 NovoSectionCard(title = "", icon = null) {
                     var tipoExpanded by remember { mutableStateOf(false) }
@@ -206,44 +382,59 @@ fun NovoCarroScreen(
                     var anoExpanded by remember { mutableStateOf(false) }
                     var nomeExpanded by remember { mutableStateOf(false) }
                     var corExpanded by remember { mutableStateOf(false) }
+                    var batidasExpanded by remember { mutableStateOf(false) }
+                    var tempoExpanded by remember { mutableStateOf(false) }
 
-                    ExposedDropdownMenuBox(
-                        expanded = tipoExpanded,
-                        onExpandedChange = { tipoExpanded = !tipoExpanded }
+                    Box(
+                        modifier = Modifier.fillMaxWidth(),
+                        contentAlignment = Alignment.Center
                     ) {
-                        OutlinedTextField(
-                            value = tipoSelecionado?.label ?: "",
-                            onValueChange = {},
-                            readOnly = true,
-                            label = { Text("Tipo") },
-                            placeholder = { Text("Selecione") },
-                            modifier = Modifier
-                                .menuAnchor()
-                                .fillMaxWidth(),
-                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = tipoExpanded) },
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedTextColor = textPrimary,
-                                unfocusedTextColor = textPrimary,
-                                focusedLabelColor = textSecondary,
-                                unfocusedLabelColor = textSecondary,
-                                focusedPlaceholderColor = textSecondary,
-                                unfocusedPlaceholderColor = textSecondary,
-                                focusedBorderColor = accentBlue,
-                                unfocusedBorderColor = borderLight
-                            )
+                        Text(
+                            text = if (isBikeTypeGlobal) "Etapa 1 de 1" else "Etapa $etapaCadastro de 2",
+                            color = textSecondary,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center
                         )
-                        ExposedDropdownMenu(expanded = tipoExpanded, onDismissRequest = { tipoExpanded = false }) {
-                            TipoVeiculo.values().forEach { tipo ->
-                                DropdownMenuItem(
-                                    text = { Text(tipo.label, color = textPrimary) },
-                                    onClick = {
-                                        tipoSelecionado = tipo
-                                        tipoExpanded = false
-                                    }
+                    }
+
+                    if (etapaCadastro == 1) {
+                        ExposedDropdownMenuBox(
+                            expanded = tipoExpanded,
+                            onExpandedChange = { tipoExpanded = !tipoExpanded }
+                        ) {
+                            OutlinedTextField(
+                                value = tipoSelecionado?.label ?: "",
+                                onValueChange = {},
+                                readOnly = true,
+                                isError = erroTipo,
+                                label = { Text("Tipo") },
+                                placeholder = { Text("Selecione") },
+                                modifier = Modifier.menuAnchor().fillMaxWidth(),
+                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = tipoExpanded) },
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedTextColor = textPrimary,
+                                    unfocusedTextColor = textPrimary,
+                                    focusedLabelColor = textSecondary,
+                                    unfocusedLabelColor = textSecondary,
+                                    focusedPlaceholderColor = textSecondary,
+                                    unfocusedPlaceholderColor = textSecondary,
+                                    focusedBorderColor = accentBlue,
+                                    unfocusedBorderColor = borderLight
                                 )
+                            )
+                            ExposedDropdownMenu(expanded = tipoExpanded, onDismissRequest = { tipoExpanded = false }) {
+                                TipoVeiculo.values().forEach { tipo ->
+                                    DropdownMenuItem(
+                                        text = { Text(tipo.label, color = textPrimary) },
+                                        onClick = {
+                                            tipoSelecionado = tipo
+                                            tipoExpanded = false
+                                        }
+                                    )
+                                }
                             }
                         }
-                    }
 
                     ExposedDropdownMenuBox(
                         expanded = marcaExpanded,
@@ -259,6 +450,7 @@ fun NovoCarroScreen(
                             value = marca,
                             onValueChange = {},
                             readOnly = true,
+                            isError = erroMarca,
                             label = { Text("Marca") },
                             placeholder = { Text("Selecione") },
                             modifier = Modifier
@@ -283,135 +475,18 @@ fun NovoCarroScreen(
                                     text = { Text(marcaNome, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = textPrimary) },
                                     onClick = {
                                         marca = marcaNome
+                                        carregandoModelos = true
+                                        modelosFipe = emptyList()
+                                        nome = ""
+                                        modeloSelecionadoCodigo = null
+                                        anosFipe = emptyList()
+                                        anoSelecionado = ""
                                         marcaExpanded = false
                                     }
                                 )
                             }
                         }
                     }
-
-                    val isBikeType =
-                        tipoSelecionado == TipoVeiculo.BICICLETA || tipoSelecionado == TipoVeiculo.BIKE_ELETRICA
-                    if (isBikeType) {
-                        OutlinedTextField(
-                            value = nome,
-                            onValueChange = { nome = it },
-                            label = { Text("Nome da bike") },
-                            singleLine = true,
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedTextColor = textPrimary,
-                                unfocusedTextColor = textPrimary,
-                                focusedLabelColor = textSecondary,
-                                unfocusedLabelColor = textSecondary,
-                                focusedBorderColor = accentBlue,
-                                unfocusedBorderColor = borderLight
-                            ),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    } else {
-                        ExposedDropdownMenuBox(
-                            expanded = nomeExpanded,
-                            onExpandedChange = {
-                                if (!carregandoModelos && modelosFipe.isNotEmpty()) {
-                                    nomeExpanded = !nomeExpanded
-                                } else {
-                                    val mensagem = if (carregandoModelos) {
-                                        "Aguarde, buscando opções..."
-                                    } else {
-                                        "Selecione tipo e marca para carregar opções"
-                                    }
-                                    Toast.makeText(context, mensagem, Toast.LENGTH_SHORT).show()
-                                }
-                            }
-                        ) {
-                            OutlinedTextField(
-                                value = nome,
-                                onValueChange = {},
-                                readOnly = true,
-                                label = { Text("Nome do veiculo") },
-                                placeholder = { Text("Selecione") },
-                                singleLine = true,
-                                trailingIcon = if (modelosFipe.isNotEmpty()) {
-                                    { ExposedDropdownMenuDefaults.TrailingIcon(expanded = nomeExpanded) }
-                                } else null,
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedTextColor = textPrimary,
-                                    unfocusedTextColor = textPrimary,
-                                    focusedLabelColor = textSecondary,
-                                    unfocusedLabelColor = textSecondary,
-                                    focusedBorderColor = accentBlue,
-                                    unfocusedBorderColor = borderLight
-                                ),
-                                modifier = Modifier
-                                    .menuAnchor()
-                                    .fillMaxWidth(),
-                                enabled = !carregandoModelos && modelosFipe.isNotEmpty()
-                            )
-                            ExposedDropdownMenu(expanded = nomeExpanded, onDismissRequest = { nomeExpanded = false }) {
-                                Column(
-                                    modifier = Modifier
-                                        .heightIn(max = 320.dp)
-                                        .verticalScroll(rememberScrollState())
-                                ) {
-                                    sugestoesNomeExibidas.forEach { modeloItem ->
-                                        DropdownMenuItem(
-                                            text = { Text(modeloItem.nome, color = textPrimary) },
-                                            onClick = {
-                                                val (nomeExtraido, modeloExtraido) = separarNomeEMotorModelo(
-                                                    descricaoCompleta = modeloItem.nome,
-                                                    marcaSelecionada = marca
-                                                )
-                                                nome = nomeExtraido
-                                                if (modeloExtraido.isNotBlank()) {
-                                                    modelo = modeloExtraido
-                                                }
-                                                modeloSelecionadoCodigo = modeloItem.codigo
-                                                nomeExpanded = false
-                                            }
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    if (!isBikeType && carregandoModelos) {
-                        Text(
-                            text = "Buscando...",
-                            modifier = Modifier.fillMaxWidth(),
-                            color = textSecondary,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            textAlign = TextAlign.Center
-                        )
-                    }
-
-                    val motorLabel = if (tipoSelecionado == TipoVeiculo.BICICLETA) "Aro/Modelo" else "Motor/Modelo"
-                    OutlinedTextField(
-                        value = modelo,
-                        onValueChange = {
-                            modelo = it
-                            modeloSelecionadoCodigo = modelosFipe.firstOrNull { item ->
-                                normalizarTextoBusca(item.nome) == normalizarTextoBusca(it)
-                            }?.codigo
-                        },
-                        label = { Text(motorLabel) },
-                        singleLine = true,
-                        trailingIcon = {
-                            IconButton(onClick = ::iniciarCapturaVozMotor) {
-                                Icon(Icons.Default.Mic, contentDescription = "Falar motor")
-                            }
-                        },
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = textPrimary,
-                            unfocusedTextColor = textPrimary,
-                            focusedLabelColor = textSecondary,
-                            unfocusedLabelColor = textSecondary,
-                            focusedBorderColor = accentBlue,
-                            unfocusedBorderColor = borderLight
-                        ),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
                     ExposedDropdownMenuBox(
                         expanded = corExpanded,
                         onExpandedChange = { corExpanded = !corExpanded }
@@ -420,6 +495,7 @@ fun NovoCarroScreen(
                             value = nomeCorSelecionada,
                             onValueChange = {},
                             readOnly = true,
+                            isError = erroCor,
                             label = { Text("Cor do veiculo") },
                             placeholder = { Text("Selecione") },
                             modifier = Modifier
@@ -463,6 +539,217 @@ fun NovoCarroScreen(
                             }
                         }
                     }
+
+                    val isBikeType =
+                        tipoSelecionado == TipoVeiculo.BICICLETA || tipoSelecionado == TipoVeiculo.BIKE_ELETRICA
+                    if (isBikeType) {
+                        OutlinedTextField(
+                            value = nome,
+                            onValueChange = { nome = it },
+                            isError = erroNome,
+                            label = { Text("Nome da bike") },
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = textPrimary,
+                                unfocusedTextColor = textPrimary,
+                                focusedLabelColor = textSecondary,
+                                unfocusedLabelColor = textSecondary,
+                                focusedBorderColor = accentBlue,
+                                unfocusedBorderColor = borderLight
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    } else {
+                        ExposedDropdownMenuBox(
+                            expanded = nomeExpanded,
+                            onExpandedChange = {
+                                if (tipoSelecionado != null && marca.isNotBlank()) {
+                                    nomeExpanded = !nomeExpanded
+                                } else {
+                                    Toast.makeText(context, "Selecione tipo e marca primeiro", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        ) {
+                            OutlinedTextField(
+                                value = nome,
+                                onValueChange = {},
+                                readOnly = true,
+                                isError = erroNome,
+                                label = { Text("Nome do veiculo") },
+                                placeholder = { Text("Selecione") },
+                                singleLine = true,
+                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = nomeExpanded) },
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedTextColor = textPrimary,
+                                    unfocusedTextColor = textPrimary,
+                                    focusedLabelColor = textSecondary,
+                                    unfocusedLabelColor = textSecondary,
+                                    focusedBorderColor = accentBlue,
+                                    unfocusedBorderColor = borderLight
+                                ),
+                                modifier = Modifier
+                                    .menuAnchor()
+                                    .fillMaxWidth(),
+                                enabled = tipoSelecionado != null && marca.isNotBlank()
+                            )
+                            ExposedDropdownMenu(expanded = nomeExpanded, onDismissRequest = { nomeExpanded = false }) {
+                                Column(
+                                    modifier = Modifier
+                                        .heightIn(max = 320.dp)
+                                        .verticalScroll(rememberScrollState())
+                                ) {
+                                    if (carregandoModelos) {
+                                        DropdownMenuItem(
+                                            text = { Text("Buscando...", color = textSecondary) },
+                                            onClick = {}
+                                        )
+                                    } else if (sugestoesNomeExibidas.isEmpty()) {
+                                        DropdownMenuItem(
+                                            text = { Text("Nenhum veÃ­culo encontrado", color = textSecondary) },
+                                            onClick = {}
+                                        )
+                                    } else {
+                                        sugestoesNomeExibidas.forEach { modeloItem ->
+                                            DropdownMenuItem(
+                                                text = { Text(modeloItem.nome, color = textPrimary) },
+                                                onClick = {
+                                                    val (nomeExtraido, modeloExtraido) = separarNomeEMotorModelo(
+                                                        descricaoCompleta = modeloItem.nome,
+                                                        marcaSelecionada = marca
+                                                    )
+                                                    nome = nomeExtraido
+                                                    if (modeloExtraido.isNotBlank()) {
+                                                        modelo = modeloExtraido
+                                                    }
+                                                    modeloSelecionadoCodigo = modeloItem.codigo
+                                                    nomeExpanded = false
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (!isBikeType && carregandoModelos) {
+                        Text(
+                            text = "Buscando...",
+                            modifier = Modifier.fillMaxWidth(),
+                            color = textSecondary,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+
+                    val motorLabel = if (tipoSelecionado == TipoVeiculo.BICICLETA) "Aro/Modelo" else "Motor/Modelo"
+                    OutlinedTextField(
+                        value = modelo,
+                        onValueChange = {
+                            modelo = it
+                            modeloSelecionadoCodigo = modelosFipe.firstOrNull { item ->
+                                normalizarTextoBusca(item.nome) == normalizarTextoBusca(it)
+                            }?.codigo
+                        },
+                        isError = erroModelo,
+                        label = { Text(motorLabel) },
+                        singleLine = true,
+
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = textPrimary,
+                            unfocusedTextColor = textPrimary,
+                            focusedLabelColor = textSecondary,
+                            unfocusedLabelColor = textSecondary,
+                            focusedBorderColor = accentBlue,
+                            unfocusedBorderColor = borderLight
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    if (isBikeTypeGlobal) {
+                        ExposedDropdownMenuBox(
+                            expanded = quemUsaExpanded,
+                            onExpandedChange = { quemUsaExpanded = !quemUsaExpanded }
+                        ) {
+                            OutlinedTextField(
+                                value = quemUsaOpcao,
+                                onValueChange = {},
+                                readOnly = true,
+                                label = { Text("Quem usa essa bike?") },
+                                singleLine = true,
+                                modifier = Modifier
+                                    .menuAnchor()
+                                    .fillMaxWidth(),
+                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = quemUsaExpanded) },
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedTextColor = textPrimary,
+                                    unfocusedTextColor = textPrimary,
+                                    focusedLabelColor = textSecondary,
+                                    unfocusedLabelColor = textSecondary,
+                                    focusedBorderColor = accentBlue,
+                                    unfocusedBorderColor = borderLight
+                                )
+                            )
+                            ExposedDropdownMenu(expanded = quemUsaExpanded, onDismissRequest = { quemUsaExpanded = false }) {
+                                DropdownMenuItem(
+                                    text = { Text("Eu mesmo", color = textPrimary) },
+                                    onClick = {
+                                        quemUsaOpcao = "Eu mesmo"
+                                        proprietario = nomeUsuarioLogado
+                                        quemUsaExpanded = false
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Outra pessoa", color = textPrimary) },
+                                    onClick = {
+                                        quemUsaOpcao = "Outra pessoa"
+                                        if (proprietario == nomeUsuarioLogado || proprietario.equals("Eu mesmo", ignoreCase = true)) {
+                                            proprietario = ""
+                                        }
+                                        quemUsaExpanded = false
+                                    }
+                                )
+                            }
+                        }
+
+                        if (quemUsaOpcao == "Outra pessoa") {
+                            OutlinedTextField(
+                                value = proprietario,
+                                onValueChange = { proprietario = it },
+                                isError = erroProprietario,
+                                label = { Text("Nome da pessoa") },
+                                singleLine = true,
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedTextColor = textPrimary,
+                                    unfocusedTextColor = textPrimary,
+                                    focusedLabelColor = textSecondary,
+                                    unfocusedLabelColor = textSecondary,
+                                    focusedBorderColor = accentBlue,
+                                    unfocusedBorderColor = borderLight
+                                ),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+
+                        OutlinedTextField(
+                            value = kmAtualStr,
+                            onValueChange = { kmAtualStr = formatarKmTextoLocal(it) },
+                            isError = erroKm,
+                            label = { Text("KM Atual (Painel)") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = textPrimary,
+                                unfocusedTextColor = textPrimary,
+                                focusedLabelColor = textSecondary,
+                                unfocusedLabelColor = textSecondary,
+                                focusedBorderColor = accentBlue,
+                                unfocusedBorderColor = borderLight
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+
                     if (anosFipe.isNotEmpty()) {
                         ExposedDropdownMenuBox(
                             expanded = anoExpanded,
@@ -502,81 +789,186 @@ fun NovoCarroScreen(
                             }
                         }
                     }
-                    val labelQuemUsa = if (
-                        tipoSelecionado == TipoVeiculo.BICICLETA ||
-                        tipoSelecionado == TipoVeiculo.BIKE_ELETRICA
-                    ) {
-                        "Quem usa essa bike?"
-                    } else {
-                        "Quem usa esse veiculo?"
                     }
-                    OutlinedTextField(
-                        value = proprietario,
-                        onValueChange = { proprietario = it },
-                        label = { Text(labelQuemUsa) },
-                        singleLine = true,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = textPrimary,
-                            unfocusedTextColor = textPrimary,
-                            focusedLabelColor = textSecondary,
-                            unfocusedLabelColor = textSecondary,
-                            focusedBorderColor = accentBlue,
-                            unfocusedBorderColor = borderLight
-                        ),
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                    if (etapaCadastro == 2 && !isBikeTypeGlobal) {
+                        OutlinedTextField(
+                            value = kmAtualStr,
+                            onValueChange = { kmAtualStr = formatarKmTextoLocal(it) },
+                            isError = erroKm,
+                            label = { Text("KM Atual (Painel)") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = textPrimary,
+                                unfocusedTextColor = textPrimary,
+                                focusedLabelColor = textSecondary,
+                                unfocusedLabelColor = textSecondary,
+                                focusedBorderColor = accentBlue,
+                                unfocusedBorderColor = borderLight
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
 
-                    OutlinedTextField(
-                        value = kmAtualStr,
-                        onValueChange = { kmAtualStr = formatarKmTextoLocal(it) },
-                        label = { Text("KM Atual (Painel)") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        singleLine = true,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = textPrimary,
-                            unfocusedTextColor = textPrimary,
-                            focusedLabelColor = textSecondary,
-                            unfocusedLabelColor = textSecondary,
-                            focusedBorderColor = accentBlue,
-                            unfocusedBorderColor = borderLight
-                        ),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-
-                Button(
-                    onClick = {
-                        if (tipoSelecionado == null) {
-                            Toast.makeText(context, "Selecione o tipo de veiculo", Toast.LENGTH_SHORT).show()
-                            return@Button
+                    if (etapaCadastro == 2 && !isBikeTypeGlobal) {
+                        ExposedDropdownMenuBox(
+                            expanded = quemUsaExpanded,
+                            onExpandedChange = { quemUsaExpanded = !quemUsaExpanded }
+                        ) {
+                            OutlinedTextField(
+                                value = quemUsaOpcao,
+                                onValueChange = {},
+                                readOnly = true,
+                                label = { Text("Quem usa esse veiculo?") },
+                                singleLine = true,
+                                modifier = Modifier
+                                    .menuAnchor()
+                                    .fillMaxWidth(),
+                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = quemUsaExpanded) },
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedTextColor = textPrimary,
+                                    unfocusedTextColor = textPrimary,
+                                    focusedLabelColor = textSecondary,
+                                    unfocusedLabelColor = textSecondary,
+                                    focusedBorderColor = accentBlue,
+                                    unfocusedBorderColor = borderLight
+                                )
+                            )
+                            ExposedDropdownMenu(expanded = quemUsaExpanded, onDismissRequest = { quemUsaExpanded = false }) {
+                                DropdownMenuItem(
+                                    text = { Text("Eu mesmo", color = textPrimary) },
+                                    onClick = {
+                                        quemUsaOpcao = "Eu mesmo"
+                                        proprietario = nomeUsuarioLogado
+                                        quemUsaExpanded = false
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Outra pessoa", color = textPrimary) },
+                                    onClick = {
+                                        quemUsaOpcao = "Outra pessoa"
+                                        if (proprietario == nomeUsuarioLogado || proprietario.equals("Eu mesmo", ignoreCase = true)) {
+                                            proprietario = ""
+                                        }
+                                        quemUsaExpanded = false
+                                    }
+                                )
+                            }
                         }
-                        onSalvar(
-                            carroBase.copy(
-                                nome = nome,
-                                marca = marca,
-                                modelo = combinarModeloAno(modelo, anoSelecionado),
-                                proprietario = proprietario,
-                                corArgb = corSelecionada,
-                                kmAtual = kmAtualStr.filter(Char::isDigit).toIntOrNull() ?: 0,
-                                tipoVeiculo = tipoSelecionado!!
+
+                        if (quemUsaOpcao == "Outra pessoa") {
+                            OutlinedTextField(
+                                value = proprietario,
+                                onValueChange = { proprietario = it },
+                                isError = erroProprietario,
+                                label = { Text("Nome da pessoa") },
+                                singleLine = true,
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedTextColor = textPrimary,
+                                    unfocusedTextColor = textPrimary,
+                                    focusedLabelColor = textSecondary,
+                                    unfocusedLabelColor = textSecondary,
+                                    focusedBorderColor = accentBlue,
+                                    unfocusedBorderColor = borderLight
+                                ),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+
+                        ExposedDropdownMenuBox(
+                            expanded = batidasExpanded,
+                            onExpandedChange = { batidasExpanded = !batidasExpanded }
+                        ) {
+                        OutlinedTextField(
+                            value = vezesBatido?.toString() ?: "Não informado",
+                            onValueChange = {},
+                            readOnly = true,
+                            isError = erroBatidas,
+                            label = { Text("Vezes batido") },
+                            placeholder = { Text("Selecione") },
+                            singleLine = true,
+                            modifier = Modifier
+                                .menuAnchor()
+                                .fillMaxWidth(),
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = batidasExpanded) },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = textPrimary,
+                                unfocusedTextColor = textPrimary,
+                                focusedLabelColor = textSecondary,
+                                unfocusedLabelColor = textSecondary,
+                                focusedPlaceholderColor = textSecondary,
+                                unfocusedPlaceholderColor = textSecondary,
+                                focusedBorderColor = accentBlue,
+                                unfocusedBorderColor = borderLight
                             )
                         )
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(56.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = accentBlue),
-                    shape = RoundedCornerShape(16.dp)
-                ) {
-                    val textoBotao = if (
-                        tipoSelecionado == TipoVeiculo.BICICLETA ||
-                        tipoSelecionado == TipoVeiculo.BIKE_ELETRICA
-                    ) {
-                        "Adicionar bike"
-                    } else {
-                        "Cadastrar Veículo"
+                        ExposedDropdownMenu(expanded = batidasExpanded, onDismissRequest = { batidasExpanded = false }) {
+                            DropdownMenuItem(
+                                text = { Text("Não informado", color = textPrimary) },
+                                onClick = {
+                                    vezesBatido = null
+                                    batidasExpanded = false
+                                }
+                            )
+                            (0..10).forEach { quantidade ->
+                                DropdownMenuItem(
+                                    text = { Text(quantidade.toString(), color = textPrimary) },
+                                    onClick = {
+                                        vezesBatido = quantidade
+                                        batidasExpanded = false
+                                    }
+                                )
+                            }
+                        }
                     }
-                    Text(textoBotao, color = Color.White, fontWeight = FontWeight.Bold)
+
+                        ExposedDropdownMenuBox(
+                        expanded = tempoExpanded,
+                        onExpandedChange = { tempoExpanded = !tempoExpanded }
+                    ) {
+                        OutlinedTextField(
+                            value = tempoComVeiculo.ifBlank { "Não informado" },
+                            onValueChange = {},
+                            readOnly = true,
+                            isError = erroTempo,
+                            label = { Text("Tempo com veiculo") },
+                            placeholder = { Text("Selecione") },
+                            singleLine = true,
+                            modifier = Modifier
+                                .menuAnchor()
+                                .fillMaxWidth(),
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = tempoExpanded) },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = textPrimary,
+                                unfocusedTextColor = textPrimary,
+                                focusedLabelColor = textSecondary,
+                                unfocusedLabelColor = textSecondary,
+                                focusedPlaceholderColor = textSecondary,
+                                unfocusedPlaceholderColor = textSecondary,
+                                focusedBorderColor = accentBlue,
+                                unfocusedBorderColor = borderLight
+                            )
+                        )
+                        ExposedDropdownMenu(expanded = tempoExpanded, onDismissRequest = { tempoExpanded = false }) {
+                            DropdownMenuItem(
+                                text = { Text("Não informado", color = textPrimary) },
+                                onClick = {
+                                    tempoComVeiculo = ""
+                                    tempoExpanded = false
+                                }
+                            )
+                            opcoesTempoComVeiculo().forEach { tempo ->
+                                DropdownMenuItem(
+                                    text = { Text(tempo, color = textPrimary) },
+                                    onClick = {
+                                        tempoComVeiculo = tempo
+                                        tempoExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                    }
                 }
 
             }
@@ -625,7 +1017,7 @@ private fun NovoSectionCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             if (title.isNotBlank() && icon != null) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -690,6 +1082,15 @@ private fun formatarKmTextoLocal(texto: String): String {
 private data class CorVeiculoOption(
     val name: String,
     val color: Color
+)
+
+private fun opcoesTempoComVeiculo(): List<String> = listOf(
+    "Menos de 6 meses",
+    "6 meses a 1 ano",
+    "1 a 2 anos",
+    "2 a 3 anos",
+    "3 a 5 anos",
+    "Mais de 5 anos"
 )
 
 private fun coresVeiculoDisponiveis(): List<CorVeiculoOption> = listOf(
@@ -757,39 +1158,106 @@ private val fipeApi: FipeApi by lazy {
         .create(FipeApi::class.java)
 }
 
+private const val FIPE_CACHE_MODELOS_TTL_MS = 7L * 24L * 60L * 60L * 1000L
+private const val FIPE_CACHE_ANOS_TTL_MS = 7L * 24L * 60L * 60L * 1000L
+
 private suspend fun carregarModelosFipePorMarca(
+    context: Context,
     marcaSelecionada: String,
     tipoVeiculo: TipoVeiculo?
 ): List<FipeModeloDto> {
     val tipoFipe = tipoFipePara(tipoVeiculo) ?: return emptyList()
-    return runCatching {
-        val marcas = fipeApi.listarMarcas(tipoFipe)
-        val codigoMarca = encontrarCodigoMarcaFipe(marcaSelecionada, marcas) ?: return emptyList()
-        val modelos = fipeApi.listarModelos(tipoFipe, codigoMarca).modelos
-            .map { it.copy(nome = it.nome.trim()) }
-            .filter { it.nome.isNotEmpty() }
-            .distinct()
-        filtrarModelosPorTipo(tipoVeiculo, modelos)
+    val cacheKey = "modelos_${gerarCacheKeyFipe(tipoFipe, marcaSelecionada)}"
+
+    AppPreferences.getFipeCache(context, cacheKey, FIPE_CACHE_MODELOS_TTL_MS)?.let { cached ->
+        decodeModelosCache(cached).takeIf { it.isNotEmpty() }?.let { return it }
+    }
+
+    val resultado = runCatching {
+        withFipeRetry {
+            val marcas = fipeApi.listarMarcas(tipoFipe)
+            val codigoMarca = encontrarCodigoMarcaFipe(marcaSelecionada, marcas) ?: return@withFipeRetry emptyList()
+            val modelos = fipeApi.listarModelos(tipoFipe, codigoMarca).modelos
+                .map { it.copy(nome = it.nome.trim()) }
+                .filter { it.nome.isNotEmpty() }
+                .distinct()
+            filtrarModelosPorTipo(tipoVeiculo, modelos)
+        }
     }.getOrDefault(emptyList())
+
+    if (resultado.isNotEmpty()) {
+        AppPreferences.putFipeCache(context, cacheKey, encodeModelosCache(resultado))
+    }
+    return resultado
 }
 
 private suspend fun carregarAnosFipe(
+    context: Context,
     marcaSelecionada: String,
     codigoModelo: Int,
     tipoVeiculo: TipoVeiculo?
 ): List<String> {
     val tipoFipe = tipoFipePara(tipoVeiculo) ?: return emptyList()
-    return runCatching {
-        val marcas = fipeApi.listarMarcas(tipoFipe)
-        val codigoMarca = encontrarCodigoMarcaFipe(marcaSelecionada, marcas) ?: return emptyList()
-        fipeApi.listarAnos(tipoFipe, codigoMarca, codigoModelo)
-            .mapNotNull { item ->
-                Regex("\\b(19\\d{2}|20\\d{2})\\b").find(item.nome)?.value
-            }
-            .distinct()
-            .sortedDescending()
+    val cacheKey = "anos_${gerarCacheKeyFipe(tipoFipe, marcaSelecionada, codigoModelo.toString())}"
+
+    AppPreferences.getFipeCache(context, cacheKey, FIPE_CACHE_ANOS_TTL_MS)?.let { cached ->
+        decodeAnosCache(cached).takeIf { it.isNotEmpty() }?.let { return it }
+    }
+
+    val resultado = runCatching {
+        withFipeRetry {
+            val marcas = fipeApi.listarMarcas(tipoFipe)
+            val codigoMarca = encontrarCodigoMarcaFipe(marcaSelecionada, marcas) ?: return@withFipeRetry emptyList()
+            fipeApi.listarAnos(tipoFipe, codigoMarca, codigoModelo)
+                .mapNotNull { item ->
+                    Regex("\\b(19\\d{2}|20\\d{2})\\b").find(item.nome)?.value
+                }
+                .distinct()
+                .sortedDescending()
+        }
     }.getOrDefault(emptyList())
+
+    if (resultado.isNotEmpty()) {
+        AppPreferences.putFipeCache(context, cacheKey, encodeAnosCache(resultado))
+    }
+    return resultado
 }
+
+private suspend fun <T> withFipeRetry(block: suspend () -> T): T {
+    var lastError: Throwable? = null
+    val delays = listOf(0L, 350L, 900L)
+    for (waitMs in delays) {
+        try {
+            if (waitMs > 0) delay(waitMs)
+            return block()
+        } catch (e: Throwable) {
+            lastError = e
+        }
+    }
+    throw (lastError ?: IllegalStateException("Erro desconhecido em consulta FIPE"))
+}
+
+private fun gerarCacheKeyFipe(vararg partes: String): String {
+    val raw = partes.joinToString("|") { normalizarTextoBusca(it) }
+    return raw.hashCode().toUInt().toString()
+}
+
+private fun encodeModelosCache(modelos: List<FipeModeloDto>): String =
+    modelos.joinToString("||") { "${it.codigo}::${it.nome.replace("||", " ").replace("::", " ")}" }
+
+private fun decodeModelosCache(data: String): List<FipeModeloDto> =
+    data.split("||")
+        .mapNotNull { token ->
+            val parts = token.split("::", limit = 2)
+            val codigo = parts.getOrNull(0)?.toIntOrNull() ?: return@mapNotNull null
+            val nome = parts.getOrNull(1)?.trim().orEmpty()
+            if (nome.isBlank()) null else FipeModeloDto(codigo, nome)
+        }
+
+private fun encodeAnosCache(anos: List<String>): String = anos.joinToString("|")
+
+private fun decodeAnosCache(data: String): List<String> =
+    data.split("|").map { it.trim() }.filter { it.isNotBlank() }.distinct()
 
 private fun encontrarCodigoMarcaFipe(marcaSelecionada: String, marcasFipe: List<FipeMarcaDto>): String? {
     val alvo = normalizarTextoBusca(marcaSelecionada)

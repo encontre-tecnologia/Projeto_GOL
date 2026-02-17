@@ -1,4 +1,4 @@
-﻿package br.com.gui.carlembrete
+package br.com.gui.carlembrete
 
 import android.app.Activity
 import android.content.Intent
@@ -20,6 +20,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBackIosNew
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.DirectionsCar
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Person
@@ -45,6 +46,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import br.com.gui.carlembrete.VehicleIcon
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import com.google.firebase.auth.FirebaseAuth
 import java.text.NumberFormat
 import java.util.Locale
 
@@ -57,11 +60,21 @@ fun EditarCarroScreen(
     onExcluir: () -> Unit
 ) {
     val context = LocalContext.current
+    val nomeUsuarioLogado = remember {
+        val displayName = FirebaseAuth.getInstance().currentUser?.displayName
+            ?.trim()
+            ?.split("\\s+".toRegex())
+            ?.filter { it.isNotBlank() }
+        when {
+            displayName.isNullOrEmpty() -> "Eu mesmo"
+            displayName.size == 1 -> displayName.first()
+            else -> "${displayName.first()} ${displayName.last()}"
+        }
+    }
     val scheme = MaterialTheme.colorScheme
     val titleColor = scheme.onBackground
     val textSecondary = scheme.onSurfaceVariant
     val accentBlue = scheme.primary
-    val actionOutline = scheme.onBackground
     val sectionBorder = scheme.outlineVariant
     val bgLight = scheme.background
     val textFieldColors = OutlinedTextFieldDefaults.colors(
@@ -81,14 +94,74 @@ fun EditarCarroScreen(
     var nome by remember { mutableStateOf(carroAtual.nome) }
     var marca by remember { mutableStateOf(carroAtual.marca) }
     var modelo by remember { mutableStateOf(carroAtual.modelo) }
-    var proprietario by remember { mutableStateOf(carroAtual.proprietario) }
+    var proprietario by remember {
+        mutableStateOf(
+            if (carroAtual.proprietario.equals("Eu mesmo", ignoreCase = true)) {
+                nomeUsuarioLogado
+            } else {
+                carroAtual.proprietario
+            }
+        )
+    }
+    var quemUsaOpcao by remember {
+        mutableStateOf(
+            if (
+                carroAtual.proprietario.equals("Eu mesmo", ignoreCase = true) ||
+                carroAtual.proprietario.equals(nomeUsuarioLogado, ignoreCase = true)
+            ) {
+                "Eu mesmo"
+            } else {
+                "Outra pessoa"
+            }
+        )
+    }
+    var quemUsaExpanded by remember { mutableStateOf(false) }
     var kmAtualStr by remember { mutableStateOf(if (carroAtual.kmAtual > 0) formatarKmLocal(carroAtual.kmAtual) else "") }
     val tipoSelecionado = carroAtual.tipoVeiculo
     var corSelecionada by remember { mutableStateOf(carroAtual.corArgb) }
+    var corExpanded by remember { mutableStateOf(false) }
+    val opcoesCor = remember {
+        listOf(
+            "Branco" to Color(0xFFFFFFFF),
+            "Preto" to Color(0xFF0F172A),
+            "Prata" to Color(0xFFC0C0C0),
+            "Cinza" to Color(0xFF9CA3AF),
+            "Vermelho" to Color(0xFFDC2626),
+            "Azul" to Color(0xFF4F7DBE),
+            "Marrom" to Color(0xFF7C3F00),
+            "Bege" to Color(0xFFE7D7C1),
+            "Verde" to Color(0xFF16A34A),
+            "Amarelo" to Color(0xFFFACC15),
+            "Laranja" to Color(0xFFF97316),
+            "Roxo" to Color(0xFF6D5BD0),
+            "Rosa" to Color(0xFFEC4899),
+            "Dourado" to Color(0xFFC0841A),
+            "Bordo" to Color(0xFF7F1D1D),
+            "Turquesa" to Color(0xFF38BDF8),
+            "Creme" to Color(0xFFF5F5DC)
+        )
+    }
+    val nomeCorSelecionada by remember(corSelecionada, opcoesCor) {
+        derivedStateOf {
+            opcoesCor.firstOrNull { (_, cor) -> cor.toArgb() == corSelecionada }?.first ?: "Selecionar"
+        }
+    }
+    var vezesBatido by remember { mutableStateOf(carroAtual.vezesBatido) }
+    var tempoComVeiculo by remember { mutableStateOf(carroAtual.tempoComVeiculo) }
     var alvoVoz by remember { mutableStateOf("nome") }
     val contentScrollState = rememberScrollState()
-    val showTopBar by remember { derivedStateOf { contentScrollState.value <= 8 } }
     val isBikeType = tipoSelecionado == TipoVeiculo.BICICLETA || tipoSelecionado == TipoVeiculo.BIKE_ELETRICA
+    var showDeleteDialog by remember { mutableStateOf(false) }
+
+    if (showDeleteDialog) {
+        DeleteVehicleDialog(
+            onDismiss = { showDeleteDialog = false },
+            onConfirm = {
+                showDeleteDialog = false
+                onExcluir()
+            }
+        )
+    }
 
     val speechLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
@@ -134,23 +207,30 @@ fun EditarCarroScreen(
     Scaffold(
         containerColor = bgLight,
         topBar = {
-            if (showTopBar) {
-                CenterAlignedTopAppBar(
-                    title = {
-                        Text(
-                            if (isBikeType) "Editar bike" else "Editar veiculo",
-                            color = titleColor,
-                            fontWeight = FontWeight.Bold
+            CenterAlignedTopAppBar(
+                title = {
+                    Text(
+                        if (isBikeType) "Editar bike" else "Editar veiculo",
+                        color = titleColor,
+                        fontWeight = FontWeight.Bold
+                    )
+                },
+                navigationIcon = {
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar", tint = titleColor)
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { showDeleteDialog = true }) {
+                        Icon(
+                            imageVector = Icons.Rounded.Delete,
+                            contentDescription = "Excluir veiculo",
+                            tint = MaterialTheme.colorScheme.error
                         )
-                    },
-                    navigationIcon = {
-                        IconButton(onClick = onDismiss) {
-                            Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar", tint = titleColor)
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(containerColor = bgLight)
-                )
-            }
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = bgLight)
+            )
         }
     ) { innerPadding ->
         Box(
@@ -161,12 +241,15 @@ fun EditarCarroScreen(
         ) {
             Column(
                 modifier = Modifier
-                    .fillMaxSize()
+                    .fillMaxWidth()
                     .verticalScroll(contentScrollState)
                     .padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 EditSectionCard(title = "", icon = null) {
+                    var batidasExpanded by remember { mutableStateOf(false) }
+                    var tempoExpanded by remember { mutableStateOf(false) }
+
                     OutlinedTextField(
                         value = tipoSelecionado.label,
                         onValueChange = {},
@@ -188,6 +271,50 @@ fun EditarCarroScreen(
                         colors = textFieldColors,
                         modifier = Modifier.fillMaxWidth()
                     )
+
+                    ExposedDropdownMenuBox(
+                        expanded = corExpanded,
+                        onExpandedChange = { corExpanded = !corExpanded }
+                    ) {
+                        OutlinedTextField(
+                            value = nomeCorSelecionada,
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("Cor do veiculo") },
+                            singleLine = true,
+                            modifier = Modifier
+                                .menuAnchor()
+                                .fillMaxWidth(),
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = corExpanded) },
+                            colors = textFieldColors
+                        )
+                        ExposedDropdownMenu(
+                            expanded = corExpanded,
+                            onDismissRequest = { corExpanded = false }
+                        ) {
+                            opcoesCor.forEach { (nomeCor, corItem) ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(14.dp)
+                                                    .clip(CircleShape)
+                                                    .background(corItem)
+                                                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape)
+                                            )
+                                            Spacer(Modifier.width(8.dp))
+                                            Text(nomeCor, color = titleColor)
+                                        }
+                                    },
+                                    onClick = {
+                                        corSelecionada = corItem.toArgb()
+                                        corExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
 
                     OutlinedTextField(
                         value = nome,
@@ -223,14 +350,54 @@ fun EditarCarroScreen(
                     } else {
                         "Quem usa esse veiculo?"
                     }
-                    OutlinedTextField(
-                        value = proprietario,
-                        onValueChange = { proprietario = it },
-                        label = { Text(labelQuemUsa) },
-                        singleLine = true,
-                        colors = textFieldColors,
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                    ExposedDropdownMenuBox(
+                        expanded = quemUsaExpanded,
+                        onExpandedChange = { quemUsaExpanded = !quemUsaExpanded }
+                    ) {
+                        OutlinedTextField(
+                            value = quemUsaOpcao,
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text(labelQuemUsa) },
+                            singleLine = true,
+                            modifier = Modifier
+                                .menuAnchor()
+                                .fillMaxWidth(),
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = quemUsaExpanded) },
+                            colors = textFieldColors
+                        )
+                        ExposedDropdownMenu(expanded = quemUsaExpanded, onDismissRequest = { quemUsaExpanded = false }) {
+                            DropdownMenuItem(
+                                text = { Text("Eu mesmo", color = titleColor) },
+                                onClick = {
+                                    quemUsaOpcao = "Eu mesmo"
+                                    proprietario = nomeUsuarioLogado
+                                    quemUsaExpanded = false
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Outra pessoa", color = titleColor) },
+                                onClick = {
+                                    quemUsaOpcao = "Outra pessoa"
+                                    if (proprietario == nomeUsuarioLogado || proprietario.equals("Eu mesmo", ignoreCase = true)) {
+                                        proprietario = ""
+                                    }
+                                    quemUsaExpanded = false
+                                }
+                            )
+                        }
+                    }
+
+                    if (quemUsaOpcao == "Outra pessoa") {
+                        OutlinedTextField(
+                            value = proprietario,
+                            onValueChange = { proprietario = it },
+                            label = { Text("Nome da pessoa") },
+                            singleLine = true,
+                            colors = textFieldColors,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
 
                     OutlinedTextField(
                         value = kmAtualStr,
@@ -241,6 +408,78 @@ fun EditarCarroScreen(
                         colors = textFieldColors,
                         modifier = Modifier.fillMaxWidth()
                     )
+
+                    ExposedDropdownMenuBox(
+                        expanded = batidasExpanded,
+                        onExpandedChange = { batidasExpanded = !batidasExpanded }
+                    ) {
+                        OutlinedTextField(
+                            value = vezesBatido?.toString() ?: "Não informado",
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("Vezes batido") },
+                            singleLine = true,
+                            modifier = Modifier
+                                .menuAnchor()
+                                .fillMaxWidth(),
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = batidasExpanded) },
+                            colors = textFieldColors
+                        )
+                        ExposedDropdownMenu(expanded = batidasExpanded, onDismissRequest = { batidasExpanded = false }) {
+                            DropdownMenuItem(
+                                text = { Text("Não informado", color = titleColor) },
+                                onClick = {
+                                    vezesBatido = null
+                                    batidasExpanded = false
+                                }
+                            )
+                            (0..10).forEach { quantidade ->
+                                DropdownMenuItem(
+                                    text = { Text(quantidade.toString(), color = titleColor) },
+                                    onClick = {
+                                        vezesBatido = quantidade
+                                        batidasExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+
+                    ExposedDropdownMenuBox(
+                        expanded = tempoExpanded,
+                        onExpandedChange = { tempoExpanded = !tempoExpanded }
+                    ) {
+                        OutlinedTextField(
+                            value = tempoComVeiculo.ifBlank { "Não informado" },
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("Tempo com veiculo") },
+                            singleLine = true,
+                            modifier = Modifier
+                                .menuAnchor()
+                                .fillMaxWidth(),
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = tempoExpanded) },
+                            colors = textFieldColors
+                        )
+                        ExposedDropdownMenu(expanded = tempoExpanded, onDismissRequest = { tempoExpanded = false }) {
+                            DropdownMenuItem(
+                                text = { Text("Não informado", color = titleColor) },
+                                onClick = {
+                                    tempoComVeiculo = ""
+                                    tempoExpanded = false
+                                }
+                            )
+                            opcoesTempoComVeiculoEdicao().forEach { tempo ->
+                                DropdownMenuItem(
+                                    text = { Text(tempo, color = titleColor) },
+                                    onClick = {
+                                        tempoComVeiculo = tempo
+                                        tempoExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
                 }
 
                 Button(
@@ -253,7 +492,9 @@ fun EditarCarroScreen(
                                 proprietario = proprietario,
                                 corArgb = corSelecionada,
                                 kmAtual = kmAtualStr.filter(Char::isDigit).toIntOrNull() ?: 0,
-                                tipoVeiculo = tipoSelecionado
+                                tipoVeiculo = tipoSelecionado,
+                                vezesBatido = vezesBatido,
+                                tempoComVeiculo = tempoComVeiculo
                             )
                         )
                     },
@@ -265,22 +506,64 @@ fun EditarCarroScreen(
                 ) {
                     Text("Salvar Alterações", color = Color.White, fontWeight = FontWeight.Bold)
                 }
+            }
+        }
+    }
+}
 
-                OutlinedButton(
-                    onClick = onExcluir,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(54.dp),
-                    border = BorderStroke(1.dp, actionOutline),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = actionOutline)
+@Composable
+private fun DeleteVehicleDialog(
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    val scheme = MaterialTheme.colorScheme
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            shape = RoundedCornerShape(28.dp),
+            colors = CardDefaults.cardColors(containerColor = scheme.surface),
+            border = BorderStroke(1.dp, scheme.outlineVariant),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Icon(
+                    Icons.Rounded.Delete,
+                    contentDescription = null,
+                    tint = scheme.error,
+                    modifier = Modifier.size(48.dp)
+                )
+                Spacer(Modifier.height(16.dp))
+                Text(
+                    text = "Excluir este veículo?",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    text = "Esta ação não pode ser desfeita e todos os dados do veículo serão removidos.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = scheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(Modifier.height(24.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Text(
-                        text = "Excluir veiculo",
-                        color = actionOutline,
-                        fontWeight = FontWeight.SemiBold,
-                        textAlign = TextAlign.Center
-                    )
+                    TextButton(onClick = onDismiss, modifier = Modifier.weight(1f)) {
+                        Text("Cancelar")
+                    }
+                    Button(
+                        onClick = onConfirm,
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(containerColor = scheme.error),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("Excluir", fontWeight = FontWeight.Bold)
+                    }
                 }
             }
         }
@@ -347,16 +630,12 @@ private fun EditSectionCard(
     icon: androidx.compose.ui.graphics.vector.ImageVector?,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
-    val cardSurface = if (isDark) Color(0xFF0F172A) else Color.White
-    val borderColor = if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.10f)
-    val titleColor = if (isDark) Color(0xFFCBD5E1) else Color(0xFF334155)
-    val iconColor = if (isDark) Color(0xFF94A3B8) else Color(0xFF475569)
+    val scheme = MaterialTheme.colorScheme
 
     Card(
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = cardSurface),
-        border = BorderStroke(1.dp, borderColor)
+        colors = CardDefaults.cardColors(containerColor = scheme.surface),
+        border = BorderStroke(1.dp, scheme.outlineVariant)
     ) {
         Column(
             modifier = Modifier
@@ -366,9 +645,9 @@ private fun EditSectionCard(
         ) {
             if (title.isNotBlank() && icon != null) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(icon, contentDescription = null, tint = iconColor, modifier = Modifier.size(16.dp))
+                    Icon(icon, contentDescription = null, tint = scheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text(title, color = titleColor, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                    Text(title, color = scheme.onSurface, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
                 }
             }
             content()
@@ -445,6 +724,15 @@ private fun ColorRow(
         }
     }
 }
+
+private fun opcoesTempoComVeiculoEdicao(): List<String> = listOf(
+    "Menos de 6 meses",
+    "6 meses a 1 ano",
+    "1 a 2 anos",
+    "2 a 3 anos",
+    "3 a 5 anos",
+    "Mais de 5 anos"
+)
 
 private fun formatarKmLocal(valor: Int): String =
     NumberFormat.getIntegerInstance(Locale("pt", "BR")).format(valor)
