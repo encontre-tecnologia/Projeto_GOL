@@ -1,4 +1,4 @@
-package br.com.gui.carlembrete
+﻿package br.com.gui.carlembrete
 
 import android.Manifest
 import android.app.Activity
@@ -26,6 +26,11 @@ import androidx.camera.core.ImageProxy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -52,14 +57,22 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.BatteryChargingFull
 import androidx.compose.material.icons.rounded.BatteryAlert
 import androidx.compose.material.icons.rounded.Build
 import androidx.compose.material.icons.rounded.CalendarMonth
+import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.DirectionsCar
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.FormatPaint
+import androidx.compose.material.icons.rounded.LocalGasStation
+import androidx.compose.material.icons.rounded.Payments
+import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.Thermostat
+import androidx.compose.material.icons.rounded.TireRepair
 import androidx.compose.material.icons.rounded.WaterDrop
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -67,22 +80,28 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import br.com.gui.carlembrete.VehicleIcon
 import androidx.compose.ui.unit.sp
@@ -117,12 +136,17 @@ import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.Executors
 import kotlin.math.roundToInt
+import kotlin.math.cos
+import kotlin.math.sin
 
 /* ----------------- ONBOARDING ----------------- */
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun OnboardingScreen(onFinish: () -> Unit) {
+fun OnboardingScreen(
+    onFinish: () -> Unit,
+    onThemeModeChanged: (AppThemeMode) -> Unit = {}
+) {
     var step by remember { mutableIntStateOf(1) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -134,9 +158,72 @@ fun OnboardingScreen(onFinish: () -> Unit) {
     var frotaTemporaria by remember { mutableStateOf(listOf<CarroInfo>()) }
     var contatosAdicionados by remember { mutableStateOf(listOf<ContatoProfissional>()) }
     var showContatoDialog by remember { mutableStateOf(false) }
+    var showOutroVeiculoDialog by remember { mutableStateOf(false) }
+    var onboardingVehicleFormSession by remember { mutableIntStateOf(0) }
+    var selectedThemeMode by remember {
+        mutableStateOf(
+            when (AppPreferences.getThemeMode(context)) {
+                AppThemeMode.LIGHT -> AppThemeMode.LIGHT
+                else -> AppThemeMode.DARK
+            }
+        )
+    }
     val maxVehicles = 3
 
+    if (showOutroVeiculoDialog) {
+        AlertDialog(
+            onDismissRequest = { showOutroVeiculoDialog = false },
+            title = { Text("Veículo 1 cadastrado") },
+            text = { Text("Deseja cadastrar outro veículo agora ou seguir para a próxima etapa?") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showOutroVeiculoDialog = false
+                        onboardingVehicleFormSession += 1
+                        step = 4
+                    }
+                ) {
+                    Text("Cadastrar outro")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showOutroVeiculoDialog = false
+                        step = 6
+                    }
+                ) {
+                    Text("Próxima etapa")
+                }
+            }
+        )
+    }
+
     if (showContatoDialog) NovoContatoDialog(onDismiss = { showContatoDialog = false }, onSalvar = { novo -> contatosAdicionados = contatosAdicionados + novo; scope.launch(Dispatchers.IO) { BancoDeDados.salvarContatos(context, contatosAdicionados) }; showContatoDialog = false })
+
+    if (step == 4) {
+        key(onboardingVehicleFormSession) {
+            OnboardingNovoCarroScreen(
+                onDismiss = { step = 1 },
+                onboardingVehicleNumber = (frotaTemporaria.size + 1).coerceAtMost(maxVehicles),
+                onSalvar = { novoCarro ->
+                    if (frotaTemporaria.size >= maxVehicles) {
+                        Toast.makeText(context, "Limite de veículos do plano grátis atingido.", Toast.LENGTH_SHORT).show()
+                    } else {
+                        val atualizada = (frotaTemporaria + novoCarro).take(maxVehicles)
+                        frotaTemporaria = atualizada
+                        scope.launch(Dispatchers.IO) { BancoDeDados.salvarCarros(context, atualizada) }
+                        if (atualizada.size == 1) {
+                            showOutroVeiculoDialog = true
+                        } else {
+                            step = 6
+                        }
+                    }
+                }
+            )
+        }
+        return
+    }
 
     Column(
         modifier = Modifier
@@ -150,14 +237,37 @@ fun OnboardingScreen(onFinish: () -> Unit) {
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
                 when (currentStep) {
                     1 -> {
-                        Icon(Icons.Rounded.DirectionsCar, null, tint = Color(0xFF3B82F6), modifier = Modifier.size(120.dp))
-                        Spacer(Modifier.height(32.dp)); Text("Bem-vindo ao\nCarLembrete", style = MaterialTheme.typography.headlineLarge, color = Color.White, textAlign = TextAlign.Center, fontWeight = FontWeight.Bold)
-                        Spacer(Modifier.height(16.dp)); Text("Gerencie sua frota, tire fotos das notas e tenha seus mecânicos sempre à mão.", style = MaterialTheme.typography.bodyLarge, color = Color(0xFF94A3B8), textAlign = TextAlign.Center)
-                        Spacer(Modifier.height(48.dp)); Button(onClick = { step = 2 }, modifier = Modifier.fillMaxWidth().height(50.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6))) { Text("Começar", fontSize = 18.sp) }
+                        OnboardingWelcomeOrbit()
+                        Spacer(Modifier.height(32.dp)); Text("Bem-vindo ao Zellu", style = MaterialTheme.typography.headlineLarge, color = Color.White, textAlign = TextAlign.Center, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.height(48.dp)); Button(onClick = { step = 4 }, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(10.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF60A5FA))) { Text("Vamos lá!", fontSize = 19.sp) }
                     }
+                    5 -> {
+                        Text(
+                            "Antes de começar",
+                            style = MaterialTheme.typography.headlineMedium,
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        Text(
+                            "A seguir você realizará o cadastro do 1º veículo no Zellu. Depois, poderá adicionar e gerenciar os veículos de toda a família: carro, bike, trator e mais.",
+                            color = Color(0xFFBFDBFE),
+                            textAlign = TextAlign.Center,
+                            lineHeight = 20.sp
+                        )
+                        Spacer(Modifier.height(28.dp))
+                        Button(
+                            onClick = { step = 4 },
+                            modifier = Modifier.fillMaxWidth().height(56.dp),
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF60A5FA))
+                        ) { Text("Próximo", fontSize = 19.sp) }
+                    }
+                    4 -> Unit
                     2 -> {
                         if (frotaTemporaria.isNotEmpty()) {
-                            Text("Veículos Adicionados:", style = MaterialTheme.typography.labelMedium, color = Color(0xFF94A3B8))
+                            Text("VeÃ­culos Adicionados:", style = MaterialTheme.typography.labelMedium, color = Color(0xFF94A3B8))
                             Spacer(Modifier.height(8.dp))
                             LazyRow(
                                 horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -249,7 +359,7 @@ fun OnboardingScreen(onFinish: () -> Unit) {
                         OutlinedButton(
                             onClick = {
                                 if (frotaTemporaria.size >= maxVehicles) {
-                                    Toast.makeText(context, "Limite de veículos do plano grátis atingido.", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, "Limite de veÃ­culos do plano grÃ¡tis atingido.", Toast.LENGTH_SHORT).show()
                                     return@OutlinedButton
                                 }
                                 if (carroNome.isNotBlank() && carroModeloUnico.isNotBlank()) {
@@ -270,7 +380,7 @@ fun OnboardingScreen(onFinish: () -> Unit) {
                             },
                             modifier = Modifier.fillMaxWidth(),
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF3B82F6))
-                        ) { Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(8.dp)); Text("Adicionar Outro Veículo") }
+                        ) { Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(8.dp)); Text("Adicionar Outro VeÃ­culo") }
                         Spacer(Modifier.height(8.dp))
                         Button(
                             onClick = {
@@ -286,10 +396,10 @@ fun OnboardingScreen(onFinish: () -> Unit) {
                                     listaFinal = listaFinal + ultimo
                                 }
                                 if (listaFinal.size > maxVehicles) {
-                                    Toast.makeText(context, "Limite de veículos do plano grátis atingido.", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, "Limite de veÃ­culos do plano grÃ¡tis atingido.", Toast.LENGTH_SHORT).show()
                                     listaFinal = listaFinal.take(maxVehicles)
                                 }
-                                val listaSalvar = if (listaFinal.isNotEmpty()) listaFinal else listOf(CarroInfo(nome = carroTipo.label, modelo = "Padrão", marca = "Marca", kmAtual = 0, tipoVeiculo = carroTipo))
+                                val listaSalvar = if (listaFinal.isNotEmpty()) listaFinal else listOf(CarroInfo(nome = carroTipo.label, modelo = "PadrÃ£o", marca = "Marca", kmAtual = 0, tipoVeiculo = carroTipo))
                                 scope.launch(Dispatchers.IO) { BancoDeDados.salvarCarros(context, listaSalvar) }
                                 step = 3
                             },
@@ -306,8 +416,171 @@ fun OnboardingScreen(onFinish: () -> Unit) {
                         Spacer(Modifier.height(16.dp)); OutlinedButton(onClick = { showContatoDialog = true }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.PersonAdd, null); Spacer(Modifier.width(8.dp)); Text("Adicionar Profissional") }
                         Spacer(Modifier.height(48.dp)); Button(onClick = onFinish, modifier = Modifier.fillMaxWidth().height(50.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6))) { Text("Finalizar e Entrar", fontSize = 18.sp) }
                     }
+                    6 -> {
+                        Text(
+                            "Tema do App",
+                            style = MaterialTheme.typography.headlineMedium,
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        Text(
+                            "Escolha como você prefere usar o Zellu.",
+                            color = Color(0xFF94A3B8),
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(Modifier.height(24.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            listOf(
+                                AppThemeMode.LIGHT to "Claro",
+                                AppThemeMode.DARK to "Escuro"
+                            ).forEach { (mode, label) ->
+                                val isSelected = selectedThemeMode == mode
+                                Card(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clickable {
+                                            selectedThemeMode = mode
+                                            AppPreferences.setThemeMode(context, mode)
+                                            onThemeModeChanged(mode)
+                                        },
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = if (isSelected) Color(0xFF1E3A8A) else Color(0xFF1E293B)
+                                    ),
+                                    border = BorderStroke(
+                                        1.dp,
+                                        if (isSelected) Color(0xFF93C5FD) else Color(0xFF334155)
+                                    )
+                                ) {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 18.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Text(label, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                                    }
+                                }
+                            }
+                        }
+                        Spacer(Modifier.height(28.dp))
+                        Button(
+                            onClick = { step = 3 },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(50.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6))
+                        ) {
+                            Text("Continuar", fontSize = 18.sp)
+                        }
+                    }
                 }
             }
         }
     }
 }
+
+@Composable
+private fun OnboardingWelcomeOrbit() {
+    val transition = rememberInfiniteTransition(label = "welcome_orbit")
+    val orbitRotation by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 14000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "orbit_rotation"
+    )
+    val iconCounterRotation by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = -360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 14000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "icon_counter_rotation"
+    )
+    val orbitIcons = listOf(
+        Icons.Rounded.WaterDrop,
+        Icons.Rounded.TireRepair,
+        Icons.Rounded.Settings,
+        Icons.Rounded.Description,
+        Icons.Rounded.BatteryChargingFull,
+        Icons.Rounded.Build,
+        Icons.Rounded.FormatPaint,
+        Icons.Rounded.Payments,
+        Icons.Rounded.Shield,
+        Icons.Rounded.Edit,
+        Icons.Rounded.LocalGasStation
+    )
+
+    val density = LocalDensity.current
+    val orbitRadiusPx = with(density) { 136.dp.toPx() }
+
+    Box(
+        modifier = Modifier.size(350.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .size(156.dp)
+                .shadow(14.dp, CircleShape, clip = false)
+                .clip(CircleShape)
+                .background(Color(0xFF0A1424))
+                .border(2.dp, Color(0xFF2C4E73), CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            val logoMatrix = ColorMatrix().apply {
+                setToScale(1.18f, 1.18f, 1.18f, 1f)
+            }
+            Image(
+                painter = painterResource(id = R.mipmap.ic_launcher_foreground),
+                contentDescription = "Logo do app",
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(CircleShape)
+                    .graphicsLayer {
+                        scaleX = 1.55f
+                        scaleY = 1.55f
+                    },
+                contentScale = ContentScale.Crop,
+                colorFilter = ColorFilter.colorMatrix(logoMatrix)
+            )
+        }
+
+        orbitIcons.forEachIndexed { index, icon ->
+            val startAngle = index * (360f / orbitIcons.size)
+            val angle = startAngle + orbitRotation
+            val radians = Math.toRadians(angle.toDouble())
+            val x = (cos(radians) * orbitRadiusPx).toFloat()
+            val y = (sin(radians) * orbitRadiusPx).toFloat()
+
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .graphicsLayer {
+                        translationX = x
+                        translationY = y
+                        rotationZ = iconCounterRotation
+                    }
+                    .clip(CircleShape)
+                    .background(Color(0xFF1E3A5F))
+                    .border(1.dp, Color(0xFF365E89), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = Color(0xFFBFDBFE),
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+        }
+    }
+}
+
