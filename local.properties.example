@@ -1,0 +1,5 @@
+## Copie para local.properties e ajuste conforme seu ambiente.
+sdk.dir=C:\\Users\\SEU_USUARIO\\AppData\\Local\\Android\\Sdk
+
+# Configuracoes de API
+FIPE_BASE_URL=https://parallelum.com.br/fipe/

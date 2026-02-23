@@ -17,7 +17,7 @@ class OnboardingActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            var themeMode by remember { mutableStateOf(AppPreferences.getThemeMode(this@OnboardingActivity)) }
+            var themeMode by remember { mutableStateOf(AppThemeMode.DARK) }
             CarLembreteTheme(themeMode = themeMode) {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     OnboardingScreen(

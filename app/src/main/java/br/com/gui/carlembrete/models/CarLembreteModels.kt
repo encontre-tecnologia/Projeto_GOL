@@ -90,7 +90,7 @@ enum class TipoVeiculo(val label: String, val icon: ImageVector) {
     VEICULO_ELETRICO("Veículo elétrico", Icons.Rounded.DirectionsCar),
     CARRETINHA("Carretinha", Icons.Rounded.Inventory2),
     CARRO("Sedan", Icons.Rounded.DirectionsCar),
-    HATCH("Hatch", Icons.Rounded.DirectionsCar),
+    HATCH("Carro de passeio", Icons.Rounded.DirectionsCar),
     MOTO("Moto", Icons.Rounded.Motorcycle),
     CAMINHONETE("Pickup", Icons.Rounded.LocalShipping),
     FURGAO("Furgão", Icons.Rounded.LocalShipping),
@@ -98,6 +98,7 @@ enum class TipoVeiculo(val label: String, val icon: ImageVector) {
     ONIBUS("Ônibus", Icons.Rounded.LocalShipping),
     SUV("SUV", Icons.Rounded.DirectionsCar),
     VAN("Van", Icons.Rounded.LocalShipping),
+    MOTORHOME("Motorhome", Icons.Rounded.LocalShipping),
     TRATOR("Trator", Icons.Rounded.Agriculture)
 }
 
@@ -200,16 +201,36 @@ val marcasSuv = listOf(
 )
 
 val marcasVan = listOf(
-    "Renault",
-    "Iveco",
     "Mercedes-Benz",
+    "Renault",
     "Fiat",
-    "Ford",
     "Peugeot",
-    "Citroen",
+    "Citroën",
+    "Ford",
+    "Iveco",
+    "Volkswagen",
     "Toyota",
     "JAC",
     "Foton"
+)
+
+val marcasMotorhome = listOf(
+    "Winnebago",
+    "Thor Motor Coach",
+    "Forest River",
+    "REV Group",
+    "Hymer",
+    "Adria",
+    "Bürstner",
+    "Dethleffs",
+    "Knaus",
+    "Rapido",
+    "Trigano",
+    "Coachmen",
+    "Newmar",
+    "Jayco",
+    "Leisure Travel Vans",
+    "Tiffin"
 )
 
 val marcasHatch = listOf(
@@ -234,12 +255,54 @@ val marcasBikeEletrica = listOf(
     "Sense",
     "Oggi",
     "Audax",
+    "Lev",
+    "Houston",
+    "Soul Cycles",
+    "Two Dogs",
+    "TSW",
+    "GTSM1",
+    "KSW",
+    "Sense Bike",
     "Trek",
     "Specialized",
     "Cannondale",
-    "Houston",
-    "Soul Cycles",
-    "Two Dogs"
+    "Scott",
+    "Giant",
+    "Bianchi",
+    "Orbea",
+    "Fiido",
+    "Aima",
+    "Haibike"
+)
+
+val marcasTrator = listOf(
+    "Sem marca",
+    "John Deere",
+    "Massey Ferguson",
+    "Valtra",
+    "New Holland",
+    "Case IH",
+    "Kubota",
+    "Agrale",
+    "Yanmar",
+    "Mahindra",
+    "Fendt",
+    "Landini",
+    "LS Tractor"
+)
+
+val marcasCarretinha = listOf(
+    "Sem marca",
+    "Randon",
+    "Facchini",
+    "Guerra",
+    "Librelato",
+    "Noma",
+    "Rodolinea",
+    "Implementos São Paulo",
+    "Moro",
+    "Rossetti",
+    "Carga Seca"
 )
 
 val marcasVeiculoEletrico = listOf(
@@ -265,6 +328,8 @@ val marcasVeiculoEletrico = listOf(
 fun marcasPorTipo(tipo: TipoVeiculo?): List<String> = when (tipo) {
     TipoVeiculo.BICICLETA -> marcasBicicleta
     TipoVeiculo.BIKE_ELETRICA -> marcasBikeEletrica
+    TipoVeiculo.TRATOR -> marcasTrator
+    TipoVeiculo.CARRETINHA -> marcasCarretinha
     TipoVeiculo.VEICULO_ELETRICO -> marcasVeiculoEletrico
     TipoVeiculo.CAMINHONETE -> marcasCaminhonete
     TipoVeiculo.FURGAO -> marcasCaminhonete
@@ -272,6 +337,7 @@ fun marcasPorTipo(tipo: TipoVeiculo?): List<String> = when (tipo) {
     TipoVeiculo.ONIBUS -> marcasOnibus
     TipoVeiculo.SUV -> marcasSuv
     TipoVeiculo.VAN -> marcasVan
+    TipoVeiculo.MOTORHOME -> marcasMotorhome
     TipoVeiculo.HATCH -> marcasHatch
     null -> emptyList()
     else -> marcasSuportadas
@@ -302,9 +368,10 @@ fun TipoVeiculo.iconRes(): Int? = when (this) {
     TipoVeiculo.CAMINHAO -> R.drawable.ic_caminhao
     TipoVeiculo.CAMINHONETE -> R.drawable.ic_camionete
     TipoVeiculo.FURGAO -> R.drawable.camionetecapota
-    TipoVeiculo.ONIBUS -> R.drawable.onibus
+    TipoVeiculo.ONIBUS -> R.drawable.bus
     TipoVeiculo.SUV -> R.drawable.suv
-    TipoVeiculo.VAN -> R.drawable.van
+    TipoVeiculo.VAN -> R.drawable.newvan
+    TipoVeiculo.MOTORHOME -> R.drawable.motorhome
     TipoVeiculo.BICICLETA -> R.drawable.bikenova
     TipoVeiculo.BIKE_ELETRICA -> R.drawable.bikeeletrica
     TipoVeiculo.MOTO -> R.drawable.ic_moto

@@ -401,7 +401,7 @@ fun EditarCarroScreen(
 
                     OutlinedTextField(
                         value = kmAtualStr,
-                        onValueChange = { kmAtualStr = formatarKmTextoLocal(it) },
+                        onValueChange = { kmAtualStr = formatarKmTextoEditar(it) },
                         label = { Text("KM atual") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         singleLine = true,
@@ -737,7 +737,7 @@ private fun opcoesTempoComVeiculoEdicao(): List<String> = listOf(
 private fun formatarKmLocal(valor: Int): String =
     NumberFormat.getIntegerInstance(Locale("pt", "BR")).format(valor)
 
-private fun formatarKmTextoLocal(texto: String): String {
+private fun formatarKmTextoEditar(texto: String): String {
     val digits = texto.filter(Char::isDigit)
     val value = digits.toLongOrNull() ?: 0L
     return NumberFormat.getIntegerInstance(Locale("pt", "BR")).format(value)

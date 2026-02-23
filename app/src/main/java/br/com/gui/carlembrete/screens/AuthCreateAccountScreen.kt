@@ -1,10 +1,10 @@
 ﻿package br.com.gui.carlembrete
 
-import android.app.Activity
-import android.util.Patterns
 import android.widget.Toast
+import android.util.Patterns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -17,33 +17,38 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Divider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.android.gms.auth.api.signin.GoogleSignIn
@@ -51,55 +56,25 @@ import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.android.gms.common.api.ApiException
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.foundation.Image
-import androidx.compose.ui.res.painterResource
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.foundation.BorderStroke
 
 @Composable
-fun AuthScreen(onSignedIn: () -> Unit) {
+fun AuthCreateAccountScreen(
+    onSignedIn: () -> Unit,
+    onBack: () -> Unit
+) {
     val context = LocalContext.current
     val auth = remember { FirebaseAuth.getInstance() }
     var email by remember { mutableStateOf("") }
     var senha by remember { mutableStateOf("") }
     var senhaVisivel by remember { mutableStateOf(false) }
-    var modoRecuperacao by remember { mutableStateOf(false) }
-    var modoCriarConta by remember { mutableStateOf(false) }
-    var tentouEntrar by remember { mutableStateOf(false) }
-
-    if (modoRecuperacao) {
-        AuthForgotPasswordScreen(
-            email = email,
-            onEmailChange = { email = it },
-            onSendLink = {
-                if (email.isBlank()) {
-                    Toast.makeText(context, "Informe o email para redefinir", Toast.LENGTH_SHORT).show()
-                } else {
-                    auth.sendPasswordResetEmail(email).addOnCompleteListener { task ->
-                        if (task.isSuccessful) {
-                            Toast.makeText(context, "Email de redefinição enviado", Toast.LENGTH_SHORT).show()
-                        } else {
-                            Toast.makeText(context, "Falha ao enviar email", Toast.LENGTH_SHORT).show()
-                        }
-                    }
-                }
-            },
-            onBack = { modoRecuperacao = false }
-        )
-        return
-    }
-    if (modoCriarConta) {
-        AuthCreateAccountScreen(
-            onSignedIn = onSignedIn,
-            onBack = { modoCriarConta = false }
-        )
-        return
-    }
-
+    var tentouCriar by remember { mutableStateOf(false) }
+    val emailValido = Patterns.EMAIL_ADDRESS.matcher(email.trim()).matches()
+    val emailFormatoInvalido = email.isNotBlank() && !emailValido
+    val emailErro = (tentouCriar && email.isBlank()) || emailFormatoInvalido
+    val senhaValida = senha.length >= 6
+    val senhaFormatoInvalido = senha.isNotBlank() && !senhaValida
+    val senhaErro = (tentouCriar && senha.isBlank()) || senhaFormatoInvalido
+    val podeCriar = emailValido && senhaValida
     val gso = remember {
         GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
             .requestIdToken(context.getString(R.string.default_web_client_id))
@@ -107,14 +82,9 @@ fun AuthScreen(onSignedIn: () -> Unit) {
             .build()
     }
     val googleSignInClient = remember { GoogleSignIn.getClient(context, gso) }
-
     val googleLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        if (result.resultCode != Activity.RESULT_OK) {
-            Toast.makeText(context, "Login com Google cancelado", Toast.LENGTH_SHORT).show()
-            return@rememberLauncherForActivityResult
-        }
         val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
         try {
             val account = task.getResult(ApiException::class.java)
@@ -128,24 +98,31 @@ fun AuthScreen(onSignedIn: () -> Unit) {
                 if (signInTask.isSuccessful) {
                     onSignedIn()
                 } else {
-                    Toast.makeText(context, "Falha no login com Google", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "Falha no cadastro com Google", Toast.LENGTH_SHORT).show()
                 }
             }
         } catch (_: Exception) {
-            Toast.makeText(context, "Falha no login com Google", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Falha no cadastro com Google", Toast.LENGTH_SHORT).show()
         }
     }
 
-    fun entrarEmailSenha() {
+    fun criarContaEmailSenha() {
         if (email.isBlank() || senha.isBlank()) {
             Toast.makeText(context, "Informe email e senha", Toast.LENGTH_SHORT).show()
             return
         }
-        auth.signInWithEmailAndPassword(email, senha).addOnCompleteListener { task ->
+        auth.createUserWithEmailAndPassword(email, senha).addOnCompleteListener { task ->
             if (task.isSuccessful) {
+                auth.currentUser?.sendEmailVerification()?.addOnCompleteListener { emailTask ->
+                    if (emailTask.isSuccessful) {
+                        Toast.makeText(context, "Conta criada! Enviamos um e-mail de confirmação.", Toast.LENGTH_LONG).show()
+                    } else {
+                        Toast.makeText(context, "Conta criada, mas não foi possível enviar o e-mail.", Toast.LENGTH_LONG).show()
+                    }
+                }
                 onSignedIn()
             } else {
-                Toast.makeText(context, "Falha ao entrar", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "Falha ao criar conta", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -191,20 +168,15 @@ fun AuthScreen(onSignedIn: () -> Unit) {
                 )
             }
             Text(
-                text = "Entrar",
+                text = "Criar conta",
                 style = MaterialTheme.typography.headlineSmall,
                 color = Color(0xFFF8FAFC)
             )
             Text(
-                text = "Use email e senha ou continue com Google",
+                text = "Preencha email e senha para criar sua conta",
                 color = Color(0xFF94A3B8),
                 style = MaterialTheme.typography.bodySmall
             )
-            val emailValido = Patterns.EMAIL_ADDRESS.matcher(email.trim()).matches()
-            val emailFormatoInvalido = email.isNotBlank() && !emailValido
-            val emailErro = (tentouEntrar && email.isBlank()) || emailFormatoInvalido
-            val senhaErro = tentouEntrar && senha.isBlank()
-            val podeEntrar = emailValido && senha.isNotBlank()
             Spacer(Modifier.height(8.dp))
             OutlinedTextField(
                 value = email,
@@ -266,53 +238,59 @@ fun AuthScreen(onSignedIn: () -> Unit) {
                     cursorColor = Color(0xFFF8FAFC)
                 )
             )
-            TextButton(
-                onClick = { modoRecuperacao = true },
-                modifier = Modifier.align(Alignment.End)
-            ) {
-                Text("Esqueci a senha", color = Color(0xFF94A3B8))
+            if (senhaFormatoInvalido) {
+                Text(
+                    text = "Senha inválida: mínimo de 6 caracteres",
+                    color = Color(0xFFEF4444),
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.align(Alignment.Start)
+                )
+            } else {
+                Text(
+                    text = "A senha deve ter no mínimo 6 caracteres",
+                    color = Color(0xFF94A3B8),
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.align(Alignment.Start)
+                )
             }
             Button(
                 onClick = {
-                    tentouEntrar = true
-                    entrarEmailSenha()
+                    tentouCriar = true
+                    criarContaEmailSenha()
                 },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(52.dp),
                 shape = RoundedCornerShape(14.dp),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = if (podeEntrar) Color(0xFF3B82F6) else Color(0xFF334155),
-                    contentColor = if (podeEntrar) Color.White else Color(0xFF94A3B8)
+                    containerColor = if (podeCriar) Color(0xFF3B82F6) else Color(0xFF334155),
+                    contentColor = if (podeCriar) Color.White else Color(0xFF94A3B8)
                 )
             ) {
                 Text(
-                    "Entrar",
+                    "Criar conta",
                     style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.padding(top = 1.dp)
                 )
             }
             OutlinedButton(
-                onClick = { modoCriarConta = true },
+                onClick = onBack,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(52.dp),
-                shape = RoundedCornerShape(14.dp),
-                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.9f)),
+                shape = RoundedCornerShape(12.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF93C5FD).copy(alpha = 0.55f)),
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
             ) {
-                Text(
-                    "Cadastre-se",
-                    style = MaterialTheme.typography.titleMedium
-                )
+                Text("Voltar")
             }
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Divider(color = Color(0xFFE2E8F0), modifier = Modifier.weight(1f))
+                Divider(color = Color(0xFF334155), modifier = Modifier.weight(1f))
                 Text("ou", color = Color(0xFF94A3B8), modifier = Modifier.padding(horizontal = 12.dp))
-                Divider(color = Color(0xFFE2E8F0), modifier = Modifier.weight(1f))
+                Divider(color = Color(0xFF334155), modifier = Modifier.weight(1f))
             }
             OutlinedButton(
                 onClick = { googleLauncher.launch(googleSignInClient.signInIntent) },
@@ -321,16 +299,15 @@ fun AuthScreen(onSignedIn: () -> Unit) {
                     .height(56.dp),
                 shape = RoundedCornerShape(14.dp),
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
-                border = BorderStroke(1.dp, Color(0xFF93C5FD).copy(alpha = 0.55f))
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF93C5FD).copy(alpha = 0.55f))
             ) {
                 Image(
                     painter = painterResource(id = R.drawable.ic_google_g),
                     contentDescription = null
                 )
                 Spacer(Modifier.width(8.dp))
-                Text("Entrar com Google")
+                Text("Cadastre-se com o Google")
             }
         }
     }
 }
-

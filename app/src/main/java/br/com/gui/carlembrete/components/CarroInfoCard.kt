@@ -1,9 +1,11 @@
-﻿import androidx.compose.foundation.BorderStroke
+import android.util.Log
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.Image
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Edit
@@ -18,6 +20,11 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -28,6 +35,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -36,6 +44,15 @@ import androidx.compose.ui.unit.sp
 import br.com.gui.carlembrete.CarroInfo
 import br.com.gui.carlembrete.TipoVeiculo
 import br.com.gui.carlembrete.VehicleIcon
+import br.com.gui.carlembrete.iconRes
+import coil.compose.AsyncImage
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
+import java.net.URLEncoder
+import java.net.URL
+import java.nio.charset.StandardCharsets
+import androidx.compose.ui.res.painterResource
 
 private data class CarCardPalette(
     val cardBackground: Color,
@@ -45,6 +62,15 @@ private data class CarCardPalette(
     val actionBackground: Color,
     val isDark: Boolean
 )
+
+private data class VehicleImageResult(
+    val url: String,
+    val attribution: String = "Fonte: Wikimedia Commons"
+)
+
+private const val VEHICLE_IMAGE_TAG = "VehicleImageCard"
+
+private val vehicleImageUrlCache = mutableMapOf<String, VehicleImageResult?>()
 
 @Composable
 private fun carCardPalette(): CarCardPalette {
@@ -200,7 +226,7 @@ fun CarroInfoCard(
 
                             VehicleIcon(
                                 tipoVeiculo = carroAtual.tipoVeiculo,
-                                tint = null,
+                                tint = Color.White,
                                 size = 210.dp,
                                 modifier = Modifier.offset(y = vehicleIconOffsetY)
                             )
@@ -212,8 +238,9 @@ fun CarroInfoCard(
                                     .padding(bottom = 20.dp),
                                 color = heroTextColor.copy(alpha = 0.95f),
                                 fontSize = 13.sp,
-                                fontWeight = FontWeight.SemiBold
+                                    fontWeight = FontWeight.SemiBold
                             )
+
                         }
                     }
                 }
@@ -323,6 +350,126 @@ fun ActionGlassButton(
                 overflow = TextOverflow.Ellipsis
             )
         }
+    }
+}
+
+private fun resolveVehicleImage(
+    nome: String,
+    marca: String,
+    modelo: String,
+    ano: String?,
+    tipo: TipoVeiculo
+): VehicleImageResult? {
+    val normalizedKey = listOf(nome, marca, modelo, ano.orEmpty(), tipo.name)
+        .joinToString("|")
+        .trim()
+        .lowercase()
+    vehicleImageUrlCache[normalizedKey]?.let {
+        Log.d(VEHICLE_IMAGE_TAG, "cache hit key='$normalizedKey' hasUrl=${it?.url != null}")
+        return it
+    }
+
+    val tipoHint = when (tipo) {
+        TipoVeiculo.VAN -> "van"
+        TipoVeiculo.ONIBUS -> "bus"
+        TipoVeiculo.MOTORHOME -> "motorhome"
+        TipoVeiculo.CAMINHAO -> "truck"
+        TipoVeiculo.MOTO -> "motorcycle"
+        TipoVeiculo.BICICLETA, TipoVeiculo.BIKE_ELETRICA -> "bicycle"
+        else -> "car"
+    }
+    val queries = listOf(
+        listOf(marca, nome, ano.orEmpty(), tipoHint).filter { it.isNotBlank() }.joinToString(" "),
+        listOf(marca, nome, tipoHint).filter { it.isNotBlank() }.joinToString(" "),
+        listOf(marca, nome).filter { it.isNotBlank() }.joinToString(" "),
+        listOf(nome, marca).filter { it.isNotBlank() }.joinToString(" "),
+        listOf(nome, tipoHint).filter { it.isNotBlank() }.joinToString(" "),
+        listOf(nome, marca, modelo, ano.orEmpty(), tipoHint).filter { it.isNotBlank() }.joinToString(" "),
+        listOf(nome, marca, modelo, tipoHint).filter { it.isNotBlank() }.joinToString(" "),
+        listOf(nome, modelo, tipoHint).filter { it.isNotBlank() }.joinToString(" "),
+        listOf(marca, modelo, ano.orEmpty(), tipoHint).filter { it.isNotBlank() }.joinToString(" "),
+        listOf(marca, modelo, tipoHint).filter { it.isNotBlank() }.joinToString(" "),
+        listOf(modelo, tipoHint).filter { it.isNotBlank() }.joinToString(" ")
+    ).distinct().filter { it.isNotBlank() }
+
+    var result: VehicleImageResult? = null
+    for (query in queries) {
+        Log.d(VEHICLE_IMAGE_TAG, "trying query='$query'")
+        result = fetchWikimediaVehicleImage(query = query)
+        if (result != null) break
+    }
+
+    vehicleImageUrlCache[normalizedKey] = result
+    Log.d(VEHICLE_IMAGE_TAG, "resolved key='$normalizedKey' result='${result?.url ?: "null"}'")
+    return result
+}
+
+private fun fetchWikimediaVehicleImage(query: String): VehicleImageResult? {
+    val encoded = URLEncoder.encode(query, StandardCharsets.UTF_8.toString())
+    val url =
+        "https://commons.wikimedia.org/w/api.php?action=query&format=json&generator=search&gsrsearch=$encoded&gsrnamespace=6&gsrlimit=12&prop=imageinfo&iiprop=url&iiurlwidth=900"
+    return runCatching {
+        val connection = URL(url).openConnection()
+        connection.setRequestProperty("User-Agent", "CarLembrete/1.0 (vehicle image lookup)")
+        connection.connectTimeout = 5000
+        connection.readTimeout = 5000
+        connection.getInputStream().bufferedReader().use { reader ->
+            val root = JSONObject(reader.readText())
+            val pages = root.optJSONObject("query")?.optJSONObject("pages") ?: return@runCatching null
+            val keys = pages.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
+                val page = pages.optJSONObject(key) ?: continue
+                val title = page.optString("title", "")
+                val titleLower = title.lowercase()
+                if (titleLower.contains("logo") || titleLower.contains("badge") || titleLower.contains("emblem")) continue
+                if (!isRelevantWikimediaTitle(title = title, query = query)) {
+                    Log.d(VEHICLE_IMAGE_TAG, "wikimedia skip irrelevant title='$title' query='$query'")
+                    continue
+                }
+                val imageInfo = page.optJSONArray("imageinfo")?.optJSONObject(0) ?: continue
+                val thumb = imageInfo.optString("thumburl")
+                if (thumb.isNotBlank()) {
+                    Log.d(VEHICLE_IMAGE_TAG, "wikimedia match query='$query' title='$title' thumb='$thumb'")
+                    return@runCatching VehicleImageResult(url = thumb)
+                }
+                val full = imageInfo.optString("url")
+                if (full.isNotBlank()) {
+                    Log.d(VEHICLE_IMAGE_TAG, "wikimedia match query='$query' title='$title' full='$full'")
+                    return@runCatching VehicleImageResult(url = full)
+                }
+            }
+            null
+        }
+    }.onFailure { Log.e(VEHICLE_IMAGE_TAG, "wikimedia request failed query='$query': ${it.message}", it) }.getOrNull()
+}
+
+private fun isRelevantWikimediaTitle(title: String, query: String): Boolean {
+    val normalizedTitle = title.lowercase()
+        .replace("file:", "")
+        .replace(Regex("[^a-z0-9 ]"), " ")
+        .replace(Regex("\\s+"), " ")
+        .trim()
+    val blockedWords = setOf(
+        "police", "policia", "street", "avenue", "traffic", "protest", "riot",
+        "city", "town", "zone", "vista", "north", "south", "east", "west"
+    )
+    if (blockedWords.any { normalizedTitle.contains(it) }) return false
+
+    val ignoredTerms = setOf(
+        "car", "truck", "bus", "van", "motorhome", "motorcycle", "bicycle",
+        "bike", "suv", "hatch", "pickup", "sedan", "vehicle", "veiculo", "de", "do", "da"
+    )
+    val queryTerms = query.lowercase()
+        .replace(Regex("[^a-z0-9 ]"), " ")
+        .split(" ")
+        .map { it.trim() }
+        .filter { it.length >= 3 && it !in ignoredTerms && !it.all(Char::isDigit) }
+        .distinct()
+
+    if (queryTerms.isEmpty()) return true
+    return queryTerms.any { term ->
+        normalizedTitle.contains(term)
     }
 }
 

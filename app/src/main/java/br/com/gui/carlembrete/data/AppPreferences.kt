@@ -216,6 +216,12 @@ object AppPreferences {
             .apply()
     }
 
+    fun getFipeCacheAnyAge(context: Context, key: String): String? {
+        if (key.isBlank()) return null
+        val prefs = context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        return prefs.getString(KEY_FIPE_CACHE_VALUE_PREFIX + key, null)
+    }
+
     fun setParkingCostConfig(
         context: Context,
         pricingMode: ParkingPricingMode,
