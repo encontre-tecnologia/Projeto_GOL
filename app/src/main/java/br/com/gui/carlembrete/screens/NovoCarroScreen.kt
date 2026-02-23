@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.speech.RecognizerIntent
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -28,6 +29,8 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBackIosNew
+import androidx.compose.material.icons.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.rounded.AddCircle
 import androidx.compose.material.icons.rounded.CheckCircle
@@ -41,6 +44,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -58,10 +62,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.zIndex
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import java.text.NumberFormat
 import java.text.Normalizer
 import java.util.Locale
@@ -70,6 +79,7 @@ import retrofit2.Retrofit
 import retrofit2.http.GET
 import retrofit2.http.Path
 import retrofit2.converter.gson.GsonConverterFactory
+import com.google.gson.annotations.SerializedName
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -77,7 +87,7 @@ fun NovoCarroScreen(
     onDismiss: () -> Unit,
     onSalvar: (CarroInfo) -> Unit
 ) {
-    NovoCarroScreenContent(
+    NovoCarroScreenPrimeiroFluxoComVoltar(
         onDismiss = onDismiss,
         onSalvar = onSalvar
     )
@@ -85,23 +95,7 @@ fun NovoCarroScreen(
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun OnboardingNovoCarroScreen(
-    onDismiss: () -> Unit,
-    onSalvar: (CarroInfo) -> Unit,
-    onboardingVehicleNumber: Int = 1
-) {
-    NovoCarroScreenContent(
-        onDismiss = onDismiss,
-        onSalvar = onSalvar,
-        allowBackNavigation = false,
-        isOnboardingVariant = true,
-        onboardingVehicleNumber = onboardingVehicleNumber
-    )
-}
-
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
-@Composable
-private fun NovoCarroScreenContent(
+internal fun NovoCarroScreenContent(
     onDismiss: () -> Unit,
     onSalvar: (CarroInfo) -> Unit,
     allowBackNavigation: Boolean = true,
@@ -159,7 +153,7 @@ private fun NovoCarroScreenContent(
     var quemUsaExpanded by remember { mutableStateOf(false) }
     var kmAtualStr by remember { mutableStateOf("100.000") }
     var tipoSelecionado by remember {
-        mutableStateOf<TipoVeiculo?>(if (isOnboardingVariant) TipoVeiculo.CARRO else null)
+        mutableStateOf<TipoVeiculo?>(null)
     }
     var corSelecionada by remember { mutableStateOf<Int?>(null) }
     var vezesBatido by remember { mutableStateOf<Int?>(null) }
@@ -174,10 +168,22 @@ private fun NovoCarroScreenContent(
     var tentouAvancarEtapa1 by remember { mutableStateOf(false) }
     var tentouSalvarEtapa2 by remember { mutableStateOf(false) }
     var tipoAnterior by remember { mutableStateOf<TipoVeiculo?>(null) }
+    var marcasFipeOnibus by remember { mutableStateOf<List<String>>(emptyList()) }
     var tipoEscolhidoManualmente by remember { mutableStateOf(false) }
     val contentScrollState = rememberScrollState()
     val showTopBar by remember { derivedStateOf { contentScrollState.value <= 8 } }
     val sugestoesNomeExibidas = remember(modelosFipe) { modelosFipe }
+    var filtroNomeVeiculo by remember { mutableStateOf("") }
+    val sugestoesNomeFiltradas = remember(sugestoesNomeExibidas, filtroNomeVeiculo) {
+        val busca = normalizarTextoBusca(filtroNomeVeiculo)
+        if (busca.isBlank()) {
+            sugestoesNomeExibidas
+        } else {
+            sugestoesNomeExibidas.filter { modeloItem ->
+                normalizarTextoBusca(modeloItem.nome).contains(busca)
+            }
+        }
+    }
     val opcoesCor = remember { coresVeiculoDisponiveis() }
     val nomeCorSelecionada = remember(corSelecionada, opcoesCor) {
         corSelecionada?.let { cor ->
@@ -191,6 +197,7 @@ private fun NovoCarroScreenContent(
         corSelecionada != null
     val isBikeTypeGlobal =
         tipoSelecionado == TipoVeiculo.BICICLETA || tipoSelecionado == TipoVeiculo.BIKE_ELETRICA
+    val hasTypeSelected = tipoSelecionado != null
     val etapaBikeValida = etapa1Valida &&
         proprietario.isNotBlank() &&
         kmAtualStr.filter(Char::isDigit).isNotEmpty()
@@ -212,7 +219,11 @@ private fun NovoCarroScreenContent(
     val erroBatidas = etapaCadastro == 2 && tentouSalvarEtapa2 && vezesBatido == null
     val erroTempo = etapaCadastro == 2 && tentouSalvarEtapa2 && tempoComVeiculo.isBlank()
 
-    val marcasDisponiveis = if (tipoSelecionado == null) marcasSuportadas else marcasPorTipo(tipoSelecionado)
+    val marcasDisponiveis = when {
+        tipoSelecionado == null -> marcasSuportadas
+        tipoSelecionado == TipoVeiculo.ONIBUS && marcasFipeOnibus.isNotEmpty() -> marcasFipeOnibus
+        else -> marcasPorTipo(tipoSelecionado)
+    }
     LaunchedEffect(tipoSelecionado) {
         if (tipoAnterior != null && tipoSelecionado != tipoAnterior) {
             marca = ""
@@ -235,6 +246,12 @@ private fun NovoCarroScreenContent(
             tentouSalvarEtapa2 = false
         }
         tipoAnterior = tipoSelecionado
+
+        if (tipoSelecionado == TipoVeiculo.ONIBUS) {
+            marcasFipeOnibus = withContext(Dispatchers.IO) { carregarMarcasFipePorTipo(context, tipoSelecionado) }
+        } else {
+            marcasFipeOnibus = emptyList()
+        }
 
         if (marca.isNotBlank() && !marcasDisponiveis.contains(marca)) {
             marca = ""
@@ -456,23 +473,13 @@ private fun NovoCarroScreenContent(
             ) {
                 if (isOnboardingVariant) {
                     Text(
-                        text = "Adicione seus veículos",
+                        text = "Cadastre um Veículo",
                         color = textPrimary,
                         fontSize = 22.sp,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(top = 14.dp, bottom = 8.dp),
-                        textAlign = TextAlign.Center
-                    )
-                    Text(
-                        text = "Você está cadastrando o veículo $onboardingVehicleNumber",
-                        color = textSecondary,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 10.dp),
                         textAlign = TextAlign.Center
                     )
                     OnboardingGarageHeader(
@@ -515,7 +522,7 @@ private fun NovoCarroScreenContent(
                     ExposedDropdownMenuBox(
                         expanded = marcaExpanded,
                         onExpandedChange = {
-                            marcaExpanded = !marcaExpanded
+                            if (hasTypeSelected) marcaExpanded = !marcaExpanded
                         }
                     ) {
                         OutlinedTextField(
@@ -529,7 +536,7 @@ private fun NovoCarroScreenContent(
                                 .menuAnchor()
                                 .fillMaxWidth(),
                             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = marcaExpanded) },
-                            enabled = true,
+                            enabled = hasTypeSelected,
                             colors = selectorFieldColors
                         )
                         ExposedDropdownMenu(
@@ -544,19 +551,22 @@ private fun NovoCarroScreenContent(
                                         marca = marcaNome
                                         carregandoModelos = true
                                         modelosFipe = emptyList()
-                                        nome = ""
-                                        modeloSelecionadoCodigo = null
-                                        anosFipe = emptyList()
-                                        anoSelecionado = ""
-                                        marcaExpanded = false
-                                    }
-                                )
+                                            nome = ""
+                                            modeloSelecionadoCodigo = null
+                                            anosFipe = emptyList()
+                                            anoSelecionado = ""
+                                            filtroNomeVeiculo = ""
+                                            marcaExpanded = false
+                                        }
+                                    )
                             }
                         }
                     }
                     ExposedDropdownMenuBox(
                         expanded = corExpanded,
-                        onExpandedChange = { corExpanded = !corExpanded }
+                        onExpandedChange = {
+                            if (hasTypeSelected) corExpanded = !corExpanded
+                        }
                     ) {
                         OutlinedTextField(
                             value = nomeCorSelecionada,
@@ -569,7 +579,8 @@ private fun NovoCarroScreenContent(
                                 .menuAnchor()
                                 .fillMaxWidth(),
                             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = corExpanded) },
-                            colors = selectorFieldColors
+                            colors = selectorFieldColors,
+                            enabled = hasTypeSelected
                         )
                         ExposedDropdownMenu(
                             expanded = corExpanded,
@@ -602,27 +613,42 @@ private fun NovoCarroScreenContent(
                         }
                     }
 
-                    val isBikeType =
-                        tipoSelecionado == TipoVeiculo.BICICLETA || tipoSelecionado == TipoVeiculo.BIKE_ELETRICA
-                    if (isBikeType) {
+                    val isFreeNameType =
+                        tipoSelecionado == TipoVeiculo.BICICLETA ||
+                            tipoSelecionado == TipoVeiculo.BIKE_ELETRICA ||
+                            tipoSelecionado == TipoVeiculo.TRATOR ||
+                            tipoSelecionado == TipoVeiculo.CARRETINHA ||
+                            tipoSelecionado == TipoVeiculo.MOTORHOME
+                    if (isFreeNameType) {
+                        val freeNameLabel = when (tipoSelecionado) {
+                            TipoVeiculo.BICICLETA, TipoVeiculo.BIKE_ELETRICA -> "Nome da bike"
+                            TipoVeiculo.TRATOR -> "Nome do trator"
+                            TipoVeiculo.CARRETINHA -> "Nome da carretinha"
+                            TipoVeiculo.MOTORHOME -> "Nome do motorhome"
+                            else -> "Nome do veiculo"
+                        }
                         OutlinedTextField(
                             value = nome,
                             onValueChange = { nome = it },
                             isError = erroNome,
-                            label = { Text("Nome da bike") },
+                            label = { Text(freeNameLabel) },
                             singleLine = true,
                             colors = selectorFieldColors,
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = hasTypeSelected
                         )
                     } else {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable {
-                                    if (tipoSelecionado != null && marca.isNotBlank()) {
-                                        showNomeDialog = true
-                                    } else {
-                                        Toast.makeText(context, "Selecione tipo e marca primeiro", Toast.LENGTH_SHORT).show()
+                                    if (!hasTypeSelected) {
+                                        Toast.makeText(context, "Selecione o tipo de veículo primeiro", Toast.LENGTH_SHORT).show()
+                                        } else if (marca.isNotBlank()) {
+                                            filtroNomeVeiculo = ""
+                                            showNomeDialog = true
+                                        } else {
+                                            Toast.makeText(context, "Selecione a marca primeiro", Toast.LENGTH_SHORT).show()
                                     }
                                 }
                         ) {
@@ -673,6 +699,18 @@ private fun NovoCarroScreenContent(
                                         )
                                         Spacer(Modifier.height(12.dp))
 
+                                        OutlinedTextField(
+                                            value = filtroNomeVeiculo,
+                                            onValueChange = { filtroNomeVeiculo = it },
+                                            label = { Text("Buscar veículo") },
+                                            placeholder = { Text("Ex.: Gol, Civic, Strada...") },
+                                            singleLine = true,
+                                            colors = selectorFieldColors,
+                                            modifier = Modifier.fillMaxWidth(),
+                                            shape = RoundedCornerShape(12.dp)
+                                        )
+                                        Spacer(Modifier.height(12.dp))
+
                                         if (carregandoModelos) {
                                             Column(
                                                 modifier = Modifier
@@ -684,9 +722,9 @@ private fun NovoCarroScreenContent(
                                                 Spacer(Modifier.height(10.dp))
                                                 Text("Carregando...", color = textSecondary)
                                             }
-                                        } else if (sugestoesNomeExibidas.isEmpty()) {
+                                        } else if (sugestoesNomeFiltradas.isEmpty()) {
                                             Text(
-                                                text = "Nenhum veículo encontrado",
+                                                text = "Nenhum veículo encontrado para a busca",
                                                 color = textSecondary,
                                                 modifier = Modifier.padding(vertical = 12.dp)
                                             )
@@ -697,7 +735,7 @@ private fun NovoCarroScreenContent(
                                                     .heightIn(max = 360.dp)
                                                     .verticalScroll(rememberScrollState())
                                             ) {
-                                                sugestoesNomeExibidas.forEach { modeloItem ->
+                                                sugestoesNomeFiltradas.forEach { modeloItem ->
                                                     TextButton(
                                                         onClick = {
                                                             val (nomeExtraido, modeloExtraido) = separarNomeEMotorModelo(
@@ -766,7 +804,8 @@ private fun NovoCarroScreenContent(
                         singleLine = true,
 
                         colors = selectorFieldColors,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = hasTypeSelected
                     )
 
                     if (isBikeTypeGlobal) {
@@ -1029,7 +1068,7 @@ private fun NovoCarroScreenContent(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .offset(y = (-18).dp)
+                            .offset(y = (-48).dp)
                     ) {
                         if (etapaCadastro == 1) {
                             Button(
@@ -1120,7 +1159,7 @@ private fun NovoCarroScreenContent(
 }
 
 @Composable
-private fun OnboardingGarageHeader(
+internal fun OnboardingGarageHeader(
     selectedType: TipoVeiculo?,
     hasUserSelection: Boolean,
     onSelectType: (TipoVeiculo) -> Unit
@@ -1138,6 +1177,7 @@ private fun OnboardingGarageHeader(
     val initialVirtualIndex = remember(selectedTypeIndex, middleBlock) { middleBlock + selectedTypeIndex }
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = initialVirtualIndex)
     var initialCentered by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
 
     val layoutInfo = listState.layoutInfo
     val viewportCenter = (layoutInfo.viewportStartOffset + layoutInfo.viewportEndOffset) / 2f
@@ -1145,6 +1185,7 @@ private fun OnboardingGarageHeader(
         .minByOrNull { info -> abs((info.offset + info.size / 2f) - viewportCenter) }
         ?.index ?: initialVirtualIndex
     val centeredTypeIndex = if (typeCount == 0) 0 else centeredVirtualIndex.mod(typeCount)
+    val selectedLabel = selectedType?.label ?: "Nenhum"
 
     LaunchedEffect(listState.firstVisibleItemIndex) {
         if (typeCount == 0 || virtualCount == 0) return@LaunchedEffect
@@ -1173,108 +1214,207 @@ private fun OnboardingGarageHeader(
         }
     }
 
+    fun moveSelection(delta: Int) {
+        if (typeCount == 0 || virtualCount == 0 || delta == 0) return
+        val nextVirtualIndex = centeredVirtualIndex + delta
+        val nextTypeIndex = nextVirtualIndex.mod(typeCount)
+        onSelectType(tipos[nextTypeIndex])
+        val targetVirtualIndex = (middleBlock + nextTypeIndex).coerceIn(0, virtualCount - 1)
+        val keepOffset = listState.firstVisibleItemScrollOffset
+        scope.launch {
+            listState.animateScrollToItem(targetVirtualIndex, keepOffset)
+        }
+    }
+
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxWidth()
-            .height(250.dp)
+            .height(286.dp)
     ) {
-            val itemSpacing = 14.dp
-            val horizontalPadding = 22.dp
-            val slotWidth =
-                ((maxWidth - (horizontalPadding * 2) - (itemSpacing * 2)) / 3f).coerceAtLeast(106.dp)
+        val itemSpacing = 14.dp
+        val horizontalPadding = 22.dp
+        val slotWidth =
+            ((maxWidth - (horizontalPadding * 2) - (itemSpacing * 2)) / 3f).coerceAtLeast(106.dp)
 
-            LazyRow(
-                state = listState,
-                flingBehavior = rememberSnapFlingBehavior(lazyListState = listState),
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Box(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .padding(top = 44.dp, bottom = 14.dp),
-                contentPadding = PaddingValues(horizontal = horizontalPadding),
-                horizontalArrangement = Arrangement.spacedBy(itemSpacing)
+                    .fillMaxWidth()
+                    .height(210.dp)
+                    .padding(top = 44.dp)
             ) {
-                items(count = virtualCount) { index ->
-                    val typeIndex = if (typeCount == 0) 0 else index.mod(typeCount)
-                    val tipo = tipos[typeIndex]
-                    val linearDistance = abs(typeIndex - centeredTypeIndex)
-                    val distance = minOf(linearDistance, typeCount - linearDistance)
-                    val visualFocus = 1f - (distance * 0.2f).coerceAtMost(0.5f)
-                    val isCenter = distance == 0
-                    val scale by animateFloatAsState(
-                        targetValue = if (isCenter) 1.08f else visualFocus,
-                        animationSpec = tween(200),
-                        label = "carousel_scale"
-                    )
-                    val alpha by animateFloatAsState(
-                        targetValue = if (isCenter) 1f else (0.5f + visualFocus * 0.28f),
-                        animationSpec = tween(200),
-                        label = "carousel_alpha"
-                    )
-                    val isSelected = hasUserSelection && selectedType == tipo
-                    val cardSize by animateDpAsState(
-                        targetValue = if (isCenter) slotWidth * 0.88f else slotWidth * 0.74f,
-                        animationSpec = tween(200),
-                        label = "carousel_card_size"
-                    )
+                LazyRow(
+                    state = listState,
+                    flingBehavior = rememberSnapFlingBehavior(lazyListState = listState),
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(horizontal = horizontalPadding),
+                    horizontalArrangement = Arrangement.spacedBy(itemSpacing)
+                ) {
+                    items(count = virtualCount) { index ->
+                        val typeIndex = if (typeCount == 0) 0 else index.mod(typeCount)
+                        val tipo = tipos[typeIndex]
+                        val linearDistance = abs(typeIndex - centeredTypeIndex)
+                        val distance = minOf(linearDistance, typeCount - linearDistance)
+                        val visualFocus = 1f - (distance * 0.2f).coerceAtMost(0.5f)
+                        val isCenter = distance == 0
+                        val scale by animateFloatAsState(
+                            targetValue = if (isCenter) 1.08f else visualFocus,
+                            animationSpec = tween(200),
+                            label = "carousel_scale"
+                        )
+                        val alpha by animateFloatAsState(
+                            targetValue = if (isCenter) 1f else (0.5f + visualFocus * 0.28f),
+                            animationSpec = tween(200),
+                            label = "carousel_alpha"
+                        )
+                        val isSelected = hasUserSelection && selectedType == tipo
+                        val cardSize by animateDpAsState(
+                            targetValue = if (isCenter) slotWidth * 0.88f else slotWidth * 0.74f,
+                            animationSpec = tween(200),
+                            label = "carousel_card_size"
+                        )
 
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(7.dp),
-                        modifier = Modifier
-                            .width(slotWidth)
-                            .graphicsLayer {
-                                scaleX = scale
-                                scaleY = scale
-                                this.alpha = alpha
-                                translationY = 0f
-                            }
-                            .clickable { onSelectType(tipo) }
-                    ) {
-                        Surface(
-                            shape = RoundedCornerShape(20.dp),
-                            color = if (isSelected) Color(0x2686EFAC) else Color(0xFF0F172A),
-                            border = BorderStroke(
-                                width = if (isSelected) 1.7.dp else 1.dp,
-                                color = if (isSelected) Color(0xFF86EFAC) else Color(0xFF334155)
-                            ),
-                            modifier = Modifier.size(cardSize)
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(7.dp),
+                            modifier = Modifier
+                                .width(slotWidth)
+                                .graphicsLayer {
+                                    scaleX = scale
+                                    scaleY = scale
+                                    this.alpha = alpha
+                                    translationY = 0f
+                                }
+                                .clickable { onSelectType(tipo) }
                         ) {
-                            Box(modifier = Modifier.fillMaxSize()) {
-                                VehicleIcon(
-                                    tipoVeiculo = tipo,
-                                    tint = Color(0xFFE2E8F0),
-                                    size = if (isCenter) 58.dp else 48.dp,
-                                    modifier = Modifier.align(Alignment.Center)
-                                )
-                                if (isSelected) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.CheckCircle,
-                                        contentDescription = "Selecionado",
-                                        tint = Color(0xFF86EFAC),
-                                        modifier = Modifier
-                                            .align(Alignment.TopEnd)
-                                            .padding(8.dp)
-                                            .size(18.dp)
+                            Surface(
+                                shape = RoundedCornerShape(20.dp),
+                                color = if (isSelected) Color(0x2686EFAC) else Color(0xFF0F172A),
+                                border = BorderStroke(
+                                    width = if (isSelected) 1.7.dp else 1.dp,
+                                    color = if (isSelected) Color(0xFF86EFAC) else Color(0xFF334155)
+                                ),
+                                modifier = Modifier.size(cardSize)
+                            ) {
+                                Box(modifier = Modifier.fillMaxSize()) {
+                                    VehicleIcon(
+                                        tipoVeiculo = tipo,
+                                        tint = Color(0xFFE2E8F0),
+                                        size = if (isCenter) 58.dp else 48.dp,
+                                        modifier = Modifier.align(Alignment.Center)
                                     )
+                                    if (isSelected) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.CheckCircle,
+                                            contentDescription = "Selecionado",
+                                            tint = Color(0xFF86EFAC),
+                                            modifier = Modifier
+                                                .align(Alignment.TopEnd)
+                                                .padding(8.dp)
+                                                .size(18.dp)
+                                        )
+                                    }
                                 }
                             }
+                            Text(
+                                text = tipo.label,
+                                color = if (isSelected) Color(0xFFF8FAFC) else Color(0xFF94A3B8),
+                                fontSize = 14.sp,
+                                fontWeight = if (isCenter || isSelected) FontWeight.SemiBold else FontWeight.Medium,
+                                maxLines = 2,
+                                textAlign = TextAlign.Center
+                            )
                         }
-                        Text(
-                            text = tipo.label,
-                            color = if (isSelected) Color(0xFFF8FAFC) else Color(0xFF94A3B8),
-                            fontSize = 14.sp,
-                            fontWeight = if (isCenter || isSelected) FontWeight.SemiBold else FontWeight.Medium,
-                            maxLines = 2,
-                            textAlign = TextAlign.Center
+                    }
+                }
+
+                Surface(
+                    shape = CircleShape,
+                    color = Color(0xCC0F172A),
+                    border = BorderStroke(1.dp, Color(0xFF334155)),
+                    modifier = Modifier
+                        .size(54.dp)
+                        .align(Alignment.CenterStart)
+                        .offset(y = (-18).dp)
+                        .zIndex(2f)
+                ) {
+                    IconButton(
+                        modifier = Modifier.fillMaxSize(),
+                        onClick = { moveSelection(-1) }
+                    ) {
+                        Icon(
+                            Icons.Default.KeyboardArrowLeft,
+                            contentDescription = "Tipo anterior",
+                            tint = Color.White,
+                            modifier = Modifier.size(34.dp)
+                        )
+                    }
+                }
+
+                Surface(
+                    shape = CircleShape,
+                    color = Color(0xCC0F172A),
+                    border = BorderStroke(1.dp, Color(0xFF334155)),
+                    modifier = Modifier
+                        .size(54.dp)
+                        .align(Alignment.CenterEnd)
+                        .offset(y = (-18).dp)
+                        .zIndex(2f)
+                ) {
+                    IconButton(
+                        modifier = Modifier.fillMaxSize(),
+                        onClick = { moveSelection(1) }
+                    ) {
+                        Icon(
+                            Icons.Default.KeyboardArrowRight,
+                            contentDescription = "Próximo tipo",
+                            tint = Color.White,
+                            modifier = Modifier.size(34.dp)
                         )
                     }
                 }
             }
 
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = Color(0xFF0F172A),
+                border = BorderStroke(1.dp, Color(0xFF334155)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .offset(y = (-30).dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.CheckCircle,
+                        contentDescription = null,
+                        tint = Color(0xFF86EFAC),
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = "Seleção única: $selectedLabel",
+                        color = Color(0xFFE2E8F0),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+        }
+
     }
 }
 
 @Composable
-private fun NovoHeroCard() {
+internal fun NovoHeroCard() {
     val scheme = MaterialTheme.colorScheme
     Column(
         modifier = Modifier
@@ -1298,7 +1438,7 @@ private fun NovoHeroCard() {
 }
 
 @Composable
-private fun NovoSectionCard(
+internal fun NovoSectionCard(
     title: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector?,
     modifier: Modifier = Modifier,
@@ -1332,7 +1472,7 @@ private fun NovoSectionCard(
 }
 
 @Composable
-private fun ColorRowNovo(
+internal fun ColorRowNovo(
     selecionada: Int,
     onSelect: (Int) -> Unit,
     textSecondary: Color
@@ -1373,18 +1513,18 @@ private fun ColorRowNovo(
     }
 }
 
-private fun formatarKmTextoLocal(texto: String): String {
+internal fun formatarKmTextoLocal(texto: String): String {
     val digits = texto.filter(Char::isDigit)
     val value = digits.toLongOrNull() ?: 0L
     return NumberFormat.getIntegerInstance(Locale("pt", "BR")).format(value)
 }
 
-private data class CorVeiculoOption(
+internal data class CorVeiculoOption(
     val name: String,
     val color: Color
 )
 
-private fun opcoesTempoComVeiculo(): List<String> = listOf(
+internal fun opcoesTempoComVeiculo(): List<String> = listOf(
     "Menos de 6 meses",
     "6 meses a 1 ano",
     "1 a 2 anos",
@@ -1393,7 +1533,7 @@ private fun opcoesTempoComVeiculo(): List<String> = listOf(
     "Mais de 5 anos"
 )
 
-private fun coresVeiculoDisponiveis(): List<CorVeiculoOption> = listOf(
+internal fun coresVeiculoDisponiveis(): List<CorVeiculoOption> = listOf(
     CorVeiculoOption("Branco", Color(0xFFFFFFFF)),
     CorVeiculoOption("Preto", Color(0xFF0F172A)),
     CorVeiculoOption("Prata", Color(0xFFC0C0C0)),
@@ -1413,26 +1553,26 @@ private fun coresVeiculoDisponiveis(): List<CorVeiculoOption> = listOf(
     CorVeiculoOption("Creme", Color(0xFFF5F5DC))
 )
 
-private data class FipeMarcaDto(
+internal data class FipeMarcaDto(
     val codigo: String,
     val nome: String
 )
 
-private data class FipeModeloDto(
+internal data class FipeModeloDto(
     val codigo: Int,
     val nome: String
 )
 
-private data class FipeAnoDto(
+internal data class FipeAnoDto(
     val codigo: String,
     val nome: String
 )
 
-private data class FipeModelosResponseDto(
+internal data class FipeModelosResponseDto(
     val modelos: List<FipeModeloDto> = emptyList()
 )
 
-private interface FipeApi {
+internal interface FipeApi {
     @GET("api/v1/{tipo}/marcas")
     suspend fun listarMarcas(@Path("tipo") tipo: String): List<FipeMarcaDto>
 
@@ -1450,18 +1590,60 @@ private interface FipeApi {
     ): List<FipeAnoDto>
 }
 
-private val fipeApi: FipeApi by lazy {
+internal data class FipeNamedDto(
+    @SerializedName(value = "codigo", alternate = ["code"])
+    val codigo: String? = null,
+    @SerializedName(value = "nome", alternate = ["name"])
+    val nome: String? = null
+)
+
+internal data class FipeModelosResponseV2Dto(
+    @SerializedName("modelos")
+    val modelosPt: List<FipeNamedDto>? = null,
+    @SerializedName("models")
+    val modelosEn: List<FipeNamedDto>? = null
+)
+
+internal interface FipeApiReservaV2 {
+    @GET("{vehicleType}/brands")
+    suspend fun listarMarcas(@Path("vehicleType") vehicleType: String): List<FipeNamedDto>
+
+    @GET("{vehicleType}/brands/{brandId}/models")
+    suspend fun listarModelos(
+        @Path("vehicleType") vehicleType: String,
+        @Path("brandId") brandId: String
+    ): FipeModelosResponseV2Dto
+
+    @GET("{vehicleType}/brands/{brandId}/models/{modelId}/years")
+    suspend fun listarAnos(
+        @Path("vehicleType") vehicleType: String,
+        @Path("brandId") brandId: String,
+        @Path("modelId") modelId: Int
+    ): List<FipeNamedDto>
+}
+
+internal val fipeApi: FipeApi by lazy {
     Retrofit.Builder()
-        .baseUrl("https://parallelum.com.br/fipe/")
+        .baseUrl(BuildConfig.FIPE_BASE_URL)
         .addConverterFactory(GsonConverterFactory.create())
         .build()
         .create(FipeApi::class.java)
 }
 
-private const val FIPE_CACHE_MODELOS_TTL_MS = 7L * 24L * 60L * 60L * 1000L
-private const val FIPE_CACHE_ANOS_TTL_MS = 7L * 24L * 60L * 60L * 1000L
+internal val fipeApiReservaV2: FipeApiReservaV2 by lazy {
+    Retrofit.Builder()
+        .baseUrl("https://parallelum.com.br/fipe/api/v2/")
+        .addConverterFactory(GsonConverterFactory.create())
+        .build()
+        .create(FipeApiReservaV2::class.java)
+}
 
-private suspend fun carregarModelosFipePorMarca(
+internal const val FIPE_CACHE_MODELOS_TTL_MS = 7L * 24L * 60L * 60L * 1000L
+internal const val FIPE_CACHE_ANOS_TTL_MS = 7L * 24L * 60L * 60L * 1000L
+internal const val FIPE_RETRY_TIMEOUT_MS = 1800L
+private const val TAG_FIPE_RETRY = "FipeRetry"
+
+internal suspend fun carregarModelosFipePorMarca(
     context: Context,
     marcaSelecionada: String,
     tipoVeiculo: TipoVeiculo?
@@ -1473,7 +1655,7 @@ private suspend fun carregarModelosFipePorMarca(
         decodeModelosCache(cached).takeIf { it.isNotEmpty() }?.let { return it }
     }
 
-    val resultado = runCatching {
+    val tentativa = runCatching {
         withFipeRetry {
             val marcas = fipeApi.listarMarcas(tipoFipe)
             val codigoMarca = encontrarCodigoMarcaFipe(marcaSelecionada, marcas) ?: return@withFipeRetry emptyList()
@@ -1483,7 +1665,28 @@ private suspend fun carregarModelosFipePorMarca(
                 .distinct()
             filtrarModelosPorTipo(tipoVeiculo, modelos)
         }
-    }.getOrDefault(emptyList())
+    }
+
+    val resultado = tentativa.getOrDefault(emptyList())
+
+    if (resultado.isEmpty() && tentativa.exceptionOrNull() != null) {
+        val reserva = runCatching {
+            withFipeRetry {
+                carregarModelosFipeReservaPorMarca(marcaSelecionada, tipoVeiculo)
+            }
+        }.getOrDefault(emptyList())
+        if (reserva.isNotEmpty()) {
+            Log.w(TAG_FIPE_RETRY, "usando API reserva de modelos para marca='$marcaSelecionada'")
+            AppPreferences.putFipeCache(context, cacheKey, encodeModelosCache(reserva))
+            return reserva
+        }
+        AppPreferences.getFipeCacheAnyAge(context, cacheKey)?.let { stale ->
+            decodeModelosCache(stale).takeIf { it.isNotEmpty() }?.let {
+                Log.w(TAG_FIPE_RETRY, "usando cache antigo de modelos para marca='$marcaSelecionada'")
+                return it
+            }
+        }
+    }
 
     if (resultado.isNotEmpty()) {
         AppPreferences.putFipeCache(context, cacheKey, encodeModelosCache(resultado))
@@ -1491,7 +1694,55 @@ private suspend fun carregarModelosFipePorMarca(
     return resultado
 }
 
-private suspend fun carregarAnosFipe(
+internal suspend fun carregarMarcasFipePorTipo(
+    context: Context,
+    tipoVeiculo: TipoVeiculo?
+): List<String> {
+    val tipoFipe = tipoFipePara(tipoVeiculo) ?: return emptyList()
+    val cacheKey = "marcas_${gerarCacheKeyFipe(tipoFipe)}"
+
+    AppPreferences.getFipeCache(context, cacheKey, FIPE_CACHE_MODELOS_TTL_MS)?.let { cached ->
+        decodeAnosCache(cached).takeIf { it.isNotEmpty() }?.let { return it }
+    }
+
+    val tentativa = runCatching {
+        withFipeRetry {
+            fipeApi.listarMarcas(tipoFipe)
+                .map { it.nome.trim() }
+                .filter { it.isNotBlank() }
+                .distinct()
+                .sorted()
+        }
+    }
+
+    val resultado = tentativa.getOrDefault(emptyList())
+
+    if (resultado.isEmpty() && tentativa.exceptionOrNull() != null) {
+        val reserva = runCatching {
+            withFipeRetry {
+                carregarMarcasFipeReservaPorTipo(tipoVeiculo)
+            }
+        }.getOrDefault(emptyList())
+        if (reserva.isNotEmpty()) {
+            Log.w(TAG_FIPE_RETRY, "usando API reserva de marcas para tipo='$tipoFipe'")
+            AppPreferences.putFipeCache(context, cacheKey, encodeAnosCache(reserva))
+            return reserva
+        }
+        AppPreferences.getFipeCacheAnyAge(context, cacheKey)?.let { stale ->
+            decodeAnosCache(stale).takeIf { it.isNotEmpty() }?.let {
+                Log.w(TAG_FIPE_RETRY, "usando cache antigo de marcas para tipo='$tipoFipe'")
+                return it
+            }
+        }
+    }
+
+    if (resultado.isNotEmpty()) {
+        AppPreferences.putFipeCache(context, cacheKey, encodeAnosCache(resultado))
+    }
+    return resultado
+}
+
+internal suspend fun carregarAnosFipe(
     context: Context,
     marcaSelecionada: String,
     codigoModelo: Int,
@@ -1504,7 +1755,7 @@ private suspend fun carregarAnosFipe(
         decodeAnosCache(cached).takeIf { it.isNotEmpty() }?.let { return it }
     }
 
-    val resultado = runCatching {
+    val tentativa = runCatching {
         withFipeRetry {
             val marcas = fipeApi.listarMarcas(tipoFipe)
             val codigoMarca = encontrarCodigoMarcaFipe(marcaSelecionada, marcas) ?: return@withFipeRetry emptyList()
@@ -1515,7 +1766,34 @@ private suspend fun carregarAnosFipe(
                 .distinct()
                 .sortedDescending()
         }
-    }.getOrDefault(emptyList())
+    }
+
+    val resultado = tentativa.getOrDefault(emptyList())
+
+    if (resultado.isEmpty() && tentativa.exceptionOrNull() != null) {
+        val reserva = runCatching {
+            withFipeRetry {
+                carregarAnosFipeReserva(marcaSelecionada, codigoModelo, tipoVeiculo)
+            }
+        }.getOrDefault(emptyList())
+        if (reserva.isNotEmpty()) {
+            Log.w(
+                TAG_FIPE_RETRY,
+                "usando API reserva de anos marca='$marcaSelecionada' modelo='$codigoModelo'"
+            )
+            AppPreferences.putFipeCache(context, cacheKey, encodeAnosCache(reserva))
+            return reserva
+        }
+        AppPreferences.getFipeCacheAnyAge(context, cacheKey)?.let { stale ->
+            decodeAnosCache(stale).takeIf { it.isNotEmpty() }?.let {
+                Log.w(
+                    TAG_FIPE_RETRY,
+                    "usando cache antigo de anos marca='$marcaSelecionada' modelo='$codigoModelo'"
+                )
+                return it
+            }
+        }
+    }
 
     if (resultado.isNotEmpty()) {
         AppPreferences.putFipeCache(context, cacheKey, encodeAnosCache(resultado))
@@ -1523,29 +1801,75 @@ private suspend fun carregarAnosFipe(
     return resultado
 }
 
-private suspend fun <T> withFipeRetry(block: suspend () -> T): T {
+internal suspend fun <T> withFipeRetry(block: suspend () -> T): T {
     var lastError: Throwable? = null
-    val delays = listOf(0L, 350L, 900L)
-    for (waitMs in delays) {
+    val delays = listOf(0L)
+    for ((attemptIndex, waitMs) in delays.withIndex()) {
         try {
             if (waitMs > 0) delay(waitMs)
-            return block()
+            return withTimeout(FIPE_RETRY_TIMEOUT_MS) { block() }
         } catch (e: Throwable) {
+            if (e is CancellationException && e !is TimeoutCancellationException) throw e
             lastError = e
+            val erro = e::class.simpleName ?: "Erro"
+            Log.w(TAG_FIPE_RETRY, "tentativa=${attemptIndex + 1}/${delays.size} falhou: $erro")
         }
     }
     throw (lastError ?: IllegalStateException("Erro desconhecido em consulta FIPE"))
 }
 
-private fun gerarCacheKeyFipe(vararg partes: String): String {
+internal suspend fun carregarModelosFipeReservaPorMarca(
+    marcaSelecionada: String,
+    tipoVeiculo: TipoVeiculo?
+): List<FipeModeloDto> {
+    val tipo = tipoFipeReservaPara(tipoVeiculo) ?: return emptyList()
+    val marcas = fipeApiReservaV2.listarMarcas(tipo)
+    val codigoMarca = encontrarCodigoMarcaFipeReserva(marcaSelecionada, marcas) ?: return emptyList()
+    val modelosRaw = fipeApiReservaV2.listarModelos(tipo, codigoMarca)
+    val modelos = (modelosRaw.modelosPt ?: modelosRaw.modelosEn ?: emptyList())
+        .mapNotNull { item ->
+            val codigo = item.codigo?.trim()?.toIntOrNull() ?: return@mapNotNull null
+            val nome = item.nome?.trim().orEmpty()
+            if (nome.isBlank()) null else FipeModeloDto(codigo = codigo, nome = nome)
+        }
+        .distinct()
+    return filtrarModelosPorTipo(tipoVeiculo, modelos)
+}
+
+internal suspend fun carregarMarcasFipeReservaPorTipo(tipoVeiculo: TipoVeiculo?): List<String> {
+    val tipo = tipoFipeReservaPara(tipoVeiculo) ?: return emptyList()
+    return fipeApiReservaV2.listarMarcas(tipo)
+        .mapNotNull { it.nome?.trim() }
+        .filter { it.isNotBlank() }
+        .distinct()
+        .sorted()
+}
+
+internal suspend fun carregarAnosFipeReserva(
+    marcaSelecionada: String,
+    codigoModelo: Int,
+    tipoVeiculo: TipoVeiculo?
+): List<String> {
+    val tipo = tipoFipeReservaPara(tipoVeiculo) ?: return emptyList()
+    val marcas = fipeApiReservaV2.listarMarcas(tipo)
+    val codigoMarca = encontrarCodigoMarcaFipeReserva(marcaSelecionada, marcas) ?: return emptyList()
+    return fipeApiReservaV2.listarAnos(tipo, codigoMarca, codigoModelo)
+        .mapNotNull { item ->
+            Regex("\\b(19\\d{2}|20\\d{2})\\b").find(item.nome.orEmpty())?.value
+        }
+        .distinct()
+        .sortedDescending()
+}
+
+internal fun gerarCacheKeyFipe(vararg partes: String): String {
     val raw = partes.joinToString("|") { normalizarTextoBusca(it) }
     return raw.hashCode().toUInt().toString()
 }
 
-private fun encodeModelosCache(modelos: List<FipeModeloDto>): String =
+internal fun encodeModelosCache(modelos: List<FipeModeloDto>): String =
     modelos.joinToString("||") { "${it.codigo}::${it.nome.replace("||", " ").replace("::", " ")}" }
 
-private fun decodeModelosCache(data: String): List<FipeModeloDto> =
+internal fun decodeModelosCache(data: String): List<FipeModeloDto> =
     data.split("||")
         .mapNotNull { token ->
             val parts = token.split("::", limit = 2)
@@ -1554,12 +1878,12 @@ private fun decodeModelosCache(data: String): List<FipeModeloDto> =
             if (nome.isBlank()) null else FipeModeloDto(codigo, nome)
         }
 
-private fun encodeAnosCache(anos: List<String>): String = anos.joinToString("|")
+internal fun encodeAnosCache(anos: List<String>): String = anos.joinToString("|")
 
-private fun decodeAnosCache(data: String): List<String> =
+internal fun decodeAnosCache(data: String): List<String> =
     data.split("|").map { it.trim() }.filter { it.isNotBlank() }.distinct()
 
-private fun encontrarCodigoMarcaFipe(marcaSelecionada: String, marcasFipe: List<FipeMarcaDto>): String? {
+internal fun encontrarCodigoMarcaFipe(marcaSelecionada: String, marcasFipe: List<FipeMarcaDto>): String? {
     val alvo = normalizarTextoBusca(marcaSelecionada)
     if (alvo.isBlank()) return null
     marcasFipe.firstOrNull { normalizarTextoBusca(it.nome) == alvo }?.let { return it.codigo }
@@ -1567,7 +1891,7 @@ private fun encontrarCodigoMarcaFipe(marcaSelecionada: String, marcasFipe: List<
     return null
 }
 
-private fun normalizarTextoBusca(texto: String): String =
+internal fun normalizarTextoBusca(texto: String): String =
     Normalizer.normalize(texto.trim(), Normalizer.Form.NFD)
         .replace("\\p{Mn}+".toRegex(), "")
         .replace("[^A-Za-z0-9 ]".toRegex(), "")
@@ -1575,7 +1899,7 @@ private fun normalizarTextoBusca(texto: String): String =
         .uppercase(Locale.ROOT)
         .trim()
 
-private fun tipoFipePara(tipo: TipoVeiculo?): String? = when (tipo) {
+internal fun tipoFipePara(tipo: TipoVeiculo?): String? = when (tipo) {
     TipoVeiculo.MOTO -> "motos"
     TipoVeiculo.CAMINHAO, TipoVeiculo.ONIBUS -> "caminhoes"
     TipoVeiculo.CARRO,
@@ -1588,7 +1912,34 @@ private fun tipoFipePara(tipo: TipoVeiculo?): String? = when (tipo) {
     else -> null
 }
 
-private fun filtrarModelosPorTipo(
+internal fun tipoFipeReservaPara(tipo: TipoVeiculo?): String? = when (tipo) {
+    TipoVeiculo.MOTO -> "motorcycles"
+    TipoVeiculo.CAMINHAO, TipoVeiculo.ONIBUS -> "trucks"
+    TipoVeiculo.CARRO,
+    TipoVeiculo.HATCH,
+    TipoVeiculo.SUV,
+    TipoVeiculo.CAMINHONETE,
+    TipoVeiculo.FURGAO,
+    TipoVeiculo.VAN,
+    TipoVeiculo.VEICULO_ELETRICO -> "cars"
+    else -> null
+}
+
+internal fun encontrarCodigoMarcaFipeReserva(
+    marcaSelecionada: String,
+    marcas: List<FipeNamedDto>
+): String? {
+    val alvo = normalizarTextoBusca(marcaSelecionada)
+    if (alvo.isBlank()) return null
+    marcas.firstOrNull { normalizarTextoBusca(it.nome.orEmpty()) == alvo }?.codigo?.let { return it }
+    marcas.firstOrNull {
+        val nome = normalizarTextoBusca(it.nome.orEmpty())
+        nome.contains(alvo) || alvo.contains(nome)
+    }?.codigo?.let { return it }
+    return null
+}
+
+internal fun filtrarModelosPorTipo(
     tipo: TipoVeiculo?,
     modelos: List<FipeModeloDto>
 ): List<FipeModeloDto> {
@@ -1608,7 +1959,7 @@ private fun filtrarModelosPorTipo(
     return if (filtrados.isNotEmpty()) filtrados else modelos
 }
 
-private fun List<FipeModeloDto>.filterNomeContem(vararg termos: String): List<FipeModeloDto> {
+internal fun List<FipeModeloDto>.filterNomeContem(vararg termos: String): List<FipeModeloDto> {
     if (termos.isEmpty()) return this
     return filter { modelo ->
         val nome = normalizarTextoBusca(modelo.nome)
@@ -1616,7 +1967,7 @@ private fun List<FipeModeloDto>.filterNomeContem(vararg termos: String): List<Fi
     }
 }
 
-private fun List<FipeModeloDto>.filterHatch(): List<FipeModeloDto> {
+internal fun List<FipeModeloDto>.filterHatch(): List<FipeModeloDto> {
     val inclusoesFortes = listOf(
         "GOL", "HB20", "FIESTA", "ONIX", "PALIO", "UNO", "POLO", "ARGO", "MOBI",
         "FOX", "KA", "208", "207", "C3", "SANDERO", "CLIO", "CELTA", "CORSA",
@@ -1640,7 +1991,7 @@ private fun List<FipeModeloDto>.filterHatch(): List<FipeModeloDto> {
     return if (porExclusao.isNotEmpty()) porExclusao else this
 }
 
-private fun combinarModeloAno(modelo: String, ano: String): String {
+internal fun combinarModeloAno(modelo: String, ano: String): String {
     val modeloLimpo = modelo.trim()
     val anoLimpo = ano.trim()
     if (anoLimpo.isBlank()) return modeloLimpo
@@ -1648,7 +1999,7 @@ private fun combinarModeloAno(modelo: String, ano: String): String {
     return listOf(modeloLimpo, anoLimpo).filter { it.isNotBlank() }.joinToString(" ").trim()
 }
 
-private fun separarNomeEMotorModelo(
+internal fun separarNomeEMotorModelo(
     descricaoCompleta: String,
     marcaSelecionada: String
 ): Pair<String, String> {
@@ -1689,6 +2040,7 @@ private fun separarNomeEMotorModelo(
     val resto = tokens.drop(indiceTecnico).joinToString(" ").trim()
     return nome to resto
 }
+
 
 
 

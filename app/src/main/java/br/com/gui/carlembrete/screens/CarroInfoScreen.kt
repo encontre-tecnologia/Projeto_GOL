@@ -925,7 +925,7 @@ private interface FipeRelatorioApi {
 
 private val fipeRelatorioApi: FipeRelatorioApi by lazy {
     Retrofit.Builder()
-        .baseUrl("https://parallelum.com.br/fipe/")
+        .baseUrl(BuildConfig.FIPE_BASE_URL)
         .addConverterFactory(GsonConverterFactory.create())
         .build()
         .create(FipeRelatorioApi::class.java)

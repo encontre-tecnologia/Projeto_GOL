@@ -56,19 +56,17 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 const val EXTRA_OPEN_AONDE_PAREI = "extra_open_aonde_parei"
+private const val TAG_MAIN_STARTUP = "MainStartup"
 
 class MainActivity : ComponentActivity() {
     private var contentInitialized = false
     private var openAondePareiFromIntent by mutableStateOf(false)
+    private var onboardingResultVersion by mutableIntStateOf(0)
 
     private val onboardingResultLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            initializeContentIfNeeded()
-        } else if (!contentInitialized) {
-            finish()
-        }
+        onboardingResultVersion++
     }
 
     private val requestPermissionLauncher = registerForActivityResult(
@@ -77,33 +75,23 @@ class MainActivity : ComponentActivity() {
         if (!isGranted) Toast.makeText(this, "Permissão de câmera necessária", Toast.LENGTH_SHORT).show()
     }
 
-    private val requestNotificationPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        if (!granted) {
-            Toast.makeText(this, "Ative as notificações para receber os avisos programados", Toast.LENGTH_LONG).show()
-        }
-    }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val startupAt = System.currentTimeMillis()
+        Log.d(TAG_MAIN_STARTUP, "onCreate start")
         handleNavigationIntent(intent)
+        initializeContentIfNeeded()
+        Log.d(TAG_MAIN_STARTUP, "setContent initialized in ${System.currentTimeMillis() - startupAt}ms")
+        NotificacaoHelper.criarCanal(applicationContext)
+        Log.d(TAG_MAIN_STARTUP, "notification channel initialized")
+
+        WindowCompat.setDecorFitsSystemWindows(window, true)
+    }
+
+    private fun requestStartupPermissionsIfNeeded() {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
             requestPermissionLauncher.launch(Manifest.permission.CAMERA)
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-            requestNotificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-        }
-        NotificacaoHelper.criarCanal(applicationContext)
-
-        if (AppPreferences.needsOnboarding(this)) {
-            onboardingResultLauncher.launch(Intent(this, OnboardingActivity::class.java))
-        } else {
-            initializeContentIfNeeded()
-        }
-
-        WindowCompat.setDecorFitsSystemWindows(window, true)
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -124,6 +112,15 @@ class MainActivity : ComponentActivity() {
         contentInitialized = true
         setContent {
             var themeMode by remember { mutableStateOf(AppPreferences.getThemeMode(this@MainActivity)) }
+            var onboardingInFlight by remember { mutableStateOf(false) }
+            val onboardingVersion = onboardingResultVersion
+            val firstFrameAt = remember { System.currentTimeMillis() }
+            SideEffect {
+                Log.d(
+                    TAG_MAIN_STARTUP,
+                    "compose frame ready in ${System.currentTimeMillis() - firstFrameAt}ms | userLogged=${FirebaseAuth.getInstance().currentUser != null}"
+                )
+            }
 
             CarLembreteTheme(themeMode = themeMode) {
                 val isDarkTheme = when (themeMode) {
@@ -134,7 +131,10 @@ class MainActivity : ComponentActivity() {
                 val colorScheme = MaterialTheme.colorScheme
                 val auth = remember { FirebaseAuth.getInstance() }
                 var usuario by remember { mutableStateOf(auth.currentUser) }
-                var showLoading by remember { mutableStateOf(usuario != null) }
+                val needsOnboardingAfterLogin = usuario != null && AppPreferences.needsOnboarding(this@MainActivity)
+                var showLoading by remember(usuario, needsOnboardingAfterLogin) {
+                    mutableStateOf(usuario != null && !needsOnboardingAfterLogin)
+                }
                 var loadingDoneSignal by remember { mutableIntStateOf(0) }
                 var videoFinished by remember { mutableStateOf(false) }
                 val loadingProgress = remember { Animatable(0f) }
@@ -159,8 +159,29 @@ class MainActivity : ComponentActivity() {
                     auth.addAuthStateListener(listener)
                     onDispose { auth.removeAuthStateListener(listener) }
                 }
-                LaunchedEffect(usuario) {
-                    if (usuario != null) {
+
+                LaunchedEffect(onboardingVersion) {
+                    onboardingInFlight = false
+                }
+
+                LaunchedEffect(usuario, onboardingVersion) {
+                    val needsOnboardingAfterLogin =
+                        usuario != null && AppPreferences.needsOnboarding(this@MainActivity)
+                    if (needsOnboardingAfterLogin && !onboardingInFlight) {
+                        onboardingInFlight = true
+                        onboardingResultLauncher.launch(Intent(this@MainActivity, OnboardingActivity::class.java))
+                    }
+                }
+
+                LaunchedEffect(usuario, onboardingVersion) {
+                    val canAskRuntimePermissionsNow =
+                        usuario != null && !AppPreferences.needsOnboarding(this@MainActivity)
+                    if (canAskRuntimePermissionsNow) {
+                        requestStartupPermissionsIfNeeded()
+                    }
+                }
+                LaunchedEffect(usuario, needsOnboardingAfterLogin, onboardingInFlight) {
+                    if (usuario != null && !needsOnboardingAfterLogin && !onboardingInFlight) {
                         showLoading = true
                         videoFinished = false
                         loadingProgress.snapTo(0f)
@@ -179,7 +200,13 @@ class MainActivity : ComponentActivity() {
                 val baseBackground = MaterialTheme.colorScheme.background
                 Surface(modifier = Modifier.fillMaxSize(), color = baseBackground) {
                     if (usuario == null) {
-                        AuthScreen(onSignedIn = { })
+                        AuthScreen(
+                            onSignedIn = {
+                                usuario = auth.currentUser
+                            }
+                        )
+                    } else if (needsOnboardingAfterLogin || onboardingInFlight) {
+                        Box(modifier = Modifier.fillMaxSize())
                     } else {
                         Box(modifier = Modifier.fillMaxSize()) {
                                 ManutencaoScreen(

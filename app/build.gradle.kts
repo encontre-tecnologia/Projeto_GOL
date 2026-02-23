@@ -7,6 +7,19 @@ plugins {
     id("com.google.gms.google-services")
 }
 
+import java.util.Properties
+
+val localProps = Properties().apply {
+    val file = rootProject.file("local.properties")
+    if (file.exists()) {
+        file.inputStream().use { load(it) }
+    }
+}
+
+val fipeBaseUrl = (localProps.getProperty("FIPE_BASE_URL") ?: "https://parallelum.com.br/fipe/")
+    .trim()
+    .ifEmpty { "https://parallelum.com.br/fipe/" }
+
 android {
     namespace = "br.com.gui.carlembrete"
     compileSdk = 35
@@ -19,11 +32,13 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField("String", "FIPE_BASE_URL", "\"$fipeBaseUrl\"")
     }
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -39,6 +54,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     packaging {
         resources {
