@@ -215,6 +215,59 @@ suspend fun consultarNotaPorQrCode(url: String): NotaQrInfo? = withContext(Dispa
     }.getOrNull()
 }
 
+internal fun parseNotaHtmlForTest(html: String, url: String = "https://www.fazenda.sp.gov.br"): NotaQrInfo? {
+    val doc = Jsoup.parse(html, url)
+    val porLayout = extrairNotaPorLayout(doc)
+    if (porLayout != null && (porLayout.valorTotal != null || porLayout.dataCompra != null)) {
+        return porLayout
+    }
+
+    val valorTotalPelaUrl = extrairValorVnfDaUrl(url)
+    val texto = doc.text()
+    val candidatosValor = listOf(
+        "#totalNota", ".totalNumb", ".txtMax", ".txtCenter"
+    ).flatMap { selector -> doc.select(selector).map { it.text() } }
+    val candidatosData = listOf(
+        ".txtCenter", ".chave", ".txtObs", ".ui-li-static"
+    ).flatMap { selector -> doc.select(selector).map { it.text() } }
+
+    val valorRegex = Regex(
+        "(?i)(valor\\s*total|v\\.?\\s*total|total\\s*(?:da\\s*nota|nota|nfce)?|vl\\s*total)\\D{0,30}(\\d{1,3}(?:\\.\\d{3})*,\\d{2}|\\d+[\\.,]\\d{2})"
+    )
+    val dataRegex = Regex("\\b\\d{2}/\\d{2}/\\d{4}\\b")
+
+    val valorMatch = (
+        candidatosValor.firstNotNullOfOrNull { bloco ->
+            valorRegex.find(bloco)?.groupValues?.getOrNull(2)
+        } ?: valorRegex.find(texto)?.groupValues?.getOrNull(2)
+        )
+    val valorTotal = valorMatch
+        ?.replace(".", "")
+        ?.replace(",", ".")
+        ?.toDoubleOrNull()
+    val valorTotalFinal = when {
+        valorTotalPelaUrl != null && valorTotal != null -> maxOf(valorTotalPelaUrl, valorTotal)
+        valorTotalPelaUrl != null -> valorTotalPelaUrl
+        else -> valorTotal
+    }
+    val dataCompra = candidatosData.firstNotNullOfOrNull { bloco ->
+        dataRegex.find(bloco)?.value
+    } ?: dataRegex.find(texto)?.value
+
+    val descricaoItens = extrairItensGenerico(doc)
+    val estabelecimento = extrairDadosEstabelecimento(doc)
+    if (valorTotalFinal == null && dataCompra == null && descricaoItens.isNullOrBlank()) {
+        return null
+    }
+    return NotaQrInfo(
+        valorTotal = valorTotalFinal,
+        dataCompra = dataCompra,
+        descricaoItens = descricaoItens,
+        nomeEstabelecimento = estabelecimento.first,
+        enderecoEstabelecimento = estabelecimento.second
+    )
+}
+
 private fun extrairNotaPorLayout(doc: Document): NotaQrInfo? {
     val host = runCatching { java.net.URI(doc.location()).host?.lowercase(Locale.ROOT) }.getOrNull().orEmpty()
     return when {

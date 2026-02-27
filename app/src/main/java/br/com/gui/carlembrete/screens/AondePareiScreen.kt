@@ -1053,6 +1053,7 @@ private fun formatElapsedTime(elapsedMillis: Long): String {
 
 private const val PARKING_NOTIFICATION_CHANNEL_ID = "parking_ongoing_channel"
 private const val PARKING_NOTIFICATION_ID = 90421
+private const val PARKING_NOTIFICATION_HISTORY_ID = "PARKING_90421"
 
 private fun showParkingOngoingNotification(context: Context, location: ParkedLocation) {
     if (!hasNotificationPermission(context)) return
@@ -1082,6 +1083,7 @@ private fun showParkingOngoingNotification(context: Context, location: ParkedLoc
             )
         )
         .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+        .setCategory(NotificationCompat.CATEGORY_STATUS)
         .setOngoing(true)
         .setAutoCancel(false)
         .setOnlyAlertOnce(true)
@@ -1089,9 +1091,9 @@ private fun showParkingOngoingNotification(context: Context, location: ParkedLoc
         .build()
 
     manager.notify(PARKING_NOTIFICATION_ID, notification)
-    NotificacaoHelper.registrarNotificacaoDisparada(
+    NotificacaoHelper.registrarNotificacaoDisparadaUnica(
         context = context,
-        id = "PARKING_$PARKING_NOTIFICATION_ID",
+        id = PARKING_NOTIFICATION_HISTORY_ID,
         titulo = "Estacionamento em andamento",
         descricao = "Local marcado com sucesso. A notificacao permanece ate voce finalizar no app.",
         carroId = null
@@ -1100,6 +1102,7 @@ private fun showParkingOngoingNotification(context: Context, location: ParkedLoc
 
 private fun cancelParkingOngoingNotification(context: Context) {
     NotificationManagerCompat.from(context).cancel(PARKING_NOTIFICATION_ID)
+    NotificacaoHelper.removerNotificacoesPorId(context, PARKING_NOTIFICATION_HISTORY_ID)
 }
 
 private fun createParkingNotificationChannel(context: Context) {

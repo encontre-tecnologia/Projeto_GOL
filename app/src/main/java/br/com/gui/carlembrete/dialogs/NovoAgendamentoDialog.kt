@@ -1,4 +1,4 @@
-package br.com.gui.carlembrete
+﻿package br.com.gui.carlembrete
 
 import android.Manifest
 import android.app.Activity
@@ -11,6 +11,9 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Matrix
+import android.location.Geocoder
+import android.location.Location
+import android.location.LocationManager
 import android.net.Uri
 import android.speech.RecognizerIntent
 import android.util.Log
@@ -26,6 +29,10 @@ import androidx.camera.core.ImageProxy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -46,6 +53,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -100,6 +108,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import br.com.gui.carlembrete.R
 import br.com.gui.carlembrete.VehicleIcon
 import br.com.gui.carlembrete.ui.theme.CarLembreteTheme
+import org.json.JSONObject
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.parser.Parser
@@ -111,6 +120,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
+import java.net.HttpURLConnection
+import java.net.URL
 import java.io.ObjectInputStream
 import java.io.ObjectOutputStream
 import java.io.Serializable
@@ -193,8 +204,26 @@ fun NovoAgendamentoDialog(
     var qrEnderecoEstabelecimento by remember { mutableStateOf("") }
     var descricaoAntesDialog by remember { mutableStateOf("") }
     var tipoAntesDialog by remember { mutableStateOf(TipoManutencao.OLEO) }
-    var novoContatoNome by remember { mutableStateOf("") }
-    var novoContatoTelefone by remember { mutableStateOf("") }
+    var profissionaisDaCidade by remember { mutableStateOf<List<ProfissionalCidadeEncontrado>>(emptyList()) }
+    var cidadeAtual by remember { mutableStateOf<String?>(null) }
+    var ufAtual by remember { mutableStateOf<String?>(null) }
+    var carregandoProfissionaisCidade by remember { mutableStateOf(false) }
+    var erroProfissionaisCidade by remember { mutableStateOf<String?>(null) }
+    var jaCarregouProfissionaisCidade by remember { mutableStateOf(false) }
+    var profissionalParaCompletarTelefone by remember { mutableStateOf<ProfissionalCidadeEncontrado?>(null) }
+    var telefoneCompletarInput by remember { mutableStateOf("") }
+    val profissionaisListState = rememberLazyListState()
+    val loadingTransition = rememberInfiniteTransition(label = "profissionais_loading")
+    val loadingAlpha by loadingTransition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 0.9f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(900),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "profissionais_loading_alpha"
+    )
+    val isBikeVehicle = carroAtual.tipoVeiculo == TipoVeiculo.BICICLETA || carroAtual.tipoVeiculo == TipoVeiculo.BIKE_ELETRICA
     val dataFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
     val scope = rememberCoroutineScope()
     val speechLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -262,49 +291,155 @@ fun NovoAgendamentoDialog(
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
-            putExtra(RecognizerIntent.EXTRA_PROMPT, "Descreva o serviço realizado")
+            putExtra(RecognizerIntent.EXTRA_PROMPT, "Descreva o serviÃ§o realizado")
         }
         try {
             speechLauncher.launch(intent)
         } catch (_: ActivityNotFoundException) {
-            Toast.makeText(context, "Recursos de voz indisponíveis", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Recursos de voz indisponÃ­veis", Toast.LENGTH_SHORT).show()
         }
     }
 
-fun adicionarContatoManual() {
-        val nome = novoContatoNome.trim()
-        val telefone = novoContatoTelefone.filter(Char::isDigit)
-        if (nome.isBlank() || telefone.isBlank()) {
-            Toast.makeText(context, "Informe nome e telefone", Toast.LENGTH_SHORT).show()
+    fun adicionarContatoDaCidade(profissional: ProfissionalCidadeEncontrado) {
+        val telefoneLimpo = profissional.telefone.filter(Char::isDigit)
+        if (telefoneLimpo.isBlank()) {
+            Toast.makeText(context, "Complete o telefone antes de adicionar", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val existente = contatosLista.firstOrNull { atual ->
+            val atualTelefone = atual.telefone.filter(Char::isDigit)
+            (telefoneLimpo.isNotBlank() && atualTelefone == telefoneLimpo) ||
+                atual.nome.trim().equals(profissional.nome.trim(), ignoreCase = true)
+        }
+        if (existente != null) {
+            contatoSelecionado = existente
+            Toast.makeText(context, "Profissional ja existe e foi vinculado", Toast.LENGTH_SHORT).show()
             return
         }
         val novoContato = ContatoProfissional(
-            nome = nome,
-            telefone = telefone,
-            tipoServico = "Contato manual"
+            nome = profissional.nome,
+            telefone = profissional.telefone,
+            tipoServico = if (profissional.endereco.isBlank()) {
+                "Profissional da cidade"
+            } else {
+                "Profissional da cidade | Endereco: ${profissional.endereco}"
+            }
         )
         contatosLista = contatosLista + novoContato
         onAddContato(novoContato)
         contatoSelecionado = novoContato
-        novoContatoNome = ""
-        novoContatoTelefone = ""
-        Toast.makeText(context, "Profissional adicionado", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, "Profissional da cidade adicionado", Toast.LENGTH_SHORT).show()
+    }
+
+    fun carregarProfissionaisDaCidade(forcar: Boolean = false) {
+        if (carregandoProfissionaisCidade) {
+            Log.d(PROF_CITY_TAG, "Busca ignorada: carregamento ja em andamento.")
+            return
+        }
+        if (!forcar && jaCarregouProfissionaisCidade) {
+            Log.d(PROF_CITY_TAG, "Busca ignorada: dados da cidade ja carregados.")
+            return
+        }
+        Log.d(PROF_CITY_TAG, "Iniciando busca de profissionais da cidade. forcar=$forcar tipo=$tipoSelecionado")
+        scope.launch {
+            carregandoProfissionaisCidade = true
+            erroProfissionaisCidade = null
+            val resultado = withContext(Dispatchers.IO) {
+                buscarProfissionaisDaCidadeAtual(context, tipoSelecionado, isBikeVehicle)
+            }
+            carregandoProfissionaisCidade = false
+            resultado.onSuccess { busca ->
+                cidadeAtual = busca.cidade
+                ufAtual = busca.estado
+                profissionaisDaCidade = busca.profissionais
+                jaCarregouProfissionaisCidade = true
+                Log.i(
+                    PROF_CITY_TAG,
+                    "Busca concluida com sucesso. cidade=${busca.cidade} uf=${busca.estado} total=${busca.profissionais.size}"
+                )
+                if (busca.profissionais.isEmpty()) {
+                    erroProfissionaisCidade = "Nenhum profissional encontrado na sua cidade."
+                }
+            }.onFailure { erro ->
+                profissionaisDaCidade = emptyList()
+                erroProfissionaisCidade = erro.message ?: "Nao foi possivel buscar profissionais da cidade."
+                jaCarregouProfissionaisCidade = false
+                Log.e(PROF_CITY_TAG, "Falha na busca de profissionais da cidade.", erro)
+            }
+        }
+    }
+
+    LaunchedEffect(etapaAtual) {
+        if (etapaAtual == 3) {
+            carregarProfissionaisDaCidade()
+        }
+    }
+
+    if (profissionalParaCompletarTelefone != null) {
+        AlertDialog(
+            onDismissRequest = { profissionalParaCompletarTelefone = null },
+            title = { Text("Completar telefone") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(profissionalParaCompletarTelefone!!.nome, color = textPrimary, fontWeight = FontWeight.SemiBold)
+                    OutlinedTextField(
+                        value = telefoneCompletarInput,
+                        onValueChange = { telefoneCompletarInput = it },
+                        label = { Text("Telefone") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                        singleLine = true
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val telefoneLimpo = telefoneCompletarInput.filter(Char::isDigit)
+                        if (telefoneLimpo.isBlank()) {
+                            Toast.makeText(context, "Informe um telefone valido", Toast.LENGTH_SHORT).show()
+                            return@TextButton
+                        }
+                        val base = profissionalParaCompletarTelefone ?: return@TextButton
+                        adicionarContatoDaCidade(base.copy(telefone = telefoneLimpo))
+                        profissionalParaCompletarTelefone = null
+                        telefoneCompletarInput = ""
+                    }
+                ) { Text("Salvar") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    profissionalParaCompletarTelefone = null
+                    telefoneCompletarInput = ""
+                }) { Text("Cancelar") }
+            }
+        )
     }
 
     fun enviarMensagemWhatsapp(contato: ContatoProfissional) {
         val telefone = contato.telefone.filter(Char::isDigit)
         if (telefone.isBlank()) {
-            Toast.makeText(context, "Telefone inválido", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Telefone invÃ¡lido", Toast.LENGTH_SHORT).show()
             return
         }
-        val kmInfo = kmBase.ifBlank { "não informado" }
-        val mensagem = "Olá ${contato.nome}, a última manutenção foi registrada em $data com $kmInfo km. Podemos agendar a próxima?"
+        val kmInfo = kmBase.ifBlank { "nÃ£o informado" }
+        val mensagem = "OlÃ¡ ${contato.nome}, a Ãºltima manutenÃ§Ã£o foi registrada em $data com $kmInfo km. Podemos agendar a prÃ³xima?"
         val uri = Uri.parse("https://wa.me/$telefone?text=${URLEncoder.encode(mensagem, "UTF-8")}")
         val intent = Intent(Intent.ACTION_VIEW, uri)
         try {
             context.startActivity(intent)
         } catch (_: Exception) {
-            Toast.makeText(context, "Não foi possível abrir o WhatsApp", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "NÃ£o foi possÃ­vel abrir o WhatsApp", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun abrirBuscaGoogleProfissional(nome: String) {
+        val local = listOfNotNull(cidadeAtual, ufAtual).joinToString(" ")
+        val query = listOf(nome, local).filter { it.isNotBlank() }.joinToString(" ")
+        val uri = Uri.parse("https://www.google.com/search?q=${URLEncoder.encode(query, "UTF-8")}")
+        try {
+            context.startActivity(Intent(Intent.ACTION_VIEW, uri))
+        } catch (_: Exception) {
+            Toast.makeText(context, "NÃƒÂ£o foi possÃƒÂ­vel abrir o Google", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -388,7 +523,7 @@ fun adicionarContatoManual() {
                         itemDataAvisoOverrides = emptyMap()
                         itemHoraAvisoOverrides = emptyMap()
                         itemValorOverrides = emptyMap()
-                        Toast.makeText(context, "QR lido, mas não foi possível carregar a nota.", Toast.LENGTH_LONG).show()
+                        Toast.makeText(context, "QR lido, mas nÃ£o foi possÃ­vel carregar a nota.", Toast.LENGTH_LONG).show()
                     } else {
                         val valorExtraido = notaInfo.valorTotal
                         val dataExtraida = notaInfo.dataCompra
@@ -503,7 +638,7 @@ fun adicionarContatoManual() {
             title = { Text("Atualizar KM?", color = textPrimary) },
             text = {
                 Text(
-                    "Detectamos ${kmDetectadoParaConfirmar} km na captura.\nAtualizar o odômetro do carro?",
+                    "Detectamos ${kmDetectadoParaConfirmar} km na captura.\nAtualizar o odÃ´metro do carro?",
                     color = Color(0xFF94A3B8)
                 )
             },
@@ -518,7 +653,7 @@ fun adicionarContatoManual() {
                 ) { Text("Sim") }
             },
             dismissButton = {
-                TextButton(onClick = { showKmConfirmDialog = false }) { Text("Não") }
+                TextButton(onClick = { showKmConfirmDialog = false }) { Text("NÃ£o") }
             }
         )
     }
@@ -750,9 +885,7 @@ fun adicionarContatoManual() {
         containerColor = Color.Transparent,
         topBar = {
             CenterAlignedTopAppBar(
-                title = {
-                    Text("Criar novo Aviso", color = textPrimary, fontWeight = FontWeight.Bold)
-                },
+                title = { },
                 navigationIcon = {
                     IconButton(onClick = voltarUmaEtapaOuFechar) {
                         Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar", tint = iconColor)
@@ -762,528 +895,14 @@ fun adicionarContatoManual() {
                     containerColor = pageBackground
                 )
             )
-        }
-    ) { innerPadding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(pageBackground)
-        ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-        ) {
+        },
+        bottomBar = {
             Column(
                 modifier = Modifier
-                    .weight(1f)
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = surfaceCardColor),
-                    shape = RoundedCornerShape(18.dp),
-                    border = BorderStroke(1.dp, cardBorder)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 16.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                when (etapaAtual) {
-                    1 -> {
-                        Button(
-                            onClick = { tentarAbrirCamera() },
-                            modifier = Modifier.fillMaxWidth().height(48.dp),
-                            shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = if (fotoCaminho != null) Color(0xFF10B981) else Color(0xFF3B82F6),
-                                contentColor = Color.White
-                            )
-                        ) {
-                            Icon(
-                                if (fotoCaminho != null) Icons.Default.Check else Icons.Default.CameraAlt,
-                                null,
-                                tint = cameraIconColor
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            Text(if (fotoCaminho != null) "Foto Anexada (Refazer)" else "Escanear Produto", color = Color.White)
-                        }
-
-                        if (qrPossuiItensSeparaveis) {
-                            val splitCardBg = if (isDark) Color(0xFF111827) else Color(0xFFF8FAFC)
-                            val splitCardBorder = if (isDark) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.12f)
-                            val splitIdleButton = if (isDark) Color(0xFF1F2937) else Color(0xFFE2E8F0)
-                            val splitAllInOneSelected = Color(0xFF2563EB)
-                            val splitSeparateSelected = Color(0xFF059669)
-                            Card(
-                                colors = CardDefaults.cardColors(containerColor = splitCardBg),
-                                shape = RoundedCornerShape(12.dp),
-                                border = BorderStroke(1.dp, splitCardBorder)
-                            ) {
-                                Column(
-                                    modifier = Modifier.padding(12.dp),
-                                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    Text("Como deseja criar os avisos?", color = textPrimary, fontWeight = FontWeight.SemiBold)
-                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        Button(
-                                            onClick = {
-                                                qrModoSeparado = false
-                                                isModoLista = false
-                                                if (descricaoQrConsolidada.isNotBlank()) descricao = descricaoQrConsolidada
-                                            },
-                                            shape = RoundedCornerShape(10.dp),
-                                            colors = ButtonDefaults.buttonColors(
-                                                containerColor = if (!qrModoSeparado) splitAllInOneSelected else splitIdleButton,
-                                                contentColor = if (!qrModoSeparado) Color.White else textPrimary
-                                            ),
-                                            border = BorderStroke(1.dp, splitCardBorder),
-                                            modifier = Modifier.weight(1f)
-                                        ) { Text("Tudo em 1") }
-                                        Button(
-                                            onClick = {
-                                                qrModoSeparado = true
-                                                isModoLista = true
-                                            },
-                                            shape = RoundedCornerShape(10.dp),
-                                            colors = ButtonDefaults.buttonColors(
-                                                containerColor = if (qrModoSeparado) splitSeparateSelected else splitIdleButton,
-                                                contentColor = if (qrModoSeparado) Color.White else textPrimary
-                                            ),
-                                            border = BorderStroke(1.dp, splitCardBorder),
-                                            modifier = Modifier.weight(1f)
-                                        ) { Text("Separar Avisos") }
-                                    }
-                                }
-                            }
-                        }
-
-                        if (isModoLista) {
-                            val splitPreviewItemBg = if (isDark) Color(0xFF0F172A) else Color(0xFFF8FAFC)
-                            val splitPreviewChipBg = if (isDark) Color(0xFF1E293B) else Color(0xFFE2E8F0)
-                            val splitPreviewChipText = if (isDark) Color(0xFF94A3B8) else Color(0xFF475569)
-                            val splitPreviewItemBorder = if (isDark) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.12f)
-                            Text("Previa dos avisos separados", color = textPrimary, fontWeight = FontWeight.SemiBold)
-                            LazyColumn(modifier = Modifier.heightIn(max = 200.dp)) {
-                                items(listaItensDetectados) { item ->
-                                    val kmAtualBase = kmBase.toIntOrNull() ?: 0
-                                    val kmFuturoCalculado = if (kmAtualBase > 0) (kmAtualBase + getKmAdicionalPorTipo(item.tipo)).toString() else ""
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(vertical = 4.dp)
-                                            .background(splitPreviewItemBg, RoundedCornerShape(8.dp))
-                                            .border(1.dp, splitPreviewItemBorder, RoundedCornerShape(8.dp))
-                                            .padding(10.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        TipoIcon(
-                                            tipo = item.tipo,
-                                            tint = corCategoria(item.tipo),
-                                            size = 20.dp
-                                        )
-                                        Spacer(Modifier.width(10.dp))
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(item.nome, color = textPrimary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                                ExposedDropdownMenuBox(
-                                                    expanded = tipoMenuItemId == item.id,
-                                                    onExpandedChange = { expanded ->
-                                                        tipoMenuItemId = if (expanded) item.id else null
-                                                    }
-                                                ) {
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .menuAnchor()
-                                                            .clip(RoundedCornerShape(999.dp))
-                                                            .background(splitPreviewChipBg)
-                                                            .padding(horizontal = 8.dp, vertical = 2.dp)
-                                                    ) {
-                                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                                            TipoIcon(
-                                                                tipo = item.tipo,
-                                                                tint = corCategoria(item.tipo),
-                                                                size = 12.dp
-                                                            )
-                                                            Spacer(Modifier.width(4.dp))
-                                                            Text(item.tipo.label, color = splitPreviewChipText, fontSize = 11.sp)
-                                                        }
-                                                    }
-                                                    ExposedDropdownMenu(
-                                                        expanded = tipoMenuItemId == item.id,
-                                                        onDismissRequest = { tipoMenuItemId = null }
-                                                    ) {
-                                                        TipoManutencao.values().forEach { tipo ->
-                                                            DropdownMenuItem(
-                                                                text = { Text(tipo.label) },
-                                                                onClick = {
-                                                                    listaItensDetectados = listaItensDetectados.map {
-                                                                        if (it.id == item.id) it.copy(tipo = tipo) else it
-                                                                    }
-                                                                    tipoMenuItemId = null
-                                                                },
-                                                                leadingIcon = {
-                                                                    TipoIcon(
-                                                                        tipo = tipo,
-                                                                        tint = corCategoria(tipo),
-                                                                        size = 16.dp
-                                                                    )
-                                                                }
-                                                            )
-                                                        }
-                                                    }
-                                                }
-                                                if (kmFuturoCalculado.isNotEmpty()) {
-                                                    Text(
-                                                        "  - Vence +${getKmAdicionalPorTipo(item.tipo)}km",
-                                                        color = Color(0xFF10B981),
-                                                        fontSize = 12.sp
-                                                    )
-                                                }
-                                            }
-                                        }
-                                        IconButton(onClick = { listaItensDetectados = listaItensDetectados - item; if (listaItensDetectados.isEmpty()) isModoLista = false }) {
-                                            Icon(Icons.Default.Delete, "Remover", tint = Color(0xFFEF4444))
-                                        }
-                                    }
-                                }
-                            }
-                        } else {
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                OutlinedTextField(
-                                    value = descricao,
-                                    onValueChange = { descricao = it },
-                                    label = { Text("Produtos (total e itens)") },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .heightIn(max = 280.dp)
-                                        .animateContentSize()
-                                        .focusRequester(descricaoFocusRequester),
-                                    maxLines = 12,
-                                    shape = RoundedCornerShape(12.dp),
-                                    trailingIcon = {
-                                        IconButton(onClick = ::iniciarCapturaVoz) {
-                                            Icon(
-                                                imageVector = Icons.Default.Mic,
-                                                contentDescription = "Falar descricao",
-                                                tint = Color(0xFF3B82F6)
-                                            )
-                                        }
-                                    }
-                                )
-                                ExposedDropdownMenuBox(expanded = menuExpanded, onExpandedChange = { menuExpanded = !menuExpanded }) {
-                                    OutlinedTextField(
-                                        value = tipoSelecionado.label,
-                                        onValueChange = {},
-                                        readOnly = true,
-                                        label = { Text("Categoria") },
-                                        modifier = Modifier.menuAnchor().fillMaxWidth(),
-                                        leadingIcon = {
-                                            TipoIcon(
-                                                tipo = tipoSelecionado,
-                                                tint = corCategoria(tipoSelecionado),
-                                                size = 18.dp
-                                            )
-                                        },
-                                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = menuExpanded) },
-                                        shape = RoundedCornerShape(12.dp)
-                                    )
-                                    ExposedDropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
-                                        TipoManutencao.values().forEach { t ->
-                                            DropdownMenuItem(
-                                                text = { Text(t.label) },
-                                                onClick = { tipoSelecionado = t; menuExpanded = false },
-                                                leadingIcon = {
-                                                    TipoIcon(
-                                                        tipo = t,
-                                                        tint = corCategoria(t),
-                                                        size = 18.dp
-                                                    )
-                                                }
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                    }
-                    2 -> {
-                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            OutlinedTextField(
-                                value = kmBase,
-                                onValueChange = { if (it.all(Char::isDigit)) kmBase = it },
-                                label = { Text("KM Atual") },
-                                modifier = Modifier.weight(1f),
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                singleLine = true,
-                                shape = RoundedCornerShape(12.dp)
-                            )
-                            if (!isModoLista) {
-                                OutlinedTextField(
-                                    value = data,
-                                    onValueChange = {},
-                                    label = { Text("Data do servico") },
-                                    readOnly = true,
-                                    modifier = Modifier.weight(1f),
-                                    trailingIcon = {
-                                        IconButton(onClick = {
-                                            abrirDatePicker(data) {
-                                                data = it
-                                                avisoPersonalizado = false
-                                            }
-                                        }) {
-                                            Icon(Icons.Default.DateRange, contentDescription = null)
-                                        }
-                                    },
-                                    singleLine = true,
-                                    shape = RoundedCornerShape(12.dp)
-                                )
-                            }
-                        }
-
-                        if (!isModoLista) {
-                            OutlinedTextField(
-                                value = dataAviso,
-                                onValueChange = {},
-                                label = { Text("Data do aviso") },
-                                readOnly = true,
-                                modifier = Modifier.fillMaxWidth(),
-                                trailingIcon = {
-                                    IconButton(onClick = {
-                                        abrirDatePicker(dataAviso) {
-                                            dataAviso = it
-                                            avisoPersonalizado = true
-                                        }
-                                    }) {
-                                        Icon(Icons.Default.Event, contentDescription = null)
-                                    }
-                                },
-                                singleLine = true,
-                                shape = RoundedCornerShape(12.dp)
-                            )
-                            OutlinedTextField(
-                                value = valorInput,
-                                onValueChange = { if (it.all { c -> c.isDigit() || c == '.' }) valorInput = it },
-                                label = { Text("Valor Total (R$)") },
-                                modifier = Modifier.fillMaxWidth(),
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                                shape = RoundedCornerShape(12.dp)
-                            )
-                            OutlinedTextField(
-                                value = horaNotificacao,
-                                onValueChange = {},
-                                label = { Text("Hora do aviso") },
-                                readOnly = true,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        abrirTimePicker(horaNotificacao) { selecionada ->
-                                            horaNotificacao = selecionada
-                                        }
-                                    },
-                                trailingIcon = {
-                                    IconButton(onClick = {
-                                        abrirTimePicker(horaNotificacao) { selecionada ->
-                                            horaNotificacao = selecionada
-                                        }
-                                    }) {
-                                        Icon(Icons.Default.Schedule, contentDescription = null)
-                                    }
-                                },
-                                singleLine = true,
-                                shape = RoundedCornerShape(12.dp)
-                            )
-                        } else {
-                            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                listaItensDetectados.forEach { item ->
-                                    Card(
-                                        colors = CardDefaults.cardColors(containerColor = if (isDark) Color(0xFF111827) else Color(0xFFF8FAFC)),
-                                        shape = RoundedCornerShape(12.dp),
-                                        border = BorderStroke(1.dp, if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.12f))
-                                    ) {
-                                        Column(
-                                            modifier = Modifier.padding(10.dp),
-                                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                                        ) {
-                                            Text(item.nome, color = textPrimary, fontWeight = FontWeight.SemiBold)
-                                            OutlinedTextField(
-                                                value = itemValorOverrides[item.id] ?: String.format(Locale.US, "%.2f", item.valor),
-                                                onValueChange = { novo ->
-                                                    if (novo.all { c -> c.isDigit() || c == '.' }) {
-                                                        itemValorOverrides = itemValorOverrides + (item.id to novo)
-                                                    }
-                                                },
-                                                label = { Text("Valor (R$)") },
-                                                modifier = Modifier.fillMaxWidth(),
-                                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                                                singleLine = true,
-                                                shape = RoundedCornerShape(10.dp)
-                                            )
-                                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                                OutlinedTextField(
-                                                    value = itemDataAvisoOverrides[item.id] ?: dataAviso,
-                                                    onValueChange = {},
-                                                    label = { Text("Data aviso") },
-                                                    readOnly = true,
-                                                    modifier = Modifier.weight(1f),
-                                                    trailingIcon = {
-                                                        IconButton(onClick = {
-                                                            abrirDatePicker(itemDataAvisoOverrides[item.id] ?: dataAviso) { selecionada ->
-                                                                itemDataAvisoOverrides = itemDataAvisoOverrides + (item.id to selecionada)
-                                                            }
-                                                        }) {
-                                                            Icon(Icons.Default.Event, contentDescription = null)
-                                                        }
-                                                    },
-                                                    singleLine = true,
-                                                    shape = RoundedCornerShape(10.dp)
-                                                )
-                                                OutlinedTextField(
-                                                    value = itemHoraAvisoOverrides[item.id] ?: horaNotificacao,
-                                                    onValueChange = {},
-                                                    label = { Text("Hora") },
-                                                    readOnly = true,
-                                                    modifier = Modifier.weight(1f),
-                                                    trailingIcon = {
-                                                        IconButton(onClick = {
-                                                            abrirTimePicker(itemHoraAvisoOverrides[item.id] ?: horaNotificacao) { selecionada ->
-                                                                itemHoraAvisoOverrides = itemHoraAvisoOverrides + (item.id to selecionada)
-                                                            }
-                                                        }) {
-                                                            Icon(Icons.Default.Schedule, contentDescription = null)
-                                                        }
-                                                    },
-                                                    singleLine = true,
-                                                    shape = RoundedCornerShape(10.dp)
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    else -> {
-                        Card(
-                            colors = CardDefaults.cardColors(containerColor = if (isDark) Color(0xFF0F172A) else Color.White),
-                            shape = RoundedCornerShape(14.dp),
-                            border = BorderStroke(1.dp, if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.12f))
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(12.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Text("Adicionar novo profissional", color = textPrimary, fontWeight = FontWeight.SemiBold)
-                                OutlinedTextField(
-                                    value = localServicoInput,
-                                    onValueChange = { localServicoInput = it },
-                                    label = { Text("Local") },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    singleLine = true,
-                                    shape = RoundedCornerShape(12.dp)
-                                )
-                                OutlinedTextField(
-                                    value = novoContatoNome,
-                                    onValueChange = { novoContatoNome = it },
-                                    label = { Text("Nome") },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    singleLine = true,
-                                    shape = RoundedCornerShape(12.dp)
-                                )
-                                OutlinedTextField(
-                                    value = novoContatoTelefone,
-                                    onValueChange = { novoContatoTelefone = it },
-                                    label = { Text("Telefone") },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    singleLine = true,
-                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                                    shape = RoundedCornerShape(12.dp)
-                                )
-                                Button(
-                                    onClick = ::adicionarContatoManual,
-                                    modifier = Modifier.fillMaxWidth(),
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
-                                    shape = RoundedCornerShape(12.dp)
-                                ) {
-                                    Icon(Icons.Default.PersonAdd, contentDescription = null)
-                                    Spacer(Modifier.width(8.dp))
-                                    Text("Cadastrar profissional")
-                                }
-                            }
-                        }
-
-                        Card(
-                            colors = CardDefaults.cardColors(containerColor = if (isDark) Color(0xFF0F172A) else Color.White),
-                            shape = RoundedCornerShape(14.dp),
-                            border = BorderStroke(1.dp, if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.12f))
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(12.dp),
-                                verticalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                    Text("Vincular profissional", color = textPrimary, fontWeight = FontWeight.SemiBold)
-                                if (contatosLista.isEmpty()) {
-                                    Text("Nenhum profissional cadastrado. Adicione um acima.", color = Color(0xFF94A3B8), fontSize = 12.sp)
-                                } else {
-                                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                        contatosLista.forEach { contato ->
-                                            Card(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .border(
-                                                        1.dp,
-                                                        if (contatoSelecionado == contato) Color(0xFF3B82F6)
-                                                        else if (isDark) Color.White.copy(alpha = 0.08f)
-                                                        else Color.Black.copy(alpha = 0.12f),
-                                                        RoundedCornerShape(14.dp)
-                                                    )
-                                                    .clickable { contatoSelecionado = contato },
-                                                colors = CardDefaults.cardColors(containerColor = if (isDark) Color(0xFF111827) else Color.White),
-                                                shape = RoundedCornerShape(14.dp)
-                                            ) {
-                                                Row(
-                                                    modifier = Modifier.padding(12.dp),
-                                                    verticalAlignment = Alignment.CenterVertically
-                                                ) {
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .size(40.dp)
-                                                            .clip(CircleShape)
-                                                            .background(if (isDark) Color(0xFF334155) else Color(0xFFE2E8F0)),
-                                                        contentAlignment = Alignment.Center
-                                                    ) {
-                                                        Icon(Icons.Default.Person, contentDescription = null, tint = iconColor)
-                                                    }
-                                                    Spacer(Modifier.width(12.dp))
-                                                    Column(modifier = Modifier.weight(1f)) {
-                                                        Text(contato.nome, color = textPrimary, fontWeight = FontWeight.SemiBold)
-                                                        Text(contato.telefone, color = Color(0xFF94A3B8), fontSize = 12.sp)
-                                                    }
-                                                    if (contatoSelecionado == contato) {
-                                                        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF10B981))
-                                                    } else {
-                                                        Icon(Icons.Default.RadioButtonUnchecked, contentDescription = null, tint = Color(0xFF64748B))
-                                                    }
-                                                }
-                                                Spacer(Modifier.height(4.dp))
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                    }
-                }
-            }
-
-            Column(
-                modifier = Modifier
-                    .padding(16.dp)
-                    .padding(10.dp),
+                    .fillMaxWidth()
+                    .background(pageBackground)
+                    .navigationBarsPadding()
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 when (etapaAtual) {
@@ -1298,11 +917,21 @@ fun adicionarContatoManual() {
                             shape = RoundedCornerShape(14.dp),
                             modifier = Modifier.fillMaxWidth().height(52.dp)
                         ) { Text("Avançar", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
-                        
                     }
                     2 -> {
                         Button(
                             onClick = { etapaAtual = 3 },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = accentBlue,
+                                contentColor = Color.White
+                            ),
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.fillMaxWidth().height(52.dp)
+                        ) { Text("Próximo", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
+                    }
+                    3 -> {
+                        Button(
+                            onClick = { etapaAtual = 4 },
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = accentBlue,
                                 contentColor = Color.White
@@ -1326,15 +955,591 @@ fun adicionarContatoManual() {
                         ) {
                             Icon(Icons.Rounded.CalendarMonth, contentDescription = null)
                             Spacer(Modifier.width(8.dp))
-                            Text("Salvar Aviso", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                            Text("Cadastrar aviso", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                         }
                     }
                 }
             }
         }
+    ) { innerPadding ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(pageBackground)
+        ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+        ) {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .then(
+                        if (etapaAtual == 3) Modifier
+                        else Modifier.verticalScroll(rememberScrollState())
+                    )
+                    .padding(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = 4.dp, bottom = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                when (etapaAtual) {
+                    1 -> {
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(Icons.Rounded.Edit, contentDescription = null, tint = accentBlue, modifier = Modifier.size(30.dp))
+                            Text("Dados do aviso", color = textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 20.sp)
+                        }
+                        Button(
+                            onClick = { tentarAbrirCamera() },
+                            modifier = Modifier.fillMaxWidth().height(48.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (fotoCaminho != null) Color(0xFF10B981) else Color(0xFF3B82F6),
+                                contentColor = Color.White
+                            )
+                        ) {
+                            Icon(
+                                if (fotoCaminho != null) Icons.Default.Check else Icons.Default.CameraAlt,
+                                null,
+                                tint = cameraIconColor
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(if (fotoCaminho != null) "Foto Anexada (Refazer)" else "Escanear Produto", color = Color.White)
+                        }
+                        OutlinedTextField(
+                            value = descricao,
+                            onValueChange = { descricao = it },
+                            label = { Text("Produtos (total e itens)") },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 280.dp)
+                                .animateContentSize()
+                                .focusRequester(descricaoFocusRequester),
+                            maxLines = 12,
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                        ExposedDropdownMenuBox(expanded = menuExpanded, onExpandedChange = { menuExpanded = !menuExpanded }) {
+                            OutlinedTextField(
+                                value = tipoSelecionado.label,
+                                onValueChange = {},
+                                readOnly = true,
+                                label = { Text("Categoria") },
+                                modifier = Modifier.menuAnchor().fillMaxWidth(),
+                                leadingIcon = {
+                                    TipoIcon(
+                                        tipo = tipoSelecionado,
+                                        tint = corCategoria(tipoSelecionado),
+                                        size = 18.dp
+                                    )
+                                },
+                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = menuExpanded) },
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                            ExposedDropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                                TipoManutencao.values().forEach { t ->
+                                    DropdownMenuItem(
+                                        text = { Text(t.label) },
+                                        onClick = { tipoSelecionado = t; menuExpanded = false },
+                                        leadingIcon = {
+                                            TipoIcon(
+                                                tipo = t,
+                                                tint = corCategoria(t),
+                                                size = 18.dp
+                                            )
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    2 -> {
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(Icons.Rounded.Speed, contentDescription = null, tint = accentBlue, modifier = Modifier.size(30.dp))
+                            Text("Quilometragem e data", color = textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 20.sp)
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            OutlinedTextField(
+                                value = kmBase,
+                                onValueChange = { if (it.all(Char::isDigit)) kmBase = it },
+                                label = { Text("KM Atual") },
+                                modifier = Modifier.weight(1f),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                singleLine = true,
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                            OutlinedTextField(
+                                value = data,
+                                onValueChange = {},
+                                label = { Text("Data do servico") },
+                                readOnly = true,
+                                modifier = Modifier.weight(1f),
+                                trailingIcon = {
+                                    IconButton(onClick = {
+                                        abrirDatePicker(data) {
+                                            data = it
+                                            avisoPersonalizado = false
+                                        }
+                                    }) {
+                                        Icon(Icons.Default.DateRange, contentDescription = null)
+                                    }
+                                },
+                                singleLine = true,
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                        }
+                        OutlinedTextField(
+                            value = dataAviso,
+                            onValueChange = {},
+                            label = { Text("Data do aviso") },
+                            readOnly = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            trailingIcon = {
+                                IconButton(onClick = {
+                                    abrirDatePicker(dataAviso) {
+                                        dataAviso = it
+                                        avisoPersonalizado = true
+                                    }
+                                }) {
+                                    Icon(Icons.Default.Event, contentDescription = null)
+                                }
+                            },
+                            singleLine = true,
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                        OutlinedTextField(
+                            value = valorInput,
+                            onValueChange = { if (it.all { c -> c.isDigit() || c == '.' }) valorInput = it },
+                            label = { Text("Valor Total (R$)") },
+                            modifier = Modifier.fillMaxWidth(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                        OutlinedTextField(
+                            value = horaNotificacao,
+                            onValueChange = {},
+                            label = { Text("Hora do aviso") },
+                            readOnly = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            trailingIcon = {
+                                IconButton(onClick = {
+                                    abrirTimePicker(horaNotificacao) { selecionada ->
+                                        horaNotificacao = selecionada
+                                    }
+                                }) {
+                                    Icon(Icons.Default.Schedule, contentDescription = null)
+                                }
+                            },
+                            singleLine = true,
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                    }
+                    3 -> {
+                        EtapaProfissionaisContent(
+                            isDark = isDark,
+                            textPrimary = textPrimary,
+                            textSecondary = textSecondary,
+                            iconColor = iconColor,
+                            accentBlue = accentBlue,
+                            cidadeAtual = cidadeAtual,
+                            ufAtual = ufAtual,
+                            carregandoProfissionaisCidade = carregandoProfissionaisCidade,
+                            erroProfissionaisCidade = erroProfissionaisCidade,
+                            profissionaisDaCidade = profissionaisDaCidade,
+                            profissionaisListState = profissionaisListState,
+                            loadingAlpha = loadingAlpha,
+                            onRecarregar = { carregarProfissionaisDaCidade(forcar = true) },
+                            onVerNoGoogle = { abrirBuscaGoogleProfissional(it) },
+                            onAdicionarDaCidade = { contatoCidade ->
+                                if (contatoCidade.telefone.isBlank()) {
+                                    profissionalParaCompletarTelefone = contatoCidade
+                                    telefoneCompletarInput = ""
+                                } else {
+                                    adicionarContatoDaCidade(contatoCidade)
+                                }
+                            }
+                        )
+                    }
+                    else -> {
+                        EtapaRevisaoAvisoContent(
+                            isDark = isDark,
+                            textPrimary = textPrimary,
+                            textSecondary = textSecondary,
+                            accentBlue = accentBlue,
+                            descricao = descricao,
+                            tipoSelecionado = tipoSelecionado,
+                            isModoLista = isModoLista,
+                            listaItensDetectados = listaItensDetectados,
+                            kmBase = kmBase,
+                            data = data,
+                            dataAviso = dataAviso,
+                            horaNotificacao = horaNotificacao,
+                            valorInput = valorInput,
+                            contatoSelecionado = contatoSelecionado,
+                            cidadeAtual = cidadeAtual,
+                            ufAtual = ufAtual
+                        )
+                    }
+                }
+            }
+            }
+        }
         }
     }
 }
+
+private const val PROF_CITY_TAG = "ProfCidade"
+
+private data class BuscaProfissionaisCidadeResultado(
+    val cidade: String?,
+    val estado: String?,
+    val profissionais: List<ProfissionalCidadeEncontrado>
+)
+
+data class ProfissionalCidadeEncontrado(
+    val nome: String,
+    val telefone: String,
+    val endereco: String
+)
+
+private data class LocalizacaoCidade(
+    val latitude: Double,
+    val longitude: Double,
+    val cidade: String?,
+    val estado: String?
+)
+
+private fun buscarProfissionaisDaCidadeAtual(
+    context: Context,
+    tipoSelecionado: TipoManutencao,
+    isBikeVehicle: Boolean
+): Result<BuscaProfissionaisCidadeResultado> = runCatching {
+    Log.d(PROF_CITY_TAG, "buscaProfissionaisDaCidadeAtual: resolvendo localizacao.")
+    val localizacao = obterCidadePelaLocalizacao(context)
+        ?: throw IllegalStateException("Ative a localizacao para buscar profissionais da sua cidade.")
+    Log.d(
+        PROF_CITY_TAG,
+        "Localizacao obtida: lat=${localizacao.latitude} lng=${localizacao.longitude} cidade=${localizacao.cidade} uf=${localizacao.estado}"
+    )
+    val profissionais = buscarProfissionaisOverpass(
+        context = context,
+        latitude = localizacao.latitude,
+        longitude = localizacao.longitude,
+        tipoSelecionado = tipoSelecionado,
+        cidade = localizacao.cidade,
+        estado = localizacao.estado,
+        isBikeVehicle = isBikeVehicle
+    )
+    BuscaProfissionaisCidadeResultado(
+        cidade = localizacao.cidade,
+        estado = localizacao.estado,
+        profissionais = profissionais
+    )
+}
+
+private fun obterCidadePelaLocalizacao(context: Context): LocalizacaoCidade? {
+    val permissaoFine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+    if (!permissaoFine) {
+        Log.w(PROF_CITY_TAG, "Permissao ACCESS_FINE_LOCATION nao concedida.")
+        return null
+    }
+
+    val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return null
+    val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
+    var melhorLocal: Location? = null
+
+    providers.forEach { provider ->
+        val local = runCatching { locationManager.getLastKnownLocation(provider) }.getOrNull() ?: return@forEach
+        if (melhorLocal == null || local.accuracy < melhorLocal!!.accuracy || local.time > melhorLocal!!.time) {
+            melhorLocal = local
+        }
+    }
+
+    val atual = melhorLocal ?: run {
+        Log.w(PROF_CITY_TAG, "Nenhuma localizacao conhecida disponivel (GPS/NETWORK).")
+        return null
+    }
+    var cidade: String? = null
+    var estado: String? = null
+    runCatching {
+        val geocoder = Geocoder(context, Locale("pt", "BR"))
+        @Suppress("DEPRECATION")
+        val endereco = geocoder.getFromLocation(atual.latitude, atual.longitude, 1)?.firstOrNull()
+        cidade = endereco?.subAdminArea ?: endereco?.locality
+        estado = endereco?.adminArea
+    }.onFailure { erro ->
+        Log.w(PROF_CITY_TAG, "Falha ao resolver cidade/UF com Geocoder.", erro)
+    }
+
+    return LocalizacaoCidade(
+        latitude = atual.latitude,
+        longitude = atual.longitude,
+        cidade = cidade,
+        estado = estado
+    )
+}
+
+private fun buscarProfissionaisOverpass(
+    context: Context,
+    latitude: Double,
+    longitude: Double,
+    tipoSelecionado: TipoManutencao,
+    cidade: String?,
+    estado: String?,
+    isBikeVehicle: Boolean
+): List<ProfissionalCidadeEncontrado> {
+    Log.d(PROF_CITY_TAG, "Consultando Overpass. lat=$latitude lng=$longitude tipo=$tipoSelecionado cidade=$cidade uf=$estado isBikeVehicle=$isBikeVehicle")
+    val payloadCidade = cidade
+        ?.takeIf { it.isNotBlank() }
+        ?.let { executarConsultaOverpass(montarOverpassCityAreaQuery(it, estado, tipoSelecionado, isBikeVehicle)) }
+    val payload = if (!payloadCidade.isNullOrBlank() && contarElementosOverpass(payloadCidade) > 0) {
+        payloadCidade
+    } else {
+        if (!payloadCidade.isNullOrBlank()) {
+            Log.w(PROF_CITY_TAG, "Consulta por limite da cidade retornou zero elementos. Aplicando fallback por raio.")
+        }
+        executarConsultaOverpass(montarOverpassQuery(latitude, longitude, raioMetros = 15000, tipoSelecionado = tipoSelecionado, isBikeVehicle = isBikeVehicle))
+            ?: executarConsultaOverpass(montarOverpassQuery(latitude, longitude, raioMetros = 50000, tipoSelecionado = tipoSelecionado, isBikeVehicle = isBikeVehicle))
+            ?: executarConsultaOverpass(montarOverpassQuery(latitude, longitude, raioMetros = 120000, tipoSelecionado = tipoSelecionado, isBikeVehicle = isBikeVehicle))
+            ?: executarConsultaOverpass(montarOverpassQuery(latitude, longitude, raioMetros = 250000, tipoSelecionado = tipoSelecionado, isBikeVehicle = isBikeVehicle))
+    }
+        ?: throw IllegalStateException("Servidor de busca ocupado no momento. Toque em Atualizar em alguns segundos.")
+    val root = JSONObject(payload)
+    val elements = root.optJSONArray("elements") ?: return emptyList()
+    Log.d(PROF_CITY_TAG, "Overpass retornou elements=${elements.length()}")
+
+    val contatos = mutableListOf<ProfissionalCidadeEncontrado>()
+    var semTelefone = 0
+    var semEnderecoPreenchido = 0
+    for (i in 0 until elements.length()) {
+        val element = elements.optJSONObject(i) ?: continue
+        val tags = element.optJSONObject("tags") ?: continue
+        val nome = tags.optString("name").trim()
+        if (nome.isBlank()) continue
+        val telefone = listOf(
+            "contact:phone",
+            "phone",
+            "mobile",
+            "telephone",
+            "contact:mobile",
+            "contact:whatsapp",
+            "whatsapp"
+        ).mapNotNull { chave ->
+            tags.optString(chave).trim().takeIf { it.isNotBlank() }
+        }.firstOrNull().orEmpty()
+        if (telefone.isBlank()) semTelefone += 1
+        val endereco = montarEnderecoProfissional(context, element, tags)
+        if (endereco.isBlank()) semEnderecoPreenchido += 1
+        val candidato = ProfissionalCidadeEncontrado(
+            nome = nome,
+            telefone = telefone,
+            endereco = endereco
+        )
+        contatos += candidato
+    }
+
+    val resultado = contatos.distinctBy { contato ->
+        val telefone = contato.telefone.filter(Char::isDigit)
+        if (telefone.isNotBlank()) telefone else "${contato.nome.lowercase(Locale.ROOT)}|${contato.endereco.lowercase(Locale.ROOT)}"
+    }.sortedBy { it.nome.lowercase(Locale.ROOT) }
+    Log.i(
+        PROF_CITY_TAG,
+        "Profissionais validos apos filtros: total=${resultado.size} semTelefone=$semTelefone semEndereco=$semEnderecoPreenchido"
+    )
+    return resultado
+}
+
+private fun contarElementosOverpass(payload: String): Int = runCatching {
+    JSONObject(payload).optJSONArray("elements")?.length() ?: 0
+}.getOrDefault(0)
+
+private fun montarOverpassQuery(
+    latitude: Double,
+    longitude: Double,
+    raioMetros: Int,
+    tipoSelecionado: TipoManutencao,
+    isBikeVehicle: Boolean
+): String {
+    val tags = tagsBuscaPorContexto(tipoSelecionado, isBikeVehicle)
+    val blocos = buildString {
+        tags.forEach { (chave, valor) ->
+            append("  node(around:$raioMetros,$latitude,$longitude)[\"$chave\"=\"$valor\"];\n")
+            append("  way(around:$raioMetros,$latitude,$longitude)[\"$chave\"=\"$valor\"];\n")
+            append("  relation(around:$raioMetros,$latitude,$longitude)[\"$chave\"=\"$valor\"];\n")
+        }
+    }
+    return """
+        [out:json][timeout:20];
+        (
+$blocos
+        );
+        out center tags 180;
+    """.trimIndent()
+}
+
+private fun montarOverpassCityAreaQuery(
+    cidade: String,
+    estado: String?,
+    tipoSelecionado: TipoManutencao,
+    isBikeVehicle: Boolean
+): String {
+    val cidadeEscapada = cidade.replace("\"", "\\\"")
+    val estadoEscapado = estado?.replace("\"", "\\\"")
+    val filtroEstado = estadoEscapado?.takeIf { it.isNotBlank() }?.let { """["is_in:state"="$it"]""" } ?: ""
+    val tags = tagsBuscaPorContexto(tipoSelecionado, isBikeVehicle)
+    val blocos = buildString {
+        tags.forEach { (chave, valor) ->
+            append("  node(area.searchArea)[\"$chave\"=\"$valor\"];\n")
+            append("  way(area.searchArea)[\"$chave\"=\"$valor\"];\n")
+            append("  relation(area.searchArea)[\"$chave\"=\"$valor\"];\n")
+        }
+    }
+    return """
+        [out:json][timeout:25];
+        area["name"="$cidadeEscapada"]["boundary"="administrative"]["admin_level"="8"]$filtroEstado->.searchArea;
+        (
+$blocos
+        );
+        out center tags 400;
+    """.trimIndent()
+}
+
+private fun tagsBuscaPorContexto(
+    tipoSelecionado: TipoManutencao,
+    isBikeVehicle: Boolean
+): List<Pair<String, String>> {
+    if (isBikeVehicle) {
+        return listOf(
+            "shop" to "bicycle",
+            "service:bicycle:repair" to "yes"
+        )
+    }
+    return if (tipoSelecionado == TipoManutencao.PNEU) {
+        listOf(
+            "shop" to "tyres",
+            "shop" to "car_repair",
+            "amenity" to "car_repair"
+        )
+    } else {
+        listOf(
+            "shop" to "car_repair",
+            "amenity" to "car_repair",
+            "craft" to "mechanic",
+            "service:vehicle:repair" to "yes"
+        )
+    }
+}
+
+private fun executarConsultaOverpass(query: String): String? {
+    val endpoints = listOf(
+        "https://overpass-api.de/api/interpreter",
+        "https://lz4.overpass-api.de/api/interpreter",
+        "https://z.overpass-api.de/api/interpreter",
+        "https://overpass.kumi.systems/api/interpreter"
+    )
+    endpoints.forEach { endpointUrl ->
+        Log.d(PROF_CITY_TAG, "Tentando endpoint Overpass: $endpointUrl")
+        val resultado = runCatching {
+            val endpoint = URL(endpointUrl)
+            val conn = (endpoint.openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                connectTimeout = 10000
+                readTimeout = 15000
+                doOutput = true
+                setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+            }
+            conn.outputStream.use { out ->
+                out.write("data=${URLEncoder.encode(query, "UTF-8")}".toByteArray(Charsets.UTF_8))
+            }
+            val code = conn.responseCode
+            Log.d(PROF_CITY_TAG, "Endpoint $endpointUrl respondeu HTTP $code")
+            if (code in 200..299) {
+                conn.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+            } else {
+                null
+            }
+        }
+        val payload = resultado.getOrNull()
+        if (!payload.isNullOrBlank()) {
+            Log.d(PROF_CITY_TAG, "Endpoint $endpointUrl retornou payload valido.")
+            return payload
+        }
+        val erro = resultado.exceptionOrNull()
+        if (erro != null) {
+            Log.w(PROF_CITY_TAG, "Falha ao consultar endpoint $endpointUrl", erro)
+        }
+    }
+    Log.e(PROF_CITY_TAG, "Nenhum endpoint Overpass retornou dados validos.")
+    return null
+}
+
+private fun montarEnderecoProfissional(
+    context: Context,
+    element: JSONObject,
+    tags: JSONObject
+): String {
+    val enderecoCompleto = tags.optString("addr:full").trim()
+    if (enderecoCompleto.isNotBlank()) return enderecoCompleto
+
+    val rua = tags.optString("addr:street").trim()
+    val numero = tags.optString("addr:housenumber").trim()
+    val bairro = tags.optString("addr:suburb").trim()
+    val cidade = tags.optString("addr:city").trim()
+    val estado = tags.optString("addr:state").trim()
+
+    val linhaRua = listOf(rua, numero).filter { it.isNotBlank() }.joinToString(", ")
+    val linhaLocal = listOf(bairro, cidade, estado).filter { it.isNotBlank() }.joinToString(" - ")
+    val enderecoTags = listOf(linhaRua, linhaLocal).filter { it.isNotBlank() }.joinToString(" | ")
+    if (enderecoTags.isNotBlank()) return enderecoTags
+
+    val coordenadas = extrairLatLngDoElemento(element) ?: return ""
+    return enderecoPorGeocoder(context, coordenadas.first, coordenadas.second)
+}
+
+private fun extrairLatLngDoElemento(element: JSONObject): Pair<Double, Double>? {
+    val latDireto = element.optDouble("lat", Double.NaN)
+    val lonDireto = element.optDouble("lon", Double.NaN)
+    if (!latDireto.isNaN() && !lonDireto.isNaN()) return latDireto to lonDireto
+
+    val center = element.optJSONObject("center") ?: return null
+    val latCenter = center.optDouble("lat", Double.NaN)
+    val lonCenter = center.optDouble("lon", Double.NaN)
+    if (latCenter.isNaN() || lonCenter.isNaN()) return null
+    return latCenter to lonCenter
+}
+
+private fun enderecoPorGeocoder(context: Context, latitude: Double, longitude: Double): String {
+    return runCatching {
+        val geocoder = Geocoder(context, Locale("pt", "BR"))
+        @Suppress("DEPRECATION")
+        val endereco = geocoder.getFromLocation(latitude, longitude, 1)?.firstOrNull()
+        listOfNotNull(
+            endereco?.thoroughfare?.takeIf { it.isNotBlank() },
+            endereco?.subThoroughfare?.takeIf { it.isNotBlank() }
+        ).joinToString(", ").ifBlank {
+            listOfNotNull(
+                endereco?.subLocality?.takeIf { it.isNotBlank() },
+                endereco?.locality?.takeIf { it.isNotBlank() },
+                endereco?.adminArea?.takeIf { it.isNotBlank() }
+            ).joinToString(" - ")
+        }
+    }.onFailure { erro ->
+        Log.w(PROF_CITY_TAG, "Falha no geocoder reverso para lat=$latitude lon=$longitude", erro)
+    }.getOrNull().orEmpty()
+}
+
+
+
 
 
 

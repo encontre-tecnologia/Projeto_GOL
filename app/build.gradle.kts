@@ -1,8 +1,8 @@
-plugins {
+﻿plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
-    // Plugin do Allure para gerar o relatório
+    // Plugin do Allure para gerar o relatÃ³rio
     id("io.qameta.allure") version "2.12.0"
     id("com.google.gms.google-services")
 }
@@ -63,7 +63,8 @@ android {
                 "META-INF/NOTICE",
                 "META-INF/NOTICE.txt",
                 "META-INF/LICENSE",
-                "META-INF/LICENSE.txt"
+                "META-INF/LICENSE.txt",
+                "META-INF/INDEX.LIST"
             )
         }
     }
@@ -71,6 +72,9 @@ android {
         getByName("main") {
             res.srcDir("src/main/res-carlogos")
         }
+    }
+    testOptions {
+        unitTests.isReturnDefaultValues = true
     }
 }
 
@@ -91,7 +95,7 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
 
-    // Ícones
+    // Ãcones
     implementation("androidx.compose.material:material-icons-extended:1.7.6")
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.compose.foundation)
@@ -100,9 +104,9 @@ dependencies {
     implementation("com.google.ai.client.generativeai:generativeai:0.9.0")
     implementation("io.coil-kt:coil-compose:2.5.0")
 
-    // --- TESTES E RELATÓRIOS ---
+    // --- TESTES E RELATÃ“RIOS ---
     testImplementation(libs.junit)
-    // Dependência do Allure para entender os testes
+    // DependÃªncia do Allure para entender os testes
     testImplementation("io.qameta.allure:allure-junit4:2.29.0")
 
     androidTestImplementation(libs.androidx.junit)
@@ -112,18 +116,18 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
 
-    // Câmera (CameraX)
+    // CÃ¢mera (CameraX)
     implementation("androidx.camera:camera-camera2:1.3.1")
     implementation("androidx.camera:camera-lifecycle:1.3.1")
     implementation("androidx.camera:camera-view:1.3.1")
     implementation("com.google.guava:guava:31.1-android")
 
-    // Inteligência Artificial (Google ML Kit - OCR)
+    // InteligÃªncia Artificial (Google ML Kit - OCR)
     implementation("com.google.android.gms:play-services-mlkit-text-recognition:19.0.0")
     implementation("com.google.mlkit:barcode-scanning:17.3.0")
     implementation("org.jsoup:jsoup:1.15.4")
 
-    // Permissões
+    // PermissÃµes
     implementation("com.google.accompanist:accompanist-permissions:0.34.0")
     implementation("com.google.zxing:core:3.5.1")
     // Imagens remotas
@@ -139,6 +143,7 @@ dependencies {
     implementation("com.google.api-client:google-api-client-android:2.2.0")
     implementation("com.google.api-client:google-api-client-gson:2.2.0")
     implementation("com.google.apis:google-api-services-drive:v3-rev20230815-2.0.0")
+    implementation("com.google.apis:google-api-services-calendar:v3-rev20240328-2.0.0")
     implementation("com.google.http-client:google-http-client-android:1.43.3")
     implementation("com.google.code.gson:gson:2.11.0")
 
