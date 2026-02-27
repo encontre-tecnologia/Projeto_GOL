@@ -1,53 +1,87 @@
-package br.com.gui.carlembrete
+﻿package br.com.gui.carlembrete
 
-import androidx.compose.foundation.background
+import android.content.Context
+import android.graphics.Paint
+import android.graphics.Typeface
+import android.graphics.pdf.PdfDocument
+import android.net.Uri
+import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBackIosNew
-import androidx.compose.material.icons.filled.Build
-import androidx.compose.material.icons.filled.CalendarToday
-import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.BuildCircle
+import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.LocalGasStation
 import androidx.compose.material.icons.filled.PictureAsPdf
-import androidx.compose.material.icons.filled.Savings
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.SearchOff
-import androidx.compose.material.icons.filled.Speed
-import androidx.compose.material3.*
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import java.io.File
+import java.io.FileOutputStream
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
-import java.time.YearMonth
 import java.time.temporal.ChronoUnit
-import java.util.Locale
-import kotlin.math.ceil
+
+private enum class FleetHealth { GOOD, ATTENTION, CRITICAL }
+private enum class FleetPeriod(val label: String, val days: Int) {
+    D7("7 dias", 7),
+    D30("30 dias", 30),
+    D90("90 dias", 90)
+}
+
+private data class VehicleFleetStatus(
+    val carro: CarroInfo,
+    val owner: String,
+    val health: FleetHealth,
+    val overdueCount: Int,
+    val upcoming30Count: Int,
+    val nextMaintenanceDate: LocalDate?,
+    val pendingCost: Double,
+    val lastFuelDate: LocalDate?,
+    val lastFuelValue: Double?,
+    val recentFuelCount: Int,
+    val recentFuelCost: Double,
+    val recentFuelLiters: Double
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -59,607 +93,788 @@ fun MecanicoVirtualScreen(
     onPremiumRequired: () -> Unit,
     onDismiss: () -> Unit
 ) {
+    // Mantidos por compatibilidade da assinatura
+    if (!isPremium && carros.isEmpty() && lembretes.isEmpty()) {
+        onPremiumRequired()
+    }
+
+    val formatter = remember { DateTimeFormatter.ofPattern("dd/MM/yyyy") }
+    val today = remember { LocalDate.now() }
     val context = LocalContext.current
-    val themeMode = AppPreferences.getThemeMode(context)
-    val isDark = when (themeMode) {
-        AppThemeMode.SYSTEM -> isSystemInDarkTheme()
-        AppThemeMode.LIGHT -> false
-        AppThemeMode.DARK -> true
-    }
-    val primaryDark = if (isDark) Color(0xFF0B1224) else Color(0xFFF8FAFC)
-    val surfaceDark = if (isDark) Color(0xFF0F172A) else Color.White
-    val textLight = if (isDark) Color.White else Color(0xFF0F172A)
-    val textDim = if (isDark) Color(0xFF94A3B8) else Color(0xFF64748B)
-    val cardBorder = if (isDark) Color(0xFF334155) else Color(0xFF94A3B8)
-    val searchBorder = if (isDark) Color(0xFF334155) else Color.Black
-    val accent = Color(0xFF3B82F6)          // Azul destaque
-    val success = Color(0xFF10B981)         // Verde sucesso
-    val warning = Color(0xFFF59E0B)         // Amarelo alerta
-    val danger = Color(0xFFEF4444)          // Vermelho perigo
+    val scope = rememberCoroutineScope()
+    var selectedPeriod by remember { mutableStateOf(FleetPeriod.D30) }
+    var ownerFilter by remember { mutableStateOf<String?>(null) }
+    var healthFilter by remember { mutableStateOf<FleetHealth?>(null) }
+    val periodStart = remember(today, selectedPeriod) { today.minusDays((selectedPeriod.days - 1).toLong()) }
 
-    val kmMesInput = remember { mutableStateOf("1200") }
-    val kmMes = kmMesInput.value.toDoubleOrNull()?.coerceAtLeast(1.0) ?: 1200.0
-    val keyboardController = LocalSoftwareKeyboardController.current
-    val focusManager = LocalFocusManager.current
+    val fleetStatuses = remember(carros, abastecimentos, lembretes, today, periodStart) {
+        carros.map { carro ->
+            val reminders = lembretes.filter { it.carroId == carro.id }
+                .filterNot { isLembreteRealizado(it) }
 
-    val totalGastoCombustivel = abastecimentos.sumOf { it.valorPago }
-    val gastoTotalTexto = if (totalGastoCombustivel > 0.0) formatarMoedaMV(totalGastoCombustivel) else "--"
-    val (tituloReputacao, _) = calcularReputacao(lembretes)
+            val reminderDates = reminders.mapNotNull { lembrete ->
+                val date = dataParaOrdenacao(lembrete)
+                if (date == LocalDate.MAX) null else date
+            }
 
-    // Calcula o valor total mensal necessario com base nos lembretes ativos
-    val totalMensalParaGuardar = lembretes.fold(0.0) { total, lembrete ->
-        val dataOrdenacao = dataParaOrdenacao(lembrete)
-        val diasRestantes = if (dataOrdenacao == LocalDate.MAX) 0 else ChronoUnit.DAYS.between(LocalDate.now(), dataOrdenacao).toInt()
-        val meses = if (diasRestantes <= 0) 1 else ceil(diasRestantes / 30.0).toInt()
-        total + if (lembrete.valor > 0) lembrete.valor / meses else 0.0
+            val overdueCount = reminderDates.count { it.isBefore(today) }
+            val upcoming30Count = reminderDates.count { !it.isBefore(today) && ChronoUnit.DAYS.between(today, it) <= 30 }
+            val nextMaintenanceDate = reminderDates.filter { !it.isBefore(today) }.minOrNull()
+            val pendingCost = reminders.sumOf { it.valor }
+
+            val fuels = abastecimentos.filter { it.carroId == carro.id }
+            val lastFuel = fuels.mapNotNull { a ->
+                runCatching { LocalDate.parse(a.data, formatter) }.getOrNull()?.let { d -> d to a }
+            }.maxByOrNull { it.first }
+            val fuelsInPeriod = fuels.mapNotNull { a ->
+                runCatching { LocalDate.parse(a.data, formatter) }.getOrNull()?.let { d -> d to a }
+            }.filter { (d, _) -> !d.isBefore(periodStart) }
+
+            val health = when {
+                overdueCount > 0 -> FleetHealth.CRITICAL
+                upcoming30Count > 0 -> FleetHealth.ATTENTION
+                else -> FleetHealth.GOOD
+            }
+
+            VehicleFleetStatus(
+                carro = carro,
+                owner = carro.proprietario.ifBlank { "Sem responsável" },
+                health = health,
+                overdueCount = overdueCount,
+                upcoming30Count = upcoming30Count,
+                nextMaintenanceDate = nextMaintenanceDate,
+                pendingCost = pendingCost,
+                lastFuelDate = lastFuel?.first,
+                lastFuelValue = lastFuel?.second?.valorPago,
+                recentFuelCount = fuelsInPeriod.size,
+                recentFuelCost = fuelsInPeriod.sumOf { it.second.valorPago },
+                recentFuelLiters = fuelsInPeriod.sumOf { it.second.litros }
+            )
+        }.sortedWith(compareBy<VehicleFleetStatus> {
+            when (it.health) {
+                FleetHealth.CRITICAL -> 0
+                FleetHealth.ATTENTION -> 1
+                FleetHealth.GOOD -> 2
+            }
+        }.thenBy { it.carro.nome })
     }
 
-    val proximosAvisos: List<Lembrete> = remember(lembretes) {
-        lembretes.sortedBy { dataParaOrdenacao(it) }
+    val tripResponsibles = remember(context) { carregarResponsaveisViagem(context) }
+    val ownerOptions = remember(fleetStatuses, tripResponsibles) {
+        (fleetStatuses.map { it.owner } + tripResponsibles).map { it.trim() }.filter { it.isNotBlank() }.distinct().sorted()
     }
-    val formatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
-    val currentMonth = YearMonth.now()
-    val gastoCombustivelMesFrota = abastecimentos.filter {
-        runCatching { LocalDate.parse(it.data, formatter) }.getOrNull()?.let { d ->
-            YearMonth.from(d) == currentMonth
-        } ?: false
-    }.sumOf { it.valorPago }
-    val abastecimentosUltimos30Dias = abastecimentos.count {
-        runCatching { LocalDate.parse(it.data, formatter) }.getOrNull()?.let { d ->
-            !d.isBefore(LocalDate.now().minusDays(30))
-        } ?: false
+    val ownerScopedStatuses = fleetStatuses.filter { ownerFilter == null || it.owner == ownerFilter }
+
+    val total = ownerScopedStatuses.size
+    val good = ownerScopedStatuses.count { it.health == FleetHealth.GOOD }
+    val attention = ownerScopedStatuses.count { it.health == FleetHealth.ATTENTION }
+    val critical = ownerScopedStatuses.count { it.health == FleetHealth.CRITICAL }
+    val pendingTotal = ownerScopedStatuses.sumOf { it.pendingCost }
+    val criticalPrev = remember(carros, lembretes, today, selectedPeriod, ownerFilter) {
+        val previousRef = today.minusDays(selectedPeriod.days.toLong())
+        carros
+            .filter { ownerFilter == null || it.proprietario.ifBlank { "Sem responsável" } == ownerFilter }
+            .count { carro ->
+            lembretes
+                .asSequence()
+                .filter { it.carroId == carro.id }
+                .filterNot { isLembreteRealizado(it) }
+                .map { dataParaOrdenacao(it) }
+                .any { it.isBefore(previousRef) }
+            }
     }
-    val gastoPorVeiculo = carros.associate { carro ->
-        val gastoManutencao = lembretes.filter { it.carroId == carro.id }.sumOf { it.valor }
-        val gastoCombustivel = abastecimentos.filter { it.carroId == carro.id }.sumOf { it.valorPago }
-        carro to (gastoManutencao + gastoCombustivel)
-    }.entries.sortedByDescending { it.value }
+    val criticalTrendDelta = critical - criticalPrev
+    val withoutRecentFuel = ownerScopedStatuses.count { it.lastFuelDate == null || it.lastFuelDate.isBefore(periodStart) }
+    val filteredStatuses = ownerScopedStatuses.filter { status -> healthFilter == null || status.health == healthFilter }
+    val topCostVehicles = ownerScopedStatuses.sortedByDescending { it.recentFuelCost }.take(5)
+    val topUsageVehicles = ownerScopedStatuses.sortedByDescending { it.recentFuelLiters }.take(5)
+    val topOwners = ownerScopedStatuses
+        .groupBy { it.owner }
+        .map { (owner, list) ->
+            Triple(owner, list.sumOf { it.recentFuelCost }, list.sumOf { it.recentFuelLiters })
+        }
+        .sortedByDescending { it.second }
+        .take(5)
+    val companyName = ownerFilter ?: ownerOptions.firstOrNull() ?: "Sua Empresa"
+    val currentMonthLabel = remember(today) { today.format(DateTimeFormatter.ofPattern("MM/yyyy")) }
+    val criticalTarget = 1
+    val kpiAtingido = critical <= criticalTarget
+
+    val colorScheme = MaterialTheme.colorScheme
+    val bg = colorScheme.background
+    val surface = colorScheme.surface
+    val textPrimary = colorScheme.onSurface
+    val textDim = colorScheme.onSurfaceVariant
 
     Scaffold(
-        containerColor = primaryDark
+        containerColor = bg,
+        topBar = {
+            TopAppBar(
+                title = { Text("Status da Frota", fontWeight = FontWeight.Bold, color = textPrimary) },
+                navigationIcon = {
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar", tint = textPrimary)
+                    }
+                },
+                actions = {
+                    IconButton(
+                        onClick = {
+                            scope.launch {
+                                val exportStatuses = filteredStatuses
+                                val uri = withContext(Dispatchers.IO) {
+                                    gerarPdfStatusFrota(
+                                        context = context,
+                                        statuses = exportStatuses,
+                                        selectedPeriod = selectedPeriod,
+                                        ownerFilter = ownerFilter,
+                                        healthFilter = healthFilter,
+                                        companyName = companyName,
+                                        total = total,
+                                        good = good,
+                                        attention = attention,
+                                        critical = critical,
+                                        pendingTotal = pendingTotal
+                                    )
+                                }
+                                if (uri != null) {
+                                    compartilharPdf(context, uri)
+                                } else {
+                                    Toast.makeText(context, "Nao foi possivel gerar o PDF da frota.", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }
+                    ) {
+                        Icon(Icons.Default.PictureAsPdf, contentDescription = "Exportar PDF", tint = textPrimary)
+                    }
+                }
+            )
+        }
     ) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(horizontal = 20.dp)
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(24.dp)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(56.dp)
-                    .padding(horizontal = 0.dp),
-                verticalAlignment = Alignment.CenterVertically
+            Card(
+                colors = CardDefaults.cardColors(containerColor = surface),
+                border = BorderStroke(1.dp, colorScheme.outlineVariant),
+                shape = RoundedCornerShape(14.dp)
             ) {
-                IconButton(onClick = onDismiss) {
-                    Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar", tint = textLight)
-                }
-                Text(
-                    "Gestor de Frota",
-                    color = textLight,
-                    fontWeight = FontWeight.Bold,
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.weight(1f)
-                )
-                OutlinedButton(
-                    onClick = {
-                        val uri = gerarPdfFinanceiro(context, carros, abastecimentos, lembretes)
-                        if (uri != null) {
-                            compartilharPdf(context, uri)
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    FleetPeriod.values().forEach { period ->
+                        val selected = selectedPeriod == period
+                        Card(
+                            modifier = Modifier.weight(1f),
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (selected) colorScheme.primary.copy(alpha = 0.2f) else colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                            ),
+                            border = BorderStroke(
+                                1.dp,
+                                if (selected) colorScheme.primary else colorScheme.outlineVariant
+                            ),
+                            shape = RoundedCornerShape(10.dp),
+                            onClick = { selectedPeriod = period }
+                        ) {
+                            Box(modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp), contentAlignment = Alignment.Center) {
+                                Text(period.label, color = textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                            }
                         }
-                    },
-                    border = BorderStroke(1.dp, if (isDark) Color(0xFF334155) else Color(0xFF94A3B8)),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = textLight
-                    ),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                    shape = RoundedCornerShape(8.dp)
-                ) {
-                    Icon(
-                        Icons.Default.PictureAsPdf,
-                        contentDescription = "Relatorio financeiro em PDF",
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text("PDF", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                }
-            }
-
-            // 1. CARD DE INPUT DE KM (Visual mais limpo)
-            // 2. DASHBOARD FINANCEIRO (Hero Section)
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(24.dp))
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(Color(0xFF059669), Color(0xFF047857))
-                        )
-                    )
-            ) {
-                Column(
-                    modifier = Modifier.padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Savings, contentDescription = null, tint = Color(0xFFD1FAE5), modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("Reserva Mensal Recomendada", color = Color(0xFFD1FAE5), fontWeight = FontWeight.Medium, fontSize = 14.sp)
                     }
-                    Spacer(Modifier.height(12.dp))
-                    Text(
-                        formatarMoedaMV(totalMensalParaGuardar),
-                        color = Color.White,
-                        fontSize = 36.sp,
-                        fontWeight = FontWeight.Black,
-                        letterSpacing = (-1).sp
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    Text(
-                        "Guardando esse valor todo mes, voce cobre as manutencoes abaixo sem aperto.",
-                        color = Color(0xFFA7F3D0),
-                        fontSize = 13.sp,
-                        lineHeight = 18.sp,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                    )
                 }
             }
 
             Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(containerColor = surfaceDark),
-                border = BorderStroke(1.dp, cardBorder)
+                colors = CardDefaults.cardColors(containerColor = surface),
+                border = BorderStroke(1.dp, colorScheme.outlineVariant),
+                shape = RoundedCornerShape(14.dp)
             ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 10.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.LocalGasStation, contentDescription = null, tint = textLight)
-                        Spacer(Modifier.width(8.dp))
-                        Text("Gestao de combustivel (Frota)", color = textLight, fontWeight = FontWeight.SemiBold)
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        UsageStat(
-                            label = "Total geral",
-                            value = gastoTotalTexto,
-                            textColor = textLight,
-                            dimColor = textDim,
-                            valueColor = warning,
-                            backgroundColor = if (isDark) Color(0xFF111827) else Color(0xFFF8FAFC),
-                            borderColor = cardBorder,
-                            modifier = Modifier.weight(1f)
-                        )
-                        UsageStat(
-                            label = "No mes",
-                            value = formatarMoedaMV(gastoCombustivelMesFrota),
-                            textColor = textLight,
-                            dimColor = textDim,
-                            valueColor = accent,
-                            backgroundColor = if (isDark) Color(0xFF111827) else Color(0xFFF8FAFC),
-                            borderColor = cardBorder,
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                    Text(
-                        "Registros nos ultimos 30 dias: $abastecimentosUltimos30Dias",
-                        color = textDim,
-                        fontSize = 12.sp
+                    OwnerChip(
+                        label = "Todos",
+                        selected = ownerFilter == null,
+                        onClick = { ownerFilter = null; healthFilter = null }
                     )
+                    ownerOptions.forEach { owner ->
+                        OwnerChip(
+                            label = owner,
+                            selected = ownerFilter == owner,
+                            onClick = { ownerFilter = owner; healthFilter = null }
+                        )
+                    }
                 }
             }
 
             Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(containerColor = surfaceDark),
-                border = BorderStroke(1.dp, cardBorder)
+                colors = CardDefaults.cardColors(containerColor = surface),
+                border = BorderStroke(1.dp, colorScheme.outlineVariant),
+                shape = RoundedCornerShape(14.dp)
             ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Text("Gastos por veiculo", color = textLight, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                    var buscaVeiculo by remember { mutableStateOf("") }
-                    var termoBusca by remember { mutableStateOf("") }
+                Column(modifier = Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("KPI mensal", color = textPrimary, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Text("Meta de críticos ($currentMonthLabel): até $criticalTarget veículo(s).", color = textDim, fontSize = 12.sp)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        SearchTextField(
-                            value = buscaVeiculo,
-                            onValueChange = { buscaVeiculo = it },
-                            placeholder = "Buscar veiculo",
-                            textColor = textLight,
-                            placeholderColor = textDim,
-                            borderColor = searchBorder,
-                            modifier = Modifier
-                                .weight(0.75f)
-                                .height(46.dp)
-                        )
-                        OutlinedButton(
-                            onClick = { termoBusca = buscaVeiculo; keyboardController?.hide(); focusManager.clearFocus() },
-                            border = BorderStroke(1.dp, if (isDark) Color(0xFF334155) else Color(0xFFCBD5E1)),
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                containerColor = Color(0xFF3B82F6),
-                                contentColor = Color.White
-                            ),
-                            contentPadding = PaddingValues(0.dp),
-                            shape = CircleShape,
-                            modifier = Modifier.size(40.dp)
-                        ) {
-                            Icon(Icons.Default.Search, contentDescription = "Buscar", modifier = Modifier.size(22.dp))
-                        }
-                    }
-                    if (gastoPorVeiculo.isEmpty()) {
-                        Text("Nenhum gasto registrado.", color = textDim, fontSize = 12.sp)
-                    } else {
-                        val filtro = termoBusca.trim().lowercase(Locale.getDefault())
-                        val gastoFiltrado = if (filtro.isBlank()) {
-                            gastoPorVeiculo
-                        } else {
-                            gastoPorVeiculo.filter { (carro, _) ->
-                                listOf(carro.nome, carro.marca, carro.modelo, carro.tipoVeiculo.label)
-                                    .any { it.lowercase(Locale.getDefault()).contains(filtro) }
-                            }
-                        }
-                        if (gastoFiltrado.isEmpty()) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 16.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                Icon(
-                                    Icons.Default.SearchOff,
-                                    contentDescription = null,
-                                    tint = textDim.copy(alpha = 0.6f),
-                                    modifier = Modifier.size(28.dp)
-                                )
-                                Spacer(Modifier.height(6.dp))
-                                Text("Nenhum veiculo encontrado", color = textDim, fontSize = 12.sp)
-                            }
-                        } else {
-                            gastoFiltrado.forEach { (carro, total) ->
-                            val abastecimentosCarro = abastecimentos.filter { it.carroId == carro.id }
-                            val lembretesCarro = lembretes.filter { it.carroId == carro.id }
-                            val combustivelMesCarro = abastecimentosCarro.filter {
-                                val data = try { LocalDate.parse(it.data, formatter) } catch (_: Exception) { null }
-                                data != null && YearMonth.from(data) == currentMonth
-                            }.sumOf { it.valorPago }
-                            val manutencoesMesCarro = lembretesCarro.mapNotNull { lembrete ->
-                                val data = try { LocalDate.parse(lembrete.dataLimite, formatter) } catch (_: Exception) { null }
-                                data?.let { lembrete to it }
-                            }.filter { (_, data) ->
-                                YearMonth.from(data) == currentMonth
-                            }.sumOf { (lembrete, _) -> lembrete.valor }
-                            val manutencoesFuturasCarro = lembretesCarro.mapNotNull { lembrete ->
-                                val data = try { LocalDate.parse(lembrete.dataLimite, formatter) } catch (_: Exception) { null }
-                                data?.let { lembrete to it }
-                            }.filter { (_, data) ->
-                                data.isAfter(LocalDate.now())
-                            }.sumOf { (lembrete, _) -> lembrete.valor }
-                            VehicleSpendCard(
-                                carro = carro,
-                                total = total,
-                                combustivelMes = combustivelMesCarro,
-                                manutencoesMes = manutencoesMesCarro,
-                                manutencoesFuturas = manutencoesFuturasCarro,
-                                isDark = isDark,
-                                textLight = textLight,
-                                textDim = textDim,
-                                borderColor = cardBorder,
-                                accent = accent,
-                                warning = warning,
-                                danger = danger,
-                                success = success
-                            )
-                            }
-                        }
-                    }
-                }
-            }
-
-            Spacer(Modifier.height(40.dp))
-        }
-    }
-}
-
-// --- COMPONENTES AUXILIARES ---
-
-@Composable
-fun BasicTextFieldCustom(
-    value: String,
-    onValueChange: (String) -> Unit,
-    color: Color,
-    accent: Color
-) {
-    Surface(
-        color = Color.Black.copy(alpha = 0.2f),
-        shape = RoundedCornerShape(8.dp),
-        modifier = Modifier.width(100.dp)
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.End
-        ) {
-            androidx.compose.foundation.text.BasicTextField(
-                value = value,
-                onValueChange = onValueChange,
-                textStyle = MaterialTheme.typography.titleMedium.copy(
-                    color = color,
-                    fontWeight = FontWeight.Bold,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.End
-                ),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                singleLine = true,
-                modifier = Modifier.weight(1f)
-            )
-            Text("km", color = color.copy(alpha = 0.7f), fontSize = 12.sp, modifier = Modifier.padding(start = 4.dp))
-        }
-    }
-}
-
-@Composable
-private fun AvisoCardModerno(
-    lembrete: Lembrete,
-    backgroundColor: Color,
-    textColor: Color,
-    dimColor: Color,
-    accentColor: Color,
-    successColor: Color,
-    warningColor: Color,
-    dangerColor: Color
-) {
-    val titulo = lembrete.titulo.ifBlank { lembrete.peca.ifBlank { "Manutencao" } }
-    val dataLabel = lembrete.dataLimite.ifBlank { "--/--" }
-
-    // Calculos de tempo e custo
-    val dataOrdenacao = dataParaOrdenacao(lembrete)
-    val diasRestantes = if (dataOrdenacao == LocalDate.MAX) null else ChronoUnit.DAYS.between(LocalDate.now(), dataOrdenacao).toInt()
-
-    val mesesRestantes = diasRestantes?.let { dias ->
-        if (dias <= 0) 1 else ceil(dias / 30.0).toInt()
-    } ?: 1
-
-    val guardarPorMes = if (lembrete.valor > 0.0) lembrete.valor / mesesRestantes else 0.0
-    val progresso = if (diasRestantes == null) 0.0f else (1f - (diasRestantes / 365f)).coerceIn(0.1f, 1f) // Exemplo visual
-
-    // Define cor baseada na urgencia
-    val statusColor = when {
-        diasRestantes != null && diasRestantes < 30 -> dangerColor
-        diasRestantes != null && diasRestantes < 90 -> warningColor
-        else -> accentColor
-    }
-
-    Card(
-        colors = CardDefaults.cardColors(containerColor = backgroundColor),
-        shape = RoundedCornerShape(16.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            // CABECALHO
-            Row(verticalAlignment = Alignment.Top) {
-                Box(
-                    modifier = Modifier
-                        .size(48.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(statusColor.copy(alpha = 0.15f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    TipoIcon(
-                        tipo = lembrete.tipo,
-                        tint = statusColor,
-                        size = 22.dp
-                    )
-                }
-                Spacer(Modifier.width(16.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(titulo, color = textColor, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.CalendarToday, contentDescription = null, tint = dimColor, modifier = Modifier.size(12.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text(dataLabel, color = dimColor, fontSize = 12.sp)
-                    }
-                    Spacer(Modifier.height(4.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Speed, contentDescription = null, tint = dimColor, modifier = Modifier.size(12.dp))
-                        Spacer(Modifier.width(4.dp))
                         Text(
-                            "KM limite: ${lembrete.kmLimite.ifBlank { "-" }}",
-                            color = dimColor,
+                            "Atual: $critical crítico(s)",
+                            color = if (kpiAtingido) Color(0xFF16A34A) else Color(0xFFEF4444),
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 13.sp
+                        )
+                        Text(
+                            if (kpiAtingido) "Meta atingida" else "Fora da meta",
+                            color = if (kpiAtingido) Color(0xFF16A34A) else Color(0xFFEF4444),
+                            fontWeight = FontWeight.Bold,
                             fontSize = 12.sp
                         )
                     }
                 }
-                // Tag de Valor Total
-                if (lembrete.valor > 0) {
-                    Surface(
-                        color = backgroundColor.copy(alpha = 0.5f),
-                        border = BorderStroke(1.dp, dimColor.copy(alpha = 0.2f)),
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
+            }
+
+            Card(
+                colors = CardDefaults.cardColors(containerColor = surface),
+                border = BorderStroke(1.dp, colorScheme.outlineVariant),
+                shape = RoundedCornerShape(14.dp)
+            ) {
+                Column(modifier = Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Resumo geral", color = textPrimary, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Text("Responsável: ${ownerFilter ?: "Todos"}", color = textDim, fontSize = 12.sp)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        SummaryPill("Veículos", total.toString(), Color(0xFF2563EB), Modifier.weight(1f))
+                        SummaryPill("Saúde boa", good.toString(), Color(0xFF16A34A), Modifier.weight(1f))
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        SummaryPill("Atenção", attention.toString(), Color(0xFFF59E0B), Modifier.weight(1f))
+                        SummaryPill("Crítico", critical.toString(), Color(0xFFEF4444), Modifier.weight(1f))
+                    }
+                    Text(
+                        "Custo pendente de manutenções: ${formatCurrency(pendingTotal)}",
+                        color = textDim,
+                        fontSize = 12.sp
+                    )
+                    Text(
+                        "Críticos no período anterior: $criticalPrev • Variação: ${if (criticalTrendDelta > 0) "+" else ""}$criticalTrendDelta",
+                        color = if (criticalTrendDelta > 0) Color(0xFFDC2626) else Color(0xFF16A34A),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+
+            Card(
+                colors = CardDefaults.cardColors(containerColor = surface),
+                border = BorderStroke(1.dp, colorScheme.outlineVariant),
+                shape = RoundedCornerShape(14.dp)
+            ) {
+                Column(modifier = Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Alertas acionáveis", color = textPrimary, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    if (critical > 0) {
+                        AlertActionCard(
+                            text = "$critical veículo(s) com risco crítico de manutenção.",
+                            color = Color(0xFFEF4444),
+                            actionLabel = "Ver críticos",
+                            onClick = { healthFilter = FleetHealth.CRITICAL }
+                        )
+                    }
+                    if (attention > 0) {
+                        AlertActionCard(
+                            text = "$attention veículo(s) com manutenção próxima.",
+                            color = Color(0xFFF59E0B),
+                            actionLabel = "Ver atenção",
+                            onClick = { healthFilter = FleetHealth.ATTENTION }
+                        )
+                    }
+                    if (withoutRecentFuel > 0) {
+                        AlertActionCard(
+                            text = "$withoutRecentFuel veículo(s) sem abastecimento nos últimos ${selectedPeriod.days} dias.",
+                            color = Color(0xFF2563EB),
+                            actionLabel = "Ver todos",
+                            onClick = { healthFilter = null }
+                        )
+                    }
+                    if (critical == 0 && attention == 0 && withoutRecentFuel == 0) {
                         Text(
-                            formatarMoedaMV(lembrete.valor),
-                            color = textColor,
-                            fontSize = 12.sp,
+                            "Nenhum alerta crítico no período selecionado.",
+                            color = Color(0xFF16A34A),
                             fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            fontSize = 13.sp
                         )
                     }
                 }
             }
 
-            Spacer(Modifier.height(16.dp))
-
-            // CORPO: META FINANCEIRA
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(Color.Black.copy(alpha = 0.2f), RoundedCornerShape(12.dp))
-                    .padding(12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+            Card(
+                colors = CardDefaults.cardColors(containerColor = surface),
+                border = BorderStroke(1.dp, colorScheme.outlineVariant),
+                shape = RoundedCornerShape(14.dp)
             ) {
-                Column {
-                    Text("RESERVAR MENSALMENTE", color = dimColor, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                    Text(
-                        if (guardarPorMes > 0) formatarMoedaMV(guardarPorMes) else "R$ 0,00",
-                        color = successColor,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 18.sp
-                    )
-                }
-
-                VerticalDivider(color = dimColor.copy(alpha = 0.2f), modifier = Modifier.height(24.dp))
-
-                Column(horizontalAlignment = Alignment.End) {
-                    Text("PRAZO ESTIMADO", color = dimColor, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                    Text(
-                        if (mesesRestantes == 1) "1 mes" else "$mesesRestantes meses",
-                        color = textColor,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 14.sp
-                    )
+                Column(modifier = Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Comparativo da frota", color = textPrimary, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Text("Top custo por veículo (${selectedPeriod.label})", color = textDim, fontSize = 12.sp)
+                    if (topCostVehicles.isEmpty()) {
+                        Text("Sem dados de abastecimento no período.", color = textDim, fontSize = 12.sp)
+                    } else {
+                        topCostVehicles.forEachIndexed { index, item ->
+                            RankingRow(
+                                position = index + 1,
+                                title = item.carro.nome,
+                                subtitle = item.owner,
+                                value = formatCurrency(item.recentFuelCost)
+                            )
+                        }
+                    }
+                    Text("Top uso por veículo (litros)", color = textDim, fontSize = 12.sp)
+                    if (topUsageVehicles.isEmpty()) {
+                        Text("Sem dados de uso no período.", color = textDim, fontSize = 12.sp)
+                    } else {
+                        topUsageVehicles.forEachIndexed { index, item ->
+                            RankingRow(
+                                position = index + 1,
+                                title = item.carro.nome,
+                                subtitle = item.owner,
+                                value = String.format(java.util.Locale.US, "%.1f L", item.recentFuelLiters)
+                            )
+                        }
+                    }
+                    Text("Top responsáveis (custo total)", color = textDim, fontSize = 12.sp)
+                    if (topOwners.isEmpty()) {
+                        Text("Sem responsáveis com dados no período.", color = textDim, fontSize = 12.sp)
+                    } else {
+                        topOwners.forEachIndexed { index, item ->
+                            RankingRow(
+                                position = index + 1,
+                                title = item.first,
+                                subtitle = String.format(java.util.Locale.US, "%.1f L", item.third),
+                                value = formatCurrency(item.second)
+                            )
+                        }
+                    }
                 }
             }
 
-            Spacer(Modifier.height(16.dp))
-
-            // RODAPE: IMPACTO (Alerta)
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(dangerColor.copy(alpha = 0.1f))
-                    .padding(10.dp)
+            Card(
+                colors = CardDefaults.cardColors(containerColor = surface),
+                border = BorderStroke(1.dp, colorScheme.outlineVariant),
+                shape = RoundedCornerShape(14.dp)
             ) {
-                Icon(Icons.Default.Info, contentDescription = null, tint = dangerColor.copy(alpha = 0.8f), modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    text = "Risco: ${impactoSeNaoTrocar(lembrete.tipo)}",
-                    color = dangerColor.copy(alpha = 0.9f),
-                    fontSize = 11.sp,
-                    lineHeight = 14.sp,
-                    fontWeight = FontWeight.Medium
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    SummaryPill("Todos", fleetStatuses.size.toString(), Color(0xFF64748B), Modifier.weight(1f))
+                    SummaryPill("Boa", good.toString(), Color(0xFF16A34A), Modifier.weight(1f))
+                    SummaryPill("Atenção", attention.toString(), Color(0xFFF59E0B), Modifier.weight(1f))
+                    SummaryPill("Crítico", critical.toString(), Color(0xFFEF4444), Modifier.weight(1f))
+                }
+            }
+
+            if (fleetStatuses.isEmpty()) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = surface),
+                    border = BorderStroke(1.dp, colorScheme.outlineVariant),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    Text(
+                        "Nenhum veículo cadastrado para análise.",
+                        color = textDim,
+                        modifier = Modifier.padding(14.dp)
+                    )
+                }
+            } else {
+                filteredStatuses.forEach { status ->
+                    VehicleStatusCard(status = status, today = today)
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
+        }
+    }
+}
+
+@Composable
+private fun VehicleStatusCard(
+    status: VehicleFleetStatus,
+    today: LocalDate
+) {
+    val scheme = MaterialTheme.colorScheme
+    val textPrimary = scheme.onSurface
+    val textDim = scheme.onSurfaceVariant
+
+    val (healthText, healthColor, healthBg) = when (status.health) {
+        FleetHealth.GOOD -> Triple("Saúde boa", Color(0xFF16A34A), Color(0xFFDCFCE7))
+        FleetHealth.ATTENTION -> Triple("Atenção", Color(0xFFF59E0B), Color(0xFFFEF3C7))
+        FleetHealth.CRITICAL -> Triple("Crítico", Color(0xFFEF4444), Color(0xFFFEE2E2))
+    }
+
+    Card(
+        colors = CardDefaults.cardColors(containerColor = scheme.surface),
+        border = BorderStroke(1.dp, scheme.outlineVariant),
+        shape = RoundedCornerShape(14.dp)
+    ) {
+        Column(modifier = Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(status.carro.nome, color = textPrimary, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Text(
+                        listOfNotNull(
+                            status.carro.tipoVeiculo.label,
+                            status.carro.marca.takeIf { it.isNotBlank() },
+                            status.carro.modelo.takeIf { it.isNotBlank() }
+                        ).joinToString(" • "),
+                        color = textDim,
+                        fontSize = 12.sp
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .background(healthBg, RoundedCornerShape(10.dp))
+                        .padding(horizontal = 10.dp, vertical = 5.dp)
+                ) {
+                    Text(healthText, color = healthColor, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                }
+            }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                MetricBox(
+                    icon = Icons.Default.BuildCircle,
+                    label = "Manutenções",
+                    value = "Vencidas: ${status.overdueCount} • Próx. 30d: ${status.upcoming30Count}",
+                    modifier = Modifier.weight(1f)
                 )
             }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                val nextDateText = status.nextMaintenanceDate?.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")) ?: "Sem previsão"
+                val fuelDateText = status.lastFuelDate?.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")) ?: "Sem registro"
+                val fuelExtra = if (status.lastFuelDate != null) {
+                    val days = ChronoUnit.DAYS.between(status.lastFuelDate, today)
+                    " há ${days}d"
+                } else ""
+
+                MetricBox(
+                    icon = Icons.Default.CalendarMonth,
+                    label = "Próxima manutenção",
+                    value = nextDateText,
+                    modifier = Modifier.weight(1f)
+                )
+                MetricBox(
+                    icon = Icons.Default.LocalGasStation,
+                    label = "Último abastecimento",
+                    value = "$fuelDateText$fuelExtra",
+                    modifier = Modifier.weight(1f)
+                )
+            }
+
+            Text(
+                "Valor pendente: ${formatCurrency(status.pendingCost)}${status.lastFuelValue?.let { " • Último valor: ${formatCurrency(it)}" } ?: ""}",
+                color = textDim,
+                fontSize = 12.sp
+            )
         }
     }
 }
 
 @Composable
-private fun UsageStat(
+private fun SummaryPill(label: String, value: String, color: Color, modifier: Modifier = Modifier) {
+    Card(
+        modifier = modifier,
+        colors = CardDefaults.cardColors(containerColor = color.copy(alpha = 0.12f)),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Column(modifier = Modifier.fillMaxWidth().padding(10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(label, color = color, fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
+            Text(value, color = color, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+        }
+    }
+}
+
+@Composable
+private fun MetricBox(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,
     value: String,
-    textColor: Color,
-    dimColor: Color,
-    modifier: Modifier = Modifier,
-    valueColor: Color = textColor,
-    backgroundColor: Color = Color(0xFFF8FAFC),
-    borderColor: Color = Color(0xFFE2E8F0)
-) {
-    Column(
-        modifier = modifier
-            .background(backgroundColor, RoundedCornerShape(12.dp))
-            .border(1.dp, borderColor, RoundedCornerShape(12.dp))
-            .padding(12.dp)
-    ) {
-        Text(label, color = dimColor, fontSize = 11.sp)
-        Text(value, color = valueColor, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-    }
-}
-
-@Composable
-fun VerticalDivider(
-    modifier: Modifier = Modifier,
-    color: Color = MaterialTheme.colorScheme.outlineVariant,
-    thickness: androidx.compose.ui.unit.Dp = 1.dp
-) {
-    Box(
-        modifier
-            .fillMaxHeight()
-            .width(thickness)
-            .background(color = color)
-    )
-}
-
-// --- FUNCOES DE LOGICA DE NEGOCIO (Mantidas para integridade) ---
-private fun impactoSeNaoTrocar(tipo: TipoManutencao): String = when (tipo) {
-    TipoManutencao.CORRENTE -> "Desgaste e risco de quebra da corrente"
-    TipoManutencao.LUBRIFICACAO -> "Atrito elevado e desgaste acelerado"
-    TipoManutencao.PEDIVELA -> "Folgas e perda de eficiencia na pedalada"
-    TipoManutencao.ACESSORIOS -> "Falhas ou quebras de itens adicionais"
-    TipoManutencao.CONFORTO -> "Desgaste de itens que afetam o conforto"
-    TipoManutencao.PNEU -> "Perda de aderencia e risco de furo"
-    TipoManutencao.TRANSMISSAO -> "Trocas de marcha imprecisas"
-    TipoManutencao.REVISAO -> "Falhas gerais e desgaste acumulado"
-    TipoManutencao.OLEO -> "Desgaste severo do motor"
-    TipoManutencao.BATERIA -> "Falha na partida (pane)"
-    TipoManutencao.MECANICA -> "Quebras maiores e guincho"
-    TipoManutencao.FUNILARIA -> "Risco de corrosao e perda de acabamento"
-    TipoManutencao.FREIO -> "Perda de freio (acidente)"
-    TipoManutencao.LICENCIAMENTO -> "Apreensao do veiculo"
-    TipoManutencao.IPVA -> "Bloqueio de documento"
-    TipoManutencao.SEGURO -> "Risco financeiro em caso de sinistro"
-    TipoManutencao.OUTROS -> "Falhas inesperadas"
-}
-
-@Composable
-fun EmptyStateCard(surfaceColor: Color, dimColor: Color) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 40.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Icon(Icons.Default.Build, contentDescription = null, tint = dimColor.copy(alpha = 0.2f), modifier = Modifier.size(64.dp))
-        Spacer(Modifier.height(16.dp))
-        Text("Tudo tranquilo por aqui", color = dimColor, fontWeight = FontWeight.SemiBold)
-        Text("Adicione manutencoes para ver previsoes.", color = dimColor.copy(alpha = 0.5f), fontSize = 14.sp)
-    }
-}
-
-fun formatarMoedaMV(valor: Double): String {
-    return java.text.NumberFormat.getCurrencyInstance(Locale("pt", "BR")).format(valor)
-}
-
-@Composable
-private fun SearchTextField(
-    value: String,
-    onValueChange: (String) -> Unit,
-    placeholder: String,
-    textColor: Color,
-    placeholderColor: Color,
-    borderColor: Color,
     modifier: Modifier = Modifier
 ) {
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(8.dp))
-            .border(1.dp, borderColor, RoundedCornerShape(8.dp))
-            .padding(horizontal = 12.dp),
-        contentAlignment = Alignment.CenterStart
+    val scheme = MaterialTheme.colorScheme
+    Card(
+        modifier = modifier,
+        colors = CardDefaults.cardColors(containerColor = scheme.surfaceVariant.copy(alpha = 0.4f)),
+        shape = RoundedCornerShape(12.dp)
     ) {
-        androidx.compose.foundation.text.BasicTextField(
-            value = value,
-            onValueChange = onValueChange,
-            singleLine = true,
-            cursorBrush = SolidColor(textColor),
-            textStyle = TextStyle(color = textColor, fontSize = 13.sp),
-            modifier = Modifier.fillMaxWidth()
-        )
-        if (value.isEmpty()) {
-            Text(placeholder, color = placeholderColor, fontSize = 13.sp)
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(icon, contentDescription = null, tint = scheme.primary, modifier = Modifier.size(18.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                Text(label, color = scheme.onSurfaceVariant, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                Text(value, color = scheme.onSurface, fontSize = 12.sp)
+            }
         }
     }
 }
 
+@Composable
+private fun AlertActionCard(
+    text: String,
+    color: Color,
+    actionLabel: String,
+    onClick: () -> Unit
+) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = color.copy(alpha = 0.12f)),
+        border = BorderStroke(1.dp, color.copy(alpha = 0.45f)),
+        shape = RoundedCornerShape(10.dp),
+        onClick = onClick
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(text, color = color, fontSize = 12.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+            Text(actionLabel, color = color, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
+private fun RankingRow(
+    position: Int,
+    title: String,
+    subtitle: String,
+    value: String
+) {
+    val scheme = MaterialTheme.colorScheme
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(scheme.surfaceVariant.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
+            .padding(horizontal = 10.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(position.toString(), color = scheme.primary, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, color = scheme.onSurface, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            Text(subtitle, color = scheme.onSurfaceVariant, fontSize = 11.sp)
+        }
+        Text(value, color = scheme.onSurface, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+    }
+}
+
+private fun formatCurrency(value: Double): String {
+    return java.text.NumberFormat.getCurrencyInstance(java.util.Locale("pt", "BR")).format(value)
+}
+
+@Composable
+private fun OwnerChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    val scheme = MaterialTheme.colorScheme
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = if (selected) scheme.primary.copy(alpha = 0.18f) else scheme.surfaceVariant.copy(alpha = 0.35f)
+        ),
+        border = BorderStroke(1.dp, if (selected) scheme.primary else scheme.outlineVariant),
+        shape = RoundedCornerShape(20.dp),
+        onClick = onClick
+    ) {
+        Text(
+            text = label,
+            color = scheme.onSurface,
+            fontSize = 12.sp,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+        )
+    }
+}
+
+private fun gerarPdfStatusFrota(
+    context: Context,
+    statuses: List<VehicleFleetStatus>,
+    selectedPeriod: FleetPeriod,
+    ownerFilter: String?,
+    healthFilter: FleetHealth?,
+    companyName: String,
+    total: Int,
+    good: Int,
+    attention: Int,
+    critical: Int,
+    pendingTotal: Double
+): Uri? {
+    return try {
+        val document = PdfDocument()
+        val pageWidth = 595
+        val pageHeight = 842
+        val margin = 36f
+        val lineHeight = 17f
+        val titlePaint = Paint().apply {
+            textSize = 20f
+            color = android.graphics.Color.BLACK
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            isAntiAlias = true
+        }
+        val sectionPaint = Paint().apply {
+            textSize = 13f
+            color = android.graphics.Color.BLACK
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            isAntiAlias = true
+        }
+        val bodyPaint = Paint().apply {
+            textSize = 11f
+            color = android.graphics.Color.DKGRAY
+            isAntiAlias = true
+        }
+        val dividerPaint = Paint().apply {
+            color = android.graphics.Color.parseColor("#CBD5E1")
+            strokeWidth = 1.2f
+            isAntiAlias = true
+        }
+        val dateFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
+
+        var pageIndex = 1
+        var page = document.startPage(PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageIndex).create())
+        var canvas = page.canvas
+        var y = 48f
+
+        canvas.drawColor(android.graphics.Color.WHITE)
+        val centerPaint = Paint(titlePaint).apply { textAlign = Paint.Align.CENTER }
+        canvas.drawText("RELATORIO EXECUTIVO", pageWidth / 2f, 210f, centerPaint)
+        canvas.drawText("STATUS DA FROTA", pageWidth / 2f, 242f, centerPaint)
+        val coverBody = Paint(bodyPaint).apply { textAlign = Paint.Align.CENTER; textSize = 12f }
+        canvas.drawText(companyName, pageWidth / 2f, 290f, coverBody)
+        canvas.drawText("Periodo: ${selectedPeriod.label}", pageWidth / 2f, 314f, coverBody)
+        canvas.drawText("Responsavel: ${ownerFilter ?: "Todos"}", pageWidth / 2f, 338f, coverBody)
+        canvas.drawText("Emitido em ${LocalDate.now().format(dateFormatter)}", pageWidth / 2f, 362f, coverBody)
+        document.finishPage(page)
+        pageIndex += 1
+        page = document.startPage(PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageIndex).create())
+        canvas = page.canvas
+        y = 48f
+
+        fun newPage() {
+            document.finishPage(page)
+            pageIndex += 1
+            page = document.startPage(PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageIndex).create())
+            canvas = page.canvas
+            canvas.drawColor(android.graphics.Color.WHITE)
+            y = 48f
+        }
+
+        fun ensureSpace(required: Float) {
+            if (y + required > pageHeight - 48f) newPage()
+        }
+
+        fun drawLine(text: String, paint: Paint = bodyPaint) {
+            ensureSpace(lineHeight + 2f)
+            canvas.drawText(text, margin, y, paint)
+            y += lineHeight
+        }
+
+        canvas.drawColor(android.graphics.Color.WHITE)
+        canvas.drawText("RELATORIO STATUS DA FROTA", margin, y, titlePaint)
+        y += 24f
+        drawLine("Gerado em: ${LocalDate.now().format(dateFormatter)}")
+        drawLine("Periodo: ${selectedPeriod.label}")
+        drawLine("Responsavel: ${ownerFilter ?: "Todos"}")
+        drawLine(
+            "Filtro: ${
+                when (healthFilter) {
+                    FleetHealth.GOOD -> "Saude boa"
+                    FleetHealth.ATTENTION -> "Atencao"
+                    FleetHealth.CRITICAL -> "Critico"
+                    null -> "Todos"
+                }
+            }"
+        )
+        y += 4f
+        canvas.drawLine(margin, y, pageWidth - margin, y, dividerPaint)
+        y += 18f
+
+        canvas.drawText("RESUMO EXECUTIVO", margin, y, sectionPaint)
+        y += 18f
+        drawLine("Total de veiculos: $total")
+        drawLine("Saude boa: $good")
+        drawLine("Em atencao: $attention")
+        drawLine("Criticos: $critical")
+        drawLine("Custo pendente de manutencao: ${formatCurrency(pendingTotal)}")
+
+        y += 10f
+        canvas.drawLine(margin, y, pageWidth - margin, y, dividerPaint)
+        y += 18f
+        canvas.drawText("DETALHAMENTO POR VEICULO", margin, y, sectionPaint)
+        y += 18f
+
+        if (statuses.isEmpty()) {
+            drawLine("Nenhum veiculo no filtro atual.")
+        } else {
+            statuses.forEachIndexed { index, item ->
+                ensureSpace(112f)
+                val healthText = when (item.health) {
+                    FleetHealth.GOOD -> "Saude boa"
+                    FleetHealth.ATTENTION -> "Atencao"
+                    FleetHealth.CRITICAL -> "Critico"
+                }
+                canvas.drawText("${index + 1}. ${item.carro.nome}", margin, y, sectionPaint)
+                y += 16f
+                drawLine("Tipo: ${item.carro.tipoVeiculo.label} | Responsavel: ${item.owner}")
+                drawLine("Status: $healthText | Vencidas: ${item.overdueCount} | Prox.30d: ${item.upcoming30Count}")
+                drawLine("Proxima manutencao: ${item.nextMaintenanceDate?.format(dateFormatter) ?: "Sem previsao"}")
+                drawLine("Ultimo abastecimento: ${item.lastFuelDate?.format(dateFormatter) ?: "Sem registro"}")
+                drawLine("Abastecimentos no periodo: ${item.recentFuelCount} | Litros: ${String.format(java.util.Locale.US, "%.1f", item.recentFuelLiters)}")
+                drawLine("Custo combustivel periodo: ${formatCurrency(item.recentFuelCost)} | Pendente manutencao: ${formatCurrency(item.pendingCost)}")
+                y += 4f
+                canvas.drawLine(margin, y, pageWidth - margin, y, dividerPaint)
+                y += 14f
+            }
+        }
+
+        document.finishPage(page)
+        val file = File(context.cacheDir, "status_frota_${System.currentTimeMillis()}.pdf")
+        FileOutputStream(file).use { document.writeTo(it) }
+        document.close()
+        androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+    } catch (_: Exception) {
+        null
+    }
+}
+
+private fun carregarResponsaveisViagem(context: Context): List<String> {
+    return runCatching {
+        val raw = context.getSharedPreferences("travel_expenses_prefs", Context.MODE_PRIVATE)
+            .getString("travel_trips_json", null)
+            .orEmpty()
+        if (raw.isBlank()) return emptyList()
+        val arr = JSONArray(raw)
+        buildList {
+            for (i in 0 until arr.length()) {
+                val obj = arr.optJSONObject(i) ?: continue
+                val responsible = obj.optString("responsible").trim()
+                if (responsible.isNotBlank()) add(responsible)
+            }
+        }.distinct().sorted()
+    }.getOrDefault(emptyList())
+}
 

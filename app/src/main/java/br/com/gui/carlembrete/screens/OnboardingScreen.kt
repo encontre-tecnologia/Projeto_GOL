@@ -248,6 +248,7 @@ fun OnboardingScreen(
         7 -> 5
         6 -> 8
         5 -> 1
+        9 -> 5
         4 -> 7
         2 -> 1
         else -> null
@@ -686,16 +687,7 @@ fun OnboardingScreen(
                                                         "click Permitir -> permission='${item.permission}' required=${isRuntimePermissionRequired(item.permission)} currentGranted=${permissionStatus[item.permission] == true}"
                                                     )
                                                     if (item.permission == Manifest.permission.POST_NOTIFICATIONS) {
-                                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                                                            ContextCompat.checkSelfPermission(context, item.permission) != PackageManager.PERMISSION_GRANTED
-                                                        ) {
-                                                            requestedPermissionOnce[item.permission] = true
-                                                            Log.d(TAG_ONBOARDING_PERMISSIONS, "request runtime POST_NOTIFICATIONS")
-                                                            permissionLauncher.launch(arrayOf(item.permission))
-                                                        } else {
-                                                            Log.d(TAG_ONBOARDING_PERMISSIONS, "open notification settings")
-                                                            openAppNotificationSettings(context)
-                                                        }
+                                                        step = 9
                                                     } else if (isRuntimePermissionRequired(item.permission)) {
                                                         val activity = context.findActivity()
                                                         val wasRequested = requestedPermissionOnce[item.permission] == true
@@ -724,7 +716,7 @@ fun OnboardingScreen(
                                                 ),
                                                 shape = RoundedCornerShape(10.dp)
                                             ) {
-                                                Text("Permitir")
+                                                Text(if (item.permission == Manifest.permission.POST_NOTIFICATIONS) "Configurar notificações" else "Permitir")
                                             }
                                         }
                                     }
@@ -745,6 +737,101 @@ fun OnboardingScreen(
                                     )
                                 ) { Text("Próximo", fontSize = 19.sp) }
                             }
+                        }
+                    }
+                    9 -> {
+                        val notifGranted = permissionStatus[Manifest.permission.POST_NOTIFICATIONS] == true
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .fillMaxHeight()
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(bottom = 12.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Notifications,
+                                    contentDescription = null,
+                                    tint = Color(0xFF93C5FD),
+                                    modifier = Modifier.size(56.dp)
+                                )
+                            }
+                            Text(
+                                "Notificações",
+                                style = MaterialTheme.typography.headlineMedium,
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Spacer(Modifier.height(10.dp))
+                            Text(
+                                "Ative as notificações para receber lembretes, avisos de manutenção e alertas importantes do Zellu.",
+                                color = Color(0xFFBFDBFE),
+                                textAlign = TextAlign.Center,
+                                lineHeight = 20.sp,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Spacer(Modifier.height(20.dp))
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                                border = BorderStroke(1.dp, if (notifGranted) Color(0xFF22C55E) else Color(0xFFEF4444)),
+                                shape = RoundedCornerShape(14.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(14.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text("Status", color = Color.White, fontWeight = FontWeight.Bold)
+                                    Text(
+                                        if (notifGranted) "Permitido" else "Pendente",
+                                        color = if (notifGranted) Color(0xFF86EFAC) else Color(0xFFFCA5A5),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.height(14.dp))
+                            Button(
+                                onClick = {
+                                    Log.d(TAG_ONBOARDING_PERMISSIONS, "click Permitir na tela dedicada de notificações")
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                                        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                                    ) {
+                                        requestedPermissionOnce[Manifest.permission.POST_NOTIFICATIONS] = true
+                                        permissionLauncher.launch(arrayOf(Manifest.permission.POST_NOTIFICATIONS))
+                                    } else {
+                                        openAppNotificationSettings(context)
+                                    }
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(50.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = Color(0xFF3B82F6),
+                                    contentColor = Color.White
+                                ),
+                                shape = RoundedCornerShape(10.dp)
+                            ) { Text("Permitir notificações") }
+                            Spacer(Modifier.weight(1f))
+                            Button(
+                                onClick = { step = 5 },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(56.dp),
+                                shape = RoundedCornerShape(10.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (notifGranted) Color(0xFF60A5FA) else Color(0xFF475569),
+                                    contentColor = Color.White
+                                )
+                            ) { Text(if (notifGranted) "Voltar para permissões" else "Voltar", fontSize = 18.sp) }
                         }
                     }
                     7 -> {

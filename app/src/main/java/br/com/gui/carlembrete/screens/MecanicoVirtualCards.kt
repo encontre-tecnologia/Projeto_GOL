@@ -3,11 +3,9 @@
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -17,6 +15,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import java.util.Locale
 
 @Composable
 fun VehicleSpendCard(
@@ -34,19 +33,31 @@ fun VehicleSpendCard(
     danger: Color,
     success: Color
 ) {
-    val cardBackground = MaterialTheme.colorScheme.surface
-    val subtitleColor = if (isDark) Color.White.copy(alpha = 0.85f) else Color(0xFF475569)
-    val typeBadgeBg = if (isDark) Color(0xFF2D3748) else Color(0xFFE2E8F0)
-    val typeBadgeBorder = if (isDark) Color(0xFF4A5568) else Color(0xFFCBD5E1)
-    val typeBadgeText = if (isDark) Color(0xFFE2E8F0) else Color(0xFF334155)
-    val totalValueColor = if (isDark) Color.White else Color(0xFF0F172A)
+    val custoMes = (combustivelMes + manutencoesMes).coerceAtLeast(0.0)
+    val riscoLabel = when {
+        manutencoesFuturas > 3000.0 -> "Risco crítico"
+        manutencoesFuturas > 0.0 -> "Risco moderado"
+        else -> "Operação estável"
+    }
+    val riscoColor = when {
+        manutencoesFuturas > 3000.0 -> danger
+        manutencoesFuturas > 0.0 -> warning
+        else -> success
+    }
+
+    val cardBackground = if (isDark) Color(0xFF0F1B2E) else Color(0xFFFDFEFF)
+    val cardStroke = if (isDark) borderColor.copy(alpha = 0.8f) else Color(0xFFD9E2EC)
+    val subtitleColor = if (isDark) Color(0xFFBFCCE0) else Color(0xFF5B6B7B)
+    val typeBadgeBg = if (isDark) Color(0xFF172842) else Color(0xFFEAF2FF)
+    val typeBadgeBorder = if (isDark) Color(0xFF2E4568) else Color(0xFFD4E3FF)
+    val typeBadgeText = if (isDark) Color(0xFFD8E7FF) else Color(0xFF264266)
 
     Card(
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(containerColor = cardBackground),
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, borderColor, RoundedCornerShape(20.dp))
+            .border(1.dp, cardStroke, RoundedCornerShape(18.dp))
     ) {
         Column(
             modifier = Modifier.padding(16.dp)
@@ -60,9 +71,8 @@ fun VehicleSpendCard(
                     Text(
                         text = carro.nome,
                         color = textLight,
-                        fontWeight = FontWeight.ExtraBold,
-                        fontSize = 18.sp,
-                        letterSpacing = (-0.5).sp
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 17.sp
                     )
                     Text(
                         text = listOfNotNull(carro.marca.takeIf { it.isNotBlank() }, carro.modelo.takeIf { it.isNotBlank() })
@@ -70,7 +80,7 @@ fun VehicleSpendCard(
                             .ifBlank { "Sem detalhes" },
                         color = subtitleColor,
                         fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium
+                        fontWeight = FontWeight.Normal
                     )
                 }
 
@@ -85,122 +95,61 @@ fun VehicleSpendCard(
                         text = carro.tipoVeiculo.label.uppercase(),
                         color = typeBadgeText,
                         fontSize = 10.sp,
-                        fontWeight = FontWeight.Black,
-                        letterSpacing = 0.5.sp
+                        fontWeight = FontWeight.Bold
                     )
                 }
             }
 
-            Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(14.dp))
+
+            Text(
+                text = "Custo do mês",
+                color = textDim,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                text = formatarMoedaMV(custoMes),
+                color = accent,
+                fontSize = 27.sp,
+                fontWeight = FontWeight.Black
+            )
+
+            Spacer(Modifier.height(10.dp))
 
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(if (isDark) Color(0xFF13233A) else Color(0xFFF3F8FF))
+                    .border(1.dp, riscoColor.copy(alpha = if (isDark) 0.45f else 0.3f), RoundedCornerShape(12.dp))
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                FinancePill(
-                    modifier = Modifier.weight(1f),
-                    label = "Abastecido",
-                    value = if (combustivelMes > 0.0) formatarMoedaMV(combustivelMes) else "R$ 0,00",
-                    indicatorColor = accent,
-                    isDark = isDark,
-                    textColor = textLight,
-                    dimColor = textDim
+                Text(
+                    text = riscoLabel,
+                    color = textLight,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
                 )
-                FinancePill(
-                    modifier = Modifier.weight(1f),
-                    label = "Manut. mês",
-                    value = if (manutencoesMes > 0.0) formatarMoedaMV(manutencoesMes) else "R$ 0,00",
-                    indicatorColor = warning,
-                    isDark = isDark,
-                    textColor = textLight,
-                    dimColor = textDim
+                Text(
+                    text = if (manutencoesFuturas > 0.0) formatarMoedaMV(manutencoesFuturas) else "R$ 0,00",
+                    color = riscoColor,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
                 )
             }
-
             Spacer(Modifier.height(8.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                FinancePill(
-                    modifier = Modifier.weight(1f),
-                    label = "Próx. manut.",
-                    value = if (manutencoesFuturas > 0.0) formatarMoedaMV(manutencoesFuturas) else "R$ 0,00",
-                    indicatorColor = danger,
-                    isDark = isDark,
-                    textColor = textLight,
-                    dimColor = textDim
-                )
-
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(success.copy(alpha = 0.15f))
-                        .border(0.5.dp, success.copy(alpha = 0.4f), RoundedCornerShape(14.dp))
-                        .padding(12.dp)
-                ) {
-                    Text(
-                        text = "TOTAL GERAL",
-                        color = success,
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Black
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        text = if (total > 0.0) formatarMoedaMV(total) else "R$ 0,00",
-                        color = totalValueColor,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Black
-                    )
-                }
-            }
+            Text(
+                text = "Acumulado: ${if (total > 0.0) formatarMoedaMV(total) else "R$ 0,00"}",
+                color = textDim,
+                fontSize = 11.sp
+            )
         }
     }
 }
 
-@Composable
-private fun FinancePill(
-    modifier: Modifier = Modifier,
-    label: String,
-    value: String,
-    indicatorColor: Color,
-    isDark: Boolean,
-    textColor: Color,
-    dimColor: Color
-) {
-    val pillBg = if (isDark) Color(0xFF1E293B).copy(alpha = 0.5f) else Color(0xFFF8FAFC)
-    val pillBorder = if (isDark) Color(0xFF334155) else Color(0xFFCBD5E1)
-
-    Column(
-        modifier = modifier
-            .clip(RoundedCornerShape(14.dp))
-            .background(pillBg)
-            .border(0.5.dp, pillBorder, RoundedCornerShape(14.dp))
-            .padding(12.dp)
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                modifier = Modifier
-                    .size(6.dp)
-                    .clip(CircleShape)
-                    .background(indicatorColor)
-            )
-            Spacer(Modifier.width(6.dp))
-            Text(
-                text = label.uppercase(),
-                color = dimColor,
-                fontSize = 9.sp,
-                fontWeight = FontWeight.Bold
-            )
-        }
-        Spacer(Modifier.height(4.dp))
-        Text(
-            text = value,
-            color = textColor,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.ExtraBold
-        )
-    }
+private fun formatarMoedaMV(valor: Double): String {
+    return java.text.NumberFormat.getCurrencyInstance(Locale("pt", "BR")).format(valor)
 }

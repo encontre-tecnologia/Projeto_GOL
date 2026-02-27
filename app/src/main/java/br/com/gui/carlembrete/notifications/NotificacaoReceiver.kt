@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
@@ -227,6 +228,23 @@ object NotificacaoHelper {
         prefs.edit().putString(PREFS_HISTORY_KEY, enxuto.toString()).apply()
     }
 
+    fun registrarNotificacaoDisparadaUnica(
+        context: Context,
+        id: String,
+        titulo: String,
+        descricao: String,
+        carroId: String?
+    ) {
+        removerNotificacoesPorId(context, id)
+        registrarNotificacaoDisparada(
+            context = context,
+            id = id,
+            titulo = titulo,
+            descricao = descricao,
+            carroId = carroId
+        )
+    }
+
     fun carregarNotificacoesDisparadas(context: Context, carroId: String? = null): List<NotificacaoDisparada> {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val array = runCatching { JSONArray(prefs.getString(PREFS_HISTORY_KEY, null)) }.getOrElse { JSONArray() }
@@ -265,6 +283,39 @@ object NotificacaoHelper {
             atualizado.put(obj)
         }
         prefs.edit().putString(PREFS_HISTORY_KEY, atualizado.toString()).apply()
+    }
+
+    fun removerNotificacoesPorId(context: Context, id: String) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val array = runCatching { JSONArray(prefs.getString(PREFS_HISTORY_KEY, null)) }.getOrElse { JSONArray() }
+        val atualizado = JSONArray()
+        for (i in 0 until array.length()) {
+            val obj = array.optJSONObject(i) ?: continue
+            val objId = obj.optString("id")
+            if (objId == id) continue
+            atualizado.put(obj)
+        }
+        prefs.edit().putString(PREFS_HISTORY_KEY, atualizado.toString()).apply()
+    }
+
+    fun registrarListenerHistorico(
+        context: Context,
+        onChanged: () -> Unit
+    ): SharedPreferences.OnSharedPreferenceChangeListener {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == PREFS_HISTORY_KEY) onChanged()
+        }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        return listener
+    }
+
+    fun removerListenerHistorico(
+        context: Context,
+        listener: SharedPreferences.OnSharedPreferenceChangeListener
+    ) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .unregisterOnSharedPreferenceChangeListener(listener)
     }
 
     private fun salvarHora(context: Context, lembreteId: String, hora: String) {

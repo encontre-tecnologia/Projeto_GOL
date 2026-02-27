@@ -1,4 +1,4 @@
-package br.com.gui.carlembrete
+﻿package br.com.gui.carlembrete
 
 import android.content.Context
 import android.content.Intent
@@ -19,6 +19,7 @@ import android.print.PrintAttributes
 import android.print.PrintDocumentAdapter
 import android.print.PrintDocumentInfo
 import android.print.PrintManager
+import android.provider.CalendarContract
 import android.speech.tts.TextToSpeech
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -47,6 +48,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBackIosNew
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
@@ -139,6 +141,8 @@ private data class TravelExpense(
 private data class TravelTrip(
     val id: String,
     val name: String,
+    val responsible: String = "",
+    val participantEmails: List<String> = emptyList(),
     val expenses: List<TravelExpense>
 )
 
@@ -163,6 +167,7 @@ fun AssistentePremiumScreen(
         TravelTrip(
             id = UUID.randomUUID().toString(),
             name = "Minha viagem",
+            responsible = "",
             expenses = emptyList()
         )
     }
@@ -174,6 +179,9 @@ fun AssistentePremiumScreen(
     var tripName by remember(context) { mutableStateOf(trips.firstOrNull()?.name ?: defaultTrip.name) }
     var showExpensesScreen by remember { mutableStateOf(false) }
     var showTripsScreen by remember { mutableStateOf(true) }
+    var showCreateTripScreen by remember { mutableStateOf(false) }
+    var showShareTripDialog by remember { mutableStateOf(false) }
+    var pendingShareTrip by remember { mutableStateOf<TravelTrip?>(null) }
 
     val expenses = remember(context, activeTripId) {
         mutableStateListOf<TravelExpense>().apply {
@@ -207,6 +215,8 @@ fun AssistentePremiumScreen(
         val tripToSave = TravelTrip(
             id = activeTripId,
             name = tripName.ifBlank { "Minha viagem" },
+            responsible = trips.firstOrNull { it.id == activeTripId }?.responsible.orEmpty(),
+            participantEmails = trips.firstOrNull { it.id == activeTripId }?.participantEmails.orEmpty(),
             expenses = expenses.toList()
         )
         val idx = trips.indexOfFirst { it.id == activeTripId }
@@ -248,7 +258,35 @@ fun AssistentePremiumScreen(
 
     val currency = NumberFormat.getCurrencyInstance(Locale("pt", "BR"))
 
-    if (showExpensesScreen) {
+    if (showCreateTripScreen) {
+        CreateTripScreen(
+            isDark = isDark,
+            bg = bg,
+            textPrimary = textPrimary,
+            textDim = textDim,
+            cardBorder = cardBorder,
+            accentBlue = accentBlue,
+            onBack = { showCreateTripScreen = false },
+            onCreate = { newName, responsible, participantEmails ->
+                persistCurrentTrip()
+                val newTrip = TravelTrip(
+                    id = UUID.randomUUID().toString(),
+                    name = newName.ifBlank { "Nova viagem" },
+                    responsible = responsible,
+                    participantEmails = participantEmails,
+                    expenses = emptyList()
+                )
+                trips.add(0, newTrip)
+                saveTravelTrips(context, trips)
+                switchToTrip(newTrip)
+                pendingShareTrip = newTrip.takeIf { it.participantEmails.isNotEmpty() }
+                showShareTripDialog = pendingShareTrip != null
+                showCreateTripScreen = false
+                showTripsScreen = false
+                showExpensesScreen = true
+            }
+        )
+    } else if (showExpensesScreen) {
         TravelExpensesScreen(
             tripName = tripName,
             onTripNameChange = {
@@ -270,6 +308,7 @@ fun AssistentePremiumScreen(
                 showExpensesScreen = false
                 showTripsScreen = true
             },
+            onAddExpense = { showAddExpenseDialog = true },
             onExportPdf = {
                 val pdf = generateTripReportPdf(context, tripName, expenses)
                 if (pdf == null) {
@@ -287,10 +326,7 @@ fun AssistentePremiumScreen(
                 }
             }
         )
-        return
-    }
-
-    if (showTripsScreen) {
+    } else if (showTripsScreen) {
         TripsByTravelScreen(
             trips = trips,
             isDark = isDark,
@@ -342,7 +378,7 @@ fun AssistentePremiumScreen(
                 showExpensesScreen = true
             },
             onCreateTrip = {
-                showAddExpenseDialog = true
+                showCreateTripScreen = true
             },
             onRenameTrip = { tripId, newName ->
                 val idx = trips.indexOfFirst { it.id == tripId }
@@ -839,6 +875,57 @@ fun AssistentePremiumScreen(
         }
     }
 
+    if (showShareTripDialog && pendingShareTrip != null) {
+        Dialog(onDismissRequest = { showShareTripDialog = false }) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = bg),
+                border = BorderStroke(1.dp, cardBorder),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text("Enviar viagem para participantes?", color = textPrimary, fontWeight = FontWeight.Bold)
+                    Text(
+                        "Deseja abrir a agenda para convidar os acompanhantes desta viagem?",
+                        color = textDim,
+                        fontSize = 13.sp
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                showShareTripDialog = false
+                                pendingShareTrip = null
+                            },
+                            border = BorderStroke(1.dp, cardBorder),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = textPrimary),
+                            modifier = Modifier.weight(1f).height(46.dp)
+                        ) {
+                            Text("Agora nao")
+                        }
+                        Button(
+                            onClick = {
+                                pendingShareTrip?.let { abrirEventoAgendaParaParticipantes(context, it) }
+                                showShareTripDialog = false
+                                pendingShareTrip = null
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = accentBlue, contentColor = Color.White),
+                            modifier = Modifier.weight(1f).height(46.dp),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text("Enviar")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     if (showCamera) {
         CameraCapturaDialog(
             onDismiss = { showCamera = false },
@@ -1238,6 +1325,8 @@ private fun saveTravelTrips(context: Context, trips: List<TravelTrip>) {
             JSONObject()
                 .put("id", trip.id)
                 .put("name", trip.name)
+                .put("responsible", trip.responsible)
+                .put("participantEmails", JSONArray().apply { trip.participantEmails.forEach { put(it) } })
                 .put("expenses", expensesArray)
         )
     }
@@ -1276,6 +1365,14 @@ private fun loadTravelTrips(context: Context): List<TravelTrip> {
                         TravelTrip(
                             id = tripObj.optString("id").ifBlank { UUID.randomUUID().toString() },
                             name = tripObj.optString("name").ifBlank { "Minha viagem" },
+                            responsible = tripObj.optString("responsible"),
+                            participantEmails = buildList {
+                                val participants = tripObj.optJSONArray("participantEmails") ?: JSONArray()
+                                for (k in 0 until participants.length()) {
+                                    val email = participants.optString(k).trim()
+                                    if (email.isNotBlank()) add(email)
+                                }
+                            },
                             expenses = expenses
                         )
                     )
@@ -1291,6 +1388,8 @@ private fun loadTravelTrips(context: Context): List<TravelTrip> {
             TravelTrip(
                 id = UUID.randomUUID().toString(),
                 name = legacyName.ifBlank { "Minha viagem" },
+                responsible = "",
+                participantEmails = emptyList(),
                 expenses = legacyExpenses
             )
         )
@@ -1337,9 +1436,9 @@ private fun TripsByTravelScreen(
     val tutorialSteps = remember {
         listOf(
             "PDF geral: toque aqui para gerar um arquivo com todas as viagens, gastos e notas." to "pdf",
-            "Imprimir geral: toque aqui para abrir a impressão do relatório completo de viagens." to "print",
-            "Novo gasto: toque no botão + para abrir o formulário e cadastrar uma despesa na viagem escolhida." to "add",
-            "Detalhes da viagem: toque em uma viagem para ver os gastos, editar informações e excluir o que precisar." to "trip"
+            "Imprimir geral: toque aqui para abrir a impressÃ£o do relatÃ³rio completo de viagens." to "print",
+            "Novo gasto: toque no botÃ£o + para abrir o formulÃ¡rio e cadastrar uma despesa na viagem escolhida." to "add",
+            "Detalhes da viagem: toque em uma viagem para ver os gastos, editar informaÃ§Ãµes e excluir o que precisar." to "trip"
         )
     }
     LaunchedEffect(shouldAutoStartTutorial) {
@@ -1387,12 +1486,6 @@ private fun TripsByTravelScreen(
                     ) {
                         Icon(Icons.Default.Print, contentDescription = "Imprimir geral", tint = accentBlue)
                     }
-                    IconButton(
-                        onClick = onCreateTrip,
-                        modifier = Modifier.onGloballyPositioned { addButtonRect = it.boundsInRoot() }
-                    ) {
-                        Icon(Icons.Default.Add, contentDescription = "Nova viagem", tint = accentBlue)
-                    }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = bg)
             )
@@ -1406,6 +1499,22 @@ private fun TripsByTravelScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            Button(
+                onClick = {
+                    onCreateTrip()
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = accentBlue, contentColor = Color.White),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .onGloballyPositioned { addButtonRect = it.boundsInRoot() }
+            ) {
+                Icon(Icons.Default.CalendarMonth, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Criar nova viagem", fontWeight = FontWeight.SemiBold)
+            }
+
             if (trips.isEmpty()) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -1446,6 +1555,9 @@ private fun TripsByTravelScreen(
                                 Text(currency.format(total), color = textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                             }
                             Text("${trip.expenses.size} gastos", color = textDim, fontSize = 12.sp)
+                            if (trip.responsible.isNotBlank()) {
+                                Text("ResponsÃ¡vel: ${trip.responsible}", color = textDim, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            }
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.End,
@@ -1664,7 +1776,7 @@ private fun TutorialSpotlightOverlay(
                 modifier = Modifier.padding(14.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Text("Guia rápido", color = textPrimary, fontWeight = FontWeight.Bold)
+                Text("Guia rÃ¡pido", color = textPrimary, fontWeight = FontWeight.Bold)
                 Text("Etapa $step de $total", color = textDim, fontSize = 12.sp)
                 Text(message, color = textPrimary, fontSize = 14.sp)
                 Row(
@@ -1678,12 +1790,131 @@ private fun TutorialSpotlightOverlay(
                         onClick = onNext,
                         colors = ButtonDefaults.buttonColors(containerColor = accentBlue, contentColor = Color.White)
                     ) {
-                        Text(if (step < total) "Avançar" else "Finalizar")
+                        Text(if (step < total) "AvanÃ§ar" else "Finalizar")
                     }
                 }
             }
         }
     }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CreateTripScreen(
+    isDark: Boolean,
+    bg: Color,
+    textPrimary: Color,
+    textDim: Color,
+    cardBorder: Color,
+    accentBlue: Color,
+    onBack: () -> Unit,
+    onCreate: (tripName: String, responsible: String, participantEmails: List<String>) -> Unit
+) {
+    var tripName by remember { mutableStateOf("") }
+    var responsible by remember { mutableStateOf("") }
+    var participantEmailsRaw by remember { mutableStateOf("") }
+    Scaffold(
+        containerColor = bg,
+        topBar = {
+            TopAppBar(
+                title = { Text("Nova viagem", color = textPrimary, fontWeight = FontWeight.Bold) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar", tint = textPrimary)
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = bg)
+            )
+        }
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = if (isDark) Color(0xFF0F172A) else Color(0xFFF8FAFC)),
+                border = BorderStroke(1.dp, cardBorder),
+                shape = RoundedCornerShape(14.dp)
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text("Cadastre uma nova viagem", color = textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                    Text("Informe nome e responsável para organizar os gastos.", color = textDim, fontSize = 12.sp)
+                    OutlinedTextField(
+                        value = tripName,
+                        onValueChange = { tripName = it },
+                        label = { Text("Nome da viagem") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = responsible,
+                        onValueChange = { responsible = it },
+                        label = { Text("Responsável") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = participantEmailsRaw,
+                        onValueChange = { participantEmailsRaw = it },
+                        label = { Text("E-mails dos acompanhantes") },
+                        placeholder = { Text("email1@exemplo.com, email2@exemplo.com") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Button(
+                        onClick = {
+                            onCreate(
+                                tripName.trim().ifBlank { "Nova viagem" },
+                                responsible.trim(),
+                                parseParticipantEmails(participantEmailsRaw)
+                            )
+                        },
+                        enabled = tripName.isNotBlank(),
+                        colors = ButtonDefaults.buttonColors(containerColor = accentBlue, contentColor = Color.White),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth().height(48.dp)
+                    ) {
+                        Icon(Icons.Default.CalendarMonth, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Criar viagem", fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun parseParticipantEmails(raw: String): List<String> {
+    return raw
+        .split(",", ";", "\n")
+        .map { it.trim() }
+        .filter { it.contains("@") && it.isNotBlank() }
+        .distinct()
+}
+
+private fun abrirEventoAgendaParaParticipantes(context: Context, trip: TravelTrip) {
+    if (trip.participantEmails.isEmpty()) return
+    val now = System.currentTimeMillis()
+    val intent = Intent(Intent.ACTION_INSERT).apply {
+        data = CalendarContract.Events.CONTENT_URI
+        putExtra(CalendarContract.Events.TITLE, "Viagem: ${trip.name}")
+        putExtra(
+            CalendarContract.Events.DESCRIPTION,
+            "Viagem criada no Zellu. Responsavel: ${trip.responsible.ifBlank { "Nao informado" }}."
+        )
+        putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, now)
+        putExtra(CalendarContract.EXTRA_EVENT_END_TIME, now + (60 * 60 * 1000))
+        putExtra(Intent.EXTRA_EMAIL, trip.participantEmails.toTypedArray())
+    }
+    runCatching { context.startActivity(intent) }
+        .onFailure {
+            Toast.makeText(context, "Nao foi possivel abrir a agenda.", Toast.LENGTH_SHORT).show()
+        }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -1702,6 +1933,7 @@ private fun TravelExpensesScreen(
     currency: NumberFormat,
     categories: List<String>,
     onBack: () -> Unit,
+    onAddExpense: () -> Unit,
     onExportPdf: () -> Unit,
     onPrintPdf: () -> Unit
 ) {
@@ -1746,6 +1978,16 @@ private fun TravelExpensesScreen(
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = textPrimary),
                     modifier = Modifier.weight(1f)
                 ) { Text("Imprimir") }
+            }
+            Button(
+                onClick = onAddExpense,
+                colors = ButtonDefaults.buttonColors(containerColor = accentBlue, contentColor = Color.White),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth().height(48.dp)
+            ) {
+                Icon(Icons.Default.ReceiptLong, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Adicionar gasto", fontWeight = FontWeight.SemiBold)
             }
 
             if (expenses.isEmpty()) {
@@ -2511,3 +2753,4 @@ private class PdfFilePrintAdapter(
         }
     }
 }
+

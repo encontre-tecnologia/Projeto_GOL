@@ -8,6 +8,7 @@ import android.app.Activity
 import android.graphics.Paint
 import android.content.Context
 import android.content.ContextWrapper
+import android.util.Log
 import android.speech.tts.TextToSpeech
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -67,6 +68,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.firebase.auth.FirebaseAuth
@@ -132,9 +136,10 @@ fun ManutencaoScreen(
     // CORES DO TEMA (Azul Premium)
     val primaryDark = colorScheme.background
     val surfaceDark = colorScheme.surface
+    val homeScreenBg = if (isDark) colorScheme.background else Color.White
     val fuelCardStart = if (isDark) colorScheme.surface else Color.White
     val fuelCardEnd = if (isDark) colorScheme.background else Color.White
-    val topBarDark = colorScheme.background
+    val topBarDark = if (isDark) colorScheme.background else Color.White
     val accentBlue = colorScheme.primary
     val textLight = colorScheme.onSurface
     val textDim = colorScheme.onSurfaceVariant
@@ -324,17 +329,6 @@ fun ManutencaoScreen(
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val drawerScope = rememberCoroutineScope()
     val contentScrollState = rememberScrollState()
-    var showTopBar by remember { mutableStateOf(true) }
-    LaunchedEffect(contentScrollState.value) {
-        val scrollY = contentScrollState.value
-        val hideThreshold = 56
-        val showThreshold = 12
-        if (showTopBar && scrollY > hideThreshold) {
-            showTopBar = false
-        } else if (!showTopBar && scrollY < showThreshold) {
-            showTopBar = true
-        }
-    }
     val activity = remember(context) { context.findActivity() }
     val subscriptionManager = remember { SubscriptionManager(context) }
     val planTier by subscriptionManager.planTier.collectAsState()
@@ -344,15 +338,34 @@ fun ManutencaoScreen(
     var showPremiumBeneficiosScreen by remember { mutableStateOf(false) }
     var showAvisosNotificacoesDialog by remember { mutableStateOf(false) }
     var notificacoesDisparadas by remember { mutableStateOf<List<NotificacaoDisparada>>(emptyList()) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val refreshNotificacoes = remember(context) {
+        {
+            notificacoesDisparadas = NotificacaoHelper.carregarNotificacoesDisparadas(context)
+        }
+    }
 
     DisposableEffect(Unit) {
         subscriptionManager.connect()
         onDispose { subscriptionManager.disconnect() }
     }
     LaunchedEffect(todosLembretes) {
-        notificacoesDisparadas = withContext(Dispatchers.IO) {
-            NotificacaoHelper.carregarNotificacoesDisparadas(context)
+        notificacoesDisparadas = withContext(Dispatchers.IO) { NotificacaoHelper.carregarNotificacoesDisparadas(context) }
+    }
+    DisposableEffect(context) {
+        val listener = NotificacaoHelper.registrarListenerHistorico(context) {
+            refreshNotificacoes()
         }
+        onDispose { NotificacaoHelper.removerListenerHistorico(context, listener) }
+    }
+    DisposableEffect(lifecycleOwner, context) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                refreshNotificacoes()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     // ----------------- TELAS DE VEÍCULO -----------------
@@ -515,6 +528,7 @@ fun ManutencaoScreen(
 
     BackHandler(enabled = showMecanicoVirtualScreen) { showMecanicoVirtualScreen = false }
     if (showMecanicoVirtualScreen) {
+        Log.d("PremiumNav", "render MecanicoVirtualScreen=true")
         MecanicoVirtualScreen(
             carros = listaCarros,
             abastecimentos = abastecimentos,
@@ -535,8 +549,10 @@ fun ManutencaoScreen(
                 showAnjoDaGuardaScreen = true
             },
             onOpenFinance = {
+                Log.d("PremiumNav", "click Gestor de Frota in PremiumHub")
                 showPremiumHubScreen = false
                 showMecanicoVirtualScreen = true
+                Log.d("PremiumNav", "state after click premiumHub=$showPremiumHubScreen mecanico=$showMecanicoVirtualScreen")
             },
             onOpenAiAssistant = {
                 showPremiumHubScreen = false
@@ -1036,10 +1052,26 @@ fun ManutencaoScreen(
         // ----------------- CONTEÚDO PRINCIPAL (SCAFFOLD) -----------------
     Scaffold(
         modifier = modifier,
-        containerColor = Color.Transparent,
-        topBar = {
-            if (showTopBar) {
-                CenterAlignedTopAppBar(
+        containerColor = Color.Transparent
+    ) { innerPadding ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .onGloballyPositioned { tutorialViewportHeightPx = it.size.height.toFloat() }
+                .background(homeScreenBg)
+        ) {
+            if (isLoading) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = accentBlue)
+                }
+            } else {
+                Column(
+                    modifier = Modifier
+                        .padding(innerPadding)
+                        .fillMaxSize()
+                        .verticalScroll(contentScrollState)
+                ) {
+                    CenterAlignedTopAppBar(
                         modifier = Modifier.statusBarsPadding(),
                         title = {
                             Text(
@@ -1126,26 +1158,7 @@ fun ManutencaoScreen(
                         },
                         colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = topBarDark)
                     )
-                }
-        }
-    ) { innerPadding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .onGloballyPositioned { tutorialViewportHeightPx = it.size.height.toFloat() }
-                .background(colorScheme.background)
-        ) {
-            if (isLoading) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = accentBlue)
-                }
-            } else {
-                Column(
-                    modifier = Modifier
-                        .padding(innerPadding)
-                        .fillMaxSize()
-                        .verticalScroll(contentScrollState)
-                ) {
+
                     Spacer(Modifier.height(8.dp))
 
                     Box(modifier = Modifier.onGloballyPositioned { carInfoRect = it.boundsInRoot() }) {
@@ -1306,7 +1319,8 @@ fun ManutencaoScreen(
         }
     }
     if (showAvisosNotificacoesDialog) {
-        AvisosNotificacoesDialog(
+        BackHandler { showAvisosNotificacoesDialog = false }
+        AvisosNotificacoesScreen(
             notificacoes = notificacoesDisparadas,
             onClear = {
                 NotificacaoHelper.limparNotificacoesDisparadas(context)
@@ -2337,7 +2351,7 @@ private fun InfoRow(label: String, value: String, textLight: Color, textDim: Col
 }
 
 @Composable
-private fun AvisosNotificacoesDialog(
+private fun AvisosNotificacoesScreen(
     notificacoes: List<NotificacaoDisparada>,
     onClear: () -> Unit,
     onRemove: (NotificacaoDisparada) -> Unit,
@@ -2353,132 +2367,213 @@ private fun AvisosNotificacoesDialog(
     val closeBorder = if (isDark) Color(0xFF334155) else Color(0xFFCBD5E1)
     val closeText = if (isDark) Color.White else Color(0xFF0F172A)
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Icon(
-                    imageVector = Icons.Default.NotificationsNone,
-                    contentDescription = null,
-                    tint = Color(0xFF2563EB),
-                    modifier = Modifier.size(20.dp)
-                )
-                Text("Notificações", fontWeight = FontWeight.Bold, color = titleColor)
-            }
-        },
-        text = {
-            if (notificacoes.isEmpty()) {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = dialogBg
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier
+                        .size(40.dp)
+                        .align(Alignment.CenterStart)
                 ) {
                     Icon(
-                        imageVector = Icons.Default.NotificationsNone,
+                        imageVector = Icons.Default.ArrowBackIosNew,
+                        contentDescription = "Voltar",
+                        tint = titleColor,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(CircleShape)
+                            .background(if (isDark) Color(0xFF1E3A8A).copy(alpha = 0.35f) else Color(0xFFDBEAFE)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Notifications,
+                            contentDescription = null,
+                            tint = Color(0xFF2563EB),
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    Text(
+                        text = "Notificações",
+                        color = titleColor,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 17.sp
+                    )
+                }
+                if (notificacoes.isNotEmpty()) {
+                    TextButton(
+                        onClick = onClear,
+                        modifier = Modifier.align(Alignment.CenterEnd)
+                    ) {
+                        Text("Limpar")
+                    }
+                }
+            }
+
+            if (notificacoes.isEmpty()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .padding(horizontal = 20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Notifications,
                         contentDescription = null,
                         tint = textDim,
-                        modifier = Modifier.size(24.dp)
+                        modifier = Modifier.size(42.dp)
                     )
+                    Spacer(Modifier.height(10.dp))
                     Text(
                         "Tudo em dia por aqui",
                         color = titleColor,
                         fontWeight = FontWeight.SemiBold
                     )
+                    Spacer(Modifier.height(6.dp))
                     Text(
                         "Quando houver novos avisos, eles aparecerão aqui.",
                         color = textDim,
-                        fontSize = 12.sp,
+                        fontSize = 13.sp,
                         textAlign = TextAlign.Center
                     )
                 }
             } else {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    LazyColumn(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(max = 320.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        items(notificacoes, key = { "${it.id}_${it.timestamp}" }) { aviso ->
-                            val dismissState = rememberSwipeToDismissBoxState(
-                                confirmValueChange = { value ->
-                                    if (value != SwipeToDismissBoxValue.Settled) {
-                                        onRemove(aviso)
-                                    }
-                                    true
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    HorizontalDivider(
+                        modifier = Modifier.weight(1f),
+                        color = if (isDark) Color.White.copy(alpha = 0.16f) else Color(0xFFCBD5E1),
+                        thickness = 1.dp
+                    )
+                    Text(
+                        text = "Veja suas notificações",
+                        color = textDim,
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(horizontal = 10.dp)
+                    )
+                    HorizontalDivider(
+                        modifier = Modifier.weight(1f),
+                        color = if (isDark) Color.White.copy(alpha = 0.16f) else Color(0xFFCBD5E1),
+                        thickness = 1.dp
+                    )
+                }
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .padding(horizontal = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(vertical = 8.dp)
+                ) {
+                    items(notificacoes, key = { "${it.id}_${it.timestamp}" }) { aviso ->
+                        val dismissState = rememberSwipeToDismissBoxState(
+                            confirmValueChange = { value ->
+                                if (aviso.id.startsWith("PARKING_")) {
+                                    return@rememberSwipeToDismissBoxState false
                                 }
-                            )
-                            SwipeToDismissBox(
-                                state = dismissState,
-                                enableDismissFromStartToEnd = true,
-                                enableDismissFromEndToStart = true,
-                                backgroundContent = {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .clip(RoundedCornerShape(12.dp))
-                                            .background(Color(0xFFDC2626))
-                                            .padding(horizontal = 14.dp),
-                                        contentAlignment = if (dismissState.dismissDirection == SwipeToDismissBoxValue.StartToEnd) {
-                                            Alignment.CenterStart
-                                        } else {
-                                            Alignment.CenterEnd
-                                        }
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Delete,
-                                            contentDescription = "Remover notificação",
-                                            tint = Color.White
-                                        )
-                                    }
+                                if (value != SwipeToDismissBoxValue.Settled) {
+                                    onRemove(aviso)
                                 }
-                            ) {
-                                Card(
-                                    colors = CardDefaults.cardColors(containerColor = cardBg),
-                                    border = BorderStroke(1.dp, cardBorder),
-                                    shape = RoundedCornerShape(12.dp),
-                                    modifier = Modifier.fillMaxWidth()
+                                true
+                            }
+                        )
+                        SwipeToDismissBox(
+                            state = dismissState,
+                            enableDismissFromStartToEnd = true,
+                            enableDismissFromEndToStart = true,
+                            backgroundContent = {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(Color(0xFFDC2626))
+                                        .padding(horizontal = 14.dp),
+                                    contentAlignment = if (dismissState.dismissDirection == SwipeToDismissBoxValue.StartToEnd) {
+                                        Alignment.CenterStart
+                                    } else {
+                                        Alignment.CenterEnd
+                                    }
                                 ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(10.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.NotificationsNone,
-                                            contentDescription = null,
-                                            tint = Color(0xFF2563EB),
-                                            modifier = Modifier.size(18.dp)
+                                    Icon(
+                                        imageVector = Icons.Default.Delete,
+                                        contentDescription = "Remover notificação",
+                                        tint = Color.White
+                                    )
+                                }
+                            }
+                        ) {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = cardBg),
+                                border = BorderStroke(1.dp, cardBorder),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Notifications,
+                                        contentDescription = null,
+                                        tint = Color(0xFF2563EB),
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            aviso.titulo.ifBlank { "Notificação" },
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = titleColor,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
                                         )
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(
-                                                aviso.titulo.ifBlank { "Notificação" },
-                                                fontWeight = FontWeight.SemiBold,
-                                                color = titleColor,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                            Text(
-                                                aviso.descricao.ifBlank { "Sem descrição" },
-                                                color = textDim,
-                                                fontSize = 12.sp,
-                                                maxLines = 2,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                            val instante = runCatching {
-                                                java.time.Instant.ofEpochMilli(aviso.timestamp)
-                                                    .atZone(java.time.ZoneId.systemDefault())
-                                                    .toLocalDateTime()
-                                                    .format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))
-                                            }.getOrDefault("--")
-                                            Text(
-                                                instante,
-                                                color = Color(0xFF94A3B8),
-                                                fontSize = 11.sp
-                                            )
-                                        }
+                                        Text(
+                                            aviso.descricao.ifBlank { "Sem descrição" },
+                                            color = textDim,
+                                            fontSize = 12.sp,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        val instante = runCatching {
+                                            java.time.Instant.ofEpochMilli(aviso.timestamp)
+                                                .atZone(java.time.ZoneId.systemDefault())
+                                                .toLocalDateTime()
+                                                .format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))
+                                        }.getOrDefault("--")
+                                        Text(
+                                            instante,
+                                            color = Color(0xFF94A3B8),
+                                            fontSize = 11.sp
+                                        )
                                     }
                                 }
                             }
@@ -2486,37 +2581,9 @@ private fun AvisosNotificacoesDialog(
                     }
                 }
             }
-        },
-        confirmButton = {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                if (notificacoes.isNotEmpty()) {
-                    TextButton(onClick = onClear) {
-                        Text("Limpar notificações")
-                    }
-                }
-                OutlinedButton(
-                    onClick = onDismiss,
-                    border = BorderStroke(1.dp, closeBorder),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = closeText),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(46.dp),
-                    shape = RoundedCornerShape(10.dp)
-                ) {
-                    Text(
-                        text = "Fechar",
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            }
-        },
-        containerColor = dialogBg
-    )
+
+        }
+    }
 }
 
 private data class AbastecimentoResumo(
