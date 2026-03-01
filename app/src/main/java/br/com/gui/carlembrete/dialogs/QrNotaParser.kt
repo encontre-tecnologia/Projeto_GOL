@@ -142,8 +142,9 @@ suspend fun consultarNotaPorQrCode(url: String): NotaQrInfo? = withContext(Dispa
         if (ENABLE_QR_MOCK_DIAGNOSTIC) {
             testarParserSpMock()
         }
-        Log.i(QR_PARSER_TAG, "Iniciando consulta QR URL=$url")
-        val doc = Jsoup.connect(url)
+        val urlNormalizada = normalizarUrlQr(url)
+        Log.i(QR_PARSER_TAG, "Iniciando consulta QR URL=$urlNormalizada")
+        val doc = Jsoup.connect(urlNormalizada)
             .userAgent("Mozilla/5.0")
             .timeout(15000)
             .get()
@@ -159,7 +160,7 @@ suspend fun consultarNotaPorQrCode(url: String): NotaQrInfo? = withContext(Dispa
         }
         Log.d(QR_PARSER_TAG, "Layout não resolveu. Aplicando fallback por regex.")
 
-        val valorTotalPelaUrl = extrairValorVnfDaUrl(url)
+        val valorTotalPelaUrl = extrairValorVnfDaUrl(urlNormalizada)
         val texto = doc.text()
 
         // Tentativa 1: seletores comuns da página da NFC-e/SEFAZ.
@@ -213,6 +214,17 @@ suspend fun consultarNotaPorQrCode(url: String): NotaQrInfo? = withContext(Dispa
     }.onFailure {
         Log.e(QR_PARSER_TAG, "Erro ao consultar QR: ${it.message}", it)
     }.getOrNull()
+}
+
+private fun normalizarUrlQr(url: String): String {
+    val urlLimpa = url.trim()
+    val uri = runCatching { Uri.parse(urlLimpa) }.getOrNull() ?: return urlLimpa
+    if (!uri.scheme.equals("http", ignoreCase = true)) return urlLimpa
+    val host = uri.host.orEmpty()
+    if (host.isBlank()) return urlLimpa
+    val httpsUrl = uri.buildUpon().scheme("https").build().toString()
+    Log.d(QR_PARSER_TAG, "URL QR normalizada para HTTPS: host=$host")
+    return httpsUrl
 }
 
 internal fun parseNotaHtmlForTest(html: String, url: String = "https://www.fazenda.sp.gov.br"): NotaQrInfo? {
@@ -536,17 +548,26 @@ fun montarLocalNota(estabelecimento: String, endereco: String): String {
 }
 
 fun montarDescricaoItensNota(total: Double?, itens: String?): String {
-    val partes = mutableListOf<String>()
-    if (total != null) partes += "Total: R$ ${String.format(Locale.US, "%.2f", total)}"
-    if (!itens.isNullOrBlank()) partes += "Itens: $itens"
-    if (partes.isEmpty()) {
-        return if (total != null) {
-            "Servico da nota (R$ ${String.format(Locale.US, "%.2f", total)})"
-        } else {
-            "Servico da nota"
-        }
+    val linhas = mutableListOf<String>()
+    if (!itens.isNullOrBlank()) {
+        val itensFormatados = itens
+            .removePrefix("Itens:")
+            .split("+")
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+        linhas += itensFormatados
     }
-    return partes.joinToString(" | ")
+    if (total != null) {
+        linhas += "Total: R$ ${String.format(Locale.US, "%.2f", total)}"
+    }
+    if (linhas.isNotEmpty()) {
+        return linhas.joinToString("\n")
+    }
+    return if (total != null) {
+        "Total: R$ ${String.format(Locale.US, "%.2f", total)}"
+    } else {
+        "Servico da nota"
+    }
 }
 
 fun extrairItensDaDescricaoQr(descricao: String?): List<ItemDetectado> {

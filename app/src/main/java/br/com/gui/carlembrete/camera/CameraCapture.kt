@@ -8,6 +8,7 @@ import android.graphics.Matrix
 import android.util.Log
 import android.widget.Toast
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.ImageProxy
@@ -26,8 +27,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.FlashOff
-import androidx.compose.material.icons.filled.FlashOn
+import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -46,16 +46,20 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
+import kotlinx.coroutines.launch
 import java.io.File
 import java.io.FileOutputStream
 import java.text.Normalizer
@@ -75,10 +79,27 @@ fun CameraCapturaDialog(onDismiss: () -> Unit, onFotoCapturada: (ResultadoCaptur
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val cameraProviderFuture = remember { ProcessCameraProvider.getInstance(context) }
+    val uiExecutor = remember(context) { ContextCompat.getMainExecutor(context) }
+    val analyzerExecutor = remember { Executors.newSingleThreadExecutor() }
+    val scope = rememberCoroutineScope()
+    val liveScanner = remember {
+        BarcodeScanning.getClient(
+            BarcodeScannerOptions.Builder()
+                .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
+                .build()
+        )
+    }
     var imageCapture by remember { mutableStateOf<ImageCapture?>(null) }
-    var lanternaLigada by remember { mutableStateOf(false) }
-    var cameraControl by remember { mutableStateOf<androidx.camera.core.CameraControl?>(null) }
     var isProcessing by remember { mutableStateOf(false) }
+    var isConsultandoQr by remember { mutableStateOf(false) }
+    var progressoEscaneamento by remember { mutableStateOf(0f) }
+    var mostrarFalhaLeitura by remember { mutableStateOf(false) }
+    var qrDetectadoAoVivo by remember { mutableStateOf(false) }
+    var ambienteComPoucaLuz by remember { mutableStateOf(false) }
+    var qrDeteccoesConsecutivas by remember { mutableStateOf(0) }
+    var previewViewRef by remember { mutableStateOf<PreviewView?>(null) }
+    var previewAtivo by remember { mutableStateOf(false) }
+    var rebindToken by remember { mutableIntStateOf(0) }
     val hasCameraPermission = ContextCompat.checkSelfPermission(
         context,
         Manifest.permission.CAMERA
@@ -90,26 +111,200 @@ fun CameraCapturaDialog(onDismiss: () -> Unit, onFotoCapturada: (ResultadoCaptur
             onDismiss()
         }
     }
+    DisposableEffect(liveScanner, analyzerExecutor) {
+        onDispose {
+            runCatching { liveScanner.close() }
+            analyzerExecutor.shutdown()
+        }
+    }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> {
+                    rebindToken += 1
+                }
+                Lifecycle.Event.ON_PAUSE -> {
+                    previewAtivo = false
+                }
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
     if (!hasCameraPermission) return
+
+    fun bindCamera(previewView: PreviewView) {
+        cameraProviderFuture.addListener({
+            val cameraProvider = cameraProviderFuture.get()
+            val preview = androidx.camera.core.Preview.Builder().build().also {
+                it.setSurfaceProvider(previewView.surfaceProvider)
+            }
+            imageCapture = ImageCapture.Builder()
+                .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+                .build()
+            val imageAnalysis = ImageAnalysis.Builder()
+                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                .build()
+            imageAnalysis.setAnalyzer(analyzerExecutor) { imageProxy ->
+                val lumaAtual = imageProxy.averageLuma()
+                uiExecutor.execute {
+                    ambienteComPoucaLuz = lumaAtual < 70.0
+                }
+                val mediaImage = imageProxy.image
+                if (mediaImage == null) {
+                    imageProxy.close()
+                    return@setAnalyzer
+                }
+
+                val inputImage = InputImage.fromMediaImage(
+                    mediaImage,
+                    imageProxy.imageInfo.rotationDegrees
+                )
+
+                liveScanner.process(inputImage)
+                    .addOnSuccessListener(uiExecutor) { barcodes ->
+                        val qrEncontrado = barcodes.any { barcode ->
+                            barcode.format == Barcode.FORMAT_QR_CODE && !barcode.toUsableQrText().isNullOrBlank()
+                        }
+                        if (qrEncontrado) {
+                            qrDeteccoesConsecutivas += 1
+                            qrDetectadoAoVivo = true
+                        } else {
+                            if (!isProcessing && !isConsultandoQr) {
+                                qrDeteccoesConsecutivas = 0
+                                qrDetectadoAoVivo = false
+                            }
+                        }
+                    }
+                    .addOnFailureListener(uiExecutor) {
+                        if (!isProcessing && !isConsultandoQr) {
+                            qrDetectadoAoVivo = false
+                            qrDeteccoesConsecutivas = 0
+                        }
+                    }
+                    .addOnCompleteListener {
+                        imageProxy.close()
+                    }
+            }
+            try {
+                cameraProvider.unbindAll()
+                cameraProvider.bindToLifecycle(
+                    lifecycleOwner,
+                    CameraSelector.DEFAULT_BACK_CAMERA,
+                    preview,
+                    imageCapture,
+                    imageAnalysis
+                )
+                previewAtivo = true
+            } catch (e: Exception) {
+                previewAtivo = false
+                Log.e("Camera", "Erro", e)
+            }
+        }, uiExecutor)
+    }
+
+    fun finalizarCaptura(resultado: ResultadoCaptura) {
+        val qrUrl = resultado.qrCodeUrl?.trim()
+        if (qrUrl.isNullOrBlank()) {
+            isProcessing = false
+            isConsultandoQr = false
+            progressoEscaneamento = 0f
+            qrDetectadoAoVivo = false
+            qrDeteccoesConsecutivas = 0
+            mostrarFalhaLeitura = true
+            onFotoCapturada(resultado)
+            return
+        }
+
+        isConsultandoQr = true
+        mostrarFalhaLeitura = false
+        progressoEscaneamento = 0.94f
+        scope.launch {
+            val notaInfo = consultarNotaPorQrCode(qrUrl)
+            isConsultandoQr = false
+            isProcessing = false
+            progressoEscaneamento = 1f
+            qrDetectadoAoVivo = false
+            qrDeteccoesConsecutivas = 0
+            mostrarFalhaLeitura = notaInfo == null
+            onFotoCapturada(resultado.copy(notaQrInfo = notaInfo))
+        }
+    }
+
+    fun iniciarCapturaComTentativas() {
+        val capturaAtual = imageCapture ?: return
+        if (isProcessing || isConsultandoQr) return
+
+        val maxTentativas = 3
+        isProcessing = true
+        mostrarFalhaLeitura = false
+        progressoEscaneamento = 0.05f
+
+        fun tentarCaptura(tentativa: Int) {
+            captureAndExtractItems(
+                context = context,
+                imageCapture = capturaAtual,
+                onProgress = { progressoEtapa ->
+                    val progressoBase = (tentativa - 1).toFloat() / maxTentativas.toFloat()
+                    progressoEscaneamento =
+                        (progressoBase + (progressoEtapa / maxTentativas.toFloat())).coerceIn(0f, 1f)
+                }
+            ) { resultado ->
+                if (resultadoTemLeituraUtil(resultado)) {
+                    finalizarCaptura(resultado)
+                    return@captureAndExtractItems
+                }
+
+                if (tentativa < maxTentativas) {
+                    Log.w(CAMERA_QR_TAG, "Captura sem resultado util. Tentando novamente ($tentativa/$maxTentativas).")
+                    tentarCaptura(tentativa + 1)
+                } else {
+                    Log.w(CAMERA_QR_TAG, "Captura encerrada sem leitura util apos $maxTentativas tentativas.")
+                    isProcessing = false
+                    isConsultandoQr = false
+                    progressoEscaneamento = 0f
+                    qrDetectadoAoVivo = false
+                    qrDeteccoesConsecutivas = 0
+                    mostrarFalhaLeitura = true
+                    Toast.makeText(
+                        context,
+                        "Nao foi possivel ler a nota. Aproxime a camera e tente novamente.",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
+        }
+
+        tentarCaptura(1)
+    }
+
+    LaunchedEffect(previewViewRef, rebindToken) {
+        previewViewRef?.let { previewView ->
+            if (rebindToken > 0) {
+                bindCamera(previewView)
+            }
+        }
+    }
 
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
             // 1. Layer da Câmera (Preview)
-            AndroidView(factory = { ctx ->
-                val previewView = PreviewView(ctx)
-                val executor = ContextCompat.getMainExecutor(ctx)
-                cameraProviderFuture.addListener({
-                    val cameraProvider = cameraProviderFuture.get()
-                    val preview = androidx.camera.core.Preview.Builder().build().also { it.setSurfaceProvider(previewView.surfaceProvider) }
-                    imageCapture = ImageCapture.Builder().setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY).build()
-                    try {
-                        cameraProvider.unbindAll()
-                        val camera = cameraProvider.bindToLifecycle(lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, preview, imageCapture)
-                        cameraControl = camera.cameraControl
-                    } catch (e: Exception) { Log.e("Camera", "Erro", e) }
-                }, executor)
-                previewView
-            }, modifier = Modifier.fillMaxSize())
+            AndroidView(
+                factory = { ctx ->
+                    PreviewView(ctx).apply {
+                        implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+                        previewViewRef = this
+                        bindCamera(this)
+                    }
+                },
+                update = { previewView ->
+                    previewViewRef = previewView
+                },
+                modifier = Modifier.fillMaxSize()
+            )
 
             // 2. Layer da Máscara Escura e Borda Branca
             BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
@@ -147,48 +342,181 @@ fun CameraCapturaDialog(onDismiss: () -> Unit, onFotoCapturada: (ResultadoCaptur
                     clipPath(rectPath, clipOp = ClipOp.Difference) {
                         drawRect(color = overlayColor)
                     }
+
+                    if (!previewAtivo) {
+                        drawRoundRect(
+                            color = Color.Black,
+                            topLeft = Offset(left, top),
+                            size = Size(larguraPx, alturaPx),
+                            cornerRadius = CornerRadius(cornerPx)
+                        )
+                    }
                 }
 
                 // O QUADRADO BRANCO CENTRAL (Apenas a borda visual e animação)
+                Column(
+                    modifier = Modifier
+                        .width(larguraCorteDp)
+                        .align(Alignment.Center)
+                        .offset(y = (-252).dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.QrCodeScanner,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(38.dp)
+                    )
+                    Text(
+                        text = "Aponte a camera para o QR Code da nota e clique no botao da camera para ler o QR Code da nota.",
+                        color = Color.White,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
+                if (isProcessing || isConsultandoQr) {
+                    Column(
+                        modifier = Modifier
+                            .width(larguraCorteDp)
+                            .align(Alignment.Center)
+                            .offset(y = (-170).dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = "${(progressoEscaneamento.coerceIn(0f, 1f) * 100).roundToInt()}%",
+                            color = Color.White,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        LinearProgressIndicator(
+                            progress = { progressoEscaneamento.coerceIn(0f, 1f) },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(8.dp)
+                                .clip(RoundedCornerShape(999.dp)),
+                            color = Color(0xFF22C55E),
+                            trackColor = Color.White.copy(alpha = 0.18f)
+                        )
+                    }
+                }
                 Box(
                     modifier = Modifier
                         .width(larguraCorteDp)
                         .height(alturaCorteDp)
                         .align(Alignment.Center)
-                        .border(BorderStroke(3.dp, Color.White), RoundedCornerShape(cornerRadiusDp))
+                        .border(
+                            BorderStroke(
+                                3.dp,
+                                when {
+                                    mostrarFalhaLeitura && !isProcessing && !isConsultandoQr -> Color(0xFFEF9A9A)
+                                    isProcessing || isConsultandoQr -> Color(0xFF22C55E)
+                                    else -> Color.White
+                                }
+                            ),
+                            RoundedCornerShape(cornerRadiusDp)
+                        )
                         .clip(RoundedCornerShape(cornerRadiusDp))
                 ) {
-                    // Animação do Scanner (Linha Verde)
-                    val lineHeight = 4.dp
-                    val anim = remember { Animatable(0f) }
-
-                    LaunchedEffect(Unit) {
-                        while (true) {
-                            anim.animateTo(
-                                targetValue = 1f,
-                                animationSpec = tween(durationMillis = 1800, easing = LinearEasing)
-                            )
-                            anim.snapTo(0f)
-                        }
+                    if (isProcessing || isConsultandoQr || mostrarFalhaLeitura) {
+                        Text(
+                            text = if (mostrarFalhaLeitura && !isProcessing && !isConsultandoQr) {
+                                "Nota não encontrada"
+                            } else {
+                                "Escaneando nota..."
+                            },
+                            color = Color.White,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier
+                                .align(Alignment.Center)
+                                .background(Color.Black.copy(alpha = 0.72f), RoundedCornerShape(12.dp))
+                                .padding(horizontal = 16.dp, vertical = 10.dp)
+                        )
                     }
+                    if (isProcessing || isConsultandoQr) {
+                        // Animação do Scanner (Barra reta + cortina verde)
+                        val lineHeight = 5.dp
+                        val curtainMaxHeight = 124.dp
+                        val anim = remember { Animatable(0f) }
+                        var scannerDescendo by remember { mutableStateOf(true) }
+                        val barraOffset = (alturaCorteDp - lineHeight) * anim.value
+                        val curtainAnchorTop = if (scannerDescendo) {
+                            (barraOffset + lineHeight - curtainMaxHeight).coerceAtLeast(0.dp)
+                        } else {
+                            barraOffset + lineHeight
+                        }
+                        val curtainAvailableHeight = if (scannerDescendo) {
+                            barraOffset + lineHeight
+                        } else {
+                            (alturaCorteDp - (barraOffset + lineHeight)).coerceAtLeast(0.dp)
+                        }
+                        val curtainHeight = if (curtainAvailableHeight < curtainMaxHeight) {
+                            curtainAvailableHeight
+                        } else {
+                            curtainMaxHeight
+                        }
 
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(lineHeight)
-                            .align(Alignment.TopCenter)
-                            .offset(y = (alturaCorteDp - lineHeight) * anim.value)
-                            .background(
-                                brush = Brush.horizontalGradient(
-                                    colors = listOf(
-                                        Color(0xFF22C55E).copy(alpha = 0.0f),
-                                        Color(0xFF22C55E).copy(alpha = 1f),
-                                        Color(0xFF22C55E).copy(alpha = 0.0f)
+                        LaunchedEffect(isProcessing, isConsultandoQr) {
+                            if (isProcessing || isConsultandoQr) {
+                                while (isProcessing || isConsultandoQr) {
+                                    scannerDescendo = true
+                                    anim.animateTo(
+                                        targetValue = 1f,
+                                        animationSpec = tween(durationMillis = 1800, easing = LinearEasing)
+                                    )
+                                    scannerDescendo = false
+                                    anim.animateTo(
+                                        targetValue = 0f,
+                                        animationSpec = tween(durationMillis = 1800, easing = LinearEasing)
+                                    )
+                                }
+                            } else {
+                                anim.snapTo(0f)
+                            }
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(curtainHeight)
+                                .align(Alignment.TopCenter)
+                                .offset(y = curtainAnchorTop)
+                                .background(
+                                    Brush.verticalGradient(
+                                        colors = if (scannerDescendo) {
+                                            listOf(
+                                                Color(0xFF22C55E).copy(alpha = 0.00f),
+                                                Color(0xFF22C55E).copy(alpha = 0.16f),
+                                                Color(0xFF22C55E).copy(alpha = 0.34f)
+                                            )
+                                        } else {
+                                            listOf(
+                                                Color(0xFF22C55E).copy(alpha = 0.34f),
+                                                Color(0xFF22C55E).copy(alpha = 0.16f),
+                                                Color(0xFF22C55E).copy(alpha = 0.00f)
+                                            )
+                                        }
                                     )
                                 )
-                            )
-                            .shadow(8.dp, spotColor = Color(0xFF22C55E))
-                    )
+                        )
+
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(lineHeight)
+                                .align(Alignment.TopCenter)
+                                .offset(y = barraOffset)
+                                .background(
+                                    color = Color(0xFF22C55E)
+                                )
+                                .shadow(8.dp, spotColor = Color(0xFF22C55E))
+                        )
+                    }
                 }
             }
 
@@ -204,61 +532,17 @@ fun CameraCapturaDialog(onDismiss: () -> Unit, onFotoCapturada: (ResultadoCaptur
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 40.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween
+                        .padding(start = 12.dp, top = 24.dp),
+                    horizontalArrangement = Arrangement.Start
                 ) {
                     IconButton(
-                        onClick = onDismiss,
-                        modifier = Modifier.background(Color.Black.copy(0.6f), CircleShape)
+                        onClick = onDismiss
                     ) {
                         Icon(Icons.Default.Close, "Fechar", tint = Color.White)
                     }
-
-                    IconButton(
-                        onClick = {
-                            val hasPermission = ContextCompat.checkSelfPermission(
-                                context,
-                                Manifest.permission.CAMERA
-                            ) == PackageManager.PERMISSION_GRANTED
-                            if (hasPermission) {
-                                lanternaLigada = !lanternaLigada
-                                try {
-                                    cameraControl?.enableTorch(lanternaLigada)
-                                } catch (_: SecurityException) {
-                                    lanternaLigada = !lanternaLigada
-                                    Toast.makeText(context, "Não foi possível acessar o flash", Toast.LENGTH_SHORT).show()
-                                }
-                            }
-                        },
-                        modifier = Modifier.background(Color.Black.copy(0.6f), CircleShape)
-                    ) {
-                        Icon(
-                            imageVector = if (lanternaLigada) Icons.Default.FlashOn else Icons.Default.FlashOff,
-                            contentDescription = "Flash",
-                            tint = if (lanternaLigada) Color(0xFFF59E0B) else Color.White
-                        )
-                    }
                 }
 
-                // Indicador de Processamento
-                if (isProcessing) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp)
-                            .background(Color.Black.copy(0.8f), RoundedCornerShape(16.dp))
-                            .padding(16.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.White, strokeWidth = 2.dp)
-                            Spacer(Modifier.width(16.dp))
-                            Text("Analisando imagem...", color = Color.White, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                }
-
-                // Botão de Captura
+                // Orientação de Leitura
                 Box(
                     modifier = Modifier
                         .padding(bottom = 40.dp),
@@ -266,24 +550,25 @@ fun CameraCapturaDialog(onDismiss: () -> Unit, onFotoCapturada: (ResultadoCaptur
                 ) {
                     IconButton(
                         onClick = {
-                            if (!isProcessing) {
-                                isProcessing = true
-                                captureAndExtractItems(context, imageCapture!!) { resultado ->
-                                    isProcessing = false
-                                    onFotoCapturada(resultado)
-                                }
-                            }
+                            iniciarCapturaComTentativas()
                         },
-                        enabled = !isProcessing,
+                        enabled = !isProcessing && !isConsultandoQr,
                         modifier = Modifier
                             .size(80.dp)
-                            .background(Color.White, CircleShape)
-                            .border(4.dp, Color(0xFFE2E8F0), CircleShape)
+                            .background(
+                                if (isProcessing || isConsultandoQr) Color.White.copy(alpha = 0.45f) else Color.White,
+                                CircleShape
+                            )
+                            .border(
+                                4.dp,
+                                if (isProcessing || isConsultandoQr) Color(0xFFE2E8F0).copy(alpha = 0.45f) else Color(0xFFE2E8F0),
+                                CircleShape
+                            )
                     ) {
                         Icon(
                             Icons.Default.CameraAlt,
                             contentDescription = "Tirar foto",
-                            tint = Color.Black,
+                            tint = if (isProcessing || isConsultandoQr) Color.Black.copy(alpha = 0.45f) else Color.Black,
                             modifier = Modifier.size(32.dp)
                         )
                     }
@@ -293,10 +578,17 @@ fun CameraCapturaDialog(onDismiss: () -> Unit, onFotoCapturada: (ResultadoCaptur
     }
 }
 
-private fun captureAndExtractItems(context: Context, imageCapture: ImageCapture, onResult: (ResultadoCaptura) -> Unit) {
+private fun captureAndExtractItems(
+    context: Context,
+    imageCapture: ImageCapture,
+    onProgress: (Float) -> Unit = {},
+    onResult: (ResultadoCaptura) -> Unit
+) {
     val executor = Executors.newSingleThreadExecutor()
+    val mainExecutor = ContextCompat.getMainExecutor(context)
     imageCapture.takePicture(executor, object : ImageCapture.OnImageCapturedCallback() {
         override fun onCaptureSuccess(image: ImageProxy) {
+            mainExecutor.execute { onProgress(0.08f) }
             val bitmapBuffer = image.toBitmap()
             val rotation = image.imageInfo.rotationDegrees.toFloat()
             val matrix = Matrix().apply { postRotate(rotation) }
@@ -318,10 +610,12 @@ private fun captureAndExtractItems(context: Context, imageCapture: ImageCapture,
 
             scanner.process(inputImage)
                 .addOnSuccessListener { barcodes ->
+                    mainExecutor.execute { onProgress(0.38f) }
                     val qrUrl = barcodes.firstOrNull { it.format == Barcode.FORMAT_QR_CODE }?.toUsableQrText()
                     Log.i(CAMERA_QR_TAG, "Passo1 - barcodes=${barcodes.size} qrUrl=$qrUrl")
                     if (!qrUrl.isNullOrBlank()) {
-                        ContextCompat.getMainExecutor(context).execute {
+                        mainExecutor.execute {
+                            onProgress(1f)
                             onResult(
                                 ResultadoCaptura(
                                     arquivoFoto = arquivo,
@@ -340,13 +634,15 @@ private fun captureAndExtractItems(context: Context, imageCapture: ImageCapture,
 
                     scanner.process(inputImageSemRotacao)
                         .addOnSuccessListener { barcodesSemRotacao ->
+                            mainExecutor.execute { onProgress(0.68f) }
                             val qrUrlSemRotacao = barcodesSemRotacao.firstOrNull { it.format == Barcode.FORMAT_QR_CODE }?.toUsableQrText()
                             Log.i(
                                 CAMERA_QR_TAG,
                                 "Passo2 (sem rotacao) - barcodes=${barcodesSemRotacao.size} qrUrl=$qrUrlSemRotacao"
                             )
                             if (!qrUrlSemRotacao.isNullOrBlank()) {
-                                ContextCompat.getMainExecutor(context).execute {
+                                mainExecutor.execute {
+                                    onProgress(1f)
                                     onResult(
                                         ResultadoCaptura(
                                             arquivoFoto = arquivo,
@@ -365,9 +661,10 @@ private fun captureAndExtractItems(context: Context, imageCapture: ImageCapture,
 
                             scanner.process(inputImageFocado)
                                 .addOnSuccessListener { barcodesFoco ->
+                                    mainExecutor.execute { onProgress(1f) }
                                     val qrUrlFoco = barcodesFoco.firstOrNull { it.format == Barcode.FORMAT_QR_CODE }?.toUsableQrText()
                                     Log.i(CAMERA_QR_TAG, "Passo3 (foco) - barcodes=${barcodesFoco.size} qrUrl=$qrUrlFoco")
-                                    ContextCompat.getMainExecutor(context).execute {
+                                    mainExecutor.execute {
                                         onResult(
                                             ResultadoCaptura(
                                                 arquivoFoto = arquivo,
@@ -384,7 +681,8 @@ private fun captureAndExtractItems(context: Context, imageCapture: ImageCapture,
                                 }
                                 .addOnFailureListener { erroFoco ->
                                     Log.e(CAMERA_QR_TAG, "Falha no passo3 QR", erroFoco)
-                                    ContextCompat.getMainExecutor(context).execute {
+                                    mainExecutor.execute {
+                                        onProgress(1f)
                                         onResult(
                                             ResultadoCaptura(
                                                 arquivoFoto = arquivo,
@@ -402,7 +700,8 @@ private fun captureAndExtractItems(context: Context, imageCapture: ImageCapture,
                         }
                         .addOnFailureListener { erroSemRotacao ->
                             Log.e(CAMERA_QR_TAG, "Falha no passo2 QR", erroSemRotacao)
-                            ContextCompat.getMainExecutor(context).execute {
+                            mainExecutor.execute {
+                                onProgress(1f)
                                 onResult(
                                     ResultadoCaptura(
                                         arquivoFoto = arquivo,
@@ -420,7 +719,8 @@ private fun captureAndExtractItems(context: Context, imageCapture: ImageCapture,
                 }
                 .addOnFailureListener { erro ->
                     Log.e(CAMERA_QR_TAG, "Falha no passo1 QR", erro)
-                    ContextCompat.getMainExecutor(context).execute {
+                    mainExecutor.execute {
+                        onProgress(1f)
                         onResult(
                             ResultadoCaptura(
                                 arquivoFoto = arquivo,
@@ -436,8 +736,40 @@ private fun captureAndExtractItems(context: Context, imageCapture: ImageCapture,
                     scanner.close()
                 }
                 }
-        override fun onError(exception: ImageCaptureException) {}
+        override fun onError(exception: ImageCaptureException) {
+            Log.e(CAMERA_QR_TAG, "Falha ao capturar imagem", exception)
+            mainExecutor.execute {
+                onProgress(1f)
+                onResult(
+                    ResultadoCaptura(
+                        arquivoFoto = File(context.filesDir, "servico_scan_erro.jpg"),
+                        itensEncontrados = emptyList(),
+                        kmDetectado = null,
+                        qrCodeUrl = null,
+                        sugestoesProduto = emptyList(),
+                        linhasReconhecidas = emptyList()
+                    )
+                )
+            }
+        }
     })
+}
+
+private fun resultadoTemLeituraUtil(resultado: ResultadoCaptura): Boolean {
+    return !resultado.qrCodeUrl.isNullOrBlank() ||
+        resultado.itensEncontrados.isNotEmpty() ||
+        resultado.sugestoesProduto.isNotEmpty() ||
+        resultado.linhasReconhecidas.isNotEmpty() ||
+        (resultado.kmDetectado != null && resultado.kmDetectado > 0)
+}
+
+private fun ImageProxy.averageLuma(): Double {
+    val buffer = planes.firstOrNull()?.buffer ?: return 255.0
+    val data = ByteArray(buffer.remaining())
+    buffer.get(data)
+    if (data.isEmpty()) return 255.0
+    val total = data.sumOf { it.toInt() and 0xFF }
+    return total.toDouble() / data.size.toDouble()
 }
 
 private fun Barcode.toUsableQrText(): String? {
@@ -640,12 +972,83 @@ private fun calcularLegibilidadeLinha(texto: String): Int {
 internal fun detectarTipoPeloTexto(texto: String): TipoManutencao {
     val normalized = texto.uppercase(Locale.ROOT).unaccent()
     return when {
-        listOf("OLEO", "LUBRAX", "LUBRIFICANTE", "20W", "15W", "5W").any { normalized.contains(it) } -> TipoManutencao.OLEO
-        listOf("BATERIA", "MBR", "AMP", "12V", "VOLTS").any { normalized.contains(it) } -> TipoManutencao.BATERIA
-        listOf("FREIO", "PASTILHA").any { normalized.contains(it) } -> TipoManutencao.FREIO
-        listOf("ABS").any { normalized.contains(it) } -> TipoManutencao.MECANICA
-        listOf("AR COND", "AR-COND", "CLIMA", "REFRIG").any { normalized.contains(it) } -> TipoManutencao.MECANICA
-        listOf("FILTRO", "CORREIA", "VELA", "INJECAO", "PNEU").any { normalized.contains(it) } -> TipoManutencao.MECANICA
+        listOf(
+            "OLEO", "LUBRAX", "MOBIL", "SHELL", "HELIX", "CASTROL", "PETRONAS",
+            "LUBRIFICANTE", "LUB", "MOTOR OIL", "SAE", "0W", "5W", "10W", "15W",
+            "20W", "25W", "ATF", "DEXRON", "HIDRAULICO", "FLUIDO MOTOR", "SEMISSINTETICO",
+            "SINTETICO", "MINERAL"
+        ).any { normalized.contains(it) } -> TipoManutencao.OLEO
+        listOf(
+            "BATERIA", "BATERIAS", "MOURA", "HELIAR", "ACDELCO", "ZETTA", "BOSCH BAT",
+            "AMP", "AH", "12V", "24V", "VOLTS", "ARRANQUE", "START STOP", "ESTACIONARIA"
+        ).any { normalized.contains(it) } -> TipoManutencao.BATERIA
+        listOf(
+            "FREIO", "PASTILHA", "PASTILHAS", "DISCO", "DISCOS", "LONA", "LONAS",
+            "TAMBOR", "PINCA", "CILINDRO MESTRE", "SERVO FREIO", "FLUIDO DE FREIO",
+            "ABS", "SAPATA"
+        ).any { normalized.contains(it) } -> TipoManutencao.FREIO
+        listOf(
+            "PNEU", "PNEUS", "BORRACHA", "BORRACHARIA", "CAMARA DE AR", "CAMARA",
+            "VALVULA", "RODA", "RODAS", "ALINHAMENTO", "BALANCEAMENTO", "BICO",
+            "BICO DE PNEU", "REMENDO", "VULCANIZACAO"
+        ).any { normalized.contains(it) } -> TipoManutencao.PNEU
+        listOf(
+            "CORRENTE", "KIT RELACAO", "RELACAO", "CATRACA", "CASSETE", "ENGRENAGEM",
+            "PINHAO", "COG", "KMC", "COROA"
+        ).any { normalized.contains(it) } -> TipoManutencao.CORRENTE
+        listOf(
+            "LUBRIFICACAO", "DESENGRIPANTE", "GRAXA", "GRAXA BRANCA", "SILICONE SPRAY",
+            "LUB CHAIN", "CERA", "SELANTE", "LIMPA CONTATO", "LIMPA CORRENTE"
+        ).any { normalized.contains(it) } -> TipoManutencao.LUBRIFICACAO
+        listOf(
+            "PEDIVELA", "MOVIMENTO CENTRAL", "BOTTOM BRACKET", "CRANK", "CRANKSET",
+            "PEDAL", "PEDAIS", "EIXO CENTRAL"
+        ).any { normalized.contains(it) } -> TipoManutencao.PEDIVELA
+        listOf(
+            "SELIM", "BANCO", "MANOPLA", "MANOPLAS", "GUIDAO", "MESA", "SUSPENSAO",
+            "AMORTECEDOR", "AMORTECEDORES", "AMORTECEDOR DIANTEIRO", "COXIM", "MOLA",
+            "ENCOSTO", "CAPA DE BANCO"
+        ).any { normalized.contains(it) } -> TipoManutencao.CONFORTO
+        listOf(
+            "ACESSORIO", "ACESSORIOS", "SUPORTE", "BAGAGEIRO", "CESTO", "CESTINHA",
+            "PARALAMA", "PARA-LAMA", "FAROL", "LANTERNA", "RETROVISOR", "CAPA",
+            "ALARME", "SOM", "MULTIMIDIA", "CAMERA DE RE", "ENGATE", "CARREGADOR",
+            "TRAVA", "CADEADO", "SUPORTE CELULAR"
+        ).any { normalized.contains(it) } -> TipoManutencao.ACESSORIOS
+        listOf(
+            "TRANSMISSAO", "CAMBIO", "CAMBIO TRASEIRO", "CAMBIO DIANTEIRO", "DERAILLEUR",
+            "TROCADOR", "ALAVANCA DE CAMBIO", "TRIZETA", "HOMOCINETICA", "EMBREAGEM",
+            "KIT EMBREAGEM", "PLATO", "DISCO DE EMBREAGEM", "COLAR", "SEMI-EIXO",
+            "DIFERENCIAL", "CARDAN"
+        ).any { normalized.contains(it) } -> TipoManutencao.TRANSMISSAO
+        listOf(
+            "REVISAO", "REVISAO GERAL", "CHECKUP", "CHECK-UP", "INSPECAO", "DIAGNOSTICO",
+            "SCAN", "SCANNER", "RASTREAMENTO", "VISTORIA", "TROCA PROGRAMADA"
+        ).any { normalized.contains(it) } -> TipoManutencao.REVISAO
+        listOf(
+            "FUNILARIA", "PINTURA", "MASSA POLIR", "POLIMENTO", "LANTERNAGEM", "PARACHOQUE",
+            "PARA-CHOQUE", "LATARIA", "PORTA", "CAPO", "PARALAMA", "PARA-LAMA", "RETROVISOR PINTURA"
+        ).any { normalized.contains(it) } -> TipoManutencao.FUNILARIA
+        listOf(
+            "IPVA", "DPVAT", "TAXA VEICULAR", "LICENCA ANUAL"
+        ).any { normalized.contains(it) } -> TipoManutencao.IPVA
+        listOf(
+            "LICENCIAMENTO", "LICENCIAMENTO ANUAL", "CRLV", "EMISSAO CRLV", "DOCUMENTACAO",
+            "DOCUMENTO VEICULO", "TRANSFERENCIA", "EMPLACAMENTO", "PLACAS"
+        ).any { normalized.contains(it) } -> TipoManutencao.LICENCIAMENTO
+        listOf(
+            "SEGURO", "APOLICE", "COBERTURA", "FRANQUIA", "RASTREADOR", "PROTECAO VEICULAR",
+            "ASSISTENCIA 24H"
+        ).any { normalized.contains(it) } -> TipoManutencao.SEGURO
+        listOf(
+            "FILTRO", "FILTRO DE OLEO", "FILTRO DE AR", "FILTRO DE CABINE", "FILTRO DE COMBUSTIVEL",
+            "CORREIA", "CORREIA DENTADA", "TENSOR", "VELA", "VELAS", "CABO DE VELA",
+            "BOBINA", "INJECAO", "INJETOR", "BICO INJETOR", "RADIADOR", "AR COND", "AR-COND",
+            "CLIMA", "REFRIG", "REFRIGERACAO", "ADITIVO", "BOMBA DAGUA", "BOMBA D AGUA",
+            "BOMBA DE AGUA", "JUNTA", "RETENTOR", "ROLAMENTO", "ROLAMENTOS", "HUB",
+            "TERMINAL", "PIVO", "SUSPENSAO", "ESCAPAMENTO", "CATALISADOR", "SONDA LAMBDA",
+            "COXIM", "SENSOR", "MOTOR", "MECANICA", "MECANICO", "TBI"
+        ).any { normalized.contains(it) } -> TipoManutencao.MECANICA
         else -> TipoManutencao.OUTROS
     }
 }
