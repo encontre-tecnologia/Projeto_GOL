@@ -79,6 +79,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
+import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import java.io.File
@@ -234,7 +235,7 @@ fun ManutencaoScreen(
     var showTipoAvisoDialog by remember { mutableStateOf(false) }
     var tipoAvisoSelecionado by remember { mutableStateOf(TipoManutencao.OLEO) }
     var iniciarCameraProduto by remember { mutableStateOf(false) }
-    var showAddContatoDialog by remember { mutableStateOf(false) }
+    var showSelecionarPrestadorScreen by remember { mutableStateOf(false) }
     var lembreteParaVincularContato by remember { mutableStateOf<String?>(null) }
     var showTesteNotificacaoDialog by remember { mutableStateOf(false) }
     var showConfiguracoes by remember { mutableStateOf(false) }
@@ -403,34 +404,53 @@ fun ManutencaoScreen(
         )
         return
     }
-    if (showAddContatoDialog) {
-        NovoContatoDialog(
-            onDismiss = { showAddContatoDialog = false },
-            contatosExistentes = listaContatos,
-            onSelecionarExistente = { existente ->
-                lembreteParaVincularContato?.let { lembreteId ->
-                    todosLembretes = todosLembretes.map { lembrete ->
-                        if (lembrete.id == lembreteId) lembrete.copy(contatoId = existente.id) else lembrete
-                    }
-                    lembreteSelecionado = todosLembretes.find { it.id == lembreteId }
-                    contatoDetalheSelecionado = existente
+    if (showSelecionarPrestadorScreen) {
+        val lembreteAlvo = lembreteParaVincularContato?.let { alvoId ->
+            todosLembretes.find { it.id == alvoId }
+        }
+        if (lembreteAlvo == null) {
+            showSelecionarPrestadorScreen = false
+            lembreteParaVincularContato = null
+        } else {
+            SelecionarPrestadorScreen(
+                tipoSelecionado = lembreteAlvo.tipo,
+                isBikeVehicle = isBikeCategory(carroAtual.tipoVeiculo),
+                onDismiss = {
+                    showSelecionarPrestadorScreen = false
                     lembreteParaVincularContato = null
-                }
-                showAddContatoDialog = false
-            },
-            onSalvar = { novo ->
-                listaContatos = listaContatos + novo
-                lembreteParaVincularContato?.let { lembreteId ->
-                    todosLembretes = todosLembretes.map { lembrete ->
-                        if (lembrete.id == lembreteId) lembrete.copy(contatoId = novo.id) else lembrete
+                },
+                onConfirmar = { novoContato ->
+                    val indiceContatoExistente = listaContatos.indexOfFirst { contatoExistente ->
+                        contatoExistente.nome.equals(novoContato.nome, ignoreCase = true) &&
+                            contatoExistente.tipoServico == novoContato.tipoServico
                     }
-                    lembreteSelecionado = todosLembretes.find { it.id == lembreteId }
-                    contatoDetalheSelecionado = novo
+                    val contatoVinculado = if (indiceContatoExistente >= 0) {
+                        val contatoExistente = listaContatos[indiceContatoExistente]
+                        val contatoAtualizado = if (contatoExistente.telefone.isBlank() && novoContato.telefone.isNotBlank()) {
+                            contatoExistente.copy(telefone = novoContato.telefone)
+                        } else {
+                            contatoExistente
+                        }
+                        listaContatos = listaContatos.toMutableList().also { lista ->
+                            lista[indiceContatoExistente] = contatoAtualizado
+                        }
+                        contatoAtualizado
+                    } else {
+                        listaContatos = listaContatos + novoContato
+                        novoContato
+                    }
+
+                    todosLembretes = todosLembretes.map { lembrete ->
+                        if (lembrete.id == lembreteAlvo.id) lembrete.copy(contatoId = contatoVinculado.id) else lembrete
+                    }
+                    lembreteSelecionado = todosLembretes.find { it.id == lembreteAlvo.id }
+                    contatoDetalheSelecionado = contatoVinculado
                     lembreteParaVincularContato = null
+                    showSelecionarPrestadorScreen = false
                 }
-                showAddContatoDialog = false
-            }
-        )
+            )
+            return
+        }
     }
     BackHandler(enabled = showTipoAvisoDialog) { showTipoAvisoDialog = false }
     if (showTipoAvisoDialog) {
@@ -1052,7 +1072,8 @@ fun ManutencaoScreen(
         // ----------------- CONTEÚDO PRINCIPAL (SCAFFOLD) -----------------
     Scaffold(
         modifier = modifier,
-        containerColor = Color.Transparent
+        containerColor = Color.Transparent,
+        contentWindowInsets = WindowInsets(0, 0, 0, 0)
     ) { innerPadding ->
         Box(
             modifier = Modifier
@@ -1072,7 +1093,6 @@ fun ManutencaoScreen(
                         .verticalScroll(contentScrollState)
                 ) {
                     CenterAlignedTopAppBar(
-                        modifier = Modifier.statusBarsPadding(),
                         title = {
                             Text(
                                 "Zellu",
@@ -1090,6 +1110,9 @@ fun ManutencaoScreen(
                                 Icon(Icons.Default.Menu, "Menu", tint = textLight)
                             }
                         },
+                        modifier = Modifier
+                            .statusBarsPadding()
+                            .offset(y = (-3).dp),
                         actions = {
                             IconButton(
                                 onClick = { homeTutorialStep = 0; showHomeTutorial = true },
@@ -1156,6 +1179,7 @@ fun ManutencaoScreen(
                                 }
                             }
                         },
+                        windowInsets = WindowInsets(0, 0, 0, 0),
                         colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = topBarDark)
                     )
 
@@ -1253,7 +1277,7 @@ fun ManutencaoScreen(
                         },
                         onAddPrestador = { lembrete ->
                             lembreteParaVincularContato = lembrete.id
-                            showAddContatoDialog = true
+                            showSelecionarPrestadorScreen = true
                         },
                         onOpenDetalhes = { lembrete ->
                             lembreteSelecionado = lembrete
@@ -1590,6 +1614,7 @@ fun LembreteCardLocal(
     statusLabel: String,
     statusColor: Color
 ) {
+    val context = LocalContext.current
     val bg = Color(0xFF111827)
     val bg2 = Color(0xFF0B1224)
     val stroke = Color(0xFF23324D)
@@ -1765,9 +1790,27 @@ fun LembreteCardLocal(
                 Spacer(Modifier.height(14.dp))
                 HorizontalDivider(color = Color.White.copy(alpha = 0.06f), thickness = 1.dp)
                 Spacer(Modifier.height(10.dp))
-                if (contato != null) {
+                if (contato != null && contato.telefone.isNotBlank()) {
                     Button(
-                        onClick = onClick,
+                        onClick = {
+                            val dataFormatada = try {
+                                dataParaOrdenacao(lembrete).format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))
+                            } catch (e: Exception) {
+                                lembrete.dataLimite.ifBlank { "--/--/----" }
+                            }
+                            val saudacao = when (LocalTime.now().hour) {
+                                in 5..11 -> "Bom dia"
+                                in 12..17 -> "Boa tarde"
+                                else -> "Boa noite"
+                            }
+                            val servico = lembrete.titulo.ifBlank { "servico" }
+                            val itemTrocado = lembrete.peca.ifBlank { lembrete.titulo }.ifBlank { "item do servico" }
+                            abrirWhatsApp(
+                                context,
+                                contato.telefone,
+                                "$saudacao, ${contato.nome}! Tudo bem?\n\nFiz a *$servico* com voce, do item *$itemTrocado*, no dia *$dataFormatada*.\nGostaria de perguntar se o valor ainda e *${formatarMoedaLocal(lembrete.valor)}* e quando voce teria uma data para realizar esse servico novamente."
+                            )
+                        },
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(44.dp),
@@ -1782,7 +1825,32 @@ fun LembreteCardLocal(
                         )
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            text = "Agendar o serviço com ${contato.nome}",
+                            text = "Chamar no Whatszap",
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                } else if (contato != null) {
+                    Button(
+                        onClick = onAddPrestador,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(44.dp),
+                        shape = RoundedCornerShape(6.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1D4ED8))
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = "Adicionar telefone",
                             color = Color.White,
                             fontSize = 13.sp,
                             fontWeight = FontWeight.SemiBold,

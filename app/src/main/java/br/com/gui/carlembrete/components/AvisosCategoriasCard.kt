@@ -372,7 +372,7 @@ fun LembreteCardLocal(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 // BotÃ£o WhatsApp
-                if (contato != null) {
+                if (contato != null && contato.telefone.isNotBlank()) {
                     Surface(
                         color = WhatsAppGreen.copy(alpha = 0.2f),
                         shape = CircleShape,
@@ -410,6 +410,33 @@ fun LembreteCardLocal(
                             Text(
                                 text = "Chamar no WhatsApp",
                                 color = WhatsAppGreen,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                } else if (contato != null) {
+                    Surface(
+                        color = palette.accent.copy(alpha = 0.15f),
+                        shape = CircleShape,
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .clickable { onAddPrestador(lembrete) }
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Add,
+                                contentDescription = "Adicionar telefone",
+                                tint = palette.accent,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                text = "Adicionar telefone",
+                                color = palette.accent,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold
                             )

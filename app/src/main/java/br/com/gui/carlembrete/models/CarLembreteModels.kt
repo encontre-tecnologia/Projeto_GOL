@@ -62,6 +62,7 @@ data class ResultadoCaptura(
     val itensEncontrados: List<ItemDetectado>,
     val kmDetectado: Int?,
     val qrCodeUrl: String? = null,
+    val notaQrInfo: NotaQrInfo? = null,
     val sugestoesProduto: List<String> = emptyList(),
     val linhasReconhecidas: List<String> = emptyList()
 )

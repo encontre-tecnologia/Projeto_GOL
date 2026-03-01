@@ -15,6 +15,7 @@ import android.location.Geocoder
 import android.location.Location
 import android.location.LocationManager
 import android.net.Uri
+import android.os.Build
 import android.speech.RecognizerIntent
 import android.util.Log
 import android.widget.Toast
@@ -57,6 +58,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -81,6 +83,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.animation.animateContentSize
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.FocusManager
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -90,9 +93,12 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -135,7 +141,9 @@ import java.time.YearMonth
 import java.time.temporal.TemporalAdjusters
 import java.util.Locale
 import java.util.UUID
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -155,6 +163,8 @@ fun NovoAgendamentoDialog(
     onRequestPremium: () -> Unit
 ) {
     val context = LocalContext.current
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
     val appContext = context.applicationContext
     val isPremium = planTier != PlanTier.FREE
     val scheme = MaterialTheme.colorScheme
@@ -162,10 +172,12 @@ fun NovoAgendamentoDialog(
     val pageBackground = if (isDark) scheme.background else Color.White
     val surfaceCardColor = if (isDark) Color(0xFF111827) else Color.White
     val cardBorder = if (isDark) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.12f)
+    val currencyFormatter = remember { NumberFormat.getCurrencyInstance(Locale("pt", "BR")) }
     val textPrimary = if (isDark) Color.White else Color.Black
     val textSecondary = if (isDark) Color(0xFF94A3B8) else Color(0xFF475569)
     val iconColor = if (isDark) Color.White else Color.Black
     val cameraIconColor = Color.White
+    val categoriasDisponiveis = tiposAvisoCadastroPorVeiculo(carroAtual.tipoVeiculo)
     var descricao by remember { mutableStateOf("") }
     var localServicoInput by remember { mutableStateOf("") }
     var data by remember { mutableStateOf(LocalDate.now().format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))) }
@@ -182,6 +194,8 @@ fun NovoAgendamentoDialog(
     var itemDataAvisoOverrides by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var itemHoraAvisoOverrides by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var itemValorOverrides by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var itemTipoOverrides by remember { mutableStateOf<Map<String, TipoManutencao>>(emptyMap()) }
+    var itemCategoriaMenuAbertoId by remember { mutableStateOf<String?>(null) }
     var showKmConfirmDialog by remember { mutableStateOf(false) }
     var kmDetectadoParaConfirmar by remember { mutableStateOf(0) }
     var menuExpanded by remember { mutableStateOf(false) }
@@ -199,7 +213,6 @@ fun NovoAgendamentoDialog(
     var showMarcaDialog by remember { mutableStateOf(false) }
     var produtoSelecionadoDialog by remember { mutableStateOf<String?>(null) }
     var marcaSelecionadaDialog by remember { mutableStateOf<String?>(null) }
-    var isQrLoading by remember { mutableStateOf(false) }
     var qrNomeEstabelecimento by remember { mutableStateOf("") }
     var qrEnderecoEstabelecimento by remember { mutableStateOf("") }
     var descricaoAntesDialog by remember { mutableStateOf("") }
@@ -212,6 +225,7 @@ fun NovoAgendamentoDialog(
     var jaCarregouProfissionaisCidade by remember { mutableStateOf(false) }
     var profissionalParaCompletarTelefone by remember { mutableStateOf<ProfissionalCidadeEncontrado?>(null) }
     var telefoneCompletarInput by remember { mutableStateOf("") }
+    var enviarWhatsappAposCompletarTelefone by remember { mutableStateOf(false) }
     val profissionaisListState = rememberLazyListState()
     val loadingTransition = rememberInfiniteTransition(label = "profissionais_loading")
     val loadingAlpha by loadingTransition.animateFloat(
@@ -224,6 +238,16 @@ fun NovoAgendamentoDialog(
         label = "profissionais_loading_alpha"
     )
     val isBikeVehicle = carroAtual.tipoVeiculo == TipoVeiculo.BICICLETA || carroAtual.tipoVeiculo == TipoVeiculo.BIKE_ELETRICA
+
+    LaunchedEffect(carroAtual.tipoVeiculo) {
+        if (tipoSelecionado !in categoriasDisponiveis) {
+            tipoSelecionado = categoriasDisponiveis.firstOrNull() ?: TipoManutencao.OUTROS
+        }
+        val categoriaFallback = categoriasDisponiveis.firstOrNull() ?: TipoManutencao.OUTROS
+        itemTipoOverrides = itemTipoOverrides.mapValues { (_, tipoAtual) ->
+            if (tipoAtual in categoriasDisponiveis) tipoAtual else categoriaFallback
+        }
+    }
     val dataFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
     val scope = rememberCoroutineScope()
     val speechLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -300,21 +324,24 @@ fun NovoAgendamentoDialog(
         }
     }
 
-    fun adicionarContatoDaCidade(profissional: ProfissionalCidadeEncontrado) {
+    fun adicionarContatoDaCidade(profissional: ProfissionalCidadeEncontrado): ContatoProfissional {
         val telefoneLimpo = profissional.telefone.filter(Char::isDigit)
-        if (telefoneLimpo.isBlank()) {
-            Toast.makeText(context, "Complete o telefone antes de adicionar", Toast.LENGTH_SHORT).show()
-            return
-        }
         val existente = contatosLista.firstOrNull { atual ->
             val atualTelefone = atual.telefone.filter(Char::isDigit)
             (telefoneLimpo.isNotBlank() && atualTelefone == telefoneLimpo) ||
                 atual.nome.trim().equals(profissional.nome.trim(), ignoreCase = true)
         }
         if (existente != null) {
-            contatoSelecionado = existente
-            Toast.makeText(context, "Profissional ja existe e foi vinculado", Toast.LENGTH_SHORT).show()
-            return
+            val atualizado = if (existente.telefone.isBlank() && telefoneLimpo.isNotBlank()) {
+                existente.copy(telefone = profissional.telefone)
+            } else {
+                existente
+            }
+            if (atualizado != existente) {
+                contatosLista = contatosLista.map { if (it.id == existente.id) atualizado else it }
+            }
+            contatoSelecionado = atualizado
+            return atualizado
         }
         val novoContato = ContatoProfissional(
             nome = profissional.nome,
@@ -329,6 +356,7 @@ fun NovoAgendamentoDialog(
         onAddContato(novoContato)
         contatoSelecionado = novoContato
         Toast.makeText(context, "Profissional da cidade adicionado", Toast.LENGTH_SHORT).show()
+        return novoContato
     }
 
     fun carregarProfissionaisDaCidade(forcar: Boolean = false) {
@@ -369,9 +397,28 @@ fun NovoAgendamentoDialog(
         }
     }
 
-    LaunchedEffect(etapaAtual) {
-        if (etapaAtual == 3) {
-            carregarProfissionaisDaCidade()
+    fun enviarMensagemWhatsapp(contato: ContatoProfissional) {
+        val telefone = contato.telefone.filter(Char::isDigit)
+        if (telefone.isBlank()) {
+            contatoSelecionado = contato
+            profissionalParaCompletarTelefone = ProfissionalCidadeEncontrado(
+                nome = contato.nome,
+                telefone = "",
+                endereco = ""
+            )
+            telefoneCompletarInput = ""
+            enviarWhatsappAposCompletarTelefone = true
+            Toast.makeText(context, "Informe o telefone para enviar no WhatsApp", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val kmInfo = kmBase.ifBlank { "nÃ£o informado" }
+        val mensagem = "OlÃ¡ ${contato.nome}, a Ãºltima manutenÃ§Ã£o foi registrada em $data com $kmInfo km. Podemos agendar a prÃ³xima?"
+        val uri = Uri.parse("https://wa.me/$telefone?text=${URLEncoder.encode(mensagem, "UTF-8")}")
+        val intent = Intent(Intent.ACTION_VIEW, uri)
+        try {
+            context.startActivity(intent)
+        } catch (_: Exception) {
+            Toast.makeText(context, "NÃ£o foi possÃ­vel abrir o WhatsApp", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -400,7 +447,11 @@ fun NovoAgendamentoDialog(
                             return@TextButton
                         }
                         val base = profissionalParaCompletarTelefone ?: return@TextButton
-                        adicionarContatoDaCidade(base.copy(telefone = telefoneLimpo))
+                        val contatoAtualizado = adicionarContatoDaCidade(base.copy(telefone = telefoneLimpo))
+                        if (enviarWhatsappAposCompletarTelefone) {
+                            enviarWhatsappAposCompletarTelefone = false
+                            enviarMensagemWhatsapp(contatoAtualizado)
+                        }
                         profissionalParaCompletarTelefone = null
                         telefoneCompletarInput = ""
                     }
@@ -410,26 +461,10 @@ fun NovoAgendamentoDialog(
                 TextButton(onClick = {
                     profissionalParaCompletarTelefone = null
                     telefoneCompletarInput = ""
+                    enviarWhatsappAposCompletarTelefone = false
                 }) { Text("Cancelar") }
             }
         )
-    }
-
-    fun enviarMensagemWhatsapp(contato: ContatoProfissional) {
-        val telefone = contato.telefone.filter(Char::isDigit)
-        if (telefone.isBlank()) {
-            Toast.makeText(context, "Telefone invÃ¡lido", Toast.LENGTH_SHORT).show()
-            return
-        }
-        val kmInfo = kmBase.ifBlank { "nÃ£o informado" }
-        val mensagem = "OlÃ¡ ${contato.nome}, a Ãºltima manutenÃ§Ã£o foi registrada em $data com $kmInfo km. Podemos agendar a prÃ³xima?"
-        val uri = Uri.parse("https://wa.me/$telefone?text=${URLEncoder.encode(mensagem, "UTF-8")}")
-        val intent = Intent(Intent.ACTION_VIEW, uri)
-        try {
-            context.startActivity(intent)
-        } catch (_: Exception) {
-            Toast.makeText(context, "NÃ£o foi possÃ­vel abrir o WhatsApp", Toast.LENGTH_SHORT).show()
-        }
     }
 
     fun abrirBuscaGoogleProfissional(nome: String) {
@@ -449,8 +484,9 @@ fun NovoAgendamentoDialog(
         val dataAvisoStr = dataAviso
         if (isModoLista) {
             val novosLembretes = listaItensDetectados.flatMap { item ->
+                val tipoItem = itemTipoOverrides[item.id] ?: item.tipo
                 val rep = maxOf(1, item.quantidade)
-                val kmFuturo = (kmAtualBase + getKmAdicionalPorTipo(item.tipo)).toString()
+                val kmFuturo = (kmAtualBase + getKmAdicionalPorTipo(tipoItem)).toString()
                 val dataItem = itemDataAvisoOverrides[item.id] ?: dataAvisoStr
                 val horaItem = itemHoraAvisoOverrides[item.id] ?: horaNotificacao
                 val valorItem = itemValorOverrides[item.id]?.toDoubleOrNull() ?: item.valor
@@ -461,7 +497,7 @@ fun NovoAgendamentoDialog(
                         peca = item.nome,
                         dataLimite = dataItem,
                         kmLimite = kmFuturo,
-                        tipo = item.tipo,
+                        tipo = tipoItem,
                         valor = valorItem,
                         carroId = "",
                         contatoId = contatoSelecionado?.id,
@@ -509,66 +545,78 @@ fun NovoAgendamentoDialog(
                 showTextosDialog = false
                 showMarcaDialog = false
                 showCamera = false
-                isQrLoading = true
-                scope.launch {
-                    val notaInfo = consultarNotaPorQrCode(qrUrl)
-                    isQrLoading = false
-                    if (notaInfo == null) {
-                        qrNomeEstabelecimento = ""
-                        qrEnderecoEstabelecimento = ""
-                        localServicoInput = ""
-                        qrPossuiItensSeparaveis = false
-                        qrModoSeparado = false
-                        descricaoQrConsolidada = ""
+                val notaInfo = resultado.notaQrInfo
+                if (notaInfo == null) {
+                    qrNomeEstabelecimento = ""
+                    qrEnderecoEstabelecimento = ""
+                    localServicoInput = ""
+                    qrPossuiItensSeparaveis = false
+                    qrModoSeparado = false
+                    descricaoQrConsolidada = ""
+                    itemDataAvisoOverrides = emptyMap()
+                    itemHoraAvisoOverrides = emptyMap()
+                    itemValorOverrides = emptyMap()
+                    itemTipoOverrides = emptyMap()
+                    itemCategoriaMenuAbertoId = null
+                    Toast.makeText(context, "QR lido, mas nao foi possivel carregar a nota.", Toast.LENGTH_LONG).show()
+                } else {
+                    val valorExtraido = notaInfo.valorTotal
+                    val dataExtraida = notaInfo.dataCompra
+
+                    if (valorExtraido != null) {
+                        valorInput = String.format(Locale.US, "%.2f", valorExtraido)
+                    }
+                    if (!dataExtraida.isNullOrBlank()) {
+                        data = dataExtraida
+                        dataAviso = dataExtraida
+                        avisoPersonalizado = true
+                    }
+                    qrNomeEstabelecimento = notaInfo.nomeEstabelecimento.orEmpty()
+                    qrEnderecoEstabelecimento = notaInfo.enderecoEstabelecimento.orEmpty()
+                    val descricaoExtraida = notaInfo.descricaoItens?.trim()
+                    val itensQr = extrairItensDaDescricaoQr(descricaoExtraida)
+                    qrPossuiItensSeparaveis = itensQr.size > 1
+                    qrModoSeparado = false
+                    if (itensQr.isNotEmpty()) {
+                        listaItensDetectados = itensQr
+                        itemDataAvisoOverrides = itensQr.associate { it.id to dataAviso }
+                        itemHoraAvisoOverrides = itensQr.associate { it.id to horaNotificacao }
+                        itemValorOverrides = itensQr.associate { it.id to String.format(Locale.US, "%.2f", it.valor) }
+                        itemTipoOverrides = itensQr.associate { item ->
+                            item.id to detectarTipoInicialDoLembrete(
+                                nomeItem = item.nome,
+                                tipoBase = item.tipo,
+                                categoriasDisponiveis = categoriasDisponiveis
+                            )
+                        }
+                    } else {
                         itemDataAvisoOverrides = emptyMap()
                         itemHoraAvisoOverrides = emptyMap()
                         itemValorOverrides = emptyMap()
-                        Toast.makeText(context, "QR lido, mas nÃ£o foi possÃ­vel carregar a nota.", Toast.LENGTH_LONG).show()
-                    } else {
-                        val valorExtraido = notaInfo.valorTotal
-                        val dataExtraida = notaInfo.dataCompra
-
-                        if (valorExtraido != null) {
-                            valorInput = String.format(Locale.US, "%.2f", valorExtraido)
-                        }
-                        if (!dataExtraida.isNullOrBlank()) {
-                            data = dataExtraida
-                            dataAviso = dataExtraida
-                            avisoPersonalizado = true
-                        }
-                        qrNomeEstabelecimento = notaInfo.nomeEstabelecimento.orEmpty()
-                        qrEnderecoEstabelecimento = notaInfo.enderecoEstabelecimento.orEmpty()
-                        val descricaoExtraida = notaInfo.descricaoItens?.trim()
-                        val itensQr = extrairItensDaDescricaoQr(descricaoExtraida)
-                        qrPossuiItensSeparaveis = itensQr.size > 1
-                        qrModoSeparado = false
-                        if (itensQr.isNotEmpty()) {
-                            listaItensDetectados = itensQr
-                            itemDataAvisoOverrides = itensQr.associate { it.id to dataAviso }
-                            itemHoraAvisoOverrides = itensQr.associate { it.id to horaNotificacao }
-                            itemValorOverrides = itensQr.associate { it.id to String.format(Locale.US, "%.2f", it.valor) }
-                        } else {
-                            itemDataAvisoOverrides = emptyMap()
-                            itemHoraAvisoOverrides = emptyMap()
-                            itemValorOverrides = emptyMap()
-                        }
-                        localServicoInput = montarLocalNota(
-                            estabelecimento = qrNomeEstabelecimento,
-                            endereco = qrEnderecoEstabelecimento
-                        )
-                        descricaoQrConsolidada = montarDescricaoItensNota(
-                            total = valorExtraido,
-                            itens = descricaoExtraida
-                        )
-                        descricao = descricaoQrConsolidada
-                        isModoLista = false
-
-                        Log.i(
-                            QR_PARSER_TAG,
-                            "Bind UI QR => estabelecimento=$qrNomeEstabelecimento endereco=$qrEnderecoEstabelecimento descricao=$descricao valorInput=$valorInput data=$data dataAviso=$dataAviso"
-                        )
-                        Toast.makeText(context, "Dados da nota carregados pelo QR Code.", Toast.LENGTH_SHORT).show()
+                        itemTipoOverrides = emptyMap()
                     }
+                    itemCategoriaMenuAbertoId = null
+                    localServicoInput = montarLocalNota(
+                        estabelecimento = qrNomeEstabelecimento,
+                        endereco = qrEnderecoEstabelecimento
+                    )
+                    descricaoQrConsolidada = montarDescricaoItensNota(
+                        total = valorExtraido,
+                        itens = descricaoExtraida
+                    )
+                    descricao = descricaoQrConsolidada
+                    isModoLista = false
+
+                    Log.i(
+                        QR_PARSER_TAG,
+                        "Bind UI QR => estabelecimento=$qrNomeEstabelecimento endereco=$qrEnderecoEstabelecimento descricao=$descricao valorInput=$valorInput data=$data dataAviso=$dataAviso itens=${itensQr.size} modoLista=$isModoLista"
+                    )
+                    Toast.makeText(
+                        context,
+                        if (itensQr.size > 1) "Nota carregada. Escolha se deseja criar 1 lembrete ou varios."
+                        else "Dados da nota carregados pelo QR Code.",
+                        Toast.LENGTH_SHORT
+                    ).show()
                 }
                 return@CameraCapturaDialog
             }
@@ -582,6 +630,8 @@ fun NovoAgendamentoDialog(
             itemDataAvisoOverrides = emptyMap()
             itemHoraAvisoOverrides = emptyMap()
             itemValorOverrides = emptyMap()
+            itemTipoOverrides = emptyMap()
+            itemCategoriaMenuAbertoId = null
             textosDetectados = filtrarTextosDetectados(resultado.linhasReconhecidas)
             textoSelecionadoDialog = null
             showMarcaDialog = false
@@ -606,27 +656,6 @@ fun NovoAgendamentoDialog(
             if (resultado.kmDetectado != null && resultado.kmDetectado > 0) { kmDetectadoParaConfirmar = resultado.kmDetectado; showKmConfirmDialog = true }
             showCamera = false
         })
-    }
-
-    if (isQrLoading) {
-        val loadingDialogBg = if (isDark) Color(0xFF0F172A) else Color.White
-        AlertDialog(
-            onDismissRequest = {},
-            title = { Text("Lendo nota", color = textPrimary, fontWeight = FontWeight.Bold) },
-            text = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(20.dp),
-                        strokeWidth = 2.dp,
-                        color = Color(0xFF3B82F6)
-                    )
-                    Spacer(Modifier.width(12.dp))
-                    Text("Consultando dados no link do QR Code...", color = textSecondary)
-                }
-            },
-            confirmButton = {},
-            containerColor = loadingDialogBg
-        )
     }
 
     if (showKmConfirmDialog) {
@@ -735,7 +764,11 @@ fun NovoAgendamentoDialog(
                                         overflow = TextOverflow.Ellipsis
                                     )
                                     if (isSelected) {
-                                        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF10B981))
+                                        Icon(
+                                            Icons.Default.CheckCircle,
+                                            contentDescription = null,
+                                            tint = Color(0xFF10B981)
+                                        )
                                     }
                                 }
                             }
@@ -875,6 +908,21 @@ fun NovoAgendamentoDialog(
 
     val podeAvancarEtapa1 = (isModoLista && listaItensDetectados.isNotEmpty()) || descricao.isNotBlank()
     val accentBlue = Color(0xFF3B82F6)
+    val quantidadeLembretesConfigurados = if (qrModoSeparado && listaItensDetectados.isNotEmpty()) {
+        listaItensDetectados.size
+    } else {
+        1
+    }
+    val textoBotaoEtapa1 = if (qrModoSeparado && listaItensDetectados.isNotEmpty()) {
+        "Avançar com $quantidadeLembretesConfigurados lembretes"
+    } else {
+        "Avançar"
+    }
+    val textoBotaoSalvar = if (qrModoSeparado && listaItensDetectados.isNotEmpty()) {
+        "Cadastrar $quantidadeLembretesConfigurados lembretes"
+    } else {
+        "Cadastrar lembrete"
+    }
     val voltarUmaEtapaOuFechar = {
         if (etapaAtual > 1) etapaAtual -= 1 else onDismiss()
     }
@@ -883,26 +931,13 @@ fun NovoAgendamentoDialog(
 
     Scaffold(
         containerColor = Color.Transparent,
-        topBar = {
-            CenterAlignedTopAppBar(
-                title = { },
-                navigationIcon = {
-                    IconButton(onClick = voltarUmaEtapaOuFechar) {
-                        Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar", tint = iconColor)
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = pageBackground
-                )
-            )
-        },
         bottomBar = {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(pageBackground)
                     .navigationBarsPadding()
-                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                    .padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 2.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 when (etapaAtual) {
@@ -915,8 +950,8 @@ fun NovoAgendamentoDialog(
                                 contentColor = Color.White
                             ),
                             shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier.fillMaxWidth().height(52.dp)
-                        ) { Text("Avançar", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
+                            modifier = Modifier.fillMaxWidth().height(52.dp).offset(y = (-10).dp)
+                        ) { Text(textoBotaoEtapa1, fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
                     }
                     2 -> {
                         Button(
@@ -926,21 +961,10 @@ fun NovoAgendamentoDialog(
                                 contentColor = Color.White
                             ),
                             shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier.fillMaxWidth().height(52.dp)
+                            modifier = Modifier.fillMaxWidth().height(52.dp).offset(y = (-10).dp)
                         ) { Text("Próximo", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
                     }
                     3 -> {
-                        Button(
-                            onClick = { etapaAtual = 4 },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = accentBlue,
-                                contentColor = Color.White
-                            ),
-                            shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier.fillMaxWidth().height(52.dp)
-                        ) { Text("Próximo", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
-                    }
-                    else -> {
                         Button(
                             onClick = {
                                 salvarAvisos()
@@ -951,11 +975,11 @@ fun NovoAgendamentoDialog(
                                 contentColor = Color.White
                             ),
                             shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier.fillMaxWidth().height(52.dp)
+                            modifier = Modifier.fillMaxWidth().height(52.dp).offset(y = (-10).dp)
                         ) {
                             Icon(Icons.Rounded.CalendarMonth, contentDescription = null)
                             Spacer(Modifier.width(8.dp))
-                            Text("Cadastrar aviso", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                            Text(textoBotaoSalvar, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                         }
                     }
                 }
@@ -976,14 +1000,29 @@ fun NovoAgendamentoDialog(
                 modifier = Modifier
                     .weight(1f)
                     .then(
-                        if (etapaAtual == 3) Modifier
+                        if (etapaAtual == 3) Modifier.verticalScroll(rememberScrollState())
                         else Modifier.verticalScroll(rememberScrollState())
                     )
-                    .padding(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 12.dp),
+                    .padding(
+                        start = 16.dp,
+                        end = 16.dp,
+                        top = 2.dp,
+                        bottom = 12.dp
+                    ),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 4.dp),
+                    horizontalArrangement = Arrangement.Start
+                ) {
+                    IconButton(onClick = voltarUmaEtapaOuFechar) {
+                        Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar", tint = iconColor)
+                    }
+                }
                 Column(
-                    modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = 4.dp, bottom = 10.dp),
+                    modifier = Modifier.padding(top = 4.dp, bottom = 10.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                 when (etapaAtual) {
@@ -991,11 +1030,26 @@ fun NovoAgendamentoDialog(
                         Column(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Icon(Icons.Rounded.Edit, contentDescription = null, tint = accentBlue, modifier = Modifier.size(30.dp))
-                            Text("Dados do aviso", color = textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 20.sp)
+                            Box(
+                                modifier = Modifier
+                                    .size(56.dp)
+                                    .clip(CircleShape)
+                                    .background(accentBlue.copy(alpha = 0.18f))
+                                    .border(
+                                        width = 1.dp,
+                                        color = accentBlue.copy(alpha = 0.28f),
+                                        shape = CircleShape
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Rounded.Edit, contentDescription = null, tint = accentBlue, modifier = Modifier.size(30.dp))
+                            }
+                            Spacer(Modifier.height(6.dp))
+                            Text("Dados do lembrete", color = textPrimary, fontWeight = FontWeight.Bold, fontSize = 25.sp)
                         }
+                        Spacer(Modifier.height(2.dp))
                         Button(
                             onClick = { tentarAbrirCamera() },
                             modifier = Modifier.fillMaxWidth().height(48.dp),
@@ -1013,6 +1067,41 @@ fun NovoAgendamentoDialog(
                             Spacer(Modifier.width(8.dp))
                             Text(if (fotoCaminho != null) "Foto Anexada (Refazer)" else "Escanear Produto", color = Color.White)
                         }
+                        if (!qrModoSeparado) {
+                            ExposedDropdownMenuBox(expanded = menuExpanded, onExpandedChange = { menuExpanded = !menuExpanded }) {
+                                OutlinedTextField(
+                                    value = tipoSelecionado.label,
+                                    onValueChange = {},
+                                    readOnly = true,
+                                    label = { Text("Categoria") },
+                                    modifier = Modifier.menuAnchor().fillMaxWidth(),
+                                    leadingIcon = {
+                                        TipoIcon(
+                                            tipo = tipoSelecionado,
+                                            tint = corCategoria(tipoSelecionado),
+                                            size = 18.dp
+                                        )
+                                    },
+                                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = menuExpanded) },
+                                    shape = RoundedCornerShape(12.dp)
+                                )
+                                ExposedDropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                                    categoriasDisponiveis.forEach { t ->
+                                        DropdownMenuItem(
+                                            text = { Text(t.label) },
+                                            onClick = { tipoSelecionado = t; menuExpanded = false },
+                                            leadingIcon = {
+                                                TipoIcon(
+                                                    tipo = t,
+                                                    tint = corCategoria(t),
+                                                    size = 18.dp
+                                                )
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
                         OutlinedTextField(
                             value = descricao,
                             onValueChange = { descricao = it },
@@ -1023,38 +1112,213 @@ fun NovoAgendamentoDialog(
                                 .animateContentSize()
                                 .focusRequester(descricaoFocusRequester),
                             maxLines = 12,
+                            keyboardOptions = KeyboardOptions.Default.copy(imeAction = ImeAction.Done),
+                            keyboardActions = KeyboardActions(
+                                onDone = {
+                                    keyboardController?.hide()
+                                    focusManager.clearFocus()
+                                }
+                            ),
                             shape = RoundedCornerShape(12.dp)
                         )
-                        ExposedDropdownMenuBox(expanded = menuExpanded, onExpandedChange = { menuExpanded = !menuExpanded }) {
-                            OutlinedTextField(
-                                value = tipoSelecionado.label,
-                                onValueChange = {},
-                                readOnly = true,
-                                label = { Text("Categoria") },
-                                modifier = Modifier.menuAnchor().fillMaxWidth(),
-                                leadingIcon = {
-                                    TipoIcon(
-                                        tipo = tipoSelecionado,
-                                        tint = corCategoria(tipoSelecionado),
-                                        size = 18.dp
-                                    )
-                                },
-                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = menuExpanded) },
-                                shape = RoundedCornerShape(12.dp)
-                            )
-                            ExposedDropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
-                                TipoManutencao.values().forEach { t ->
-                                    DropdownMenuItem(
-                                        text = { Text(t.label) },
-                                        onClick = { tipoSelecionado = t; menuExpanded = false },
-                                        leadingIcon = {
-                                            TipoIcon(
-                                                tipo = t,
-                                                tint = corCategoria(t),
-                                                size = 18.dp
-                                            )
+                        if (qrPossuiItensSeparaveis && listaItensDetectados.isNotEmpty()) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text(
+                                    "Como deseja criar os lembretes desta nota?",
+                                    color = Color.White,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    OutlinedButton(
+                                        onClick = {
+                                            qrModoSeparado = false
+                                            isModoLista = false
+                                            descricao = descricaoQrConsolidada
+                                        },
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .height(48.dp),
+                                        shape = RoundedCornerShape(12.dp),
+                                        border = BorderStroke(
+                                            1.dp,
+                                            if (!qrModoSeparado) accentBlue else Color.White
+                                        ),
+                                        colors = ButtonDefaults.outlinedButtonColors(
+                                            containerColor = if (!qrModoSeparado) accentBlue else Color.Transparent,
+                                            contentColor = if (!qrModoSeparado) Color.White else textPrimary
+                                        )
+                                    ) {
+                                        Text("Criar 1 lembrete", fontWeight = FontWeight.SemiBold)
+                                    }
+                                    OutlinedButton(
+                                        onClick = {
+                                            qrModoSeparado = true
+                                            isModoLista = true
+                                        },
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .height(48.dp),
+                                        shape = RoundedCornerShape(12.dp),
+                                        border = BorderStroke(
+                                            1.dp,
+                                            if (qrModoSeparado) accentBlue else Color.White
+                                        ),
+                                        colors = ButtonDefaults.outlinedButtonColors(
+                                            containerColor = if (qrModoSeparado) accentBlue else Color.Transparent,
+                                            contentColor = if (qrModoSeparado) Color.White else textPrimary
+                                        )
+                                    ) {
+                                        Text("1 por item", fontWeight = FontWeight.SemiBold)
+                                    }
+                                }
+                                Spacer(Modifier.height(8.dp))
+                                if (qrModoSeparado) {
+                                    Column(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        listaItensDetectados.forEachIndexed { index, item ->
+                                            val tipoItem = itemTipoOverrides[item.id] ?: item.tipo
+                                            Card(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                colors = CardDefaults.cardColors(
+                                                    containerColor = if (isDark) Color(0xFF111827) else Color(0xFFF8FAFC)
+                                                ),
+                                                shape = RoundedCornerShape(14.dp),
+                                                border = BorderStroke(1.dp, cardBorder)
+                                            ) {
+                                                Box(modifier = Modifier.fillMaxWidth()) {
+                                                    Column(
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .padding(12.dp),
+                                                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                                                        horizontalAlignment = Alignment.Start
+                                                    ) {
+                                                        Row(
+                                                            modifier = Modifier.fillMaxWidth(),
+                                                            verticalAlignment = Alignment.CenterVertically,
+                                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                        ) {
+                                                            Box(
+                                                                modifier = Modifier
+                                                                    .size(28.dp)
+                                                                    .clip(CircleShape)
+                                                                    .background(accentBlue.copy(alpha = 0.14f))
+                                                                    .border(
+                                                                        width = 1.dp,
+                                                                        color = accentBlue.copy(alpha = 0.24f),
+                                                                        shape = CircleShape
+                                                                    ),
+                                                                contentAlignment = Alignment.Center
+                                                            ) {
+                                                                Icon(
+                                                                    Icons.Default.Notifications,
+                                                                    contentDescription = null,
+                                                                    tint = accentBlue,
+                                                                    modifier = Modifier.size(15.dp)
+                                                                )
+                                                            }
+                                                            Text(
+                                                                item.nome,
+                                                                color = textPrimary,
+                                                                fontSize = 14.sp,
+                                                                fontWeight = FontWeight.Bold
+                                                            )
+                                                        }
+                                                        ExposedDropdownMenuBox(
+                                                            expanded = itemCategoriaMenuAbertoId == item.id,
+                                                            onExpandedChange = { expandido ->
+                                                                itemCategoriaMenuAbertoId = if (expandido) item.id else null
+                                                            }
+                                                        ) {
+                                                            OutlinedTextField(
+                                                                value = tipoItem.label,
+                                                                onValueChange = {},
+                                                                readOnly = true,
+                                                                label = { Text("Categoria") },
+                                                                modifier = Modifier
+                                                                    .menuAnchor()
+                                                                    .fillMaxWidth(),
+                                                                leadingIcon = {
+                                                                    TipoIcon(
+                                                                        tipo = tipoItem,
+                                                                        tint = corCategoria(tipoItem),
+                                                                        size = 18.dp
+                                                                    )
+                                                                },
+                                                                trailingIcon = {
+                                                                    ExposedDropdownMenuDefaults.TrailingIcon(
+                                                                        expanded = itemCategoriaMenuAbertoId == item.id
+                                                                    )
+                                                                },
+                                                                shape = RoundedCornerShape(12.dp)
+                                                            )
+                                                            ExposedDropdownMenu(
+                                                                expanded = itemCategoriaMenuAbertoId == item.id,
+                                                                onDismissRequest = { itemCategoriaMenuAbertoId = null }
+                                                            ) {
+                                                                categoriasDisponiveis.forEach { categoria ->
+                                                                    DropdownMenuItem(
+                                                                        text = { Text(categoria.label) },
+                                                                        onClick = {
+                                                                            itemTipoOverrides = itemTipoOverrides + (item.id to categoria)
+                                                                            itemCategoriaMenuAbertoId = null
+                                                                        },
+                                                                        leadingIcon = {
+                                                                            TipoIcon(
+                                                                                tipo = categoria,
+                                                                                tint = corCategoria(categoria),
+                                                                                size = 18.dp
+                                                                            )
+                                                                        }
+                                                                    )
+                                                                }
+                                                            }
+                                                        }
+                                                        Surface(
+                                                            modifier = Modifier.fillMaxWidth(),
+                                                            shape = RoundedCornerShape(12.dp),
+                                                            color = if (isDark) Color(0xFF0F172A) else Color(0xFFF0FDF4),
+                                                            border = BorderStroke(1.dp, Color(0xFF16A34A).copy(alpha = 0.22f))
+                                                        ) {
+                                                            Row(
+                                                                modifier = Modifier
+                                                                    .fillMaxWidth()
+                                                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                                verticalAlignment = Alignment.CenterVertically
+                                                            ) {
+                                                                Text(
+                                                                    "Valor:",
+                                                                    color = textSecondary,
+                                                                    fontSize = 12.sp,
+                                                                    fontWeight = FontWeight.SemiBold
+                                                                )
+                                                                Text(
+                                                                    text = currencyFormatter.format(
+                                                                        itemValorOverrides[item.id]?.toDoubleOrNull() ?: item.valor
+                                                                    ),
+                                                                    color = Color(0xFF16A34A),
+                                                                    fontSize = 15.sp,
+                                                                    fontWeight = FontWeight.Bold
+                                                                )
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
                                         }
-                                    )
+                                    }
                                 }
                             }
                         }
@@ -1063,10 +1327,23 @@ fun NovoAgendamentoDialog(
                         Column(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Icon(Icons.Rounded.Speed, contentDescription = null, tint = accentBlue, modifier = Modifier.size(30.dp))
-                            Text("Quilometragem e data", color = textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 20.sp)
+                            Box(
+                                modifier = Modifier
+                                    .size(56.dp)
+                                    .clip(CircleShape)
+                                    .background(accentBlue.copy(alpha = 0.18f))
+                                    .border(
+                                        width = 1.dp,
+                                        color = accentBlue.copy(alpha = 0.28f),
+                                        shape = CircleShape
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Rounded.Speed, contentDescription = null, tint = accentBlue, modifier = Modifier.size(30.dp))
+                            }
+                            Text("Quilometragem e data", color = textPrimary, fontWeight = FontWeight.Bold, fontSize = 22.sp)
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             OutlinedTextField(
@@ -1101,7 +1378,7 @@ fun NovoAgendamentoDialog(
                         OutlinedTextField(
                             value = dataAviso,
                             onValueChange = {},
-                            label = { Text("Data do aviso") },
+                            label = { Text("Data do lembrete") },
                             readOnly = true,
                             modifier = Modifier.fillMaxWidth(),
                             trailingIcon = {
@@ -1128,7 +1405,7 @@ fun NovoAgendamentoDialog(
                         OutlinedTextField(
                             value = horaNotificacao,
                             onValueChange = {},
-                            label = { Text("Hora do aviso") },
+                            label = { Text("Hora do lembrete") },
                             readOnly = true,
                             modifier = Modifier.fillMaxWidth(),
                             trailingIcon = {
@@ -1145,32 +1422,6 @@ fun NovoAgendamentoDialog(
                         )
                     }
                     3 -> {
-                        EtapaProfissionaisContent(
-                            isDark = isDark,
-                            textPrimary = textPrimary,
-                            textSecondary = textSecondary,
-                            iconColor = iconColor,
-                            accentBlue = accentBlue,
-                            cidadeAtual = cidadeAtual,
-                            ufAtual = ufAtual,
-                            carregandoProfissionaisCidade = carregandoProfissionaisCidade,
-                            erroProfissionaisCidade = erroProfissionaisCidade,
-                            profissionaisDaCidade = profissionaisDaCidade,
-                            profissionaisListState = profissionaisListState,
-                            loadingAlpha = loadingAlpha,
-                            onRecarregar = { carregarProfissionaisDaCidade(forcar = true) },
-                            onVerNoGoogle = { abrirBuscaGoogleProfissional(it) },
-                            onAdicionarDaCidade = { contatoCidade ->
-                                if (contatoCidade.telefone.isBlank()) {
-                                    profissionalParaCompletarTelefone = contatoCidade
-                                    telefoneCompletarInput = ""
-                                } else {
-                                    adicionarContatoDaCidade(contatoCidade)
-                                }
-                            }
-                        )
-                    }
-                    else -> {
                         EtapaRevisaoAvisoContent(
                             isDark = isDark,
                             textPrimary = textPrimary,
@@ -1187,7 +1438,8 @@ fun NovoAgendamentoDialog(
                             valorInput = valorInput,
                             contatoSelecionado = contatoSelecionado,
                             cidadeAtual = cidadeAtual,
-                            ufAtual = ufAtual
+                            ufAtual = ufAtual,
+                            onAcaoContato = { enviarMensagemWhatsapp(it) }
                         )
                     }
                 }
@@ -1198,9 +1450,91 @@ fun NovoAgendamentoDialog(
     }
 }
 
+private fun tiposAvisoCadastroPorVeiculo(tipoVeiculo: TipoVeiculo): List<TipoManutencao> = when (tipoVeiculo) {
+    TipoVeiculo.BICICLETA,
+    TipoVeiculo.BIKE_ELETRICA -> listOf(
+        TipoManutencao.CORRENTE,
+        TipoManutencao.LUBRIFICACAO,
+        TipoManutencao.PEDIVELA,
+        TipoManutencao.ACESSORIOS,
+        TipoManutencao.CONFORTO,
+        TipoManutencao.PNEU,
+        TipoManutencao.TRANSMISSAO,
+        TipoManutencao.REVISAO,
+        TipoManutencao.FREIO,
+        TipoManutencao.SEGURO,
+        TipoManutencao.OUTROS
+    )
+    TipoVeiculo.MOTO -> listOf(
+        TipoManutencao.OLEO,
+        TipoManutencao.FREIO,
+        TipoManutencao.MECANICA,
+        TipoManutencao.BATERIA,
+        TipoManutencao.PNEU,
+        TipoManutencao.REVISAO,
+        TipoManutencao.LICENCIAMENTO,
+        TipoManutencao.SEGURO,
+        TipoManutencao.OUTROS
+    )
+    TipoVeiculo.CAMINHAO,
+    TipoVeiculo.VAN,
+    TipoVeiculo.ONIBUS -> listOf(
+        TipoManutencao.OLEO,
+        TipoManutencao.FREIO,
+        TipoManutencao.MECANICA,
+        TipoManutencao.FUNILARIA,
+        TipoManutencao.BATERIA,
+        TipoManutencao.PNEU,
+        TipoManutencao.REVISAO,
+        TipoManutencao.LICENCIAMENTO,
+        TipoManutencao.SEGURO,
+        TipoManutencao.OUTROS
+    )
+    TipoVeiculo.VEICULO_ELETRICO -> listOf(
+        TipoManutencao.FREIO,
+        TipoManutencao.MECANICA,
+        TipoManutencao.BATERIA,
+        TipoManutencao.PNEU,
+        TipoManutencao.REVISAO,
+        TipoManutencao.LICENCIAMENTO,
+        TipoManutencao.SEGURO,
+        TipoManutencao.OUTROS
+    )
+    TipoVeiculo.CARRETINHA -> listOf(
+        TipoManutencao.PNEU,
+        TipoManutencao.LICENCIAMENTO,
+        TipoManutencao.SEGURO,
+        TipoManutencao.OUTROS
+    )
+    else -> listOf(
+        TipoManutencao.OLEO,
+        TipoManutencao.MECANICA,
+        TipoManutencao.FUNILARIA,
+        TipoManutencao.BATERIA,
+        TipoManutencao.PNEU,
+        TipoManutencao.LICENCIAMENTO,
+        TipoManutencao.IPVA,
+        TipoManutencao.SEGURO,
+        TipoManutencao.OUTROS
+    )
+}
+
+private fun detectarTipoInicialDoLembrete(
+    nomeItem: String,
+    tipoBase: TipoManutencao,
+    categoriasDisponiveis: List<TipoManutencao>
+): TipoManutencao {
+    val detectadoPorTexto = detectarTipoPeloTexto(nomeItem)
+    return when {
+        detectadoPorTexto in categoriasDisponiveis -> detectadoPorTexto
+        tipoBase in categoriasDisponiveis -> tipoBase
+        else -> categoriasDisponiveis.firstOrNull() ?: TipoManutencao.OUTROS
+    }
+}
+
 private const val PROF_CITY_TAG = "ProfCidade"
 
-private data class BuscaProfissionaisCidadeResultado(
+data class BuscaProfissionaisCidadeResultado(
     val cidade: String?,
     val estado: String?,
     val profissionais: List<ProfissionalCidadeEncontrado>
@@ -1219,7 +1553,7 @@ private data class LocalizacaoCidade(
     val estado: String?
 )
 
-private fun buscarProfissionaisDaCidadeAtual(
+fun buscarProfissionaisDaCidadeAtual(
     context: Context,
     tipoSelecionado: TipoManutencao,
     isBikeVehicle: Boolean
@@ -1249,13 +1583,18 @@ private fun buscarProfissionaisDaCidadeAtual(
 
 private fun obterCidadePelaLocalizacao(context: Context): LocalizacaoCidade? {
     val permissaoFine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
-    if (!permissaoFine) {
-        Log.w(PROF_CITY_TAG, "Permissao ACCESS_FINE_LOCATION nao concedida.")
+    val permissaoCoarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+    if (!permissaoFine && !permissaoCoarse) {
+        Log.w(PROF_CITY_TAG, "Permissao de localizacao nao concedida (fine/coarse).")
         return null
     }
 
     val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return null
-    val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
+    val providers = listOf(
+        LocationManager.GPS_PROVIDER,
+        LocationManager.NETWORK_PROVIDER,
+        LocationManager.PASSIVE_PROVIDER
+    )
     var melhorLocal: Location? = null
 
     providers.forEach { provider ->
@@ -1266,8 +1605,11 @@ private fun obterCidadePelaLocalizacao(context: Context): LocalizacaoCidade? {
     }
 
     val atual = melhorLocal ?: run {
-        Log.w(PROF_CITY_TAG, "Nenhuma localizacao conhecida disponivel (GPS/NETWORK).")
-        return null
+        Log.w(PROF_CITY_TAG, "Nenhuma localizacao conhecida disponivel. Tentando localizacao atual.")
+        obterLocalAtualCompat(locationManager) ?: run {
+            Log.w(PROF_CITY_TAG, "Falha ao obter localizacao atual por getCurrentLocation.")
+            return null
+        }
     }
     var cidade: String? = null
     var estado: String? = null
@@ -1287,6 +1629,40 @@ private fun obterCidadePelaLocalizacao(context: Context): LocalizacaoCidade? {
         cidade = cidade,
         estado = estado
     )
+}
+
+private fun obterLocalAtualCompat(locationManager: LocationManager): Location? {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return null
+
+    val provider = when {
+        runCatching { locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER) }.getOrDefault(false) ->
+            LocationManager.NETWORK_PROVIDER
+        runCatching { locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER) }.getOrDefault(false) ->
+            LocationManager.GPS_PROVIDER
+        else -> LocationManager.PASSIVE_PROVIDER
+    }
+
+    val latch = CountDownLatch(1)
+    var location: Location? = null
+    val executor = Executors.newSingleThreadExecutor()
+    try {
+        locationManager.getCurrentLocation(
+            provider,
+            null,
+            executor
+        ) { atual ->
+            location = atual
+            latch.countDown()
+        }
+        latch.await(4, TimeUnit.SECONDS)
+    } catch (erro: SecurityException) {
+        Log.w(PROF_CITY_TAG, "Sem permissao para getCurrentLocation.", erro)
+    } catch (erro: Throwable) {
+        Log.w(PROF_CITY_TAG, "Falha ao chamar getCurrentLocation.", erro)
+    } finally {
+        executor.shutdown()
+    }
+    return location
 }
 
 private fun buscarProfissionaisOverpass(

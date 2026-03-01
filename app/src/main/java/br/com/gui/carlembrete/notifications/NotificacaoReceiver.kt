@@ -8,9 +8,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
-import android.net.Uri
 import android.os.Build
-import android.provider.Settings
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -77,6 +75,36 @@ object NotificacaoHelper {
     private const val HISTORY_LIMIT = 100
     private val dateFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
 
+    private fun podeUsarAlarmeExato(alarmManager: AlarmManager): Boolean {
+        return Build.VERSION.SDK_INT < Build.VERSION_CODES.S || alarmManager.canScheduleExactAlarms()
+    }
+
+    private fun agendarAlarmManager(
+        context: Context,
+        alarmManager: AlarmManager,
+        triggerAt: Long,
+        pendingIntent: PendingIntent
+    ) {
+        try {
+            if (podeUsarAlarmeExato(alarmManager)) {
+                alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
+            } else {
+                alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
+                Toast.makeText(
+                    context,
+                    "Alarme exato nao esta liberado. O aviso foi salvo e a notificacao pode variar alguns minutos.",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        } catch (ex: SecurityException) {
+            Toast.makeText(
+                context,
+                "Nao foi possivel agendar a notificacao. Verifique as permissoes do app.",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+
     fun criarCanal(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
@@ -96,16 +124,6 @@ object NotificacaoHelper {
         if (triggerAt <= System.currentTimeMillis()) return
 
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !alarmManager.canScheduleExactAlarms()) {
-            Toast.makeText(context, "Ative alarmes exatos para receber notificações do carro.", Toast.LENGTH_LONG).show()
-            val intent = Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
-                data = Uri.parse("package:${context.packageName}")
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            runCatching { context.startActivity(intent) }
-            return
-        }
-
         salvarHora(context, lembrete.id, hora)
         val intent = Intent(context, NotificacaoReceiver::class.java).apply {
             putExtra(NotificacaoReceiver.EXTRA_ID, lembrete.id)
@@ -113,7 +131,7 @@ object NotificacaoHelper {
             putExtra(NotificacaoReceiver.EXTRA_CARRO_ID, lembrete.carroId)
             putExtra(
                 NotificacaoReceiver.EXTRA_DESCRICAO,
-                "Atenção! O prazo de ${lembrete.titulo} vence em ${lembrete.dataLimite}."
+                "Atencao! O prazo de ${lembrete.titulo} vence em ${lembrete.dataLimite}."
             )
         }
         val pendingIntent = PendingIntent.getBroadcast(
@@ -122,11 +140,7 @@ object NotificacaoHelper {
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        try {
-            alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
-        } catch (ex: SecurityException) {
-            Toast.makeText(context, "Permissão de alarme exato negada. Ajuste nas configurações.", Toast.LENGTH_LONG).show()
-        }
+        agendarAlarmManager(context, alarmManager, triggerAt, pendingIntent)
     }
 
     fun cancelarNotificacao(context: Context, lembreteId: String) {
@@ -173,16 +187,6 @@ object NotificacaoHelper {
         if (triggerAt <= System.currentTimeMillis()) return
 
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !alarmManager.canScheduleExactAlarms()) {
-            Toast.makeText(context, "Ative alarmes exatos para receber notificacoes do carro.", Toast.LENGTH_LONG).show()
-            val intent = Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
-                this.data = Uri.parse("package:${context.packageName}")
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            runCatching { context.startActivity(intent) }
-            return
-        }
-
         salvarHora(context, id, hora)
         val intent = Intent(context, NotificacaoReceiver::class.java).apply {
             putExtra(NotificacaoReceiver.EXTRA_ID, id)
@@ -195,11 +199,7 @@ object NotificacaoHelper {
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        try {
-            alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
-        } catch (ex: SecurityException) {
-            Toast.makeText(context, "Permissao de alarme exato negada. Ajuste nas configuracoes.", Toast.LENGTH_LONG).show()
-        }
+        agendarAlarmManager(context, alarmManager, triggerAt, pendingIntent)
     }
 
     fun registrarNotificacaoDisparada(
