@@ -1,4 +1,4 @@
-﻿package br.com.gui.carlembrete
+package br.com.gui.carlembrete
 
 import android.Manifest
 import android.app.Activity
@@ -25,13 +25,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
@@ -94,9 +89,6 @@ fun AondePareiScreen(
     val secondaryColor = Color(0xFF64748B)
     val successColor = Color(0xFF10B981)
     val themedIconTint = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) Color.White else Color.Black
-    val subscriptionManager = remember { SubscriptionManager(context) }
-    val planTier by subscriptionManager.planTier.collectAsState()
-    val activity = context as? Activity
 
     // --- ESTADOS ---
     var savedLocation by remember { mutableStateOf(AppPreferences.getParkedLocation(context)) }
@@ -114,28 +106,6 @@ fun AondePareiScreen(
 
     var showParkingFinishedDialog by remember { mutableStateOf(false) }
     var showNavigationDialog by remember { mutableStateOf(false) }
-    var showGuardiaoPremiumDialog by remember { mutableStateOf(false) }
-    var showGuardiaoScreen by remember { mutableStateOf(false) }
-    var showPremiumBeneficiosScreen by remember { mutableStateOf(false) }
-    val shieldPulseTransition = rememberInfiniteTransition(label = "shieldButtonPulse")
-    val shieldPulseScale by shieldPulseTransition.animateFloat(
-        initialValue = 1f,
-        targetValue = 1.8f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1700),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "shieldButtonPulseScale"
-    )
-    val shieldPulseAlpha by shieldPulseTransition.animateFloat(
-        initialValue = 0.55f,
-        targetValue = 0f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1700),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "shieldButtonPulseAlpha"
-    )
 
     var finishedParkingDurationText by remember { mutableStateOf<String?>(null) }
     var finalizedLocation by remember { mutableStateOf<ParkedLocation?>(null) }
@@ -186,11 +156,6 @@ fun AondePareiScreen(
         }
     }
 
-    DisposableEffect(Unit) {
-        subscriptionManager.connect()
-        onDispose { subscriptionManager.disconnect() }
-    }
-
     LaunchedEffect(savedLocation, parkingFinalized) {
         if (savedLocation != null && !parkingFinalized) {
             showParkingOngoingNotification(context, savedLocation!!)
@@ -224,62 +189,7 @@ fun AondePareiScreen(
         }
     }
 
-    if (showGuardiaoScreen) {
-        AnjoDaGuardaScreen(onDismiss = { showGuardiaoScreen = false })
-        return
-    }
-    if (showPremiumBeneficiosScreen) {
-        PremiumBeneficiosScreen(
-            onDismiss = { showPremiumBeneficiosScreen = false },
-            onSubscribeNow = {
-                if (activity != null) subscriptionManager.launchPurchaseFlow(activity)
-            }
-        )
-        return
-    }
-
-    Scaffold(
-        topBar = {
-            CenterAlignedTopAppBar(
-                title = {
-                    Text(
-                        text = "Onde parei",
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.ArrowBackIosNew, "Voltar")
-                    }
-                },
-                actions = {
-                    IconButton(onClick = {
-                        if (planTier != PlanTier.FREE) {
-                            showGuardiaoScreen = true
-                        } else {
-                            showGuardiaoPremiumDialog = true
-                        }
-                    }) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Box(
-                                modifier = Modifier
-                                    .size((24f * shieldPulseScale).dp)
-                                    .background(Color(0xFF93C5FD).copy(alpha = shieldPulseAlpha), CircleShape)
-                            )
-                            Icon(
-                                imageVector = Icons.Default.Shield,
-                                contentDescription = "Zellu Guardiao",
-                                tint = Color(0xFFD4A017)
-                            )
-                        }
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
-            )
-        }
-    ) { innerPadding ->
+    Scaffold { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -288,6 +198,22 @@ fun AondePareiScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onDismiss) {
+                    Icon(Icons.Default.ArrowBackIosNew, "Voltar")
+                }
+                Text(
+                    text = "Onde parei",
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(modifier = Modifier.size(48.dp))
+            }
 
             // 1. HEADER STATUS
             StatusHeader(
@@ -507,77 +433,6 @@ fun AondePareiScreen(
     }
 
     // --- DIALOGS ---
-    if (showGuardiaoPremiumDialog) {
-        AlertDialog(
-            onDismissRequest = { showGuardiaoPremiumDialog = false },
-            title = {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Shield,
-                        contentDescription = null,
-                        tint = Color(0xFFD4A017),
-                        modifier = Modifier.size(52.dp)
-                    )
-                    Text(
-                        "Zellu Guardiao",
-                        textAlign = TextAlign.Center,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(
-                        "Com o Zellu Guardiao voce tem:",
-                        textAlign = TextAlign.Center,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF10B981), modifier = Modifier.size(16.dp))
-                        Text("Avisos se alguem tentar roubar seu carro")
-                    }
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF10B981), modifier = Modifier.size(16.dp))
-                        Text("Alertas de movimento suspeito em tempo real")
-                    }
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF10B981), modifier = Modifier.size(16.dp))
-                        Text("Mais seguranca para acompanhar seu veiculo")
-                    }
-                }
-            },
-            confirmButton = {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    OutlinedButton(onClick = { showGuardiaoPremiumDialog = false }) {
-                        Text("Agora nao")
-                    }
-                    Spacer(Modifier.width(10.dp))
-                    Button(
-                        onClick = {
-                            showGuardiaoPremiumDialog = false
-                            showPremiumBeneficiosScreen = true
-                        },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFFD4A017),
-                            contentColor = Color.Black
-                        )
-                    ) {
-                        Text("Assine agora", fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
-        )
-    }
-
     // 1. AVISO ANTES DO MAPS (COM CHECKBOX E ALINHAMENTO ESQUERDA)
     if (showNavigationDialog) {
         var dontShowAgain by remember { mutableStateOf(false) }

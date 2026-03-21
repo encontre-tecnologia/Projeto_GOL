@@ -58,6 +58,36 @@ class NotificacaoReceiver : BroadcastReceiver() {
 
         NotificationManagerCompat.from(context).notify(lembreteId.hashCode(), notification)
         NotificacaoHelper.registrarNotificacaoDisparada(context, lembreteId, titulo, descricao, carroId)
+
+        val isRollingStep = intent.getBooleanExtra(EXTRA_IS_ROLLING_STEP, false)
+        if (isRollingStep) {
+            val baseReminderId = intent.getStringExtra(EXTRA_BASE_REMINDER_ID).orEmpty()
+            val dueDateText = intent.getStringExtra(EXTRA_DUE_DATE).orEmpty()
+            val hora = intent.getStringExtra(EXTRA_HORA).orEmpty().ifBlank { "09:00" }
+            val tituloBase = intent.getStringExtra(EXTRA_TITULO_BASE).orEmpty().ifBlank { titulo }
+            val tipoLabel = intent.getStringExtra(EXTRA_TIPO_LABEL).orEmpty()
+            if (baseReminderId.isNotBlank() && dueDateText.isNotBlank()) {
+                val lembreteAtivo = BancoDeDados.carregarLembretes(context)
+                    .firstOrNull { it.id == baseReminderId && !isLembreteRealizado(it) }
+                if (lembreteAtivo != null) {
+                    val dataVencimento = runCatching {
+                        LocalDate.parse(dueDateText, DateTimeFormatter.ofPattern("dd/MM/yyyy"))
+                    }.getOrNull()
+                    if (dataVencimento != null) {
+                        NotificacaoHelper.agendarProximaNotificacaoEtapas(
+                            context = context,
+                            baseReminderId = baseReminderId,
+                            tituloBase = tituloBase,
+                            tipoLabel = tipoLabel.ifBlank { lembreteAtivo.tipo.label },
+                            dataVencimento = dataVencimento,
+                            hora = hora,
+                            carroId = carroId,
+                            referencia = LocalDate.now().plusDays(1)
+                        )
+                    }
+                }
+            }
+        }
     }
 
     companion object {
@@ -66,6 +96,12 @@ class NotificacaoReceiver : BroadcastReceiver() {
         const val EXTRA_TITULO = "extra_titulo"
         const val EXTRA_DESCRICAO = "extra_descricao"
         const val EXTRA_CARRO_ID = "extra_carro_id"
+        const val EXTRA_IS_ROLLING_STEP = "extra_is_rolling_step"
+        const val EXTRA_BASE_REMINDER_ID = "extra_base_reminder_id"
+        const val EXTRA_DUE_DATE = "extra_due_date"
+        const val EXTRA_HORA = "extra_hora"
+        const val EXTRA_TITULO_BASE = "extra_titulo_base"
+        const val EXTRA_TIPO_LABEL = "extra_tipo_label"
     }
 }
 
@@ -74,6 +110,13 @@ object NotificacaoHelper {
     private const val PREFS_HISTORY_KEY = "historico_disparadas_v1"
     private const val HISTORY_LIMIT = 100
     private val dateFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
+    private val tiposAvisoEtapas = setOf(
+        TipoManutencao.SEGURO,
+        TipoManutencao.LICENCIAMENTO,
+        TipoManutencao.IPVA
+    )
+    private val etapasAntesDoVencimento = listOf(5, 0)
+    private const val MAX_ALERTAS_POS_VENCIMENTO = 365
 
     private fun podeUsarAlarmeExato(alarmManager: AlarmManager): Boolean {
         return Build.VERSION.SDK_INT < Build.VERSION_CODES.S || alarmManager.canScheduleExactAlarms()
@@ -102,6 +145,23 @@ object NotificacaoHelper {
                 "Nao foi possivel agendar a notificacao. Verifique as permissoes do app.",
                 Toast.LENGTH_LONG
             ).show()
+        } catch (ex: IllegalStateException) {
+            android.util.Log.e(
+                "NotificacaoHelper",
+                "Limite de alarmes do Android atingido. Alarme ignorado para evitar crash.",
+                ex
+            )
+            Toast.makeText(
+                context,
+                "Muitos lembretes ativos no momento. Alguns alertas podem ser reagendados depois.",
+                Toast.LENGTH_LONG
+            ).show()
+        } catch (ex: Exception) {
+            android.util.Log.e(
+                "NotificacaoHelper",
+                "Falha ao agendar alarme. Operacao ignorada para manter app estavel.",
+                ex
+            )
         }
     }
 
@@ -120,41 +180,41 @@ object NotificacaoHelper {
     }
 
     fun agendarNotificacao(context: Context, lembrete: Lembrete, hora: String) {
-        val triggerAt = calcularMillis(lembrete.dataLimite, hora) ?: return
-        if (triggerAt <= System.currentTimeMillis()) return
+        cancelarNotificacoesEmEtapas(context, lembrete.id)
 
-        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        salvarHora(context, lembrete.id, hora)
-        val intent = Intent(context, NotificacaoReceiver::class.java).apply {
-            putExtra(NotificacaoReceiver.EXTRA_ID, lembrete.id)
-            putExtra(NotificacaoReceiver.EXTRA_TITULO, lembrete.titulo)
-            putExtra(NotificacaoReceiver.EXTRA_CARRO_ID, lembrete.carroId)
-            putExtra(
-                NotificacaoReceiver.EXTRA_DESCRICAO,
-                "Atencao! O prazo de ${lembrete.titulo} vence em ${lembrete.dataLimite}."
-            )
+        if (lembrete.tipo in tiposAvisoEtapas) {
+            val dataVencimento = runCatching {
+                LocalDate.parse(lembrete.dataLimite, dateFormatter)
+            }.getOrNull()
+            if (dataVencimento != null) {
+                agendarProximaNotificacaoEtapas(
+                    context = context,
+                    baseReminderId = lembrete.id,
+                    tituloBase = lembrete.titulo,
+                    tipoLabel = lembrete.tipo.label,
+                    dataVencimento = dataVencimento,
+                    hora = hora,
+                    carroId = lembrete.carroId,
+                    referencia = LocalDate.now()
+                )
+            }
+            return
         }
-        val pendingIntent = PendingIntent.getBroadcast(
-            context,
-            lembrete.id.hashCode(),
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+
+        agendarNotificacaoUnica(
+            context = context,
+            id = lembrete.id,
+            titulo = lembrete.titulo,
+            descricao = "Atencao! O prazo de ${lembrete.titulo} vence em ${lembrete.dataLimite}.",
+            data = lembrete.dataLimite,
+            hora = hora,
+            carroId = lembrete.carroId
         )
-        agendarAlarmManager(context, alarmManager, triggerAt, pendingIntent)
     }
 
     fun cancelarNotificacao(context: Context, lembreteId: String) {
-        removerHora(context, lembreteId)
-        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        val intent = Intent(context, NotificacaoReceiver::class.java)
-        val pendingIntent = PendingIntent.getBroadcast(
-            context,
-            lembreteId.hashCode(),
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-        alarmManager.cancel(pendingIntent)
-        pendingIntent.cancel()
+        cancelarNotificacaoPorId(context, lembreteId)
+        cancelarNotificacoesEmEtapas(context, lembreteId)
     }
 
     fun reagendarExistentes(context: Context, lembretes: List<Lembrete>) {
@@ -180,10 +240,76 @@ object NotificacaoHelper {
         titulo: String,
         descricao: String,
         data: LocalDate,
-        hora: String = "09:00"
+        hora: String = "09:00",
+        carroId: String? = null
     ) {
         val dataFormatada = data.format(dateFormatter)
-        val triggerAt = calcularMillis(dataFormatada, hora) ?: return
+        agendarNotificacaoUnica(
+            context = context,
+            id = id,
+            titulo = titulo,
+            descricao = descricao,
+            data = dataFormatada,
+            hora = hora,
+            carroId = carroId
+        )
+    }
+
+    fun agendarProximaNotificacaoEtapas(
+        context: Context,
+        baseReminderId: String,
+        tituloBase: String,
+        tipoLabel: String,
+        dataVencimento: LocalDate,
+        hora: String,
+        carroId: String?,
+        referencia: LocalDate = LocalDate.now()
+    ) {
+        val dataAlerta = calcularProximaDataEtapa(dataVencimento, referencia) ?: return
+        val idEtapa = idEtapaPorData(baseReminderId, dataVencimento, dataAlerta) ?: return
+        val diasAntes = java.time.temporal.ChronoUnit.DAYS.between(dataAlerta, dataVencimento).toInt()
+        val diasAtraso = java.time.temporal.ChronoUnit.DAYS.between(dataVencimento, dataAlerta).toInt()
+        val tituloEtapa = when {
+            diasAntes > 0 -> "$tituloBase vence em $diasAntes dias"
+            diasAntes == 0 -> "$tituloBase vence hoje"
+            else -> "$tituloBase vencido"
+        }
+        val descricaoEtapa = when {
+            diasAntes > 0 -> "Lembrete de $tipoLabel: faltam $diasAntes dias para $tituloBase."
+            diasAntes == 0 -> "Hoje e o vencimento de $tituloBase. Regularize para evitar pendencia."
+            else -> "$tituloBase esta vencido ha $diasAtraso dia(s). Regularize assim que possivel."
+        }
+        agendarNotificacaoUnica(
+            context = context,
+            id = idEtapa,
+            titulo = tituloEtapa,
+            descricao = descricaoEtapa,
+            data = dataAlerta.format(dateFormatter),
+            hora = hora,
+            carroId = carroId,
+            isRollingStep = true,
+            baseReminderId = baseReminderId,
+            dueDate = dataVencimento.format(dateFormatter),
+            tituloBase = tituloBase,
+            tipoLabel = tipoLabel
+        )
+    }
+
+    private fun agendarNotificacaoUnica(
+        context: Context,
+        id: String,
+        titulo: String,
+        descricao: String,
+        data: String,
+        hora: String,
+        carroId: String?,
+        isRollingStep: Boolean = false,
+        baseReminderId: String? = null,
+        dueDate: String? = null,
+        tituloBase: String? = null,
+        tipoLabel: String? = null
+    ) {
+        val triggerAt = calcularMillis(data, hora) ?: return
         if (triggerAt <= System.currentTimeMillis()) return
 
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
@@ -192,6 +318,15 @@ object NotificacaoHelper {
             putExtra(NotificacaoReceiver.EXTRA_ID, id)
             putExtra(NotificacaoReceiver.EXTRA_TITULO, titulo)
             putExtra(NotificacaoReceiver.EXTRA_DESCRICAO, descricao)
+            putExtra(NotificacaoReceiver.EXTRA_CARRO_ID, carroId)
+            putExtra(NotificacaoReceiver.EXTRA_IS_ROLLING_STEP, isRollingStep)
+            if (isRollingStep) {
+                putExtra(NotificacaoReceiver.EXTRA_BASE_REMINDER_ID, baseReminderId)
+                putExtra(NotificacaoReceiver.EXTRA_DUE_DATE, dueDate)
+                putExtra(NotificacaoReceiver.EXTRA_HORA, hora)
+                putExtra(NotificacaoReceiver.EXTRA_TITULO_BASE, tituloBase)
+                putExtra(NotificacaoReceiver.EXTRA_TIPO_LABEL, tipoLabel)
+            }
         }
         val pendingIntent = PendingIntent.getBroadcast(
             context,
@@ -200,6 +335,49 @@ object NotificacaoHelper {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         agendarAlarmManager(context, alarmManager, triggerAt, pendingIntent)
+    }
+
+    private fun cancelarNotificacoesEmEtapas(context: Context, lembreteId: String) {
+        etapasAntesDoVencimento.forEach { diasAntes ->
+            cancelarNotificacaoPorId(context, "${lembreteId}_stage_$diasAntes")
+        }
+        (1..MAX_ALERTAS_POS_VENCIMENTO).forEach { diaAtraso ->
+            cancelarNotificacaoPorId(context, "${lembreteId}_overdue_$diaAtraso")
+        }
+    }
+
+    private fun calcularProximaDataEtapa(dataVencimento: LocalDate, referencia: LocalDate): LocalDate? {
+        val etapaCincoDias = dataVencimento.minusDays(5)
+        return when {
+            referencia.isBefore(etapaCincoDias) || referencia.isEqual(etapaCincoDias) -> etapaCincoDias
+            referencia.isBefore(dataVencimento) || referencia.isEqual(dataVencimento) -> dataVencimento
+            referencia.isAfter(dataVencimento.plusDays(MAX_ALERTAS_POS_VENCIMENTO.toLong())) -> null
+            else -> referencia
+        }
+    }
+
+    private fun idEtapaPorData(baseReminderId: String, dataVencimento: LocalDate, dataAlerta: LocalDate): String? {
+        val diasAntes = java.time.temporal.ChronoUnit.DAYS.between(dataAlerta, dataVencimento).toInt()
+        return when {
+            diasAntes == 5 -> "${baseReminderId}_stage_5"
+            diasAntes == 0 -> "${baseReminderId}_stage_0"
+            diasAntes < 0 -> "${baseReminderId}_overdue_${kotlin.math.abs(diasAntes)}"
+            else -> null
+        }
+    }
+
+    private fun cancelarNotificacaoPorId(context: Context, id: String) {
+        removerHora(context, id)
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        val intent = Intent(context, NotificacaoReceiver::class.java)
+        val pendingIntent = PendingIntent.getBroadcast(
+            context,
+            id.hashCode(),
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        alarmManager.cancel(pendingIntent)
+        pendingIntent.cancel()
     }
 
     fun registrarNotificacaoDisparada(

@@ -147,9 +147,23 @@ private fun parseDataLimite(lembrete: Lembrete): LocalDate? =
 private fun diasParaVencer(lembrete: Lembrete): Int? =
     parseDataLimite(lembrete)?.let { ChronoUnit.DAYS.between(LocalDate.now(), it).toInt() }
 
+private fun isAvisoEmEtapas(lembrete: Lembrete): Boolean =
+    lembrete.tipo == TipoManutencao.SEGURO ||
+        lembrete.tipo == TipoManutencao.LICENCIAMENTO ||
+        lembrete.tipo == TipoManutencao.IPVA
+
 fun textoStatusPrazo(lembrete: Lembrete): String {
     if (isLembreteRealizado(lembrete)) return "Realizado"
     val dias = diasParaVencer(lembrete)
+    if (isAvisoEmEtapas(lembrete) && dias != null) {
+        return when {
+            dias < 0 -> "Vencido ha ${kotlin.math.abs(dias)} dia(s)"
+            dias == 0 -> "Etapa atual: vence hoje"
+            dias <= 1 -> "Proxima etapa: 1 dia antes"
+            dias <= 5 -> "Proxima etapa: 5 dias antes"
+            else -> "Em acompanhamento"
+        }
+    }
     return when {
         dias == null -> ""
         dias < 0 -> "Vencido"

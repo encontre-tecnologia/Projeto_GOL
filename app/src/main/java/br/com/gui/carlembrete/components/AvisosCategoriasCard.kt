@@ -1,4 +1,6 @@
-﻿import androidx.compose.animation.animateColorAsState
+﻿import android.content.Intent
+import android.net.Uri
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -15,6 +17,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.EventNote
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.rounded.Message
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material3.Card
@@ -371,8 +374,63 @@ fun LembreteCardLocal(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                // BotÃ£o WhatsApp
-                if (contato != null && contato.telefone.isNotBlank()) {
+                val ufAviso = lembrete.kmLimite.trim().uppercase(Locale("pt", "BR"))
+                if (lembrete.tipo == TipoManutencao.IPVA || lembrete.tipo == TipoManutencao.LICENCIAMENTO) {
+                    val textoAcao = if (lembrete.tipo == TipoManutencao.IPVA) "Renovar IPVA" else "Renovar Licença"
+                    Surface(
+                        color = palette.accent.copy(alpha = 0.15f),
+                        shape = CircleShape,
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .clickable { abrirPortalEstado(context, lembrete.tipo, ufAviso) }
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.OpenInNew,
+                                contentDescription = textoAcao,
+                                tint = palette.accent,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                text = textoAcao,
+                                color = palette.accent,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                } else if (lembrete.tipo == TipoManutencao.SEGURO) {
+                    Surface(
+                        color = palette.accent.copy(alpha = 0.15f),
+                        shape = CircleShape,
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .clickable { abrirCotacaoSeguro(context, lembrete) }
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.OpenInNew,
+                                contentDescription = "Cotar seguro",
+                                tint = palette.accent,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                text = "Cotar seguro",
+                                color = palette.accent,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                } else if (contato != null && contato.telefone.isNotBlank()) {
                     Surface(
                         color = WhatsAppGreen.copy(alpha = 0.2f),
                         shape = CircleShape,
@@ -670,3 +728,25 @@ private fun EmptyStateView(textColor: Color) {
 }
 
 
+
+private fun abrirPortalEstado(context: android.content.Context, tipo: TipoManutencao, uf: String) {
+    val termo = when (tipo) {
+        TipoManutencao.IPVA -> "IPVA"
+        TipoManutencao.LICENCIAMENTO -> "Licenciamento"
+        else -> "IPVA"
+    }
+    val ufFinal = uf.takeIf { it.length == 2 && it.all(Char::isLetter) } ?: "SP"
+    val query = "$termo $ufFinal site oficial"
+    val uri = Uri.parse("https://www.google.com/search?q=${Uri.encode(query)}")
+    runCatching {
+        context.startActivity(Intent(Intent.ACTION_VIEW, uri))
+    }
+}
+
+private fun abrirCotacaoSeguro(context: android.content.Context, lembrete: Lembrete) {
+    val query = "cotacao seguro auto ${lembrete.titulo}"
+    val uri = Uri.parse("https://www.google.com/search?q=${Uri.encode(query)}")
+    runCatching {
+        context.startActivity(Intent(Intent.ACTION_VIEW, uri))
+    }
+}

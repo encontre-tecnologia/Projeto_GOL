@@ -33,18 +33,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.tween
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import br.com.gui.carlembrete.ui.theme.CarLembreteTheme
 import com.google.firebase.auth.FirebaseAuth
-import kotlinx.coroutines.delay
 import java.io.File
 import java.io.FileOutputStream
 import java.io.ObjectInputStream
@@ -61,13 +57,6 @@ private const val TAG_MAIN_STARTUP = "MainStartup"
 class MainActivity : ComponentActivity() {
     private var contentInitialized = false
     private var openAondePareiFromIntent by mutableStateOf(false)
-    private var onboardingResultVersion by mutableIntStateOf(0)
-
-    private val onboardingResultLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        onboardingResultVersion++
-    }
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -112,8 +101,6 @@ class MainActivity : ComponentActivity() {
         contentInitialized = true
         setContent {
             var themeMode by remember { mutableStateOf(AppPreferences.getThemeMode(this@MainActivity)) }
-            var onboardingInFlight by remember { mutableStateOf(false) }
-            val onboardingVersion = onboardingResultVersion
             val firstFrameAt = remember { System.currentTimeMillis() }
             SideEffect {
                 Log.d(
@@ -131,26 +118,22 @@ class MainActivity : ComponentActivity() {
                 val colorScheme = MaterialTheme.colorScheme
                 val auth = remember { FirebaseAuth.getInstance() }
                 var usuario by remember { mutableStateOf(auth.currentUser) }
-                val needsOnboardingAfterLogin = usuario != null && AppPreferences.needsOnboarding(this@MainActivity)
-                var showLoading by remember(usuario, needsOnboardingAfterLogin) {
-                    mutableStateOf(usuario != null && !needsOnboardingAfterLogin)
+                var showOnboarding by remember {
+                    mutableStateOf(
+                        AppPreferences.needsOnboarding(this@MainActivity)
+                    )
                 }
-                var loadingDoneSignal by remember { mutableIntStateOf(0) }
-                var videoFinished by remember { mutableStateOf(false) }
-                val loadingProgress = remember { Animatable(0f) }
-                LaunchedEffect(showLoading, isDarkTheme) {
+                var showLoading by remember(usuario, showOnboarding) {
+                    mutableStateOf(usuario != null && !showOnboarding)
+                }
+                LaunchedEffect(isDarkTheme) {
                     val insetsController = WindowInsetsControllerCompat(window, window.decorView)
-                    if (showLoading) {
-                        window.statusBarColor = android.graphics.Color.parseColor("#0F172A")
-                        insetsController.isAppearanceLightStatusBars = false
+                    window.statusBarColor = if (isDarkTheme) {
+                        colorScheme.background.toArgb()
                     } else {
-                        window.statusBarColor = if (isDarkTheme) {
-                            colorScheme.background.toArgb()
-                        } else {
-                            Color.White.toArgb()
-                        }
-                        insetsController.isAppearanceLightStatusBars = !isDarkTheme
+                        Color.White.toArgb()
                     }
+                    insetsController.isAppearanceLightStatusBars = !isDarkTheme
                 }
                 DisposableEffect(Unit) {
                     val listener = FirebaseAuth.AuthStateListener { firebaseAuth ->
@@ -159,43 +142,14 @@ class MainActivity : ComponentActivity() {
                     auth.addAuthStateListener(listener)
                     onDispose { auth.removeAuthStateListener(listener) }
                 }
-
-                LaunchedEffect(onboardingVersion) {
-                    onboardingInFlight = false
-                }
-
-                LaunchedEffect(usuario, onboardingVersion) {
-                    val needsOnboardingAfterLogin =
-                        usuario != null && AppPreferences.needsOnboarding(this@MainActivity)
-                    if (needsOnboardingAfterLogin && !onboardingInFlight) {
-                        onboardingInFlight = true
-                        onboardingResultLauncher.launch(Intent(this@MainActivity, OnboardingActivity::class.java))
-                    }
-                }
-
-                LaunchedEffect(usuario, onboardingVersion) {
-                    val canAskRuntimePermissionsNow =
-                        usuario != null && !AppPreferences.needsOnboarding(this@MainActivity)
-                    if (canAskRuntimePermissionsNow) {
+                LaunchedEffect(usuario) {
+                    if (usuario != null) {
                         requestStartupPermissionsIfNeeded()
+                        AdminUsageMetrics.markAppOpen(this@MainActivity)
                     }
                 }
-                LaunchedEffect(usuario, needsOnboardingAfterLogin, onboardingInFlight) {
-                    if (usuario != null && !needsOnboardingAfterLogin && !onboardingInFlight) {
-                        showLoading = true
-                        videoFinished = false
-                        loadingProgress.snapTo(0f)
-                        loadingProgress.animateTo(0.9f, animationSpec = tween(durationMillis = 1200))
-                    } else {
-                        showLoading = false
-                    }
-                }
-                LaunchedEffect(loadingDoneSignal, videoFinished) {
-                    if (loadingDoneSignal > 0 && videoFinished) {
-                        loadingProgress.animateTo(1f, animationSpec = tween(durationMillis = 400))
-                        delay(200)
-                        showLoading = false
-                    }
+                LaunchedEffect(usuario, showOnboarding) {
+                    showLoading = usuario != null && !showOnboarding
                 }
                 val baseBackground = MaterialTheme.colorScheme.background
                 Surface(modifier = Modifier.fillMaxSize(), color = baseBackground) {
@@ -203,23 +157,31 @@ class MainActivity : ComponentActivity() {
                         AuthScreen(
                             onSignedIn = {
                                 usuario = auth.currentUser
+                                showOnboarding = AppPreferences.needsOnboarding(this@MainActivity)
                             }
                         )
-                    } else if (needsOnboardingAfterLogin || onboardingInFlight) {
-                        Box(modifier = Modifier.fillMaxSize())
                     } else {
                         Box(modifier = Modifier.fillMaxSize()) {
+                            if (showOnboarding) {
+                                OnboardingScreen(
+                                    onFinish = {
+                                        AppPreferences.markOnboardingComplete(this@MainActivity)
+                                        showOnboarding = false
+                                    },
+                                    onThemeModeChanged = { mode ->
+                                        themeMode = mode
+                                    }
+                                )
+                            } else {
                                 ManutencaoScreen(
                                     openAondePareiOnStart = openAondePareiFromIntent,
                                     onAondePareiStartConsumed = { openAondePareiFromIntent = false },
-                                    onLoaded = { loadingDoneSignal++ },
+                                    onLoaded = { showLoading = false },
                                     onThemeModeChanged = { themeMode = it }
                                 )
-                            if (showLoading) {
-                                LoadingScreen(
-                                    progress = loadingProgress.value,
-                                    onVideoFinished = { videoFinished = true }
-                                )
+                            }
+                            if (showLoading && !showOnboarding) {
+                                LoadingScreen()
                             }
                         }
                     }
@@ -250,6 +212,7 @@ fun calcularProximaData(tipo: TipoManutencao, dataServico: LocalDate): String {
         TipoManutencao.TRANSMISSAO -> 12L
         TipoManutencao.REVISAO -> 12L
         TipoManutencao.OLEO -> 6L
+        TipoManutencao.ABASTECIMENTO -> 1L
         TipoManutencao.BATERIA -> 24L
         TipoManutencao.FREIO -> 12L
         TipoManutencao.MECANICA -> 12L
@@ -273,6 +236,7 @@ fun getKmAdicionalPorTipo(tipo: TipoManutencao): Int {
         TipoManutencao.TRANSMISSAO -> 10000
         TipoManutencao.REVISAO -> 10000
         TipoManutencao.OLEO -> 10000
+        TipoManutencao.ABASTECIMENTO -> 500
         TipoManutencao.BATERIA -> 40000
         TipoManutencao.FREIO -> 15000
         TipoManutencao.MECANICA -> 15000
@@ -496,7 +460,8 @@ fun gerarPdfRelatorio(
 
         drawHeader()
 
-        val lembretesAtivos = lembretes.filterNot(::isLembreteRealizado)
+        val lembretesSemAbastecimento = lembretes.filter { it.tipo != TipoManutencao.ABASTECIMENTO }
+        val lembretesAtivos = lembretesSemAbastecimento.filterNot(::isLembreteRealizado)
         val totalGastos = lembretes.sumOf { it.valor }
         val proximos = lembretesAtivos
             .mapNotNull { lembrete ->
@@ -511,7 +476,7 @@ fun gerarPdfRelatorio(
                 data?.let { it to lembrete }
             }
             .filter { (data, _) -> data.isBefore(LocalDate.now()) } +
-            lembretes.filter(::isLembreteRealizado).mapNotNull { lembrete ->
+            lembretesSemAbastecimento.filter(::isLembreteRealizado).mapNotNull { lembrete ->
                 val data = dataRealizacaoLembrete(lembrete) ?: runCatching {
                     LocalDate.parse(lembrete.dataLimite, DateTimeFormatter.ofPattern("dd/MM/yyyy"))
                 }.getOrNull()
@@ -526,6 +491,45 @@ fun gerarPdfRelatorio(
         val valorParaVenderTexto = valorParaVender?.takeIf { it.isNotBlank() } ?: "Nao disponivel"
         val vezesBatidoTexto = carro.vezesBatido?.toString() ?: "Nao informado"
         val tempoComVeiculoTexto = carro.tempoComVeiculo.ifBlank { "Nao informado" }
+        val abastecimentosCarro = BancoDeDados.carregarAbastecimentos(context).filter { it.carroId == carro.id }
+        val totalLitrosAbastecidos = abastecimentosCarro.sumOf { it.litros.coerceAtLeast(0.0) }
+        val kmInicialConsumo = AppPreferences.getFuelStartKm(context, carro.id)
+        val distanciaConsumoKm = if (
+            kmInicialConsumo != null &&
+            carro.kmAtual > kmInicialConsumo &&
+            totalLitrosAbastecidos > 0.0
+        ) {
+            (carro.kmAtual - kmInicialConsumo).toDouble()
+        } else {
+            null
+        }
+        val consumoKmPorLitro = if (distanciaConsumoKm != null && totalLitrosAbastecidos > 0.0) {
+            distanciaConsumoKm / totalLitrosAbastecidos
+        } else {
+            null
+        }
+        val consumoLitrosPorKm = if (distanciaConsumoKm != null && distanciaConsumoKm > 0.0) {
+            totalLitrosAbastecidos / distanciaConsumoKm
+        } else {
+            null
+        }
+        val consumoLitrosPor100Km = if (distanciaConsumoKm != null && distanciaConsumoKm > 0.0) {
+            (totalLitrosAbastecidos * 100.0) / distanciaConsumoKm
+        } else {
+            null
+        }
+        val ultimoAbastecimentoData = abastecimentosCarro
+            .mapNotNull { item ->
+                runCatching { LocalDate.parse(item.data, DateTimeFormatter.ofPattern("dd/MM/yyyy")) }.getOrNull()
+            }
+            .maxOrNull()
+            ?.format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))
+            ?: "--"
+        val ultimoAbastecimento = abastecimentosCarro
+            .maxByOrNull { item ->
+                runCatching { LocalDate.parse(item.data, DateTimeFormatter.ofPattern("dd/MM/yyyy")) }.getOrNull()
+                    ?: LocalDate.MIN
+            }
 
         val isBike = carro.tipoVeiculo == TipoVeiculo.BICICLETA || carro.tipoVeiculo == TipoVeiculo.BIKE_ELETRICA
         if (!isBike) {
@@ -576,18 +580,20 @@ fun gerarPdfRelatorio(
 
         drawSectionTitle("STATUS E SAUDE")
         val (tituloRep, descRep) = calcularReputacao(lembretes)
+        val saudeCritica = tituloRep.trim().lowercase(Locale("pt", "BR")).contains("crit")
+        val saudeEmDia = !saudeCritica
         val statusBoxHeight = 160f
         ensureSpace(statusBoxHeight)
         canvas.drawRect(marginX, y, marginX + contentWidth, y + statusBoxHeight, cardBgPaint)
         canvas.drawRoundRect(android.graphics.RectF(marginX, y, marginX + contentWidth, y + statusBoxHeight), 12f, 12f, cardBorderPaint)
-        val saudeColor = if (tituloRep == "Excelente") colorSuccess else colorDanger
+        val saudeColor = if (saudeEmDia) colorSuccess else colorDanger
         val pillPaint = Paint().apply { color = saudeColor }
         val pillTextPaint = Paint().apply {
             color = android.graphics.Color.WHITE
             textSize = 10f
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         }
-        val pillText = tituloRep.uppercase(Locale.getDefault())
+        val pillText = if (saudeEmDia) "EM DIA" else "CRITICA"
         val pillWidth = pillTextPaint.measureText(pillText) + 16f
         canvas.drawText("SAUDE", leftX, y + 24f, valueBoldPaint)
         val pillRect = android.graphics.RectF(leftX, y + 30f, leftX + pillWidth, y + 46f)
@@ -597,9 +603,9 @@ fun gerarPdfRelatorio(
         drawKeyValue("Proximo servico", proximoServico, leftX, y + 74f)
         drawKeyValue("Total gasto", formatarMoeda(totalGastos), rightX, y + 74f)
         val resultadoGeral = "RESULTADO GERAL"
-        val saudeLabel = if (tituloRep == "Excelente") "Todas as manutencoes em dia" else "Revisar manutencoes pendentes"
+        val saudeLabel = if (saudeEmDia) "Todas as manutencoes em dia" else "Revisar manutencoes pendentes"
         val saudePaint = Paint(bodyPaint).apply {
-            color = if (tituloRep == "Excelente") colorSuccess else colorDanger
+            color = if (saudeEmDia) colorSuccess else colorDanger
         }
         val saudeMetrics = saudePaint.fontMetrics
         val saudeBaseline = y + statusBoxHeight - 14f - saudeMetrics.descent
@@ -607,6 +613,34 @@ fun gerarPdfRelatorio(
         canvas.drawText(resultadoGeral, leftX, resultadoBaseline, valueBoldPaint)
         canvas.drawText(saudeLabel, leftX, saudeBaseline, saudePaint)
         y += statusBoxHeight + 34f
+
+        if (!isBike) {
+            drawSectionTitle("CONSUMO")
+            val consumoCardHeight = 84f
+            drawCard(consumoCardHeight) { topY ->
+                val infoLeftX = marginX + 12f
+                val infoRightX = marginX + contentWidth / 2 + 10f
+                val infoRowY = topY + 24f
+                val consumoTexto = if (consumoKmPorLitro != null && consumoLitrosPor100Km != null) {
+                    String.format(
+                        Locale("pt", "BR"),
+                        "%.1f km/L (%.1f L/100km)",
+                        consumoKmPorLitro,
+                        consumoLitrosPor100Km
+                    )
+                } else {
+                    "Nao disponivel"
+                }
+                val ultimoTexto = if (ultimoAbastecimento != null) {
+                    "${ultimoAbastecimentoData} - ${String.format(Locale("pt", "BR"), "%.1f L", ultimoAbastecimento.litros)}"
+                } else {
+                    "--"
+                }
+                drawKeyValue("Consumo medio", consumoTexto, infoLeftX, infoRowY)
+                drawKeyValue("Ultimo abastecimento", ultimoTexto, infoRightX, infoRowY)
+            }
+            y += 8f
+        }
 
         if (carro.tipoVeiculo != TipoVeiculo.BICICLETA) {
             drawSectionTitle("DOCUMENTACAO")
@@ -684,56 +718,7 @@ fun gerarPdfRelatorio(
             y += 16f
         }
 
-        y += 22f
-        ensureSpace(80f)
-
-        drawSectionTitle("TROCAS POR PECA")
-        val pecaLabels = linkedMapOf<String, String>()
-        lembretes.forEach { lembrete ->
-            val raw = lembrete.peca.ifBlank { lembrete.titulo }.trim()
-            if (raw.isNotBlank()) {
-                val key = raw.lowercase(Locale.getDefault())
-                pecaLabels.putIfAbsent(key, raw)
-            }
-        }
-        val trocasPorPeca = lembretes
-            .map { lembrete -> lembrete.peca.ifBlank { lembrete.titulo }.trim() }
-            .filter { it.isNotBlank() }
-            .groupingBy { it.lowercase(Locale.getDefault()) }
-            .eachCount()
-            .map { (key, count) -> (pecaLabels[key] ?: key) to count }
-            .sortedByDescending { it.second }
-            .take(8)
-        if (trocasPorPeca.isEmpty()) {
-            drawCard(60f) { topY ->
-                canvas.drawText("Nenhuma peca registrada.", marginX + 16f, topY + 28f, bodyPaint)
-            }
-            y += 8f
-        } else {
-            val headerHeight = 22f
-            ensureSpace(30f + (trocasPorPeca.size * 26f))
-            val headerBg = Paint().apply { color = android.graphics.Color.parseColor("#E2E8F0") }
-            canvas.drawRect(marginX, y, marginX + contentWidth, y + headerHeight, headerBg)
-            val headerTextPaint = Paint(labelPaint).apply {
-                color = android.graphics.Color.BLACK
-                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-            }
-            val headerY = y + 15f
-            canvas.drawText("Item", marginX + 6f, headerY, headerTextPaint)
-            canvas.drawText("Qtd.", marginX + 360f, headerY, headerTextPaint)
-            y += headerHeight + 8f
-
-            trocasPorPeca.forEach { (peca, count) ->
-                ensureSpace(26f)
-                val rowTextY = y + 4f
-                canvas.drawText(fit(peca, 44), marginX + 6f, rowTextY, bodyPaint)
-                canvas.drawText("${count}x", marginX + 360f, rowTextY, bodyPaint)
-                y += 26f
-                canvas.drawLine(marginX, y - 14f, marginX + contentWidth, y - 14f, dividerPaint)
-            }
-            y += 56f
-        }
-
+        y += 24f
         drawSectionTitle("MANUTENCOES FUTURAS")
         if (proximos.isEmpty()) {
             canvas.drawText("Nenhum lembrete cadastrado.", marginX, y, bodyPaint)

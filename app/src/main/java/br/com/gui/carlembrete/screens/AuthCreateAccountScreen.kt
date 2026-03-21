@@ -31,6 +31,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -42,6 +43,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.layout.ContentScale
@@ -63,6 +65,8 @@ fun AuthCreateAccountScreen(
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
+    val colorScheme = MaterialTheme.colorScheme
+    val isDark = colorScheme.background.luminance() < 0.5f
     val auth = remember { FirebaseAuth.getInstance() }
     var email by remember { mutableStateOf("") }
     var senha by remember { mutableStateOf("") }
@@ -96,6 +100,7 @@ fun AuthCreateAccountScreen(
             val credential = GoogleAuthProvider.getCredential(token, null)
             auth.signInWithCredential(credential).addOnCompleteListener { signInTask ->
                 if (signInTask.isSuccessful) {
+                    AdminUsersSync.syncCurrentUser()
                     onSignedIn()
                 } else {
                     Toast.makeText(context, "Falha no cadastro com Google", Toast.LENGTH_SHORT).show()
@@ -113,6 +118,7 @@ fun AuthCreateAccountScreen(
         }
         auth.createUserWithEmailAndPassword(email, senha).addOnCompleteListener { task ->
             if (task.isSuccessful) {
+                AdminUsersSync.syncCurrentUser()
                 auth.currentUser?.sendEmailVerification()?.addOnCompleteListener { emailTask ->
                     if (emailTask.isSuccessful) {
                         Toast.makeText(context, "Conta criada! Enviamos um e-mail de confirmação.", Toast.LENGTH_LONG).show()
@@ -131,13 +137,22 @@ fun AuthCreateAccountScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        Color(0xFF081428),
-                        Color(0xFF0B2342),
-                        Color(0xFF143A6C)
+                if (isDark) {
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            colorScheme.background,
+                            colorScheme.background
+                        )
                     )
-                )
+                } else {
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color(0xFF081428),
+                            Color(0xFF0B2342),
+                            Color(0xFF143A6C)
+                        )
+                    )
+                }
             )
             .padding(24.dp),
         verticalArrangement = Arrangement.Center,
@@ -245,13 +260,6 @@ fun AuthCreateAccountScreen(
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.align(Alignment.Start)
                 )
-            } else {
-                Text(
-                    text = "A senha deve ter no mínimo 6 caracteres",
-                    color = Color(0xFF94A3B8),
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.align(Alignment.Start)
-                )
             }
             Button(
                 onClick = {
@@ -273,16 +281,15 @@ fun AuthCreateAccountScreen(
                     modifier = Modifier.padding(top = 1.dp)
                 )
             }
-            OutlinedButton(
-                onClick = onBack,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(52.dp),
-                shape = RoundedCornerShape(12.dp),
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF93C5FD).copy(alpha = 0.55f)),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Voltar")
+                Text("Possui login? ", color = Color(0xFF94A3B8))
+                TextButton(onClick = onBack) {
+                    Text("Clique aqui para entrar", color = Color(0xFF93C5FD))
+                }
             }
             Row(
                 verticalAlignment = Alignment.CenterVertically,

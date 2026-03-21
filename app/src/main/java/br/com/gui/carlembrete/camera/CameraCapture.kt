@@ -8,14 +8,18 @@ import android.graphics.Matrix
 import android.util.Log
 import android.widget.Toast
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.FocusMeteringAction
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.ImageProxy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
-import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
@@ -67,6 +71,7 @@ import java.time.LocalDate
 import java.util.Base64
 import java.util.Locale
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import kotlin.math.roundToInt
 
 private const val LER_NOTAS_HABILITADO = false
@@ -94,10 +99,12 @@ fun CameraCapturaDialog(onDismiss: () -> Unit, onFotoCapturada: (ResultadoCaptur
     var isConsultandoQr by remember { mutableStateOf(false) }
     var progressoEscaneamento by remember { mutableStateOf(0f) }
     var mostrarFalhaLeitura by remember { mutableStateOf(false) }
+    var mensagemFalhaLeitura by remember { mutableStateOf("Nota não encontrada") }
     var qrDetectadoAoVivo by remember { mutableStateOf(false) }
     var ambienteComPoucaLuz by remember { mutableStateOf(false) }
     var qrDeteccoesConsecutivas by remember { mutableStateOf(0) }
     var previewViewRef by remember { mutableStateOf<PreviewView?>(null) }
+    var cameraControlRef by remember { mutableStateOf<androidx.camera.core.CameraControl?>(null) }
     var previewAtivo by remember { mutableStateOf(false) }
     var rebindToken by remember { mutableIntStateOf(0) }
     val hasCameraPermission = ContextCompat.checkSelfPermission(
@@ -143,7 +150,7 @@ fun CameraCapturaDialog(onDismiss: () -> Unit, onFotoCapturada: (ResultadoCaptur
                 it.setSurfaceProvider(previewView.surfaceProvider)
             }
             imageCapture = ImageCapture.Builder()
-                .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+                .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
                 .build()
             val imageAnalysis = ImageAnalysis.Builder()
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
@@ -191,15 +198,17 @@ fun CameraCapturaDialog(onDismiss: () -> Unit, onFotoCapturada: (ResultadoCaptur
             }
             try {
                 cameraProvider.unbindAll()
-                cameraProvider.bindToLifecycle(
+                val camera = cameraProvider.bindToLifecycle(
                     lifecycleOwner,
                     CameraSelector.DEFAULT_BACK_CAMERA,
                     preview,
                     imageCapture,
                     imageAnalysis
                 )
+                cameraControlRef = camera.cameraControl
                 previewAtivo = true
             } catch (e: Exception) {
+                cameraControlRef = null
                 previewAtivo = false
                 Log.e("Camera", "Erro", e)
             }
@@ -214,13 +223,26 @@ fun CameraCapturaDialog(onDismiss: () -> Unit, onFotoCapturada: (ResultadoCaptur
             progressoEscaneamento = 0f
             qrDetectadoAoVivo = false
             qrDeteccoesConsecutivas = 0
+            mensagemFalhaLeitura = "Nota não encontrada"
             mostrarFalhaLeitura = true
             onFotoCapturada(resultado)
             return
         }
 
+        if (qrEhTipoNaoSuportado(qrUrl)) {
+            isProcessing = false
+            isConsultandoQr = false
+            progressoEscaneamento = 0f
+            qrDetectadoAoVivo = false
+            qrDeteccoesConsecutivas = 0
+            mensagemFalhaLeitura = "Use uma NFC-e de compra com QR"
+            mostrarFalhaLeitura = true
+            return
+        }
+
         isConsultandoQr = true
         mostrarFalhaLeitura = false
+        mensagemFalhaLeitura = "Nota não encontrada"
         progressoEscaneamento = 0.94f
         scope.launch {
             val notaInfo = consultarNotaPorQrCode(qrUrl)
@@ -229,6 +251,7 @@ fun CameraCapturaDialog(onDismiss: () -> Unit, onFotoCapturada: (ResultadoCaptur
             progressoEscaneamento = 1f
             qrDetectadoAoVivo = false
             qrDeteccoesConsecutivas = 0
+            mensagemFalhaLeitura = "Nota não encontrada"
             mostrarFalhaLeitura = notaInfo == null
             onFotoCapturada(resultado.copy(notaQrInfo = notaInfo))
         }
@@ -238,43 +261,65 @@ fun CameraCapturaDialog(onDismiss: () -> Unit, onFotoCapturada: (ResultadoCaptur
         val capturaAtual = imageCapture ?: return
         if (isProcessing || isConsultandoQr) return
 
-        val maxTentativas = 3
+        val maxTentativas = 4
         isProcessing = true
         mostrarFalhaLeitura = false
+        mensagemFalhaLeitura = "Nota não encontrada"
         progressoEscaneamento = 0.05f
 
         fun tentarCaptura(tentativa: Int) {
-            captureAndExtractItems(
-                context = context,
-                imageCapture = capturaAtual,
-                onProgress = { progressoEtapa ->
-                    val progressoBase = (tentativa - 1).toFloat() / maxTentativas.toFloat()
-                    progressoEscaneamento =
-                        (progressoBase + (progressoEtapa / maxTentativas.toFloat())).coerceIn(0f, 1f)
-                }
-            ) { resultado ->
-                if (resultadoTemLeituraUtil(resultado)) {
-                    finalizarCaptura(resultado)
-                    return@captureAndExtractItems
-                }
+            val executarCaptura = {
+                captureAndExtractItems(
+                    context = context,
+                    imageCapture = capturaAtual,
+                    onProgress = { progressoEtapa ->
+                        val progressoBase = (tentativa - 1).toFloat() / maxTentativas.toFloat()
+                        progressoEscaneamento =
+                            (progressoBase + (progressoEtapa / maxTentativas.toFloat())).coerceIn(0f, 1f)
+                    }
+                ) { resultado ->
+                    if (resultadoTemLeituraUtil(resultado)) {
+                        finalizarCaptura(resultado)
+                        return@captureAndExtractItems
+                    }
 
-                if (tentativa < maxTentativas) {
-                    Log.w(CAMERA_QR_TAG, "Captura sem resultado util. Tentando novamente ($tentativa/$maxTentativas).")
-                    tentarCaptura(tentativa + 1)
-                } else {
-                    Log.w(CAMERA_QR_TAG, "Captura encerrada sem leitura util apos $maxTentativas tentativas.")
-                    isProcessing = false
-                    isConsultandoQr = false
-                    progressoEscaneamento = 0f
-                    qrDetectadoAoVivo = false
-                    qrDeteccoesConsecutivas = 0
-                    mostrarFalhaLeitura = true
-                    Toast.makeText(
-                        context,
-                        "Nao foi possivel ler a nota. Aproxime a camera e tente novamente.",
-                        Toast.LENGTH_SHORT
-                    ).show()
+                    if (tentativa < maxTentativas) {
+                        Log.w(CAMERA_QR_TAG, "Captura sem resultado util. Tentando novamente ($tentativa/$maxTentativas).")
+                        tentarCaptura(tentativa + 1)
+                    } else {
+                        Log.w(CAMERA_QR_TAG, "Captura encerrada sem leitura util apos $maxTentativas tentativas.")
+                        isProcessing = false
+                        isConsultandoQr = false
+                        progressoEscaneamento = 0f
+                        qrDetectadoAoVivo = false
+                        qrDeteccoesConsecutivas = 0
+                        mensagemFalhaLeitura = "Nota não encontrada"
+                        mostrarFalhaLeitura = true
+                    }
                 }
+            }
+
+            val preview = previewViewRef
+            val cameraControl = cameraControlRef
+            if (preview != null && cameraControl != null && previewAtivo) {
+                runCatching {
+                    val point = preview.meteringPointFactory.createPoint(
+                        preview.width / 2f,
+                        preview.height / 2f
+                    )
+                    val action = FocusMeteringAction.Builder(point)
+                        .setAutoCancelDuration(2, TimeUnit.SECONDS)
+                        .build()
+                    val focusFuture = cameraControl.startFocusAndMetering(action)
+                    focusFuture.addListener(
+                        { executarCaptura() },
+                        uiExecutor
+                    )
+                }.onFailure {
+                    executarCaptura()
+                }
+            } else {
+                executarCaptura()
             }
         }
 
@@ -368,14 +413,16 @@ fun CameraCapturaDialog(onDismiss: () -> Unit, onFotoCapturada: (ResultadoCaptur
                         tint = Color.White,
                         modifier = Modifier.size(38.dp)
                     )
-                    Text(
-                        text = "Aponte a camera para o QR Code da nota e clique no botao da camera para ler o QR Code da nota.",
-                        color = Color.White,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Medium,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                    if (!isProcessing && !isConsultandoQr) {
+                        Text(
+                            text = "Posicione o QR da NFC-e dentro da area e aproxime a camera",
+                            color = Color.White,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
                 }
 
                 if (isProcessing || isConsultandoQr) {
@@ -425,9 +472,9 @@ fun CameraCapturaDialog(onDismiss: () -> Unit, onFotoCapturada: (ResultadoCaptur
                     if (isProcessing || isConsultandoQr || mostrarFalhaLeitura) {
                         Text(
                             text = if (mostrarFalhaLeitura && !isProcessing && !isConsultandoQr) {
-                                "Nota não encontrada"
+                                mensagemFalhaLeitura
                             } else {
-                                "Escaneando nota..."
+                                "Escaneando NFC-e..."
                             },
                             color = Color.White,
                             style = MaterialTheme.typography.titleMedium,
@@ -442,43 +489,21 @@ fun CameraCapturaDialog(onDismiss: () -> Unit, onFotoCapturada: (ResultadoCaptur
                         // Animação do Scanner (Barra reta + cortina verde)
                         val lineHeight = 5.dp
                         val curtainMaxHeight = 124.dp
-                        val anim = remember { Animatable(0f) }
-                        var scannerDescendo by remember { mutableStateOf(true) }
-                        val barraOffset = (alturaCorteDp - lineHeight) * anim.value
-                        val curtainAnchorTop = if (scannerDescendo) {
-                            (barraOffset + lineHeight - curtainMaxHeight).coerceAtLeast(0.dp)
-                        } else {
-                            barraOffset + lineHeight
-                        }
-                        val curtainAvailableHeight = if (scannerDescendo) {
-                            barraOffset + lineHeight
-                        } else {
-                            (alturaCorteDp - (barraOffset + lineHeight)).coerceAtLeast(0.dp)
-                        }
-                        val curtainHeight = if (curtainAvailableHeight < curtainMaxHeight) {
-                            curtainAvailableHeight
-                        } else {
-                            curtainMaxHeight
-                        }
-
-                        LaunchedEffect(isProcessing, isConsultandoQr) {
-                            if (isProcessing || isConsultandoQr) {
-                                while (isProcessing || isConsultandoQr) {
-                                    scannerDescendo = true
-                                    anim.animateTo(
-                                        targetValue = 1f,
-                                        animationSpec = tween(durationMillis = 1800, easing = LinearEasing)
-                                    )
-                                    scannerDescendo = false
-                                    anim.animateTo(
-                                        targetValue = 0f,
-                                        animationSpec = tween(durationMillis = 1800, easing = LinearEasing)
-                                    )
-                                }
-                            } else {
-                                anim.snapTo(0f)
-                            }
-                        }
+                        val scannerTransition = rememberInfiniteTransition(label = "scanner_line")
+                        val scannerProgress by scannerTransition.animateFloat(
+                            initialValue = 0f,
+                            targetValue = 1f,
+                            animationSpec = infiniteRepeatable(
+                                animation = tween(durationMillis = 1800, easing = LinearEasing),
+                                repeatMode = RepeatMode.Reverse
+                            ),
+                            label = "scanner_line_progress"
+                        )
+                        val barraOffset = (alturaCorteDp - lineHeight) * scannerProgress
+                        val curtainAnchorTop = (barraOffset - (curtainMaxHeight / 2))
+                            .coerceAtLeast(0.dp)
+                            .coerceAtMost((alturaCorteDp - curtainMaxHeight).coerceAtLeast(0.dp))
+                        val curtainHeight = curtainMaxHeight.coerceAtMost(alturaCorteDp)
 
                         Box(
                             modifier = Modifier
@@ -488,19 +513,13 @@ fun CameraCapturaDialog(onDismiss: () -> Unit, onFotoCapturada: (ResultadoCaptur
                                 .offset(y = curtainAnchorTop)
                                 .background(
                                     Brush.verticalGradient(
-                                        colors = if (scannerDescendo) {
-                                            listOf(
-                                                Color(0xFF22C55E).copy(alpha = 0.00f),
-                                                Color(0xFF22C55E).copy(alpha = 0.16f),
-                                                Color(0xFF22C55E).copy(alpha = 0.34f)
-                                            )
-                                        } else {
-                                            listOf(
-                                                Color(0xFF22C55E).copy(alpha = 0.34f),
-                                                Color(0xFF22C55E).copy(alpha = 0.16f),
-                                                Color(0xFF22C55E).copy(alpha = 0.00f)
-                                            )
-                                        }
+                                        colors = listOf(
+                                            Color(0xFF22C55E).copy(alpha = 0.00f),
+                                            Color(0xFF22C55E).copy(alpha = 0.18f),
+                                            Color(0xFF22C55E).copy(alpha = 0.32f),
+                                            Color(0xFF22C55E).copy(alpha = 0.18f),
+                                            Color(0xFF22C55E).copy(alpha = 0.00f)
+                                        )
                                     )
                                 )
                         )
@@ -542,16 +561,13 @@ fun CameraCapturaDialog(onDismiss: () -> Unit, onFotoCapturada: (ResultadoCaptur
                     }
                 }
 
-                // Orientação de Leitura
                 Box(
                     modifier = Modifier
                         .padding(bottom = 40.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     IconButton(
-                        onClick = {
-                            iniciarCapturaComTentativas()
-                        },
+                        onClick = { iniciarCapturaComTentativas() },
                         enabled = !isProcessing && !isConsultandoQr,
                         modifier = Modifier
                             .size(80.dp)
@@ -567,7 +583,7 @@ fun CameraCapturaDialog(onDismiss: () -> Unit, onFotoCapturada: (ResultadoCaptur
                     ) {
                         Icon(
                             Icons.Default.CameraAlt,
-                            contentDescription = "Tirar foto",
+                            contentDescription = "Escanear agora",
                             tint = if (isProcessing || isConsultandoQr) Color.Black.copy(alpha = 0.45f) else Color.Black,
                             modifier = Modifier.size(32.dp)
                         )
@@ -594,6 +610,7 @@ private fun captureAndExtractItems(
             val matrix = Matrix().apply { postRotate(rotation) }
             val bitmapRotacionado = Bitmap.createBitmap(bitmapBuffer, 0, 0, bitmapBuffer.width, bitmapBuffer.height, matrix, true)
             val bitmapFocado = recortarAreaCentral(bitmapRotacionado)
+            val bitmapQrAprimorado = prepararBitmapParaLeituraQr(bitmapRotacionado)
             val arquivo = File(context.filesDir, "servico_scan_${System.currentTimeMillis()}.jpg")
             // Salva a imagem completa para permitir OCR de documento (CRLV etc.).
             FileOutputStream(arquivo).use { out -> bitmapRotacionado.compress(Bitmap.CompressFormat.JPEG, 85, out) }
@@ -607,6 +624,7 @@ private fun captureAndExtractItems(
             val scanner = BarcodeScanning.getClient(options)
             val inputImageSemRotacao = InputImage.fromBitmap(bitmapBuffer, 0)
             val inputImageFocado = InputImage.fromBitmap(bitmapFocado, 0)
+            val inputImageAprimorado = InputImage.fromBitmap(bitmapQrAprimorado, 0)
 
             scanner.process(inputImage)
                 .addOnSuccessListener { barcodes ->
@@ -661,23 +679,175 @@ private fun captureAndExtractItems(
 
                             scanner.process(inputImageFocado)
                                 .addOnSuccessListener { barcodesFoco ->
-                                    mainExecutor.execute { onProgress(1f) }
+                                    mainExecutor.execute { onProgress(0.86f) }
                                     val qrUrlFoco = barcodesFoco.firstOrNull { it.format == Barcode.FORMAT_QR_CODE }?.toUsableQrText()
                                     Log.i(CAMERA_QR_TAG, "Passo3 (foco) - barcodes=${barcodesFoco.size} qrUrl=$qrUrlFoco")
-                                    mainExecutor.execute {
-                                        onResult(
-                                            ResultadoCaptura(
-                                                arquivoFoto = arquivo,
-                                                itensEncontrados = emptyList(),
-                                                kmDetectado = null,
-                                                qrCodeUrl = qrUrlFoco,
-                                                sugestoesProduto = emptyList(),
-                                                linhasReconhecidas = emptyList()
+                                    if (!qrUrlFoco.isNullOrBlank()) {
+                                        mainExecutor.execute {
+                                            onProgress(1f)
+                                            onResult(
+                                                ResultadoCaptura(
+                                                    arquivoFoto = arquivo,
+                                                    itensEncontrados = emptyList(),
+                                                    kmDetectado = null,
+                                                    qrCodeUrl = qrUrlFoco,
+                                                    sugestoesProduto = emptyList(),
+                                                    linhasReconhecidas = emptyList()
+                                                )
                                             )
-                                        )
-                                        image.close()
+                                            image.close()
+                                        }
+                                        scanner.close()
+                                        return@addOnSuccessListener
                                     }
-                                    scanner.close()
+
+                                    scanner.process(inputImageAprimorado)
+                                        .addOnSuccessListener { barcodesAprimorados ->
+                                            mainExecutor.execute { onProgress(0.92f) }
+                                            val qrUrlAprimorado = barcodesAprimorados
+                                                .firstOrNull { it.format == Barcode.FORMAT_QR_CODE }
+                                                ?.toUsableQrText()
+                                            Log.i(
+                                                CAMERA_QR_TAG,
+                                                "Passo4 (alto contraste) - barcodes=${barcodesAprimorados.size} qrUrl=$qrUrlAprimorado"
+                                            )
+                                            if (!qrUrlAprimorado.isNullOrBlank()) {
+                                                mainExecutor.execute {
+                                                    onProgress(1f)
+                                                    onResult(
+                                                        ResultadoCaptura(
+                                                            arquivoFoto = arquivo,
+                                                            itensEncontrados = emptyList(),
+                                                            kmDetectado = null,
+                                                            qrCodeUrl = qrUrlAprimorado,
+                                                            sugestoesProduto = emptyList(),
+                                                            linhasReconhecidas = emptyList()
+                                                        )
+                                                    )
+                                                    image.close()
+                                                }
+                                                scanner.close()
+                                                return@addOnSuccessListener
+                                            }
+
+                                            val inputImageAprimoradoRotPlus = InputImage.fromBitmap(
+                                                rotacionarBitmapSeguro(bitmapQrAprimorado, 12f),
+                                                0
+                                            )
+                                            scanner.process(inputImageAprimoradoRotPlus)
+                                                .addOnSuccessListener { barcodesAprimoradosRotPlus ->
+                                                    mainExecutor.execute { onProgress(0.96f) }
+                                                    val qrUrlAprimoradoRotPlus = barcodesAprimoradosRotPlus
+                                                        .firstOrNull { it.format == Barcode.FORMAT_QR_CODE }
+                                                        ?.toUsableQrText()
+                                                    Log.i(
+                                                        CAMERA_QR_TAG,
+                                                        "Passo5 (alto contraste +12) - barcodes=${barcodesAprimoradosRotPlus.size} qrUrl=$qrUrlAprimoradoRotPlus"
+                                                    )
+                                                    if (!qrUrlAprimoradoRotPlus.isNullOrBlank()) {
+                                                        mainExecutor.execute {
+                                                            onProgress(1f)
+                                                            onResult(
+                                                                ResultadoCaptura(
+                                                                    arquivoFoto = arquivo,
+                                                                    itensEncontrados = emptyList(),
+                                                                    kmDetectado = null,
+                                                                    qrCodeUrl = qrUrlAprimoradoRotPlus,
+                                                                    sugestoesProduto = emptyList(),
+                                                                    linhasReconhecidas = emptyList()
+                                                                )
+                                                            )
+                                                            image.close()
+                                                        }
+                                                        scanner.close()
+                                                        return@addOnSuccessListener
+                                                    }
+
+                                                    val inputImageAprimoradoRotMinus = InputImage.fromBitmap(
+                                                        rotacionarBitmapSeguro(bitmapQrAprimorado, -12f),
+                                                        0
+                                                    )
+                                                    scanner.process(inputImageAprimoradoRotMinus)
+                                                        .addOnSuccessListener { barcodesAprimoradosRotMinus ->
+                                                            mainExecutor.execute { onProgress(1f) }
+                                                            val qrUrlAprimoradoRotMinus = barcodesAprimoradosRotMinus
+                                                                .firstOrNull { it.format == Barcode.FORMAT_QR_CODE }
+                                                                ?.toUsableQrText()
+                                                            Log.i(
+                                                                CAMERA_QR_TAG,
+                                                                "Passo6 (alto contraste -12) - barcodes=${barcodesAprimoradosRotMinus.size} qrUrl=$qrUrlAprimoradoRotMinus"
+                                                            )
+                                                            mainExecutor.execute {
+                                                                onResult(
+                                                                    ResultadoCaptura(
+                                                                        arquivoFoto = arquivo,
+                                                                        itensEncontrados = emptyList(),
+                                                                        kmDetectado = null,
+                                                                        qrCodeUrl = qrUrlAprimoradoRotMinus,
+                                                                        sugestoesProduto = emptyList(),
+                                                                        linhasReconhecidas = emptyList()
+                                                                    )
+                                                                )
+                                                                image.close()
+                                                            }
+                                                            scanner.close()
+                                                        }
+                                                        .addOnFailureListener { erroAprimoradoRotMinus ->
+                                                            Log.e(CAMERA_QR_TAG, "Falha no passo6 QR", erroAprimoradoRotMinus)
+                                                            mainExecutor.execute {
+                                                                onProgress(1f)
+                                                                onResult(
+                                                                    ResultadoCaptura(
+                                                                        arquivoFoto = arquivo,
+                                                                        itensEncontrados = emptyList(),
+                                                                        kmDetectado = null,
+                                                                        qrCodeUrl = null,
+                                                                        sugestoesProduto = emptyList(),
+                                                                        linhasReconhecidas = emptyList()
+                                                                    )
+                                                                )
+                                                                image.close()
+                                                            }
+                                                            scanner.close()
+                                                        }
+                                                }
+                                                .addOnFailureListener { erroAprimoradoRotPlus ->
+                                                    Log.e(CAMERA_QR_TAG, "Falha no passo5 QR", erroAprimoradoRotPlus)
+                                                    mainExecutor.execute {
+                                                        onProgress(1f)
+                                                        onResult(
+                                                            ResultadoCaptura(
+                                                                arquivoFoto = arquivo,
+                                                                itensEncontrados = emptyList(),
+                                                                kmDetectado = null,
+                                                                qrCodeUrl = null,
+                                                                sugestoesProduto = emptyList(),
+                                                                linhasReconhecidas = emptyList()
+                                                            )
+                                                        )
+                                                        image.close()
+                                                    }
+                                                    scanner.close()
+                                                }
+                                        }
+                                        .addOnFailureListener { erroAprimorado ->
+                                            Log.e(CAMERA_QR_TAG, "Falha no passo4 QR", erroAprimorado)
+                                            mainExecutor.execute {
+                                                onProgress(1f)
+                                                onResult(
+                                                    ResultadoCaptura(
+                                                        arquivoFoto = arquivo,
+                                                        itensEncontrados = emptyList(),
+                                                        kmDetectado = null,
+                                                        qrCodeUrl = null,
+                                                        sugestoesProduto = emptyList(),
+                                                        linhasReconhecidas = emptyList()
+                                                    )
+                                                )
+                                                image.close()
+                                            }
+                                            scanner.close()
+                                        }
                                 }
                                 .addOnFailureListener { erroFoco ->
                                     Log.e(CAMERA_QR_TAG, "Falha no passo3 QR", erroFoco)
@@ -763,6 +933,12 @@ private fun resultadoTemLeituraUtil(resultado: ResultadoCaptura): Boolean {
         (resultado.kmDetectado != null && resultado.kmDetectado > 0)
 }
 
+private fun qrEhTipoNaoSuportado(qrUrl: String): Boolean {
+    val host = runCatching { android.net.Uri.parse(qrUrl).host.orEmpty().lowercase(Locale.ROOT) }
+        .getOrDefault("")
+    return host.contains("nfse.gov.br")
+}
+
 private fun ImageProxy.averageLuma(): Double {
     val buffer = planes.firstOrNull()?.buffer ?: return 255.0
     val data = ByteArray(buffer.remaining())
@@ -776,9 +952,9 @@ private fun Barcode.toUsableQrText(): String? {
     if (format != Barcode.FORMAT_QR_CODE) return null
 
     val candidates = buildList {
-        url?.url?.trim()?.takeIf { it.isNotBlank() }?.let { add(it) }
-        rawValue?.trim()?.takeIf { it.isNotBlank() }?.let { add(it) }
-        displayValue?.trim()?.takeIf { it.isNotBlank() }?.let { add(it) }
+        url?.url?.let(::sanitizeQrUrlText)?.takeIf { it.isNotBlank() }?.let { add(it) }
+        rawValue?.let(::sanitizeQrUrlText)?.takeIf { it.isNotBlank() }?.let { add(it) }
+        displayValue?.let(::sanitizeQrUrlText)?.takeIf { it.isNotBlank() }?.let { add(it) }
     }
 
     candidates.firstOrNull { it.looksLikeUsefulText() }?.let { return it }
@@ -788,7 +964,11 @@ private fun Barcode.toUsableQrText(): String? {
         runCatching { String(bytes, Charsets.UTF_8) }.getOrNull(),
         runCatching { String(bytes, Charsets.ISO_8859_1) }.getOrNull(),
         runCatching { String(bytes, Charsets.UTF_16) }.getOrNull()
-    ).mapNotNull { it?.trim()?.takeIf { text -> text.isNotBlank() } }
+    ).mapNotNull { decoded ->
+        decoded
+            ?.let(::sanitizeQrUrlText)
+            ?.takeIf { text -> text.isNotBlank() }
+    }
 
     decodedCandidates.firstOrNull { it.looksLikeUsefulText() }?.let { return it }
 
@@ -797,10 +977,11 @@ private fun Barcode.toUsableQrText(): String? {
 }
 
 private fun String.looksLikeUsefulText(): Boolean {
-    if (isBlank()) return false
-    if (startsWith("http://", true) || startsWith("https://", true)) return true
-    val printable = count { it.code in 32..126 || it == '\n' || it == '\r' || it == '\t' }
-    val ratio = printable.toFloat() / length.coerceAtLeast(1)
+    val sanitized = sanitizeQrUrlText(this)
+    if (sanitized.isBlank()) return false
+    if (sanitized.startsWith("http://", true) || sanitized.startsWith("https://", true)) return true
+    val printable = sanitized.count { it.code in 32..126 || it == '\n' || it == '\r' || it == '\t' }
+    val ratio = printable.toFloat() / sanitized.length.coerceAtLeast(1)
     return ratio >= 0.85f
 }
 
@@ -973,6 +1154,10 @@ internal fun detectarTipoPeloTexto(texto: String): TipoManutencao {
     val normalized = texto.uppercase(Locale.ROOT).unaccent()
     return when {
         listOf(
+            "GASOLINA", "ETANOL", "DIESEL", "GNV", "COMBUSTIVEL", "ABASTECIMENTO",
+            "ABAST", "POSTO", "LITRO", "LITROS"
+        ).any { normalized.contains(it) } -> TipoManutencao.ABASTECIMENTO
+        listOf(
             "OLEO", "LUBRAX", "MOBIL", "SHELL", "HELIX", "CASTROL", "PETRONAS",
             "LUBRIFICANTE", "LUB", "MOTOR OIL", "SAE", "0W", "5W", "10W", "15W",
             "20W", "25W", "ATF", "DEXRON", "HIDRAULICO", "FLUIDO MOTOR", "SEMISSINTETICO",
@@ -1140,8 +1325,8 @@ private fun corrigirCaracteresVisuais(texto: String): String =
 private fun recortarAreaCentral(bitmap: Bitmap): Bitmap {
     val largura = bitmap.width
     val altura = bitmap.height
-    val larguraTarget = (largura * 0.55).toInt().coerceAtLeast(1)
-    val alturaTarget = (altura * 0.25).toInt().coerceAtLeast(1)
+    val larguraTarget = (largura * 0.72).toInt().coerceAtLeast(1)
+    val alturaTarget = (altura * 0.40).toInt().coerceAtLeast(1)
     val inicioX = ((largura - larguraTarget) / 2).coerceAtLeast(0)
     val inicioY = ((altura - alturaTarget) / 2).coerceAtLeast(0)
     return Bitmap.createBitmap(
@@ -1151,4 +1336,60 @@ private fun recortarAreaCentral(bitmap: Bitmap): Bitmap {
         larguraTarget.coerceAtMost(largura),
         alturaTarget.coerceAtMost(altura)
     )
+}
+
+private fun prepararBitmapParaLeituraQr(bitmap: Bitmap): Bitmap {
+    val maxLado = 1700
+    val maiorLadoOriginal = maxOf(bitmap.width, bitmap.height).coerceAtLeast(1)
+    val escala = if (maiorLadoOriginal > maxLado) {
+        maxLado.toFloat() / maiorLadoOriginal.toFloat()
+    } else {
+        1f
+    }
+    val larguraProcessada = (bitmap.width * escala).roundToInt().coerceAtLeast(1)
+    val alturaProcessada = (bitmap.height * escala).roundToInt().coerceAtLeast(1)
+    val baseProcessamento = if (larguraProcessada != bitmap.width || alturaProcessada != bitmap.height) {
+        Bitmap.createScaledBitmap(bitmap, larguraProcessada, alturaProcessada, true)
+    } else {
+        bitmap
+    }
+
+    val pixels = IntArray(baseProcessamento.width * baseProcessamento.height)
+    baseProcessamento.getPixels(pixels, 0, baseProcessamento.width, 0, 0, baseProcessamento.width, baseProcessamento.height)
+
+    var somaLuma = 0L
+    for (pixel in pixels) {
+        val r = android.graphics.Color.red(pixel)
+        val g = android.graphics.Color.green(pixel)
+        val b = android.graphics.Color.blue(pixel)
+        somaLuma += ((r * 299) + (g * 587) + (b * 114)) / 1000
+    }
+    val mediaLuma = (somaLuma / pixels.size.coerceAtLeast(1)).toInt()
+    val limiar = mediaLuma.coerceIn(95, 175)
+
+    for (index in pixels.indices) {
+        val pixel = pixels[index]
+        val r = android.graphics.Color.red(pixel)
+        val g = android.graphics.Color.green(pixel)
+        val b = android.graphics.Color.blue(pixel)
+        val luma = ((r * 299) + (g * 587) + (b * 114)) / 1000
+        pixels[index] = if (luma >= limiar) {
+            android.graphics.Color.WHITE
+        } else {
+            android.graphics.Color.BLACK
+        }
+    }
+
+    return Bitmap.createBitmap(
+        pixels,
+        baseProcessamento.width,
+        baseProcessamento.height,
+        Bitmap.Config.RGB_565
+    )
+}
+
+private fun rotacionarBitmapSeguro(bitmap: Bitmap, graus: Float): Bitmap {
+    if (graus == 0f) return bitmap
+    val matrix = Matrix().apply { postRotate(graus) }
+    return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
 }

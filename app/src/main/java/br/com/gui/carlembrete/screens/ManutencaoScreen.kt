@@ -1,13 +1,14 @@
 ﻿package br.com.gui.carlembrete
 
-import BikeDistanceCard
 import AvisosCategoriasCard
 import CarroInfoCard
 import HistoricoAbastecimentoScreen
 import android.app.Activity
 import android.graphics.Paint
+import android.content.Intent
 import android.content.Context
 import android.content.ContextWrapper
+import android.net.Uri
 import android.util.Log
 import android.speech.tts.TextToSpeech
 import android.widget.Toast
@@ -84,6 +85,7 @@ import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import java.io.File
 import java.util.Locale
+import java.util.UUID
 import kotlin.math.ceil
 
 // Função utilitária para encontrar a Activity
@@ -96,6 +98,7 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
 private const val HOME_TUTORIAL_PREFS = "home_tutorial_prefs"
 private const val KEY_HOME_TUTORIAL_VERSION = "home_tutorial_version"
 private const val CURRENT_HOME_TUTORIAL_VERSION = 1
+private val lembreteUiDateFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
 
 private fun shouldAutoStartHomeTutorial(context: Context): Boolean {
     val savedVersion = context.getSharedPreferences(HOME_TUTORIAL_PREFS, Context.MODE_PRIVATE)
@@ -160,7 +163,7 @@ fun ManutencaoScreen(
                     }
                 }
 
-            val carrosOriginais = BancoDeDados.carregarCarrosComFallback(context)
+            val carrosOriginais = BancoDeDados.carregarCarros(context).orEmpty()
             val carros = if (!nomeUsuarioLogado.isNullOrBlank()) {
                 carrosOriginais.map { carro ->
                     if (carro.proprietario.equals("Eu mesmo", ignoreCase = true)) {
@@ -239,9 +242,9 @@ fun ManutencaoScreen(
     var lembreteParaVincularContato by remember { mutableStateOf<String?>(null) }
     var showTesteNotificacaoDialog by remember { mutableStateOf(false) }
     var showConfiguracoes by remember { mutableStateOf(false) }
-    var showPrivacidadeDialog by remember { mutableStateOf(false) }
+    var showTermsScreen by remember { mutableStateOf(false) }
+    var showPrivacyScreen by remember { mutableStateOf(false) }
     var showMecanicoVirtualScreen by remember { mutableStateOf(false) }
-    var showAbastecimentoScreen by remember { mutableStateOf(false) }
     var showHistoricoAbastecimentoScreen by remember { mutableStateOf(false) }
     var showBikeDistanceRegister by remember { mutableStateOf(false) }
     var showBikeDistanceHistory by remember { mutableStateOf(false) }
@@ -250,6 +253,8 @@ fun ManutencaoScreen(
     var showShareVehicleScreen by remember { mutableStateOf(false) }
     var showAondePareiScreen by remember { mutableStateOf(openAondePareiOnStart) }
     var showAiAssistantScreen by remember { mutableStateOf(false) }
+    var showFaqScreen by remember { mutableStateOf(false) }
+    var showVehicleGuideScreen by remember { mutableStateOf(false) }
     val shouldShowHomeTutorial = remember(context) { shouldAutoStartHomeTutorial(context) }
     val density = LocalDensity.current
     var showHomeTutorial by remember { mutableStateOf(false) }
@@ -303,11 +308,16 @@ fun ManutencaoScreen(
     var lembreteSelecionado by remember { mutableStateOf<Lembrete?>(null) }
     var showLembreteDetalhesScreen by remember { mutableStateOf(false) }
     var contatoDetalheSelecionado by remember { mutableStateOf<ContatoProfissional?>(null) }
+    var showRenovarAvisoDialog by remember { mutableStateOf(false) }
+    var lembreteParaFinalizar by remember { mutableStateOf<Lembrete?>(null) }
+    var processandoRenovacaoAviso by remember { mutableStateOf(false) }
     var filtroTipo by remember { mutableStateOf<TipoManutencao?>(null) }
     var buscaTexto by remember { mutableStateOf("") }
 
     val lembretesDoCarroAtual = todosLembretes.filter { it.carroId == carroAtual.id }
-    val lembretesAtivosDoCarroAtual = lembretesDoCarroAtual.filterNot(::isLembreteRealizado)
+    val lembretesAtivosDoCarroAtual = lembretesDoCarroAtual
+        .filterNot(::isLembreteRealizado)
+        .filter { it.tipo != TipoManutencao.ABASTECIMENTO }
     val lembretesFiltrados = if (filtroTipo == null) {
         lembretesAtivosDoCarroAtual
     } else {
@@ -322,6 +332,66 @@ fun ManutencaoScreen(
         }
     }
     val totalGastos = lembretesAtivosDoCarroAtual.sumOf { it.valor }
+
+    fun finalizarLembreteSemRenovar(lembrete: Lembrete) {
+        if (processandoRenovacaoAviso) return
+        processandoRenovacaoAviso = true
+        showRenovarAvisoDialog = false
+        lembreteParaFinalizar = null
+        NotificacaoHelper.cancelarNotificacao(context.applicationContext, lembrete.id)
+        todosLembretes = todosLembretes.map {
+            if (it.id == lembrete.id) marcarLembreteComoRealizado(it) else it
+        }
+        lembreteSelecionado = null
+        contatoDetalheSelecionado = null
+        showLembreteDetalhesScreen = false
+        processandoRenovacaoAviso = false
+        Toast.makeText(context, "Manutenção marcada como realizada.", Toast.LENGTH_SHORT).show()
+    }
+
+    fun finalizarLembreteComRenovacao(lembrete: Lembrete) {
+        val dataLimiteOriginal = runCatching {
+            LocalDate.parse(lembrete.dataLimite, lembreteUiDateFormatter)
+        }.getOrNull()
+        val podeRenovarAgora = dataLimiteOriginal != null && !LocalDate.now().isBefore(dataLimiteOriginal)
+        if (!podeRenovarAgora) {
+            Toast.makeText(
+                context,
+                "A renovacao so fica disponivel no vencimento ou apos a data final do aviso.",
+                Toast.LENGTH_SHORT
+            ).show()
+            return
+        }
+        if (processandoRenovacaoAviso) return
+        processandoRenovacaoAviso = true
+        showRenovarAvisoDialog = false
+        lembreteParaFinalizar = null
+        NotificacaoHelper.cancelarNotificacao(context.applicationContext, lembrete.id)
+        val baseData = runCatching { LocalDate.parse(lembrete.dataLimite, lembreteUiDateFormatter) }
+            .getOrElse { LocalDate.now() }
+        val novaData = when (lembrete.tipo) {
+            TipoManutencao.SEGURO,
+            TipoManutencao.LICENCIAMENTO,
+            TipoManutencao.IPVA -> baseData.plusYears(1)
+            else -> runCatching {
+                LocalDate.parse(calcularProximaData(lembrete.tipo, LocalDate.now()), lembreteUiDateFormatter)
+            }.getOrElse { LocalDate.now().plusMonths(1) }
+        }
+        val novoLembrete = lembrete.copy(
+            id = UUID.randomUUID().toString(),
+            dataLimite = novaData.format(lembreteUiDateFormatter)
+        )
+        NotificacaoHelper.agendarNotificacao(context.applicationContext, novoLembrete, novoLembrete.horaAviso)
+        todosLembretes = todosLembretes.map {
+            if (it.id == lembrete.id) marcarLembreteComoRealizado(it) else it
+        } + novoLembrete
+        lembreteSelecionado = null
+        contatoDetalheSelecionado = null
+        showLembreteDetalhesScreen = false
+        processandoRenovacaoAviso = false
+        Toast.makeText(context, "Aviso renovado para ${novoLembrete.dataLimite}.", Toast.LENGTH_SHORT).show()
+    }
+
     val usuarioNome = FirebaseAuth.getInstance().currentUser?.displayName
     val nomeExibido = usuarioNome?.trim()?.split("\\s+".toRegex())?.let { partes ->
         if (partes.isEmpty()) null else if (partes.size == 1) partes[0] else "${partes.first()} ${partes.last()}"
@@ -349,6 +419,10 @@ fun ManutencaoScreen(
     DisposableEffect(Unit) {
         subscriptionManager.connect()
         onDispose { subscriptionManager.disconnect() }
+    }
+    LaunchedEffect(planTier) {
+        val plan = if (planTier == PlanTier.FREE) "free" else "premium"
+        AdminUsersSync.syncCurrentUser(plan = plan)
     }
     LaunchedEffect(todosLembretes) {
         notificacoesDisparadas = withContext(Dispatchers.IO) { NotificacaoHelper.carregarNotificacoesDisparadas(context) }
@@ -394,7 +468,7 @@ fun ManutencaoScreen(
     }
     BackHandler(enabled = showAddCarScreen) { showAddCarScreen = false }
     if (showAddCarScreen) {
-        NovoCarroScreen(
+        NovoCarroScreenPrimeiroFluxoComVoltar(
             onDismiss = { showAddCarScreen = false },
             onSalvar = { novoCarro ->
                 listaCarros = listaCarros + novoCarro
@@ -449,7 +523,6 @@ fun ManutencaoScreen(
                     showSelecionarPrestadorScreen = false
                 }
             )
-            return
         }
     }
     BackHandler(enabled = showTipoAvisoDialog) { showTipoAvisoDialog = false }
@@ -466,12 +539,7 @@ fun ManutencaoScreen(
                 showTipoAvisoDialog = false
                 showAondePareiScreen = true
             }
-        ) + (if (showFuelReminder(carroAtual.tipoVeiculo)) listOf(
-            AvisoItem("Combustível", Icons.Rounded.LocalGasStation, accentBlue) {
-                showTipoAvisoDialog = false
-                showAbastecimentoScreen = true
-            }
-        ) else emptyList()) + tiposAviso.map { tipo ->
+        ) + tiposAviso.map { tipo ->
             val label = if (isBike && tipo == TipoManutencao.REVISAO) "Peças" else tipo.label
             AvisoItem(
                 label,
@@ -486,13 +554,7 @@ fun ManutencaoScreen(
                 showAddLembreteDialog = true
             }
         }
-        val avisoBackground = if (isDark) {
-            Brush.verticalGradient(
-                listOf(Color(0xFF16233A), primaryDark, Color(0xFF0F172A))
-            )
-        } else {
-            SolidColor(Color.White)
-        }
+        val avisoBackground = SolidColor(homeScreenBg)
         val avisoTextPrimary = if (isDark) textLight else Color.Black
         val avisoTextDim = if (isDark) textDim else Color(0xFF475569)
         TipoAvisoScreen(
@@ -501,6 +563,10 @@ fun ManutencaoScreen(
             surfaceDark = if (isDark) surfaceDark else Color.White,
             textLight = avisoTextPrimary,
             textDim = avisoTextDim,
+            onOpenVehicleGuide = {
+                showTipoAvisoDialog = false
+                showVehicleGuideScreen = true
+            },
             onDismiss = { showTipoAvisoDialog = false }
         )
         return
@@ -568,12 +634,6 @@ fun ManutencaoScreen(
                 showPremiumHubScreen = false
                 showAnjoDaGuardaScreen = true
             },
-            onOpenFinance = {
-                Log.d("PremiumNav", "click Gestor de Frota in PremiumHub")
-                showPremiumHubScreen = false
-                showMecanicoVirtualScreen = true
-                Log.d("PremiumNav", "state after click premiumHub=$showPremiumHubScreen mecanico=$showMecanicoVirtualScreen")
-            },
             onOpenAiAssistant = {
                 showPremiumHubScreen = false
                 showAiAssistantScreen = true
@@ -601,14 +661,9 @@ fun ManutencaoScreen(
                 showLembreteDetalhesScreen = false
             },
             onMarkAsDone = { selecionado ->
-                NotificacaoHelper.cancelarNotificacao(context.applicationContext, selecionado.id)
-                todosLembretes = todosLembretes.map {
-                    if (it.id == selecionado.id) marcarLembreteComoRealizado(it) else it
-                }
-                lembreteSelecionado = null
-                contatoDetalheSelecionado = null
+                lembreteParaFinalizar = selecionado
                 showLembreteDetalhesScreen = false
-                Toast.makeText(context, "Manutenção marcada como realizada.", Toast.LENGTH_SHORT).show()
+                showRenovarAvisoDialog = true
             },
             onSalvar = { atualizado ->
                 todosLembretes = todosLembretes.map { if (it.id == atualizado.id) atualizado else it }
@@ -622,8 +677,189 @@ fun ManutencaoScreen(
         return
     }
 
-    if (showPrivacidadeDialog) {
-        PrivacidadeTermosDialog(onDismiss = { showPrivacidadeDialog = false })
+    if (showRenovarAvisoDialog && lembreteParaFinalizar != null) {
+        val alvo = lembreteParaFinalizar!!
+        val dataLimiteAlvo = runCatching {
+            LocalDate.parse(alvo.dataLimite, lembreteUiDateFormatter)
+        }.getOrNull()
+        val renovacaoDisponivel = dataLimiteAlvo != null && !LocalDate.now().isBefore(dataLimiteAlvo)
+        AlertDialog(
+            onDismissRequest = {
+                processandoRenovacaoAviso = false
+                showRenovarAvisoDialog = false
+                lembreteParaFinalizar = null
+            },
+            containerColor = if (isDark) Color(0xFF0F172A) else Color.White,
+            title = {
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    IconButton(
+                        onClick = {
+                            processandoRenovacaoAviso = false
+                            showRenovarAvisoDialog = false
+                            lembreteParaFinalizar = null
+                        },
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .size(34.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Fechar",
+                            tint = Color(0xFFEF4444)
+                        )
+                    }
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(52.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF3B82F6).copy(alpha = if (isDark) 0.24f else 0.14f))
+                                .border(1.dp, Color(0xFF3B82F6).copy(alpha = 0.32f), CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Autorenew,
+                                contentDescription = null,
+                                tint = Color(0xFF3B82F6),
+                                modifier = Modifier.size(26.dp)
+                            )
+                        }
+                        Text(
+                            "Renovar aviso?",
+                            color = colorScheme.onSurface,
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+            },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        "Aviso: ${abreviarTituloAvisoDetalhes(alvo.peca.ifBlank { alvo.titulo }, 40)}",
+                        color = colorScheme.onSurface,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        "Se renovar, o app cria automaticamente a próxima data e mantém os alertas.",
+                        color = colorScheme.onSurfaceVariant
+                    )
+                    if (!renovacaoDisponivel) {
+                        Text(
+                            "RENOVACAO DISPONIVEL APENAS NO VENCIMENTO OU APOS ${alvo.dataLimite.ifBlank { "A DATA FINAL" }}.",
+                            color = colorScheme.onSurfaceVariant,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    } else {
+                        Text(
+                            "RENOVACAO DISPONIVEL AGORA.",
+                            color = Color(0xFF10B981),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    Text(
+                        "SE NAO RENOVAR, O AVISO SERA APENAS MARCADO COMO REALIZADO.",
+                        color = colorScheme.onSurfaceVariant,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = { finalizarLembreteComRenovacao(alvo) },
+                    enabled = !processandoRenovacaoAviso && renovacaoDisponivel,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981))
+                ) {
+                    Icon(Icons.Rounded.Autorenew, contentDescription = null, tint = Color.White)
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        if (processandoRenovacaoAviso) "Processando..." else "Renovar aviso",
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            },
+            dismissButton = {
+                OutlinedButton(
+                    onClick = { finalizarLembreteSemRenovar(alvo) },
+                    enabled = !processandoRenovacaoAviso,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        containerColor = if (isDark) Color(0xFF3F1D1D) else Color(0xFFFFF1F2),
+                        contentColor = Color(0xFFB91C1C)
+                    ),
+                    border = BorderStroke(
+                        1.dp,
+                        if (isDark) Color(0xFFB91C1C).copy(alpha = 0.65f) else Color(0xFFDC2626).copy(alpha = 0.45f)
+                    )
+                ) {
+                    Text("Concluir sem renovar", color = Color(0xFFB91C1C), fontWeight = FontWeight.SemiBold)
+                }
+            }
+        )
+    }
+
+    BackHandler(enabled = showTermsScreen) { showTermsScreen = false }
+    if (showTermsScreen) {
+        LegalInfoScreen(
+            title = "Termos de uso",
+            icon = Icons.Default.Description,
+            content = """
+                1. Objeto: o Zellu oferece recursos de cadastro e gerenciamento de veículos, lembretes e informações relacionadas.
+
+                2. Uso adequado: você se compromete a utilizar o app de forma lícita e a fornecer dados verdadeiros, atualizados e de sua responsabilidade.
+
+                3. Responsabilidade do usuário: decisões de manutenção, compra, venda, deslocamento e segurança do veículo são de responsabilidade exclusiva do usuário.
+
+                4. Limitação de responsabilidade: o Zellu é ferramenta de apoio e não substitui diagnóstico técnico, vistoria, seguro, assistência mecânica ou orientação profissional.
+
+                5. Disponibilidade: funcionalidades podem ser alteradas, corrigidas, suspensas ou descontinuadas sem aviso prévio, quando necessário.
+
+                6. Foro: para dirimir eventuais conflitos relacionados ao uso do app, fica eleito o foro da comarca de Sao Carlos/SP, sem endereco comercial divulgado neste momento.
+            """.trimIndent(),
+            onDismiss = { showTermsScreen = false }
+        )
+        return
+    }
+    BackHandler(enabled = showPrivacyScreen) { showPrivacyScreen = false }
+    if (showPrivacyScreen) {
+        LegalInfoScreen(
+            title = "Política de privacidade",
+            icon = Icons.Default.Lock,
+            content = """
+                1. Dados tratados: o app pode tratar dados de cadastro de veículos, lembretes, contatos, localização, câmera e notificações, conforme recursos utilizados por você.
+
+                2. Finalidade: os dados são usados para executar funcionalidades do app, personalizar a experiência e permitir recursos solicitados pelo usuário.
+
+                3. LGPD (Lei 13.709/2018): o tratamento de dados observa os princípios da necessidade, finalidade, adequação e transparência, com base legal aplicável para execução do serviço e consentimento quando exigido.
+
+                4. Permissões: câmera, localização e notificações somente são usadas após consentimento e podem ser revogadas a qualquer momento nas configurações do dispositivo.
+
+                5. Compartilhamento: o Zellu não comercializa dados pessoais e utiliza informações apenas para operação do serviço e integrações técnicas necessárias.
+
+                6. Direitos do titular: você pode solicitar confirmação de tratamento, acesso, correção, anonimização, exclusão e revogação do consentimento, nos termos da LGPD.
+
+                7. Exclusão de conta e dados: ao solicitar a exclusão da conta, os dados pessoais e registros vinculados serão removidos, observadas apenas retenções legais obrigatórias.
+
+                8. Contato de privacidade, remoção de dados, dúvidas e sugestões:
+                guilhermedevsistemas@gmail.com
+            """.trimIndent(),
+            onDismiss = { showPrivacyScreen = false }
+        )
+        return
     }
     BackHandler(enabled = showPremiumBeneficiosScreen) { showPremiumBeneficiosScreen = false }
     if (showPremiumBeneficiosScreen) {
@@ -688,41 +924,17 @@ fun ManutencaoScreen(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
-                        "Desbloqueie recursos que economizam tempo, reduzem erros e elevam o cuidado com seu veículo.",
+                        "Desbloqueie o modo Viagens Premium para organizar gastos com mais controle e praticidade.",
                         color = premiumText,
                         fontWeight = FontWeight.Medium
                     )
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Shield, contentDescription = null, tint = Color(0xFFF59E0B))
-                        Spacer(Modifier.width(8.dp))
-                        Column {
-                            Text("Zellu Guardião", color = premiumTitle, fontWeight = FontWeight.Bold)
-                            Text(
-                                "Proteção inteligente com alertas em tempo real para você agir rápido e evitar dor de cabeça.",
-                                color = premiumSubtitle,
-                                fontSize = 13.sp
-                            )
-                        }
-                    }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Payments, contentDescription = null, tint = Color(0xFFF59E0B))
-                        Spacer(Modifier.width(8.dp))
-                        Column {
-                            Text("Gestor Financeiro", color = premiumTitle, fontWeight = FontWeight.Bold)
-                            Text(
-                                "Controle completo dos gastos para enxergar onde economizar e tomar decisões com confiança.",
-                                color = premiumSubtitle,
-                                fontSize = 13.sp
-                            )
-                        }
-                    }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = Color(0xFFF59E0B))
                         Spacer(Modifier.width(8.dp))
                         Column {
-                            Text("Viagem", color = premiumTitle, fontWeight = FontWeight.Bold)
+                            Text("Viagens Premium - R$ 9,90/mês", color = premiumTitle, fontWeight = FontWeight.Bold)
                             Text(
-                                "Registre despesas e notas com praticidade e gere relatórios profissionais em poucos toques.",
+                                "Viagens ilimitadas, registro de gastos e relatorios para acompanhar custo por trajeto.",
                                 color = premiumSubtitle,
                                 fontSize = 13.sp
                             )
@@ -788,11 +1000,6 @@ fun ManutencaoScreen(
         return
     }
 
-    BackHandler(enabled = showAbastecimentoScreen) { showAbastecimentoScreen = false }
-    if (showAbastecimentoScreen) {
-        AbastecimentoScreen(carroId = carroAtual.id, onDismiss = { showAbastecimentoScreen = false })
-        return
-    }
     BackHandler(enabled = showHistoricoAbastecimentoScreen) { showHistoricoAbastecimentoScreen = false }
     if (showHistoricoAbastecimentoScreen) {
         HistoricoAbastecimentoScreen(carroId = carroAtual.id, onDismiss = { showHistoricoAbastecimentoScreen = false })
@@ -818,80 +1025,48 @@ fun ManutencaoScreen(
         AssistentePremiumScreen(onDismiss = { showAiAssistantScreen = false })
         return
     }
-    LaunchedEffect(showAbastecimentoScreen) {
-        if (!showAbastecimentoScreen) {
-            abastecimentos = withContext(Dispatchers.IO) { BancoDeDados.carregarAbastecimentos(context) }
-        }
+    BackHandler(enabled = showFaqScreen) { showFaqScreen = false }
+    if (showFaqScreen) {
+        HomeFaqScreen(onDismiss = { showFaqScreen = false })
+        return
+    }
+    BackHandler(enabled = showVehicleGuideScreen) { showVehicleGuideScreen = false }
+    if (showVehicleGuideScreen) {
+        VehicleBasicsGuideScreen(onDismiss = { showVehicleGuideScreen = false })
+        return
     }
     LaunchedEffect(showBikeDistanceRegister, showBikeDistanceHistory) {
         if (!showBikeDistanceRegister && !showBikeDistanceHistory) {
             pedaladas = withContext(Dispatchers.IO) { BancoDeDados.carregarPedaladas(context) }
         }
     }
-    LaunchedEffect(isLoading, shouldShowHomeTutorial) {
-        if (!isLoading && shouldShowHomeTutorial) {
-            homeTutorialStep = 0
-            showHomeTutorial = true
-        }
-    }
-    LaunchedEffect(
-        showHomeTutorial,
-        homeTutorialStep,
-        menuButtonRect,
-        helpButtonRect,
-        premiumButtonRect,
-        fuelHistoryButtonRect,
-        carInfoRect,
-        remindersRect,
-        tutorialViewportHeightPx
-    ) {
-        if (!showHomeTutorial || tutorialViewportHeightPx <= 0f) return@LaunchedEffect
-        val targetKey = homeTutorialSteps[homeTutorialStep].second
-        val rawTargetRect = when (targetKey) {
-            "menu" -> menuButtonRect
-            "help" -> helpButtonRect
-            "premium" -> premiumButtonRect
-            "fuel_history" -> fuelHistoryButtonRect
-            "car" -> carInfoRect
-            else -> remindersRect
-        }
-        if (targetKey == "help" && (contentScrollState.value > 0 || rawTargetRect == null)) {
-            contentScrollState.animateScrollTo(0)
-            return@LaunchedEffect
-        }
-        val targetRect = normalizedTutorialRect(targetKey, rawTargetRect) ?: return@LaunchedEffect
-
-        val minTop = 96f
-        val maxBottom = tutorialViewportHeightPx - 220f
-        val isOutsideViewport = targetRect.top < minTop || targetRect.bottom > maxBottom
-        if (isOutsideViewport) {
-            val desiredTop = if (targetKey == "fuel_history") {
-                (tutorialViewportHeightPx * 0.34f).coerceAtLeast(minTop)
-            } else {
-                (tutorialViewportHeightPx * 0.24f).coerceAtLeast(minTop)
-            }
-            val scrollDelta = targetRect.top - desiredTop
-            contentScrollState.animateScrollBy(scrollDelta)
-        }
-    }
 
     BackHandler(enabled = showAddLembreteDialog) {
         showAddLembreteDialog = false
         iniciarCameraProduto = false
+        showTipoAvisoDialog = true
     }
     if (showAddLembreteDialog) {
         NovoAgendamentoDialog(
             carroAtual = carroAtual,
             contatosDisponiveis = listaContatos,
             onDismiss = { showAddLembreteDialog = false; iniciarCameraProduto = false },
-            onConfirm = { novo ->
-                todosLembretes = todosLembretes + novo.copy(carroId = carroAtual.id)
+            onBackToTipoAviso = {
                 showAddLembreteDialog = false
                 iniciarCameraProduto = false
+                showTipoAvisoDialog = true
+            },
+            onConfirm = { novo ->
+                todosLembretes = todosLembretes + novo.copy(carroId = carroAtual.id)
+                AdminUsageMetrics.markReminderCreated()
+                showAddLembreteDialog = false
+                iniciarCameraProduto = false
+                Toast.makeText(context, "Aviso cadastrado com sucesso!", Toast.LENGTH_SHORT).show()
             },
             onMultiConfirm = { novosItens ->
                 val novosLembretes = novosItens.map { it.copy(carroId = carroAtual.id) }
                 todosLembretes = todosLembretes + novosLembretes
+                AdminUsageMetrics.markReminderCreated(novosLembretes.size)
                 showAddLembreteDialog = false
                 iniciarCameraProduto = false
                 Toast.makeText(context, "${novosLembretes.size} itens salvos!", Toast.LENGTH_SHORT).show()
@@ -904,7 +1079,8 @@ fun ManutencaoScreen(
             },
             initialTipo = tipoAvisoSelecionado,
             planTier = planTier,
-            onRequestPremium = { showPremiumDialog = true }
+            onRequestPremium = { showPremiumDialog = true },
+            onOpenVehicleGuide = { showVehicleGuideScreen = true }
         )
         return
     }
@@ -1022,12 +1198,12 @@ fun ManutencaoScreen(
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold
                     )
-                    DrawerMenuItem(Icons.Default.Lock, "Privacidade e Termos") {
-                        showPrivacidadeDialog = true
+                    DrawerMenuItem(Icons.Default.Description, "Termos de uso") {
+                        showTermsScreen = true
                         drawerScope.launch { drawerState.close() }
                     }
-                    DrawerMenuItem(Icons.Default.Shield, "Zello Guardião") {
-                        showAnjoDaGuardaScreen = true
+                    DrawerMenuItem(Icons.Default.Lock, "Privacidade") {
+                        showPrivacyScreen = true
                         drawerScope.launch { drawerState.close() }
                     }
 
@@ -1115,10 +1291,10 @@ fun ManutencaoScreen(
                             .offset(y = (-3).dp),
                         actions = {
                             IconButton(
-                                onClick = { homeTutorialStep = 0; showHomeTutorial = true },
+                                onClick = { showFaqScreen = true },
                                 modifier = Modifier.onGloballyPositioned { helpButtonRect = it.boundsInRoot() }
                             ) {
-                                Icon(Icons.Default.HelpOutline, "Tutorial", tint = textLight)
+                                Icon(Icons.Default.HelpOutline, "Duvidas frequentes", tint = textLight)
                             }
                             Row(
                                 horizontalArrangement = Arrangement.spacedBy(0.dp),
@@ -1183,9 +1359,13 @@ fun ManutencaoScreen(
                         colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = topBarDark)
                     )
 
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(0.dp))
 
-                    Box(modifier = Modifier.onGloballyPositioned { carInfoRect = it.boundsInRoot() }) {
+                    Box(
+                        modifier = Modifier
+                            .offset(y = (-4).dp)
+                            .onGloballyPositioned { carInfoRect = it.boundsInRoot() }
+                    ) {
                         CarroInfoCard(
                             carroAtual = carroAtual,
                             onPrevCar = {
@@ -1209,45 +1389,10 @@ fun ManutencaoScreen(
                         )
                     }
 
-                    Spacer(Modifier.height(8.dp))
-
-                    if (isBikeCategory(carroAtual.tipoVeiculo)) {
-                        val formatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
-                        val pedaladasDoCarro = pedaladas.filter { it.carroId == carroAtual.id }
-                        val hoje = LocalDate.now()
-                        val inicioSemana = hoje.with(java.time.temporal.TemporalAdjusters.previousOrSame(java.time.DayOfWeek.MONDAY))
-                        val inicioMes = hoje.withDayOfMonth(1)
-                        val kmHoje = pedaladasDoCarro.sumOf { item ->
-                            runCatching { LocalDate.parse(item.data, formatter) }.getOrNull()
-                                ?.takeIf { it == hoje }
-                                ?.let { item.km } ?: 0.0
-                        }
-                        val kmSemana = pedaladasDoCarro.sumOf { item ->
-                            runCatching { LocalDate.parse(item.data, formatter) }.getOrNull()
-                                ?.takeIf { !it.isBefore(inicioSemana) && !it.isAfter(hoje) }
-                                ?.let { item.km } ?: 0.0
-                        }
-                        val kmMes = pedaladasDoCarro.sumOf { item ->
-                            runCatching { LocalDate.parse(item.data, formatter) }.getOrNull()
-                                ?.takeIf { !it.isBefore(inicioMes) && !it.isAfter(hoje) }
-                                ?.let { item.km } ?: 0.0
-                        }
-                        val kmTotal = pedaladasDoCarro.sumOf { it.km }
-                        BikeDistanceCard(
-                            kmHoje = kmHoje,
-                            kmSemana = kmSemana,
-                            kmMes = kmMes,
-                            kmTotal = kmTotal,
-                            onRegistrar = { showBikeDistanceRegister = true },
-                            onHistorico = { showBikeDistanceHistory = true },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp)
-                        )
-                        Spacer(Modifier.height(16.dp))
-                    }
+                    Spacer(Modifier.height((-4).dp))
 
                     val categoriasDisponiveis = tiposAvisoPorVeiculo(carroAtual.tipoVeiculo)
+                        .filterNot { it == TipoManutencao.ABASTECIMENTO }
                     val iconOverrides = if (isBikeCategory(carroAtual.tipoVeiculo)) {
                         mapOf(TipoManutencao.FREIO to Icons.Rounded.TireRepair)
                     } else {
@@ -1300,46 +1445,6 @@ fun ManutencaoScreen(
                 }
                 }
             }
-        }
-        if (showHomeTutorial) {
-            val (message, targetKey) = homeTutorialSteps[homeTutorialStep]
-            val targetRect = when (targetKey) {
-                "menu" -> menuButtonRect
-                "help" -> helpButtonRect
-                "premium" -> premiumButtonRect
-                "fuel_history" -> fuelHistoryButtonRect
-                "car" -> carInfoRect
-                else -> remindersRect
-            }
-            val shouldDelayHelpHighlight = targetKey == "help" && contentScrollState.value > 2
-            val resolvedTargetRect = if (shouldDelayHelpHighlight) null else normalizedTutorialRect(targetKey, targetRect)
-            HomeTutorialVoiceNarration(
-                enabled = true,
-                text = message
-            )
-            HomeTutorialSpotlightOverlay(
-                targetRect = resolvedTargetRect,
-                message = message,
-                step = homeTutorialStep + 1,
-                total = homeTutorialSteps.size,
-                targetCornerRadius = when (targetKey) {
-                    "car", "reminders" -> 28.dp
-                    else -> 12.dp
-                },
-                accentBlue = accentBlue,
-                onSkip = {
-                    showHomeTutorial = false
-                    markHomeTutorialSeen(context)
-                },
-                onNext = {
-                    if (homeTutorialStep < homeTutorialSteps.lastIndex) {
-                        homeTutorialStep += 1
-                    } else {
-                        showHomeTutorial = false
-                        markHomeTutorialSeen(context)
-                    }
-                }
-            )
         }
     }
     if (showAvisosNotificacoesDialog) {
@@ -1988,7 +2093,6 @@ private fun LembreteDetalhesScreen(
     var valorTexto by remember(lembrete.id) { mutableStateOf(if (lembrete.valor > 0) lembrete.valor.toString() else "") }
     var contatoSelecionadoId by remember(lembrete.id) { mutableStateOf(lembrete.contatoId) }
     var expandirSeletorPrestador by remember(lembrete.id) { mutableStateOf(false) }
-    var fotoPathEditavel by remember(lembrete.id) { mutableStateOf(lembrete.fotoPath.orEmpty()) }
     val resetarEdicao = {
         titulo = lembrete.titulo
         dataAviso = lembrete.dataLimite
@@ -1996,11 +2100,11 @@ private fun LembreteDetalhesScreen(
         kmLimite = lembrete.kmLimite
         valorTexto = if (lembrete.valor > 0) lembrete.valor.toString() else ""
         contatoSelecionadoId = lembrete.contatoId
-        fotoPathEditavel = lembrete.fotoPath.orEmpty()
     }
     val categoriaColor = remember(lembrete.tipo) {
         when (lembrete.tipo) {
             TipoManutencao.OLEO -> Color(0xFF2563EB)
+            TipoManutencao.ABASTECIMENTO -> Color(0xFF0EA5E9)
             TipoManutencao.FREIO -> Color(0xFFDC2626)
             TipoManutencao.PNEU -> Color(0xFFF59E0B)
             TipoManutencao.BATERIA -> Color(0xFF0EA5E9)
@@ -2070,7 +2174,7 @@ private fun LembreteDetalhesScreen(
                         TipoIcon(tipo = lembrete.tipo, tint = categoriaColor, size = 22.dp)
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = titulo.ifBlank { lembrete.titulo },
+                                text = abreviarTituloAvisoDetalhes(lembrete.peca.ifBlank { titulo.ifBlank { lembrete.titulo } }),
                                 color = textPrimary,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 16.sp
@@ -2172,30 +2276,10 @@ private fun LembreteDetalhesScreen(
                                 }
                             }
                         }
-                        if (fotoPathEditavel.isNotBlank()) {
-                            val imageModel: Any = if (
-                                fotoPathEditavel.startsWith("content://") || fotoPathEditavel.startsWith("file://")
-                            ) {
-                                fotoPathEditavel
-                            } else {
-                                File(fotoPathEditavel)
-                            }
-                            AsyncImage(
-                                model = imageModel,
-                                contentDescription = "Imagem do registro fotográfico",
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(180.dp)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .border(
-                                        width = 1.dp,
-                                        color = cardBorder,
-                                        shape = RoundedCornerShape(12.dp)
-                                    ),
-                                contentScale = ContentScale.Crop
-                            )
-                        }
                     } else {
+                        if (lembrete.estabelecimentoEndereco.isNotBlank()) {
+                            InfoRow("Endereço", lembrete.estabelecimentoEndereco, textPrimary, textSecondary)
+                        }
                         InfoRow("Veículo", carro.nome, textPrimary, textSecondary)
                         InfoRow("Data", lembrete.dataLimite.ifBlank { "Sem data" }, textPrimary, textSecondary)
                         InfoRow("Hora", lembrete.horaAviso, textPrimary, textSecondary)
@@ -2205,32 +2289,6 @@ private fun LembreteDetalhesScreen(
                         }
                         contato?.let {
                             InfoRow("Profissional", "${it.nome} (${it.tipoServico})", textPrimary, textSecondary)
-                        }
-                        val fotoPath = lembrete.fotoPath.orEmpty()
-                        if (fotoPath.isNotBlank()) {
-                            Spacer(Modifier.height(4.dp))
-                            Text("Registro fotográfico", fontWeight = FontWeight.Bold, color = textPrimary)
-                            val imageModel: Any = if (
-                                fotoPath.startsWith("content://") || fotoPath.startsWith("file://")
-                            ) {
-                                fotoPath
-                            } else {
-                                File(fotoPath)
-                            }
-                            AsyncImage(
-                                model = imageModel,
-                                contentDescription = "Imagem do registro fotográfico",
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(200.dp)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .border(
-                                        width = 1.dp,
-                                        color = cardBorder,
-                                        shape = RoundedCornerShape(12.dp)
-                                    ),
-                                contentScale = ContentScale.Crop
-                            )
                         }
                     }
                 }
@@ -2245,8 +2303,7 @@ private fun LembreteDetalhesScreen(
                             horaAviso = horaAviso.ifBlank { lembrete.horaAviso },
                             kmLimite = kmLimite,
                             contatoId = contatoSelecionadoId,
-                            valor = valorTexto.toDoubleOrNull() ?: 0.0,
-                            fotoPath = fotoPathEditavel.ifBlank { null }
+                            valor = valorTexto.toDoubleOrNull() ?: 0.0
                         )
                         onSalvar(atualizado)
                         editando = false
@@ -2337,6 +2394,7 @@ private fun tiposAvisoPorVeiculo(tipoVeiculo: TipoVeiculo): List<TipoManutencao>
     TipoVeiculo.ONIBUS,
     TipoVeiculo.CAMINHAO,
     TipoVeiculo.TRATOR -> listOf(
+        TipoManutencao.ABASTECIMENTO,
         TipoManutencao.OLEO,
         TipoManutencao.MECANICA,
         TipoManutencao.BATERIA,
@@ -2353,6 +2411,7 @@ private fun tiposAvisoPorVeiculo(tipoVeiculo: TipoVeiculo): List<TipoManutencao>
         TipoManutencao.OUTROS
     )
     else -> listOf(
+        TipoManutencao.ABASTECIMENTO,
         TipoManutencao.OLEO,
         TipoManutencao.MECANICA,
         TipoManutencao.FUNILARIA,
@@ -2376,6 +2435,7 @@ fun calcularCorStatusLocal(lembretes: List<Lembrete>, tipo: TipoManutencao): Col
         TipoManutencao.TRANSMISSAO -> Color(0xFF60A5FA) // azul claro
         TipoManutencao.REVISAO -> Color(0xFF8B5CF6) // roxo
         TipoManutencao.OLEO -> Color(0xFF3B82F6) // Azul
+        TipoManutencao.ABASTECIMENTO -> Color(0xFF0EA5E9) // azul ciano
         TipoManutencao.FREIO -> Color(0xFFEF4444) // Vermelho
         TipoManutencao.MECANICA -> Color(0xFFF59E0B) // Laranja
         TipoManutencao.FUNILARIA -> Color(0xFFF97316) // Laranja escuro
@@ -2400,6 +2460,11 @@ fun textoStatusPrazoLocal(lembrete: Lembrete): String {
 
 fun formatarMoedaLocal(valor: Double): String {
     return java.text.NumberFormat.getCurrencyInstance(Locale("pt", "BR")).format(valor)
+}
+
+private fun abreviarTituloAvisoDetalhes(texto: String, maxChars: Int = 34): String {
+    val valor = texto.trim().ifBlank { "Aviso" }
+    return if (valor.length <= maxChars) valor else valor.take(maxChars - 3) + "..."
 }
 
 // ----------------- OUTROS COMPONENTES DA TELA DE DETALHES -----------------
@@ -2728,6 +2793,491 @@ data class CategorySpend(
     val color: Color
 )
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun VehicleBasicsGuideScreen(onDismiss: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    val isDark = scheme.background.luminance() < 0.5f
+    val pageBg = if (isDark) scheme.background else Color.White
+    val cardBg = if (isDark) Color(0xFF111827) else Color.White
+    val border = if (isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.12f)
+    val textPrimary = if (isDark) Color.White else Color.Black
+    val textSecondary = if (isDark) Color(0xFF94A3B8) else Color(0xFF475569)
+    val accent = scheme.primary
+
+    val context = LocalContext.current
+    val dicas = remember {
+        listOf(
+            GuideVideoItem(
+                icon = Icons.Rounded.TireRepair,
+                title = "Como trocar pneu",
+                description = "Aprenda o passo a passo para fazer a troca com segurança.",
+                videoUrl = "https://autoesporte.globo.com/video/como-trocar-o-pneu-do-carro-9501074.ghtml"
+            ),
+            GuideVideoItem(
+                icon = Icons.Rounded.Speed,
+                title = "Como calibrar pneu",
+                description = "Veja como calibrar corretamente e por que o pneu deve estar frio.",
+                videoUrl = "https://autoesporte.globo.com/videos/noticia/2021/07/video-como-a-escolha-de-pneus-influencia-na-seguranca-e-no-desempenho-do-seu-carro.ghtml"
+            ),
+            GuideVideoItem(
+                icon = Icons.Rounded.Build,
+                title = "Troca de óleo",
+                description = "Entenda quando trocar o óleo e o filtro do motor.",
+                videoUrl = "https://autoesporte.globo.com/videos/noticia/2021/04/video-como-ver-o-nivel-de-oleo-do-motor-do-carro.ghtml"
+            ),
+            GuideVideoItem(
+                icon = Icons.Rounded.WaterDrop,
+                title = "Conferir água/arrefecimento",
+                description = "Como verificar o nível do reservatório com o motor frio.",
+                videoUrl = "https://autoesporte.globo.com/videos/noticia/2019/12/vai-viajar-de-carro-veja-dicas-do-que-checar-e-como-se-preparar-para-eventuais-perrengues.ghtml"
+            ),
+            GuideVideoItem(
+                icon = Icons.Rounded.WarningAmber,
+                title = "Luzes do painel",
+                description = "Entenda quais luzes exigem parada imediata e quais permitem seguir com cautela.",
+                videoUrl = "https://autoesporte.globo.com/videos/noticia/2019/12/vai-viajar-de-carro-veja-dicas-do-que-checar-e-como-se-preparar-para-eventuais-perrengues.ghtml"
+            ),
+            GuideVideoItem(
+                icon = Icons.Rounded.BatteryAlert,
+                title = "Bateria fraca (chupeta)",
+                description = "Passo a passo para partida auxiliar sem danificar o sistema elétrico.",
+                videoUrl = "https://autoesporte.globo.com/videos/noticia/2019/12/vai-viajar-de-carro-veja-dicas-do-que-checar-e-como-se-preparar-para-eventuais-perrengues.ghtml"
+            ),
+            GuideVideoItem(
+                icon = Icons.Rounded.DeviceThermostat,
+                title = "Superaquecimento",
+                description = "O que fazer quando o carro esquenta e o que nunca fazer com motor quente.",
+                videoUrl = "https://autoesporte.globo.com/videos/noticia/2020/02/enchentes-veja-quando-vale-atravessar-e-o-que-fazer-se-teve-prejuizo-com-o-carro.ghtml"
+            ),
+            GuideVideoItem(
+                icon = Icons.Rounded.ElectricalServices,
+                title = "Fusíveis do carro",
+                description = "Como identificar fusível queimado e fazer a troca correta.",
+                videoUrl = "https://autoesporte.globo.com/videos/noticia/2019/12/vai-viajar-de-carro-veja-dicas-do-que-checar-e-como-se-preparar-para-eventuais-perrengues.ghtml"
+            ),
+            GuideVideoItem(
+                icon = Icons.Rounded.CarRepair,
+                title = "Itens de emergência",
+                description = "Onde ficam triângulo, macaco e chave de roda no veículo.",
+                videoUrl = "https://autoesporte.globo.com/videos/noticia/2019/12/vai-viajar-de-carro-veja-dicas-do-que-checar-e-como-se-preparar-para-eventuais-perrengues.ghtml"
+            ),
+            GuideVideoItem(
+                icon = Icons.Rounded.OilBarrel,
+                title = "Medir nível do óleo",
+                description = "Como usar a vareta corretamente para conferir o nível do óleo do motor.",
+                videoUrl = "https://autoesporte.globo.com/videos/noticia/2021/04/video-como-ver-o-nivel-de-oleo-do-motor-do-carro.ghtml"
+            ),
+            GuideVideoItem(
+                icon = null,
+                badgeText = "ABS",
+                title = "Sinais de problema no freio",
+                description = "Ruído, vibração e pedal baixo: quando procurar oficina imediatamente.",
+                videoUrl = "https://autoesporte.globo.com/videos/noticia/2021/07/video-como-a-escolha-de-pneus-influencia-na-seguranca-e-no-desempenho-do-seu-carro.ghtml"
+            ),
+            GuideVideoItem(
+                icon = Icons.Rounded.Description,
+                title = "Documentos e emergência",
+                description = "Checklist essencial de documentos e contatos para manter no carro.",
+                videoUrl = "https://autoesporte.globo.com/videos/noticia/2019/12/vai-viajar-de-carro-veja-dicas-do-que-checar-e-como-se-preparar-para-eventuais-perrengues.ghtml"
+            )
+        )
+    }
+
+    Scaffold(
+        containerColor = pageBg,
+        topBar = {
+            Surface(color = pageBg) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                        .padding(start = 12.dp, end = 16.dp, top = 6.dp, bottom = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar", tint = textPrimary)
+                    }
+                }
+            }
+        }
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Spacer(Modifier.height(2.dp))
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(54.dp)
+                        .clip(CircleShape)
+                        .background(accent.copy(alpha = if (isDark) 0.20f else 0.12f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.PlayCircle,
+                        contentDescription = null,
+                        tint = accent,
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
+                Text(
+                    text = "Guia rápido do veículo",
+                    color = textPrimary,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 24.sp,
+                    textAlign = TextAlign.Center
+                )
+            }            
+            dicas.forEach { dica ->
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(cardBg)
+                        .border(1.dp, border, RoundedCornerShape(14.dp))
+                        .padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(CircleShape)
+                                .background(accent.copy(alpha = if (isDark) 0.22f else 0.12f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (dica.badgeText.isNullOrBlank()) {
+                                Icon(
+                                    dica.icon ?: Icons.Rounded.Info,
+                                    contentDescription = null,
+                                    tint = accent,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            } else {
+                                Text(
+                                    text = dica.badgeText,
+                                    color = accent,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp
+                                )
+                            }
+                        }
+                        Text(
+                            text = dica.title,
+                            color = textPrimary,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp
+                        )
+                    }
+                    Text(dica.description, color = textSecondary, fontSize = 14.sp, lineHeight = 19.sp)
+                    Button(
+                        onClick = { openExternalUrl(context, dica.videoUrl) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(44.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF2563EB),
+                            contentColor = Color.White
+                        )
+                    ) {
+                        Icon(Icons.Rounded.PlayCircle, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Assistir vídeo", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
+private data class GuideVideoItem(
+    val icon: ImageVector?,
+    val badgeText: String? = null,
+    val title: String,
+    val description: String,
+    val videoUrl: String
+)
+
+private fun openExternalUrl(context: Context, url: String) {
+    runCatching {
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(intent)
+    }.onFailure {
+        Toast.makeText(context, "Não foi possível abrir o vídeo", Toast.LENGTH_SHORT).show()
+    }
+}
+
+@Composable
+private fun HomeFaqScreen(
+    onDismiss: () -> Unit
+) {
+    val colorScheme = MaterialTheme.colorScheme
+    val isDark = colorScheme.background.luminance() < 0.5f
+    val background = if (isDark) colorScheme.background else Color.White
+    val titleColor = colorScheme.onSurface
+    val bodyColor = colorScheme.onSurfaceVariant
+    var expandedFaqIndex by remember { mutableIntStateOf(-1) }
+    val faqItems = remember {
+        listOf(
+            "Como criar um novo aviso?" to "Toque em Novo aviso, escolha a categoria e siga as etapas até concluir. Na última etapa, revise os dados antes de salvar.",
+            "Como adicionar gasto em uma viagem?" to "Abra a viagem, toque em Adicionar gasto e preencha categoria, itens, valor e veículo. Você também pode usar a câmera para scannear QR code da nota.",
+            "O QR code da nota não leu. E agora?" to "Aproxime a câmera, evite reflexo e tente novamente. Se ainda falhar, continue e preencha os dados manualmente.",
+            "Como finalizar uma viagem?" to "Dentro da viagem, toque em Finalizar viagem. Depois disso, novos gastos ficam bloqueados até a viagem ser reaberta.",
+            "Como exportar os dados da viagem?" to "Dentro da viagem, use o botão com ícone de enviar para abrir a tela de exportação e gerar o arquivo desejado.",
+            "Como recuperar meus dados?" to "Em Configurações > Bakup, use Restaurar backup neste aparelho. Depois da restauração, feche e abra o app novamente para recarregar tudo.",
+            "Posso usar em equipe?" to "O app funciona melhor com gestão centralizada em um aparelho principal. Para compartilhar com a equipe, exporte os arquivos da viagem.",
+            "Onde vejo o status da frota?" to "No Zellu Premium, abra Status da Frota para acompanhar alertas, uso dos veículos e viagens em andamento."
+        )
+    }
+
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = background
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .statusBarsPadding()
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onDismiss) {
+                    Icon(
+                        imageVector = Icons.Default.ArrowBack,
+                        contentDescription = "Voltar",
+                        tint = titleColor
+                    )
+                }
+            }
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 2.dp, bottom = 12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Surface(
+                    shape = CircleShape,
+                    color = colorScheme.primary.copy(alpha = if (isDark) 0.22f else 0.14f)
+                ) {
+                    Box(
+                        modifier = Modifier.size(56.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.HelpOutline,
+                            contentDescription = null,
+                            tint = colorScheme.primary,
+                            modifier = Modifier.size(30.dp)
+                        )
+                    }
+                }
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = "Dúvidas frequentes",
+                    color = titleColor,
+                    fontSize = 25.sp,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "Respostas rápidas para as dúvidas mais comuns",
+                    color = bodyColor,
+                    fontSize = 13.sp,
+                    textAlign = TextAlign.Center
+                )
+            }
+
+            Spacer(Modifier.height(12.dp))
+
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                color = if (isDark) colorScheme.surfaceVariant.copy(alpha = 0.26f) else Color(0xFFF8FAFC),
+                border = BorderStroke(1.dp, colorScheme.outlineVariant.copy(alpha = if (isDark) 0.4f else 0.55f))
+            ) {
+                Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
+                    Text(
+                        text = "Dica rápida",
+                        color = titleColor,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = "Use os fluxos de câmera quando possível. Eles reduzem erros de preenchimento e deixam a viagem mais organizada.",
+                        color = bodyColor,
+                        fontSize = 13.sp,
+                        lineHeight = 18.sp
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(14.dp))
+
+            faqItems.forEachIndexed { index, (pergunta, resposta) ->
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            expandedFaqIndex = if (expandedFaqIndex == index) -1 else index
+                        },
+                    shape = RoundedCornerShape(14.dp),
+                    color = if (isDark) colorScheme.surface else Color.White,
+                    border = BorderStroke(1.dp, colorScheme.outlineVariant.copy(alpha = if (isDark) 0.5f else 0.75f))
+                ) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 15.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = pergunta,
+                                color = titleColor,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Icon(
+                                imageVector = if (expandedFaqIndex == index) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                contentDescription = null,
+                                tint = titleColor
+                            )
+                        }
+                        if (expandedFaqIndex == index) {
+                            Spacer(Modifier.height(8.dp))
+                            Divider(
+                                color = colorScheme.outlineVariant.copy(alpha = if (isDark) 0.35f else 0.55f),
+                                thickness = 1.dp
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                text = resposta,
+                                color = bodyColor,
+                                fontSize = 14.sp,
+                                lineHeight = 20.sp
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.height(11.dp))
+            }
+
+            Spacer(Modifier.height(24.dp))
+        }
+    }
+}
+
+@Composable
+private fun LegalInfoScreen(
+    title: String,
+    icon: ImageVector,
+    content: String,
+    onDismiss: () -> Unit
+) {
+    val colorScheme = MaterialTheme.colorScheme
+    val isDark = colorScheme.background.luminance() < 0.5f
+    val background = if (isDark) colorScheme.background else Color.White
+    val titleColor = colorScheme.onSurface
+    val bodyColor = colorScheme.onSurfaceVariant
+
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = background
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .statusBarsPadding()
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onDismiss) {
+                    Icon(
+                        imageVector = Icons.Default.ArrowBack,
+                        contentDescription = "Voltar",
+                        tint = titleColor
+                    )
+                }
+            }
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 2.dp, bottom = 12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Surface(
+                    shape = CircleShape,
+                    color = colorScheme.primary.copy(alpha = if (isDark) 0.22f else 0.14f)
+                ) {
+                    Box(
+                        modifier = Modifier.size(56.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = icon,
+                            contentDescription = null,
+                            tint = colorScheme.primary,
+                            modifier = Modifier.size(30.dp)
+                        )
+                    }
+                }
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = title,
+                    color = titleColor,
+                    fontSize = 25.sp,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center
+                )
+            }
+
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(24.dp),
+                color = if (isDark) colorScheme.surface else Color.White,
+                border = BorderStroke(1.dp, colorScheme.outlineVariant.copy(alpha = if (isDark) 0.5f else 0.75f))
+            ) {
+                Text(
+                    text = content,
+                    color = bodyColor,
+                    fontSize = 14.sp,
+                    lineHeight = 22.sp,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp)
+                )
+            }
+
+            Spacer(Modifier.height(24.dp))
+        }
+    }
+}
+
 @Composable
 fun CategoryExpenseChart(
     data: List<CategorySpend>,
@@ -2934,6 +3484,7 @@ fun corCategoria(tipo: TipoManutencao): Color = when (tipo) {
     TipoManutencao.TRANSMISSAO -> Color(0xFF60A5FA)
     TipoManutencao.REVISAO -> Color(0xFF8B5CF6)
     TipoManutencao.OLEO -> Color(0xFF3B82F6) // azul
+    TipoManutencao.ABASTECIMENTO -> Color(0xFF0EA5E9) // azul ciano
     TipoManutencao.BATERIA -> Color(0xFF16A34A) // verde
     TipoManutencao.MECANICA -> Color(0xFF60A5FA) // azul claro
     TipoManutencao.FUNILARIA -> Color(0xFFF97316) // laranja

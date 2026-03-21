@@ -24,7 +24,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -42,6 +45,7 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import java.util.Locale
+import androidx.core.view.WindowInsetsControllerCompat
 
 // --- PALETA ZELLU ---
 private val PrimaryDark = Color(0xFF0F172A)
@@ -57,7 +61,19 @@ private val SurfaceDark = Color(0xFF1E293B)
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HistoricoAbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
+    val colorScheme = MaterialTheme.colorScheme
+    val isDark = colorScheme.background.luminance() < 0.5f
+    val screenBg = if (isDark) PrimaryDark else Color.White
+    val titleColor = colorScheme.onSurface
+    val bodyColor = colorScheme.onSurfaceVariant
+    val cardBorderColor = if (isDark) Color.White.copy(alpha = 0.10f) else Color(0xFFCBD5E1)
+    val summaryGradient = if (isDark) {
+        Brush.verticalGradient(listOf(Color(0xFF334155), Color(0xFF1E293B)))
+    } else {
+        Brush.verticalGradient(listOf(Color(0xFFF8FAFC), Color(0xFFE2E8F0)))
+    }
     val context = LocalContext.current
+    val view = LocalView.current
     val scope = rememberCoroutineScope()
     var abastecimentos by remember { mutableStateOf<List<Abastecimento>>(emptyList()) }
     var kmAtualVeiculo by remember { mutableStateOf(0) }
@@ -81,10 +97,6 @@ fun HistoricoAbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
     val ordenados = remember(abastecimentos) {
         abastecimentos.sortedByDescending { runCatching { LocalDate.parse(it.data, formatter) }.getOrNull() }
     }
-    val totalGasto = remember(ordenados) { ordenados.sumOf { it.valorPago } }
-    val mediaPorRegistro = remember(ordenados) {
-        if (ordenados.isEmpty()) 0.0 else totalGasto / ordenados.size.toDouble()
-    }
     val resumoConsumo = remember(ordenados, kmAtualVeiculo) {
         calcularResumoConsumoHistorico(
             abastecimentos = ordenados,
@@ -92,6 +104,23 @@ fun HistoricoAbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
             kmAtual = kmAtualVeiculo,
             kmInicial = AppPreferences.getFuelStartKm(context, carroId)
         )
+    }
+
+    DisposableEffect(view, isDark, screenBg) {
+        val window = (view.context as? android.app.Activity)?.window
+        val insetsController = window?.let { WindowInsetsControllerCompat(it, it.decorView) }
+        val oldStatusColor = window?.statusBarColor
+        val oldLightStatus = insetsController?.isAppearanceLightStatusBars
+        if (window != null && insetsController != null) {
+            window.statusBarColor = screenBg.toArgb()
+            insetsController.isAppearanceLightStatusBars = !isDark
+        }
+        onDispose {
+            if (window != null && insetsController != null) {
+                if (oldStatusColor != null) window.statusBarColor = oldStatusColor
+                if (oldLightStatus != null) insetsController.isAppearanceLightStatusBars = oldLightStatus
+            }
+        }
     }
 
     if (itemEdicao != null) {
@@ -130,16 +159,16 @@ fun HistoricoAbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
-        containerColor = PrimaryDark,
+        containerColor = screenBg,
         topBar = {
             CenterAlignedTopAppBar(
-                title = { Text("Historico", color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 20.sp) },
+                title = { Text("Historico", color = titleColor, fontWeight = FontWeight.Bold, fontSize = 20.sp) },
                 navigationIcon = {
                     IconButton(onClick = onDismiss) {
-                        Icon(Icons.Rounded.ArrowBackIosNew, "Voltar", tint = TextWhite, modifier = Modifier.size(20.dp))
+                        Icon(Icons.Rounded.ArrowBackIosNew, "Voltar", tint = titleColor, modifier = Modifier.size(20.dp))
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = PrimaryDark)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = screenBg)
             )
         }
     ) { innerPadding ->
@@ -154,11 +183,11 @@ fun HistoricoAbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(18.dp),
                 colors = CardDefaults.cardColors(containerColor = Color.Transparent),
-                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.10f))
+                border = BorderStroke(1.dp, cardBorderColor)
             ) {
                 Column(
                     modifier = Modifier
-                        .background(Brush.verticalGradient(listOf(Color(0xFF334155), Color(0xFF1E293B))))
+                        .background(summaryGradient)
                         .padding(14.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
@@ -170,30 +199,22 @@ fun HistoricoAbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
                                 .background(AccentBlue.copy(alpha = 0.2f)),
                             contentAlignment = Alignment.Center
                         ) {
-                            Icon(Icons.Rounded.LocalGasStation, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Rounded.LocalGasStation, contentDescription = null, tint = if (isDark) Color.White else AccentBlue, modifier = Modifier.size(16.dp))
                         }
                         Spacer(Modifier.width(8.dp))
-                        Text("Resumo de abastecimentos", color = TextWhite, fontWeight = FontWeight.SemiBold)
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        ResumoChip("Registros", ordenados.size.toString(), modifier = Modifier.weight(1f))
-                        ResumoChip("Total", formatarMoedaLocal(totalGasto), modifier = Modifier.weight(1f))
-                        ResumoChip("Media", formatarMoedaLocal(mediaPorRegistro), modifier = Modifier.weight(1f))
+                        Text("Resumo de abastecimentos", color = titleColor, fontWeight = FontWeight.SemiBold)
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         ResumoChip(
-                            "Consumo",
-                            resumoConsumo.mediaLitrosPorAbastecimento?.let { String.format(Locale("pt", "BR"), "%.1f L", it) } ?: "--",
-                            modifier = Modifier.weight(1f)
-                        )
-                        ResumoChip(
-                            "Semanal",
+                            "Total esta semana",
                             resumoConsumo.custoSemana?.let { formatarMoedaLocal(it) } ?: "--",
+                            isDark = isDark,
                             modifier = Modifier.weight(1f)
                         )
                         ResumoChip(
-                            "Mensal",
+                            "Total este mes",
                             resumoConsumo.custoMes?.let { formatarMoedaLocal(it) } ?: "--",
+                            isDark = isDark,
                             modifier = Modifier.weight(1f)
                         )
                     }
@@ -203,9 +224,9 @@ fun HistoricoAbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
             if (ordenados.isEmpty()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(Icons.Rounded.LocalGasStation, null, tint = TextGray.copy(alpha = 0.3f), modifier = Modifier.size(60.dp))
+                        Icon(Icons.Rounded.LocalGasStation, null, tint = bodyColor.copy(alpha = 0.35f), modifier = Modifier.size(60.dp))
                         Spacer(Modifier.height(16.dp))
-                        Text("Sem registros ainda", color = TextGray, fontSize = 16.sp)
+                        Text("Sem registros ainda", color = bodyColor, fontSize = 16.sp)
                     }
                 }
             } else {
@@ -218,7 +239,8 @@ fun HistoricoAbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
                             item = item,
                             isLast = index == ordenados.lastIndex,
                             onEdit = { itemEdicao = item },
-                            onDelete = { itemExcluir = item }
+                            onDelete = { itemExcluir = item },
+                            isDark = isDark
                         )
                     }
                 }
@@ -228,15 +250,17 @@ fun HistoricoAbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
 }
 
 @Composable
-private fun ResumoChip(label: String, value: String, modifier: Modifier = Modifier) {
+private fun ResumoChip(label: String, value: String, isDark: Boolean, modifier: Modifier = Modifier) {
+    val valueColor = if (isDark) TextWhite else Color(0xFF0F172A)
+    val labelColor = if (isDark) TextGray else Color(0xFF475569)
     Column(
         modifier = modifier
             .clip(RoundedCornerShape(10.dp))
-            .background(Color(0xFF0F172A).copy(alpha = 0.6f))
+            .background(if (isDark) Color(0xFF0F172A).copy(alpha = 0.6f) else Color.White.copy(alpha = 0.88f))
             .padding(horizontal = 8.dp, vertical = 7.dp)
     ) {
-        Text(label, color = TextGray, fontSize = 10.sp)
-        Text(value, color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, maxLines = 1)
+        Text(label, color = labelColor, fontSize = 10.sp)
+        Text(value, color = valueColor, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, maxLines = 1)
     }
 }
 
@@ -245,8 +269,16 @@ fun TimelineItem(
     item: Abastecimento,
     isLast: Boolean,
     onEdit: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    isDark: Boolean
 ) {
+    val cardGradient = if (isDark) {
+        Brush.verticalGradient(colors = listOf(GradientStart, GradientEnd))
+    } else {
+        Brush.verticalGradient(colors = listOf(Color.White, Color(0xFFF8FAFC)))
+    }
+    val cardTitle = if (isDark) TextWhite else Color(0xFF0F172A)
+    val cardBody = if (isDark) TextGray else Color(0xFF64748B)
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -265,7 +297,7 @@ fun TimelineItem(
                     .size(32.dp)
                     .clip(CircleShape)
                     .background(AccentBlue)
-                    .border(BorderStroke(2.dp, Color.White), CircleShape),
+                    .border(BorderStroke(2.dp, if (isDark) Color.White else Color(0xFFE2E8F0)), CircleShape),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
@@ -303,7 +335,7 @@ fun TimelineItem(
             ) {
                 Column(
                     modifier = Modifier
-                        .background(Brush.verticalGradient(colors = listOf(GradientStart, GradientEnd)))
+                        .background(cardGradient)
                         .padding(16.dp)
                 ) {
                     Row(
@@ -322,17 +354,17 @@ fun TimelineItem(
                                     Icon(
                                         imageVector = Icons.Rounded.CalendarMonth,
                                         contentDescription = null,
-                                        tint = Color.White,
+                                        tint = if (isDark) Color.White else AccentBlue,
                                         modifier = Modifier.size(16.dp)
                                     )
                                 }
                             }
                             Spacer(Modifier.width(8.dp))
-                            Text(item.data, color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            Text(item.data, color = cardTitle, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                         }
                         Row {
                             IconButton(onClick = onEdit, modifier = Modifier.size(32.dp)) {
-                                Icon(Icons.Rounded.Edit, null, tint = TextGray, modifier = Modifier.size(18.dp))
+                                Icon(Icons.Rounded.Edit, null, tint = cardBody, modifier = Modifier.size(18.dp))
                             }
                             IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
                                 Icon(Icons.Rounded.Delete, null, tint = AlertRed.copy(alpha = 0.8f), modifier = Modifier.size(18.dp))
@@ -341,22 +373,21 @@ fun TimelineItem(
                     }
 
                     Spacer(Modifier.height(16.dp))
-                    HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
+                    HorizontalDivider(color = if (isDark) Color.White.copy(alpha = 0.05f) else Color(0xFFCBD5E1))
                     Spacer(Modifier.height(16.dp))
 
                     // --- RODAPÃ‰ COM INFORMAÃ‡Ã•ES INVERTIDAS ---
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
+                        horizontalArrangement = Arrangement.Start,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // 1. ESQUERDA: TOTAL PAGO (Agora aqui e em Negrito)
                         Column(horizontalAlignment = Alignment.Start) {
                             Text(
                                 text = "Total Pago",
-                                color = TextGray,
+                                color = cardBody,
                                 fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold // <-- Texto em Negrito
+                                fontWeight = FontWeight.Bold
                             )
                             Spacer(Modifier.height(4.dp))
                             Surface(
@@ -371,19 +402,6 @@ fun TimelineItem(
                                     fontSize = 18.sp,
                                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                                 )
-                            }
-                        }
-
-                        // 2. DIREITA: PREÃ‡O/LITRO E LITROS (Moveram para cÃ¡)
-                        Column(horizontalAlignment = Alignment.End) {
-                            Text("Preco/Litro", color = TextGray, fontSize = 11.sp)
-                            Spacer(Modifier.height(2.dp))
-                            Text(formatarMoedaLocal(item.precoLitro), color = TextWhite.copy(alpha = 0.9f), fontWeight = FontWeight.Medium, fontSize = 14.sp)
-                            Spacer(Modifier.height(8.dp))
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Rounded.WaterDrop, null, tint = TextGray, modifier = Modifier.size(12.dp))
-                                Spacer(Modifier.width(4.dp))
-                                Text(String.format(Locale("pt", "BR"), "%.2f L", item.litros), color = TextGray, fontSize = 12.sp)
                             }
                         }
                     }
@@ -450,6 +468,13 @@ fun DialogEditar(
     onConfirm: (Abastecimento) -> Unit,
     formatter: DateTimeFormatter
 ) {
+    val colorScheme = MaterialTheme.colorScheme
+    val isDark = colorScheme.background.luminance() < 0.5f
+    val dialogBg = if (isDark) SurfaceDark else Color.White
+    val titleColor = colorScheme.onSurface
+    val fieldTextColor = colorScheme.onSurface
+    val fieldLabelColor = if (isDark) TextGray else colorScheme.onSurfaceVariant
+    val fieldBorderColor = if (isDark) TextGray.copy(alpha = 0.5f) else Color(0xFFCBD5E1)
     val context = LocalContext.current
     var precoTexto by remember { mutableStateOf(String.format(Locale("pt", "BR"), "%.2f", item.precoLitro)) }
     var totalTexto by remember { mutableStateOf(String.format(Locale("pt", "BR"), "%.2f", item.valorPago)) }
@@ -457,8 +482,8 @@ fun DialogEditar(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = SurfaceDark,
-        title = { Text("Editar Abastecimento", color = TextWhite, fontWeight = FontWeight.Bold) },
+        containerColor = dialogBg,
+        title = { Text("Editar Abastecimento", color = titleColor, fontWeight = FontWeight.Bold) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 OutlinedTextField(
@@ -466,9 +491,9 @@ fun DialogEditar(
                     onValueChange = { precoTexto = it },
                     label = { Text("Preco por Litro") },
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = TextWhite, unfocusedTextColor = TextWhite,
-                        focusedBorderColor = AccentBlue, unfocusedBorderColor = TextGray.copy(alpha = 0.5f),
-                        focusedLabelColor = AccentBlue, unfocusedLabelColor = TextGray
+                        focusedTextColor = fieldTextColor, unfocusedTextColor = fieldTextColor,
+                        focusedBorderColor = AccentBlue, unfocusedBorderColor = fieldBorderColor,
+                        focusedLabelColor = AccentBlue, unfocusedLabelColor = fieldLabelColor
                     ),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     modifier = Modifier.fillMaxWidth()
@@ -478,9 +503,9 @@ fun DialogEditar(
                     onValueChange = { totalTexto = it },
                     label = { Text("Total Pago (R$)") },
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = TextWhite, unfocusedTextColor = TextWhite,
-                        focusedBorderColor = AccentBlue, unfocusedBorderColor = TextGray.copy(alpha = 0.5f),
-                        focusedLabelColor = AccentBlue, unfocusedLabelColor = TextGray
+                        focusedTextColor = fieldTextColor, unfocusedTextColor = fieldTextColor,
+                        focusedBorderColor = AccentBlue, unfocusedBorderColor = fieldBorderColor,
+                        focusedLabelColor = AccentBlue, unfocusedLabelColor = fieldLabelColor
                     ),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     modifier = Modifier.fillMaxWidth()
@@ -491,9 +516,9 @@ fun DialogEditar(
                     label = { Text("Data") },
                     trailingIcon = { Icon(Icons.Rounded.Edit, null, tint = AccentBlue) },
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = TextWhite, unfocusedTextColor = TextWhite,
-                        focusedBorderColor = AccentBlue, unfocusedBorderColor = TextGray.copy(alpha = 0.5f),
-                        focusedLabelColor = AccentBlue, unfocusedLabelColor = TextGray
+                        focusedTextColor = fieldTextColor, unfocusedTextColor = fieldTextColor,
+                        focusedBorderColor = AccentBlue, unfocusedBorderColor = fieldBorderColor,
+                        focusedLabelColor = AccentBlue, unfocusedLabelColor = fieldLabelColor
                     ),
                     modifier = Modifier.fillMaxWidth().clickable {
                         DatePickerDialog(context, { _, y, m, d -> dataSelecionada = LocalDate.of(y, m + 1, d) }, dataSelecionada.year, dataSelecionada.monthValue - 1, dataSelecionada.dayOfMonth).show()
@@ -507,20 +532,25 @@ fun DialogEditar(
                 val total = totalTexto.replace(",", ".").toDoubleOrNull()
                 val litros = if (preco != null && total != null && preco > 0.0) total / preco else item.litros
                 onConfirm(item.copy(data = dataSelecionada.format(formatter), precoLitro = preco ?: item.precoLitro, valorPago = total ?: item.valorPago, litros = litros))
-            }, colors = ButtonDefaults.buttonColors(containerColor = AccentBlue)) { Text("Salvar", color = TextWhite) }
+            }, colors = ButtonDefaults.buttonColors(containerColor = AccentBlue)) { Text("Salvar", color = Color.White) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar", color = TextGray) } }
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar", color = fieldLabelColor) } }
     )
 }
 
 @Composable
 fun DialogExcluir(onDismiss: () -> Unit, onConfirm: () -> Unit) {
+    val colorScheme = MaterialTheme.colorScheme
+    val isDark = colorScheme.background.luminance() < 0.5f
+    val dialogBg = if (isDark) SurfaceDark else Color.White
+    val titleColor = colorScheme.onSurface
+    val bodyColor = colorScheme.onSurfaceVariant
     Dialog(onDismissRequest = onDismiss) {
         Card(
             shape = RoundedCornerShape(24.dp),
-            colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+            colors = CardDefaults.cardColors(containerColor = dialogBg),
             modifier = Modifier.fillMaxWidth(),
-            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.10f))
+            border = BorderStroke(1.dp, if (isDark) Color.White.copy(alpha = 0.10f) else Color(0xFFCBD5E1))
         ) {
             Column(
                 modifier = Modifier.padding(24.dp),
@@ -546,13 +576,13 @@ fun DialogExcluir(onDismiss: () -> Unit, onConfirm: () -> Unit) {
                         "Excluir registro?",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
-                        color = TextWhite
+                        color = titleColor
                     )
                     Spacer(Modifier.height(4.dp))
                     Text(
                         "Tem certeza que deseja apagar este abastecimento?",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = TextGray,
+                        color = bodyColor,
                         textAlign = TextAlign.Center,
                         modifier = Modifier.fillMaxWidth()
                     )

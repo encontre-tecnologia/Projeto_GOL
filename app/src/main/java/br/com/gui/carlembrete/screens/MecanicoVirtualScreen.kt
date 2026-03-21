@@ -8,7 +8,7 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,7 +19,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -29,15 +31,16 @@ import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.LocalGasStation
 import androidx.compose.material.icons.filled.PictureAsPdf
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -47,14 +50,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
+import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
 import java.time.LocalDate
@@ -83,6 +90,14 @@ private data class VehicleFleetStatus(
     val recentFuelLiters: Double
 )
 
+private data class FleetTripSnapshot(
+    val name: String,
+    val location: String,
+    val responsible: String,
+    val isFinished: Boolean,
+    val vehiclesUsed: List<String>
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MecanicoVirtualScreen(
@@ -103,8 +118,8 @@ fun MecanicoVirtualScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var selectedPeriod by remember { mutableStateOf(FleetPeriod.D30) }
-    var ownerFilter by remember { mutableStateOf<String?>(null) }
     var healthFilter by remember { mutableStateOf<FleetHealth?>(null) }
+    var showExportDialog by remember { mutableStateOf(false) }
     val periodStart = remember(today, selectedPeriod) { today.minusDays((selectedPeriod.days - 1).toLong()) }
 
     val fleetStatuses = remember(carros, abastecimentos, lembretes, today, periodStart) {
@@ -159,21 +174,17 @@ fun MecanicoVirtualScreen(
         }.thenBy { it.carro.nome })
     }
 
-    val tripResponsibles = remember(context) { carregarResponsaveisViagem(context) }
-    val ownerOptions = remember(fleetStatuses, tripResponsibles) {
-        (fleetStatuses.map { it.owner } + tripResponsibles).map { it.trim() }.filter { it.isNotBlank() }.distinct().sorted()
-    }
-    val ownerScopedStatuses = fleetStatuses.filter { ownerFilter == null || it.owner == ownerFilter }
+    val ownerFilter: String? = null
+    val ownerScopedStatuses = fleetStatuses
 
     val total = ownerScopedStatuses.size
     val good = ownerScopedStatuses.count { it.health == FleetHealth.GOOD }
     val attention = ownerScopedStatuses.count { it.health == FleetHealth.ATTENTION }
     val critical = ownerScopedStatuses.count { it.health == FleetHealth.CRITICAL }
     val pendingTotal = ownerScopedStatuses.sumOf { it.pendingCost }
-    val criticalPrev = remember(carros, lembretes, today, selectedPeriod, ownerFilter) {
+    val criticalPrev = remember(carros, lembretes, today, selectedPeriod) {
         val previousRef = today.minusDays(selectedPeriod.days.toLong())
         carros
-            .filter { ownerFilter == null || it.proprietario.ifBlank { "Sem responsável" } == ownerFilter }
             .count { carro ->
             lembretes
                 .asSequence()
@@ -195,69 +206,226 @@ fun MecanicoVirtualScreen(
         }
         .sortedByDescending { it.second }
         .take(5)
-    val companyName = ownerFilter ?: ownerOptions.firstOrNull() ?: "Sua Empresa"
-    val currentMonthLabel = remember(today) { today.format(DateTimeFormatter.ofPattern("MM/yyyy")) }
-    val criticalTarget = 1
-    val kpiAtingido = critical <= criticalTarget
+    val tripSnapshots = loadFleetTripSnapshots(context)
+    val activeTripSnapshots = tripSnapshots.filterNot { it.isFinished }
+    val companyName = "Sua Empresa"
+    val activeVehicles = ownerScopedStatuses.count { it.recentFuelCost > 0.0 || it.recentFuelLiters > 0.0 }
+    val periodFuelCost = ownerScopedStatuses.sumOf { it.recentFuelCost }
+    val periodFuelLiters = ownerScopedStatuses.sumOf { it.recentFuelLiters }
+    val averageCostPerActiveVehicle = if (activeVehicles > 0) periodFuelCost / activeVehicles else 0.0
 
     val colorScheme = MaterialTheme.colorScheme
-    val bg = colorScheme.background
+    val isDark = colorScheme.background.luminance() < 0.5f
+    val bg = if (isDark) colorScheme.background else Color.White
     val surface = colorScheme.surface
     val textPrimary = colorScheme.onSurface
     val textDim = colorScheme.onSurfaceVariant
+    val exportFleetPdf: () -> Unit = {
+        scope.launch {
+            val exportStatuses = filteredStatuses
+            val uri = withContext(Dispatchers.IO) {
+                gerarPdfStatusFrota(
+                    context = context,
+                    statuses = exportStatuses,
+                    selectedPeriod = selectedPeriod,
+                    ownerFilter = ownerFilter,
+                    healthFilter = healthFilter,
+                    companyName = companyName,
+                    total = total,
+                    good = good,
+                    attention = attention,
+                    critical = critical,
+                    pendingTotal = pendingTotal
+                )
+            }
+            if (uri != null) {
+                compartilharPdf(context, uri)
+            } else {
+                Toast.makeText(context, "Nao foi possivel gerar o PDF da frota.", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+    val exportFleetSpreadsheet: () -> Unit = {
+        scope.launch {
+            val spreadsheet = withContext(Dispatchers.IO) {
+                gerarPlanilhaStatusFrota(
+                    context = context,
+                    statuses = filteredStatuses,
+                    activeTrips = activeTripSnapshots,
+                    selectedPeriod = selectedPeriod,
+                    ownerFilter = ownerFilter,
+                    healthFilter = healthFilter,
+                    companyName = companyName,
+                    total = total,
+                    good = good,
+                    attention = attention,
+                    critical = critical,
+                    pendingTotal = pendingTotal,
+                    periodFuelCost = periodFuelCost
+                )
+            }
+            if (spreadsheet != null) {
+                compartilharPlanilhaFrota(context, spreadsheet)
+            } else {
+                Toast.makeText(context, "Nao foi possivel gerar a planilha da frota.", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
 
     Scaffold(
-        containerColor = bg,
-        topBar = {
-            TopAppBar(
-                title = { Text("Status da Frota", fontWeight = FontWeight.Bold, color = textPrimary) },
-                navigationIcon = {
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar", tint = textPrimary)
-                    }
-                },
-                actions = {
-                    IconButton(
-                        onClick = {
-                            scope.launch {
-                                val exportStatuses = filteredStatuses
-                                val uri = withContext(Dispatchers.IO) {
-                                    gerarPdfStatusFrota(
-                                        context = context,
-                                        statuses = exportStatuses,
-                                        selectedPeriod = selectedPeriod,
-                                        ownerFilter = ownerFilter,
-                                        healthFilter = healthFilter,
-                                        companyName = companyName,
-                                        total = total,
-                                        good = good,
-                                        attention = attention,
-                                        critical = critical,
-                                        pendingTotal = pendingTotal
-                                    )
-                                }
-                                if (uri != null) {
-                                    compartilharPdf(context, uri)
-                                } else {
-                                    Toast.makeText(context, "Nao foi possivel gerar o PDF da frota.", Toast.LENGTH_SHORT).show()
-                                }
-                            }
-                        }
-                    ) {
-                        Icon(Icons.Default.PictureAsPdf, contentDescription = "Exportar PDF", tint = textPrimary)
-                    }
-                }
-            )
-        }
+        containerColor = bg
     ) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
+                .statusBarsPadding()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+                .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Start
+            ) {
+                IconButton(onClick = onDismiss) {
+                    Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar", tint = textDim)
+                }
+            }
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 2.dp, bottom = 4.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(56.dp)
+                        .background(
+                            color = textDim.copy(alpha = 0.12f),
+                            shape = CircleShape
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Default.BuildCircle,
+                        contentDescription = null,
+                        tint = textDim,
+                        modifier = Modifier.size(30.dp)
+                    )
+                }
+                Text(
+                    "Status da Frota",
+                    color = textPrimary,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 25.sp
+                )
+            }
+
+            OutlinedButton(
+                onClick = { showExportDialog = true },
+                border = BorderStroke(
+                    1.dp,
+                    if (isDark) Color(0xFF334155) else Color.Black.copy(alpha = 0.18f)
+                ),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    containerColor = if (isDark) colorScheme.surfaceVariant.copy(alpha = 0.24f) else Color.White,
+                    contentColor = textPrimary
+                ),
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        "Exportar",
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Icon(
+                        Icons.Default.PictureAsPdf,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+
+            if (showExportDialog) {
+                Dialog(onDismissRequest = { showExportDialog = false }) {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = surface),
+                        border = BorderStroke(1.dp, colorScheme.outlineVariant),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Text(
+                                "Exportar",
+                                color = textPrimary,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 18.sp,
+                                modifier = Modifier.fillMaxWidth(),
+                                textAlign = TextAlign.Center
+                            )
+                            Text(
+                                "Exporte para compartilhar a leitura atual da frota.",
+                                color = textDim,
+                                fontSize = 12.sp,
+                                modifier = Modifier.fillMaxWidth(),
+                                textAlign = TextAlign.Center
+                            )
+                            OutlinedButton(
+                                onClick = {
+                                    showExportDialog = false
+                                    exportFleetPdf()
+                                },
+                                border = BorderStroke(1.dp, colorScheme.outlineVariant),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = textPrimary),
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Icon(Icons.Default.PictureAsPdf, contentDescription = null, tint = colorScheme.primary, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.size(8.dp))
+                                Text("Exportar PDF", fontWeight = FontWeight.SemiBold)
+                            }
+                            OutlinedButton(
+                                onClick = {
+                                    showExportDialog = false
+                                    exportFleetSpreadsheet()
+                                },
+                                border = BorderStroke(1.dp, colorScheme.outlineVariant),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = textPrimary),
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Icon(Icons.Default.LocalGasStation, contentDescription = null, tint = colorScheme.primary, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.size(8.dp))
+                                Text("Exportar planilha", fontWeight = FontWeight.SemiBold)
+                            }
+                            OutlinedButton(
+                                onClick = { showExportDialog = false },
+                                border = BorderStroke(1.dp, colorScheme.outlineVariant),
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    containerColor = colorScheme.surfaceVariant.copy(alpha = 0.26f),
+                                    contentColor = textPrimary
+                                ),
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Text("Fechar", fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                    }
+                }
+            }
+
             Card(
                 colors = CardDefaults.cardColors(containerColor = surface),
                 border = BorderStroke(1.dp, colorScheme.outlineVariant),
@@ -294,53 +462,51 @@ fun MecanicoVirtualScreen(
                 border = BorderStroke(1.dp, colorScheme.outlineVariant),
                 shape = RoundedCornerShape(14.dp)
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState())
-                        .padding(horizontal = 10.dp, vertical = 10.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    OwnerChip(
-                        label = "Todos",
-                        selected = ownerFilter == null,
-                        onClick = { ownerFilter = null; healthFilter = null }
-                    )
-                    ownerOptions.forEach { owner ->
-                        OwnerChip(
-                            label = owner,
-                            selected = ownerFilter == owner,
-                            onClick = { ownerFilter = owner; healthFilter = null }
-                        )
-                    }
-                }
-            }
-
-            Card(
-                colors = CardDefaults.cardColors(containerColor = surface),
-                border = BorderStroke(1.dp, colorScheme.outlineVariant),
-                shape = RoundedCornerShape(14.dp)
-            ) {
                 Column(modifier = Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("KPI mensal", color = textPrimary, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                    Text("Meta de críticos ($currentMonthLabel): até $criticalTarget veículo(s).", color = textDim, fontSize = 12.sp)
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            "Atual: $critical crítico(s)",
-                            color = if (kpiAtingido) Color(0xFF16A34A) else Color(0xFFEF4444),
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 13.sp
-                        )
-                        Text(
-                            if (kpiAtingido) "Meta atingida" else "Fora da meta",
-                            color = if (kpiAtingido) Color(0xFF16A34A) else Color(0xFFEF4444),
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 12.sp
-                        )
+                    Text("Status das viagens", color = textPrimary, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    if (activeTripSnapshots.isEmpty()) {
+                        Text("Nenhuma viagem em andamento.", color = textDim, fontSize = 12.sp)
+                    } else {
+                        activeTripSnapshots.take(4).forEach { trip ->
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = colorScheme.surfaceVariant.copy(alpha = 0.28f)),
+                                border = BorderStroke(1.dp, colorScheme.outlineVariant.copy(alpha = 0.9f)),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Column(
+                                    modifier = Modifier.fillMaxWidth().padding(10.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(trip.name, color = textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                                        Text(
+                                            "Em andamento",
+                                            color = Color(0xFF2563EB),
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 11.sp
+                                        )
+                                    }
+                                    Text("Responsável: ${trip.responsible.ifBlank { "Nao informado" }}", color = textDim, fontSize = 11.sp)
+                                    Text("Local: ${trip.location.ifBlank { "Nao informado" }}", color = textDim, fontSize = 11.sp)
+                                    Text(
+                                        "Veículo(s): ${trip.vehiclesUsed.joinToString(", ").ifBlank { "Sem veículo" }}",
+                                        color = textDim,
+                                        fontSize = 11.sp
+                                    )
+                                }
+                            }
+                        }
+                        if (activeTripSnapshots.size > 4) {
+                            Text(
+                                "+${activeTripSnapshots.size - 4} viagem(ns) em andamento.",
+                                color = textDim,
+                                fontSize = 11.sp
+                            )
+                        }
                     }
                 }
             }
@@ -351,18 +517,31 @@ fun MecanicoVirtualScreen(
                 shape = RoundedCornerShape(14.dp)
             ) {
                 Column(modifier = Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Resumo geral", color = textPrimary, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                    Text("Responsável: ${ownerFilter ?: "Todos"}", color = textDim, fontSize = 12.sp)
+                    Text("Resumo da frota", color = textPrimary, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                         SummaryPill("Veículos", total.toString(), Color(0xFF2563EB), Modifier.weight(1f))
-                        SummaryPill("Saúde boa", good.toString(), Color(0xFF16A34A), Modifier.weight(1f))
+                        SummaryPill("Em dia", good.toString(), Color(0xFF16A34A), Modifier.weight(1f))
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                         SummaryPill("Atenção", attention.toString(), Color(0xFFF59E0B), Modifier.weight(1f))
                         SummaryPill("Crítico", critical.toString(), Color(0xFFEF4444), Modifier.weight(1f))
                     }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        SummaryPill("Usados", activeVehicles.toString(), Color(0xFF0891B2), Modifier.weight(1f))
+                        SummaryPill("Sem uso", withoutRecentFuel.toString(), Color(0xFF64748B), Modifier.weight(1f))
+                    }
                     Text(
                         "Custo pendente de manutenções: ${formatCurrency(pendingTotal)}",
+                        color = textDim,
+                        fontSize = 12.sp
+                    )
+                    Text(
+                        "Gasto no período: ${formatCurrency(periodFuelCost)} • ${String.format(java.util.Locale.US, "%.1f L", periodFuelLiters)}",
+                        color = textDim,
+                        fontSize = 12.sp
+                    )
+                    Text(
+                        "Média por veículo ativo: ${formatCurrency(averageCostPerActiveVehicle)}",
                         color = textDim,
                         fontSize = 12.sp
                     )
@@ -385,25 +564,19 @@ fun MecanicoVirtualScreen(
                     if (critical > 0) {
                         AlertActionCard(
                             text = "$critical veículo(s) com risco crítico de manutenção.",
-                            color = Color(0xFFEF4444),
-                            actionLabel = "Ver críticos",
-                            onClick = { healthFilter = FleetHealth.CRITICAL }
+                            color = Color(0xFFEF4444)
                         )
                     }
                     if (attention > 0) {
                         AlertActionCard(
                             text = "$attention veículo(s) com manutenção próxima.",
-                            color = Color(0xFFF59E0B),
-                            actionLabel = "Ver atenção",
-                            onClick = { healthFilter = FleetHealth.ATTENTION }
+                            color = Color(0xFFF59E0B)
                         )
                     }
                     if (withoutRecentFuel > 0) {
                         AlertActionCard(
                             text = "$withoutRecentFuel veículo(s) sem abastecimento nos últimos ${selectedPeriod.days} dias.",
-                            color = Color(0xFF2563EB),
-                            actionLabel = "Ver todos",
-                            onClick = { healthFilter = null }
+                            color = Color(0xFF2563EB)
                         )
                     }
                     if (critical == 0 && attention == 0 && withoutRecentFuel == 0) {
@@ -423,7 +596,7 @@ fun MecanicoVirtualScreen(
                 shape = RoundedCornerShape(14.dp)
             ) {
                 Column(modifier = Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Comparativo da frota", color = textPrimary, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Text("Uso e custo da frota", color = textPrimary, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                     Text("Top custo por veículo (${selectedPeriod.label})", color = textDim, fontSize = 12.sp)
                     if (topCostVehicles.isEmpty()) {
                         Text("Sem dados de abastecimento no período.", color = textDim, fontSize = 12.sp)
@@ -466,22 +639,6 @@ fun MecanicoVirtualScreen(
                 }
             }
 
-            Card(
-                colors = CardDefaults.cardColors(containerColor = surface),
-                border = BorderStroke(1.dp, colorScheme.outlineVariant),
-                shape = RoundedCornerShape(14.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(10.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    SummaryPill("Todos", fleetStatuses.size.toString(), Color(0xFF64748B), Modifier.weight(1f))
-                    SummaryPill("Boa", good.toString(), Color(0xFF16A34A), Modifier.weight(1f))
-                    SummaryPill("Atenção", attention.toString(), Color(0xFFF59E0B), Modifier.weight(1f))
-                    SummaryPill("Crítico", critical.toString(), Color(0xFFEF4444), Modifier.weight(1f))
-                }
-            }
-
             if (fleetStatuses.isEmpty()) {
                 Card(
                     colors = CardDefaults.cardColors(containerColor = surface),
@@ -495,6 +652,12 @@ fun MecanicoVirtualScreen(
                     )
                 }
             } else {
+                Text(
+                    "Detalhes por veículo",
+                    color = textPrimary,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp
+                )
                 filteredStatuses.forEach { status ->
                     VehicleStatusCard(status = status, today = today)
                 }
@@ -583,11 +746,13 @@ private fun VehicleStatusCard(
                 )
             }
 
-            Text(
-                "Valor pendente: ${formatCurrency(status.pendingCost)}${status.lastFuelValue?.let { " • Último valor: ${formatCurrency(it)}" } ?: ""}",
-                color = textDim,
-                fontSize = 12.sp
-            )
+            status.lastFuelValue?.let {
+                Text(
+                    "Último valor de abastecimento: ${formatCurrency(it)}",
+                    color = textDim,
+                    fontSize = 12.sp
+                )
+            }
         }
     }
 }
@@ -636,24 +801,20 @@ private fun MetricBox(
 @Composable
 private fun AlertActionCard(
     text: String,
-    color: Color,
-    actionLabel: String,
-    onClick: () -> Unit
+    color: Color
 ) {
     Card(
         colors = CardDefaults.cardColors(containerColor = color.copy(alpha = 0.12f)),
         border = BorderStroke(1.dp, color.copy(alpha = 0.45f)),
-        shape = RoundedCornerShape(10.dp),
-        onClick = onClick
+        shape = RoundedCornerShape(10.dp)
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 9.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text(text, color = color, fontSize = 12.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
-            Text(actionLabel, color = color, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-        }
+        Text(
+            text,
+            color = color,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 9.dp)
+        )
     }
 }
 
@@ -669,6 +830,7 @@ private fun RankingRow(
         modifier = Modifier
             .fillMaxWidth()
             .background(scheme.surfaceVariant.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
+            .border(1.dp, scheme.outlineVariant.copy(alpha = 0.9f), RoundedCornerShape(10.dp))
             .padding(horizontal = 10.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -686,29 +848,38 @@ private fun formatCurrency(value: Double): String {
     return java.text.NumberFormat.getCurrencyInstance(java.util.Locale("pt", "BR")).format(value)
 }
 
-@Composable
-private fun OwnerChip(
-    label: String,
-    selected: Boolean,
-    onClick: () -> Unit
-) {
-    val scheme = MaterialTheme.colorScheme
-    Card(
-        colors = CardDefaults.cardColors(
-            containerColor = if (selected) scheme.primary.copy(alpha = 0.18f) else scheme.surfaceVariant.copy(alpha = 0.35f)
-        ),
-        border = BorderStroke(1.dp, if (selected) scheme.primary else scheme.outlineVariant),
-        shape = RoundedCornerShape(20.dp),
-        onClick = onClick
-    ) {
-        Text(
-            text = label,
-            color = scheme.onSurface,
-            fontSize = 12.sp,
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-        )
-    }
+private fun loadFleetTripSnapshots(context: Context): List<FleetTripSnapshot> {
+    val rawTrips = context
+        .getSharedPreferences("travel_expenses_prefs", Context.MODE_PRIVATE)
+        .getString("travel_trips_json", null)
+        ?: return emptyList()
+
+    return runCatching {
+        val tripsArray = JSONArray(rawTrips)
+        buildList {
+            for (i in 0 until tripsArray.length()) {
+                val tripObj = tripsArray.optJSONObject(i) ?: continue
+                val expensesArray = tripObj.optJSONArray("expenses") ?: JSONArray()
+                val vehicles = buildSet {
+                    for (j in 0 until expensesArray.length()) {
+                        val expenseObj = expensesArray.optJSONObject(j) ?: continue
+                        val vehicleName = expenseObj.optString("vehicleName").trim()
+                        if (vehicleName.isNotBlank()) add(vehicleName)
+                    }
+                }.toList()
+
+                add(
+                    FleetTripSnapshot(
+                        name = tripObj.optString("name").ifBlank { "Minha viagem" },
+                        location = tripObj.optString("location"),
+                        responsible = tripObj.optString("responsible"),
+                        isFinished = tripObj.optBoolean("isFinished", false),
+                        vehiclesUsed = vehicles
+                    )
+                )
+            }
+        }
+    }.getOrDefault(emptyList())
 }
 
 private fun gerarPdfStatusFrota(
@@ -861,20 +1032,139 @@ private fun gerarPdfStatusFrota(
     }
 }
 
-private fun carregarResponsaveisViagem(context: Context): List<String> {
-    return runCatching {
-        val raw = context.getSharedPreferences("travel_expenses_prefs", Context.MODE_PRIVATE)
-            .getString("travel_trips_json", null)
-            .orEmpty()
-        if (raw.isBlank()) return emptyList()
-        val arr = JSONArray(raw)
-        buildList {
-            for (i in 0 until arr.length()) {
-                val obj = arr.optJSONObject(i) ?: continue
-                val responsible = obj.optString("responsible").trim()
-                if (responsible.isNotBlank()) add(responsible)
+private fun gerarPlanilhaStatusFrota(
+    context: Context,
+    statuses: List<VehicleFleetStatus>,
+    activeTrips: List<FleetTripSnapshot>,
+    selectedPeriod: FleetPeriod,
+    ownerFilter: String?,
+    healthFilter: FleetHealth?,
+    companyName: String,
+    total: Int,
+    good: Int,
+    attention: Int,
+    critical: Int,
+    pendingTotal: Double,
+    periodFuelCost: Double
+): File? = runCatching {
+    val file = File(context.cacheDir, "status_frota_${System.currentTimeMillis()}.xls")
+    val today = LocalDate.now().format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))
+    val healthLabel = when (healthFilter) {
+        FleetHealth.GOOD -> "Saude boa"
+        FleetHealth.ATTENTION -> "Atencao"
+        FleetHealth.CRITICAL -> "Critico"
+        null -> "Todos"
+    }
+    val content = buildString {
+        appendLine("""<?xml version="1.0"?>""")
+        appendLine("""<?mso-application progid="Excel.Sheet"?>""")
+        appendLine("""<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">""")
+        appendLine("""<Styles>""")
+        appendLine("""<Style ss:ID="Title"><Font ss:Bold="1" ss:Size="14"/><Alignment ss:Horizontal="Center"/></Style>""")
+        appendLine("""<Style ss:ID="Header"><Font ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#1E3A8A" ss:Pattern="Solid"/></Style>""")
+        appendLine("""<Style ss:ID="Label"><Font ss:Bold="1"/></Style>""")
+        appendLine("""<Style ss:ID="Money"><NumberFormat ss:Format="Currency"/></Style>""")
+        appendLine("""<Style ss:ID="Wrap"><Alignment ss:WrapText="1" ss:Vertical="Top"/></Style>""")
+        appendLine("""</Styles>""")
+
+        appendLine("""<Worksheet ss:Name="Resumo">""")
+        appendLine("""<Table>""")
+        appendLine("""<Column ss:Width="190"/><Column ss:Width="220"/>""")
+        appendLine("""<Row><Cell ss:MergeAcross="1" ss:StyleID="Title"><Data ss:Type="String">STATUS DA FROTA</Data></Cell></Row>""")
+        appendLine("""<Row><Cell ss:StyleID="Label"><Data ss:Type="String">Empresa</Data></Cell><Cell><Data ss:Type="String">${companyName.escapeSpreadsheetXml()}</Data></Cell></Row>""")
+        appendLine("""<Row><Cell ss:StyleID="Label"><Data ss:Type="String">Gerado em</Data></Cell><Cell><Data ss:Type="String">$today</Data></Cell></Row>""")
+        appendLine("""<Row><Cell ss:StyleID="Label"><Data ss:Type="String">Periodo</Data></Cell><Cell><Data ss:Type="String">${selectedPeriod.label}</Data></Cell></Row>""")
+        appendLine("""<Row><Cell ss:StyleID="Label"><Data ss:Type="String">Responsavel</Data></Cell><Cell><Data ss:Type="String">${(ownerFilter ?: "Todos").escapeSpreadsheetXml()}</Data></Cell></Row>""")
+        appendLine("""<Row><Cell ss:StyleID="Label"><Data ss:Type="String">Filtro</Data></Cell><Cell><Data ss:Type="String">${healthLabel.escapeSpreadsheetXml()}</Data></Cell></Row>""")
+        appendLine("""<Row><Cell ss:StyleID="Label"><Data ss:Type="String">Total de veiculos</Data></Cell><Cell><Data ss:Type="Number">$total</Data></Cell></Row>""")
+        appendLine("""<Row><Cell ss:StyleID="Label"><Data ss:Type="String">Saude boa</Data></Cell><Cell><Data ss:Type="Number">$good</Data></Cell></Row>""")
+        appendLine("""<Row><Cell ss:StyleID="Label"><Data ss:Type="String">Em atencao</Data></Cell><Cell><Data ss:Type="Number">$attention</Data></Cell></Row>""")
+        appendLine("""<Row><Cell ss:StyleID="Label"><Data ss:Type="String">Criticos</Data></Cell><Cell><Data ss:Type="Number">$critical</Data></Cell></Row>""")
+        appendLine("""<Row><Cell ss:StyleID="Label"><Data ss:Type="String">Custo combustivel no periodo</Data></Cell><Cell ss:StyleID="Money"><Data ss:Type="Number">${periodFuelCost.toSpreadsheetNumber()}</Data></Cell></Row>""")
+        appendLine("""<Row><Cell ss:StyleID="Label"><Data ss:Type="String">Custo pendente manutencao</Data></Cell><Cell ss:StyleID="Money"><Data ss:Type="Number">${pendingTotal.toSpreadsheetNumber()}</Data></Cell></Row>""")
+        appendLine("""</Table>""")
+        appendLine("""</Worksheet>""")
+
+        appendLine("""<Worksheet ss:Name="Viagens Ativas">""")
+        appendLine("""<Table>""")
+        appendLine("""<Column ss:Width="170"/><Column ss:Width="170"/><Column ss:Width="150"/><Column ss:Width="220"/>""")
+        appendLine("""<Row><Cell ss:StyleID="Header"><Data ss:Type="String">Viagem</Data></Cell><Cell ss:StyleID="Header"><Data ss:Type="String">Responsavel</Data></Cell><Cell ss:StyleID="Header"><Data ss:Type="String">Local</Data></Cell><Cell ss:StyleID="Header"><Data ss:Type="String">Veiculos usados</Data></Cell></Row>""")
+        if (activeTrips.isEmpty()) {
+            appendLine("""<Row><Cell ss:MergeAcross="3"><Data ss:Type="String">Nenhuma viagem em andamento.</Data></Cell></Row>""")
+        } else {
+            activeTrips.forEach { trip ->
+                appendLine(
+                    """<Row>
+<Cell><Data ss:Type="String">${trip.name.escapeSpreadsheetXml()}</Data></Cell>
+<Cell><Data ss:Type="String">${trip.responsible.ifBlank { "Nao informado" }.escapeSpreadsheetXml()}</Data></Cell>
+<Cell><Data ss:Type="String">${trip.location.ifBlank { "Nao informado" }.escapeSpreadsheetXml()}</Data></Cell>
+<Cell ss:StyleID="Wrap"><Data ss:Type="String">${trip.vehiclesUsed.joinToString(", ").ifBlank { "Sem veiculo" }.escapeSpreadsheetXml()}</Data></Cell>
+</Row>"""
+                )
             }
-        }.distinct().sorted()
-    }.getOrDefault(emptyList())
+        }
+        appendLine("""</Table>""")
+        appendLine("""</Worksheet>""")
+
+        appendLine("""<Worksheet ss:Name="Veiculos">""")
+        appendLine("""<Table>""")
+        appendLine("""<Column ss:Width="160"/><Column ss:Width="120"/><Column ss:Width="140"/><Column ss:Width="80"/><Column ss:Width="80"/><Column ss:Width="115"/><Column ss:Width="110"/><Column ss:Width="110"/><Column ss:Width="120"/>""")
+        appendLine("""<Row><Cell ss:StyleID="Header"><Data ss:Type="String">Veiculo</Data></Cell><Cell ss:StyleID="Header"><Data ss:Type="String">Tipo</Data></Cell><Cell ss:StyleID="Header"><Data ss:Type="String">Responsavel</Data></Cell><Cell ss:StyleID="Header"><Data ss:Type="String">Status</Data></Cell><Cell ss:StyleID="Header"><Data ss:Type="String">Vencidas</Data></Cell><Cell ss:StyleID="Header"><Data ss:Type="String">Prox. manutencao</Data></Cell><Cell ss:StyleID="Header"><Data ss:Type="String">Ult. abastecimento</Data></Cell><Cell ss:StyleID="Header"><Data ss:Type="String">Custo periodo</Data></Cell><Cell ss:StyleID="Header"><Data ss:Type="String">Pendente manut.</Data></Cell></Row>""")
+        if (statuses.isEmpty()) {
+            appendLine("""<Row><Cell ss:MergeAcross="8"><Data ss:Type="String">Nenhum veiculo no filtro atual.</Data></Cell></Row>""")
+        } else {
+            val formatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
+            statuses.forEach { item ->
+                val health = when (item.health) {
+                    FleetHealth.GOOD -> "Saude boa"
+                    FleetHealth.ATTENTION -> "Atencao"
+                    FleetHealth.CRITICAL -> "Critico"
+                }
+                appendLine(
+                    """<Row>
+<Cell><Data ss:Type="String">${item.carro.nome.escapeSpreadsheetXml()}</Data></Cell>
+<Cell><Data ss:Type="String">${item.carro.tipoVeiculo.label.escapeSpreadsheetXml()}</Data></Cell>
+<Cell><Data ss:Type="String">${item.owner.escapeSpreadsheetXml()}</Data></Cell>
+<Cell><Data ss:Type="String">${health.escapeSpreadsheetXml()}</Data></Cell>
+<Cell><Data ss:Type="Number">${item.overdueCount}</Data></Cell>
+<Cell><Data ss:Type="String">${(item.nextMaintenanceDate?.format(formatter) ?: "Sem previsao").escapeSpreadsheetXml()}</Data></Cell>
+<Cell><Data ss:Type="String">${(item.lastFuelDate?.format(formatter) ?: "Sem registro").escapeSpreadsheetXml()}</Data></Cell>
+<Cell ss:StyleID="Money"><Data ss:Type="Number">${item.recentFuelCost.toSpreadsheetNumber()}</Data></Cell>
+<Cell ss:StyleID="Money"><Data ss:Type="Number">${item.pendingCost.toSpreadsheetNumber()}</Data></Cell>
+</Row>"""
+                )
+            }
+        }
+        appendLine("""</Table>""")
+        appendLine("""</Worksheet>""")
+        appendLine("""</Workbook>""")
+    }
+    file.writeText(content, Charsets.UTF_8)
+    file
+}.getOrNull()
+
+private fun compartilharPlanilhaFrota(context: Context, spreadsheetFile: File) {
+    val uri = androidx.core.content.FileProvider.getUriForFile(
+        context,
+        "${context.packageName}.fileprovider",
+        spreadsheetFile
+    )
+    val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+        type = "application/vnd.ms-excel"
+        putExtra(android.content.Intent.EXTRA_STREAM, uri)
+        addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    context.startActivity(android.content.Intent.createChooser(intent, "Exportar planilha da frota"))
 }
+
+private fun String.escapeSpreadsheetXml(): String =
+    replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace("\"", "&quot;")
+        .replace("'", "&apos;")
+
+private fun Double.toSpreadsheetNumber(): String =
+    String.format(java.util.Locale.US, "%.2f", this)
+
 

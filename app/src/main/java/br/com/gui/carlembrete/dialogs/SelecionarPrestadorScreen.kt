@@ -1,56 +1,46 @@
 package br.com.gui.carlembrete
 
-import android.content.ActivityNotFoundException
-import android.content.Intent
-import android.net.Uri
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBackIosNew
-import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Phone
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CenterAlignedTopAppBar
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.Scaffold
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SelecionarPrestadorScreen(
     tipoSelecionado: TipoManutencao,
@@ -58,151 +48,154 @@ fun SelecionarPrestadorScreen(
     onDismiss: () -> Unit,
     onConfirmar: (ContatoProfissional) -> Unit
 ) {
-    val context = LocalContext.current
     val isDark = androidx.compose.material3.MaterialTheme.colorScheme.background.luminance() < 0.5f
-    val pageBackground = if (isDark) Color(0xFF020617) else Color(0xFFF8FAFC)
+    val accentBlue = Color(0xFF2563EB)
     val textPrimary = if (isDark) Color(0xFFF8FAFC) else Color(0xFF0F172A)
     val textSecondary = if (isDark) Color(0xFF94A3B8) else Color(0xFF64748B)
-    val iconColor = if (isDark) Color(0xFFE2E8F0) else Color(0xFF0F172A)
-    val accentBlue = Color(0xFF2563EB)
-    val profissionaisListState = rememberLazyListState()
-    val scope = rememberCoroutineScope()
-    val loadingTransition = rememberInfiniteTransition(label = "prestadorLoading")
-    val loadingAlpha by loadingTransition.animateFloat(
-        initialValue = 0.35f,
-        targetValue = 0.9f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 850),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "prestadorLoadingAlpha"
-    )
+    val containerColor = if (isDark) Color(0xFF0F172A) else Color.White
+    val borderColor = if (isDark) Color.White.copy(alpha = 0.16f) else Color.Black.copy(alpha = 0.14f)
+    val textFieldBg = if (isDark) Color(0xFF111827) else Color(0xFFF8FAFC)
 
-    var carregandoProfissionaisCidade by remember { mutableStateOf(false) }
-    var erroProfissionaisCidade by remember { mutableStateOf<String?>(null) }
-    var profissionaisDaCidade by remember { mutableStateOf<List<ProfissionalCidadeEncontrado>>(emptyList()) }
-    var contatoSelecionado by remember { mutableStateOf<ContatoProfissional?>(null) }
-    var cidadeAtual by remember { mutableStateOf<String?>(null) }
-    var ufAtual by remember { mutableStateOf<String?>(null) }
+    var nomeInput by rememberSaveable { mutableStateOf("") }
+    var telefoneInput by rememberSaveable { mutableStateOf("") }
 
-    fun carregarProfissionais(forcar: Boolean = false) {
-        if (carregandoProfissionaisCidade) return
-        scope.launch {
-            carregandoProfissionaisCidade = true
-            erroProfissionaisCidade = null
-            val resultado = withContext(Dispatchers.IO) {
-                buscarProfissionaisDaCidadeAtual(
-                    context = context,
-                    tipoSelecionado = tipoSelecionado,
-                    isBikeVehicle = isBikeVehicle
-                )
-            }
-            carregandoProfissionaisCidade = false
-            resultado.onSuccess { busca ->
-                cidadeAtual = busca.cidade
-                ufAtual = busca.estado
-                profissionaisDaCidade = busca.profissionais
-                if (forcar && busca.profissionais.isEmpty()) {
-                    erroProfissionaisCidade = "Nenhum profissional encontrado na sua cidade."
-                }
-            }.onFailure { erro ->
-                profissionaisDaCidade = emptyList()
-                erroProfissionaisCidade = erro.message ?: "Nao foi possivel buscar profissionais da cidade."
-            }
-        }
-    }
-
-    LaunchedEffect(tipoSelecionado, isBikeVehicle) {
-        carregarProfissionais()
-    }
+    val telefoneDigitos = telefoneInput.filter(Char::isDigit).take(11)
+    val nomeValido = nomeInput.trim().length >= 2
+    val telefoneValido = telefoneDigitos.length >= 10
+    val podeSalvar = nomeValido && telefoneValido
 
     BackHandler(onBack = onDismiss)
 
-    Scaffold(
-        containerColor = Color.Transparent,
-        topBar = {
-            CenterAlignedTopAppBar(
-                title = { },
-                navigationIcon = {
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar", tint = iconColor)
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = pageBackground)
-            )
-        },
-        bottomBar = {
-            Column(
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(20.dp),
+        containerColor = containerColor,
+        tonalElevation = 0.dp,
+        icon = {
+            Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .background(pageBackground)
-                    .navigationBarsPadding()
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .size(56.dp)
+                    .background(accentBlue.copy(alpha = if (isDark) 0.28f else 0.14f), CircleShape),
+                contentAlignment = Alignment.Center
             ) {
-                Button(
-                    onClick = { contatoSelecionado?.let(onConfirmar) },
-                    enabled = contatoSelecionado != null,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = accentBlue,
-                        contentColor = Color.White
+                Icon(
+                    imageVector = Icons.Default.Build,
+                    contentDescription = null,
+                    tint = accentBlue,
+                    modifier = Modifier.size(28.dp)
+                )
+            }
+        },
+        title = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = "Adicionar prestador",
+                    color = textPrimary,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 22.sp,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "Preencha os dados para vincular ao aviso de ${tipoSelecionado.label}.",
+                    color = textSecondary,
+                    fontSize = 13.sp,
+                    textAlign = TextAlign.Center
+                )
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                OutlinedTextField(
+                    value = nomeInput,
+                    onValueChange = { nomeInput = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Nome *") },
+                    singleLine = true,
+                    leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Text,
+                        imeAction = ImeAction.Next
                     ),
-                    shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(52.dp)
-                ) {
-                    Icon(Icons.Rounded.CheckCircle, contentDescription = null)
-                    Spacer(Modifier.width(8.dp))
-                    Text("Vincular prestador", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-                }
+                    shape = RoundedCornerShape(12.dp),
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = textFieldBg,
+                        unfocusedContainerColor = textFieldBg,
+                        disabledContainerColor = textFieldBg
+                    )
+                )
+                OutlinedTextField(
+                    value = telefoneInput,
+                    onValueChange = { novo ->
+                        telefoneInput = novo.filter { it.isDigit() || it == ' ' || it == '(' || it == ')' || it == '-' || it == '+' }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Telefone *") },
+                    singleLine = true,
+                    leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null) },
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Phone,
+                        imeAction = ImeAction.Done
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = textFieldBg,
+                        unfocusedContainerColor = textFieldBg,
+                        disabledContainerColor = textFieldBg
+                    )
+                )
+                Text(
+                    text = "Campos obrigatórios marcados com *",
+                    color = textSecondary,
+                    fontSize = 12.sp
+                )
+            }
+        },
+        dismissButton = {
+            OutlinedButton(
+                onClick = onDismiss,
+                shape = RoundedCornerShape(12.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, borderColor),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Cancelar")
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val contato = ContatoProfissional(
+                        nome = nomeInput.trim(),
+                        telefone = formatarTelefoneBr(telefoneDigitos),
+                        tipoServico = tipoSelecionado.label
+                    )
+                    onConfirmar(contato)
+                },
+                enabled = podeSalvar,
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = accentBlue,
+                    contentColor = Color.White
+                ),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Salvar prestador", fontWeight = FontWeight.SemiBold)
             }
         }
-    ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(pageBackground)
-                .padding(innerPadding)
-                .padding(horizontal = 16.dp, vertical = 2.dp)
-        ) {
-            EtapaProfissionaisContent(
-                isDark = isDark,
-                textPrimary = textPrimary,
-                textSecondary = textSecondary,
-                iconColor = iconColor,
-                accentBlue = accentBlue,
-                cidadeAtual = cidadeAtual,
-                ufAtual = ufAtual,
-                carregandoProfissionaisCidade = carregandoProfissionaisCidade,
-                erroProfissionaisCidade = erroProfissionaisCidade,
-                profissionaisDaCidade = profissionaisDaCidade,
-                profissionaisListState = profissionaisListState,
-                loadingAlpha = loadingAlpha,
-                contatoSelecionado = contatoSelecionado,
-                onRecarregar = { carregarProfissionais(forcar = true) },
-                onVerNoGoogle = { nome -> abrirBuscaGoogleProfissional(context, nome) },
-                onAdicionarDaCidade = { profissional ->
-                    contatoSelecionado = profissional.toContato(tipoSelecionado)
-                }
-            )
-        }
-    }
-}
-
-private fun abrirBuscaGoogleProfissional(context: android.content.Context, nome: String) {
-    val query = Uri.encode("$nome telefone")
-    val uri = Uri.parse("https://www.google.com/search?q=$query")
-    val intent = Intent(Intent.ACTION_VIEW, uri)
-    try {
-        context.startActivity(intent)
-    } catch (_: ActivityNotFoundException) {
-    }
-}
-
-private fun ProfissionalCidadeEncontrado.toContato(tipoSelecionado: TipoManutencao): ContatoProfissional {
-    return ContatoProfissional(
-        nome = nome,
-        telefone = telefone,
-        tipoServico = tipoSelecionado.label
     )
+}
+
+private fun formatarTelefoneBr(digitos: String): String {
+    val limpo = digitos.filter(Char::isDigit)
+    return when (limpo.length) {
+        11 -> "(${limpo.substring(0, 2)}) ${limpo.substring(2, 7)}-${limpo.substring(7, 11)}"
+        10 -> "(${limpo.substring(0, 2)}) ${limpo.substring(2, 6)}-${limpo.substring(6, 10)}"
+        else -> limpo
+    }
 }
