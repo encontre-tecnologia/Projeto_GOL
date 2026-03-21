@@ -2,6 +2,7 @@
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class QrNotaParserTest {
@@ -15,7 +16,7 @@ class QrNotaParserTest {
     @Test
     fun montarDescricaoItensNota_formataTotalEItens() {
         val resultado = montarDescricaoItensNota(150.0, "Gasolina (150.00)")
-        assertEquals("Total: R$ 150.00 | Itens: Gasolina (150.00)", resultado)
+        assertEquals("Gasolina (150.00)\nTotal: R$ 150.00", resultado)
     }
 
     @Test
@@ -46,6 +47,31 @@ class QrNotaParserTest {
     }
 
     @Test
+    fun parseNotaHtmlForTest_sp_montaItensComNomeEValor() {
+        val html = """
+            <html><body>
+                <table id="tabResult">
+                    <tr>
+                        <td class="txtTit">GASOLINA COMUM</td>
+                        <td class="valor">20,00</td>
+                    </tr>
+                    <tr>
+                        <td class="txtTit">LUB LUBRAX SJ SL 20W50 LIT</td>
+                        <td class="valor">32,99</td>
+                    </tr>
+                </table>
+                <div id="linhaTotal"><span class="totalNumb">52,99</span></div>
+            </body></html>
+        """.trimIndent()
+
+        val nota = parseNotaHtmlForTest(html, "https://www.nfce.fazenda.sp.gov.br/NFCeConsultaPublica/Paginas/ConsultaQRCode.aspx?p=x")
+        assertNotNull(nota)
+        val itens = nota!!.descricaoItens.orEmpty()
+        assertTrue(itens.contains("GASOLINA COMUM (20.00)"))
+        assertTrue(itens.contains("LUB LUBRAX SJ SL 20W50 LIT (32.99)"))
+    }
+
+    @Test
     fun parseNotaHtmlForTest_mg_layoutDetectado() {
         val html = """
             <html><body>
@@ -59,5 +85,25 @@ class QrNotaParserTest {
         assertNotNull(nota)
         assertEquals(89.9, nota!!.valorTotal!!, 0.001)
         assertEquals("03/03/2026", nota.dataCompra)
+    }
+
+    @Test
+    fun parseNotaHtmlForTest_layoutNacionalFallback() {
+        val html = """
+            <html><body>
+                <div class="emitente">MERCADO MODELO LTDA</div>
+                <table>
+                    <tr><td class="xProd">ARROZ TIPO 1</td><td class="vProd">18,90</td></tr>
+                    <tr><td class="xProd">FEIJAO CARIOCA</td><td class="vProd">9,40</td></tr>
+                </table>
+                <div>Valor a pagar R$ 28,30</div>
+                <div>Data de emissão: 06/03/2026</div>
+            </body></html>
+        """.trimIndent()
+
+        val nota = parseNotaHtmlForTest(html, "https://nfce.sefaz.exemplo.gov.br/consulta")
+        assertNotNull(nota)
+        assertEquals(28.3, nota!!.valorTotal!!, 0.001)
+        assertEquals("06/03/2026", nota.dataCompra)
     }
 }

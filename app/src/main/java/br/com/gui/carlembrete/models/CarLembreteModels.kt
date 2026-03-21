@@ -21,6 +21,7 @@ import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.FormatPaint
 import androidx.compose.material.icons.rounded.Inventory2
 import androidx.compose.material.icons.rounded.Link
+import androidx.compose.material.icons.rounded.LocalGasStation
 import androidx.compose.material.icons.rounded.LocalShipping
 import androidx.compose.material.icons.rounded.Motorcycle
 import androidx.compose.material.icons.rounded.Payments
@@ -509,6 +510,7 @@ enum class TipoManutencao(val label: String) {
     TRANSMISSAO("Transmissão"),
     REVISAO("Revisão"),
     OLEO("Óleo"),
+    ABASTECIMENTO("Posto"),
     BATERIA("Bateria"),
     MECANICA("Mecânica"),
     FUNILARIA("Funilaria"),
@@ -516,7 +518,7 @@ enum class TipoManutencao(val label: String) {
     LICENCIAMENTO("Licença"),
     IPVA("IPVA"),
     SEGURO("Seguro"),
-    OUTROS("Geral");
+    OUTROS("Outros");
 
     fun getIcon(): ImageVector = when(this) {
         CORRENTE -> Icons.Rounded.Link
@@ -528,6 +530,7 @@ enum class TipoManutencao(val label: String) {
         TRANSMISSAO -> Icons.Rounded.Settings
         REVISAO -> Icons.Rounded.Description
         OLEO -> Icons.Rounded.WaterDrop
+        ABASTECIMENTO -> Icons.Rounded.LocalGasStation
         BATERIA -> Icons.Rounded.BatteryChargingFull
         MECANICA -> Icons.Rounded.Build
         FUNILARIA -> Icons.Rounded.FormatPaint

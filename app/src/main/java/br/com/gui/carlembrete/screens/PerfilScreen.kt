@@ -58,8 +58,8 @@ fun PerfilScreen(
     val border = if (isDark) Color.White.copy(alpha = 0.10f) else Color(0xFFE2E8F0)
 
     val user = FirebaseAuth.getInstance().currentUser
-    val nome = user?.displayName?.takeIf { it.isNotBlank() } ?: "UsuÃ¡rio"
-    val email = user?.email?.takeIf { it.isNotBlank() } ?: "Email nÃ£o informado"
+    val nome = user?.displayName?.takeIf { it.isNotBlank() } ?: "Usuário"
+    val email = user?.email?.takeIf { it.isNotBlank() } ?: "Email não informado"
     val foto = user?.photoUrl?.toString()
 
     val ultimoLoginMillis = user?.metadata?.lastSignInTimestamp ?: 0L
@@ -82,26 +82,7 @@ fun PerfilScreen(
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
-        containerColor = bg,
-        topBar = {
-            CenterAlignedTopAppBar(
-                title = { Text("Meu Perfil", fontWeight = FontWeight.Black) },
-                navigationIcon = {
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar")
-                    }
-                },
-                actions = {
-                    IconButton(onClick = {
-                        FirebaseAuth.getInstance().signOut()
-                        onDismiss()
-                    }) {
-                        Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = "Sair", tint = colorScheme.error)
-                    }
-                },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = bg)
-            )
-        }
+        containerColor = bg
     ) { innerPadding ->
         Column(
             modifier = Modifier
@@ -112,6 +93,23 @@ fun PerfilScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onDismiss) {
+                    Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar")
+                }
+                Text("Meu Perfil", fontWeight = FontWeight.Black)
+                IconButton(onClick = {
+                    FirebaseAuth.getInstance().signOut()
+                    onDismiss()
+                }) {
+                    Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = "Sair", tint = colorScheme.error)
+                }
+            }
+
             // --- HEADER: FOTO E NOME ---
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Box(

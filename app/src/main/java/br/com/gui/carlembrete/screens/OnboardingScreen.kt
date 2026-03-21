@@ -167,17 +167,11 @@ private fun permissionIconFor(permission: String): ImageVector = when (permissio
     Manifest.permission.CAMERA -> Icons.Default.CameraAlt
     Manifest.permission.ACCESS_FINE_LOCATION -> Icons.Default.LocationOn
     Manifest.permission.POST_NOTIFICATIONS -> Icons.Default.Notifications
-    Manifest.permission.BLUETOOTH_SCAN,
-    Manifest.permission.BLUETOOTH_CONNECT,
-    Manifest.permission.BLUETOOTH_ADVERTISE -> Icons.Default.Bluetooth
     else -> Icons.Default.Security
 }
 
 private fun isRuntimePermissionRequired(permission: String): Boolean = when (permission) {
     Manifest.permission.POST_NOTIFICATIONS -> Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
-    Manifest.permission.BLUETOOTH_SCAN,
-    Manifest.permission.BLUETOOTH_CONNECT,
-    Manifest.permission.BLUETOOTH_ADVERTISE -> Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
     else -> true
 }
 
@@ -274,13 +268,13 @@ fun OnboardingScreen(
     }
     val politicaPrivacidadeTexto = remember {
         """
-        1. Dados tratados: o app pode tratar dados de cadastro de veículos, lembretes, contatos, localização, câmera, notificações e bluetooth, conforme recursos utilizados por você.
+        1. Dados tratados: o app pode tratar dados de cadastro de veículos, lembretes, contatos, localização, câmera e notificações, conforme recursos utilizados por você.
 
         2. Finalidade: os dados são usados para executar funcionalidades do app, personalizar a experiência e permitir recursos solicitados pelo usuário.
 
         3. LGPD (Lei 13.709/2018): o tratamento de dados observa os princípios da necessidade, finalidade, adequação e transparência, com base legal aplicável para execução do serviço e consentimento quando exigido.
 
-        4. Permissões: câmera, localização, notificações e bluetooth somente são usados após consentimento e podem ser revogados a qualquer momento nas configurações do dispositivo.
+        4. Permissões: câmera, localização e notificações somente são usadas após consentimento e podem ser revogadas a qualquer momento nas configurações do dispositivo.
 
         5. Compartilhamento: o Zellu não comercializa dados pessoais e utiliza informações apenas para operação do serviço e integrações técnicas necessárias.
 
@@ -317,22 +311,6 @@ fun OnboardingScreen(
                     reason = "Enviar alertas de manutenção e lembretes importantes."
                 )
             )
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                add(
-                    PermissionUiItem(
-                        permission = Manifest.permission.BLUETOOTH_SCAN,
-                        title = "Bluetooth (Scan)",
-                        reason = "Encontrar dispositivos próximos para recursos conectados."
-                    )
-                )
-                add(
-                    PermissionUiItem(
-                        permission = Manifest.permission.BLUETOOTH_CONNECT,
-                        title = "Bluetooth (Conexão)",
-                        reason = "Conectar com dispositivos compatíveis do app."
-                    )
-                )
-            }
         }
     }
     var permissionStatus by remember { mutableStateOf<Map<String, Boolean>>(emptyMap()) }
@@ -1154,7 +1132,11 @@ fun OnboardingScreen(
                                     Toast.makeText(context, "Limite de veÃ­culos do plano grÃ¡tis atingido.", Toast.LENGTH_SHORT).show()
                                     listaFinal = listaFinal.take(maxVehicles)
                                 }
-                                val listaSalvar = if (listaFinal.isNotEmpty()) listaFinal else listOf(CarroInfo(nome = carroTipo.label, modelo = "PadrÃ£o", marca = "Marca", kmAtual = 0, tipoVeiculo = carroTipo))
+                                if (listaFinal.isEmpty()) {
+                                    Toast.makeText(context, "Adicione pelo menos um veículo para continuar.", Toast.LENGTH_SHORT).show()
+                                    return@Button
+                                }
+                                val listaSalvar = listaFinal
                                 scope.launch(Dispatchers.IO) { BancoDeDados.salvarCarros(context, listaSalvar) }
                                 step = 8
                             },

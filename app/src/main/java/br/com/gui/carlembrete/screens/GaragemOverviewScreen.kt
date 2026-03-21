@@ -130,17 +130,19 @@ fun GaragemOverviewScreen(
 ) {
     val scheme = MaterialTheme.colorScheme
     val isDark = scheme.background.luminance() < 0.5f
+    val bg = if (isDark) scheme.background else Color.White
+    val accentBlue = Color(0xFF3B82F6)
     val textPrimary = if (isDark) Color.White else Color.Black
     val textDim = if (isDark) Color(0xFF94A3B8) else Color(0xFF475569)
-    val cardBg = if (isDark) Color(0xFF0B1324) else Color.White
-    val cardBorder = if (isDark) Color.Transparent else Color.Black.copy(alpha = 0.12f)
+    val cardBg = if (isDark) Color(0xFF0F172A) else Color.White
+    val cardBorder = if (isDark) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.10f)
     val searchFieldColors = OutlinedTextFieldDefaults.colors(
         focusedTextColor = textPrimary,
         unfocusedTextColor = textPrimary,
-        focusedBorderColor = if (isDark) Color(0xFF334155) else Color.Black,
+        focusedBorderColor = if (isDark) Color(0xFF334155) else Color(0xFF94A3B8),
         unfocusedBorderColor = if (isDark) Color(0xFF1E293B) else Color(0xFFCBD5E1),
-        focusedContainerColor = if (isDark) Color(0xFF0B1324) else Color.White,
-        unfocusedContainerColor = if (isDark) Color(0xFF0B1324) else Color.White,
+        focusedContainerColor = cardBg,
+        unfocusedContainerColor = cardBg,
         cursorColor = textPrimary,
         focusedLeadingIconColor = textDim,
         unfocusedLeadingIconColor = textDim,
@@ -166,9 +168,9 @@ fun GaragemOverviewScreen(
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
-        containerColor = Color.Transparent,
+        containerColor = bg,
         topBar = {
-            TopAppBar(
+            CenterAlignedTopAppBar(
                 title = {
                     Text(
                         "Meus veículos",
@@ -190,23 +192,11 @@ fun GaragemOverviewScreen(
                         )
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = if (isDark) Color.Transparent else Color.White)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = bg)
             )
         }
     ) { innerPadding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    if (isDark) {
-                        Brush.verticalGradient(
-                            listOf(Color(0xFF16233A), Color(0xFF121B30), Color(0xFF0F172A))
-                        )
-                    } else {
-                        SolidColor(Color.White)
-                    }
-                )
-        ) {
+        Box(modifier = Modifier.fillMaxSize().background(bg)) {
             if (carros.isEmpty()) {
                 Column(
                     modifier = Modifier
@@ -216,12 +206,14 @@ fun GaragemOverviewScreen(
                     verticalArrangement = Arrangement.Center,
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Icon(
-                        Icons.Default.DirectionsCar,
-                        contentDescription = null,
-                        tint = textDim,
-                        modifier = Modifier.size(56.dp)
-                    )
+                    if (isDark) {
+                        Icon(
+                            Icons.Default.DirectionsCar,
+                            contentDescription = null,
+                            tint = accentBlue,
+                            modifier = Modifier.size(56.dp)
+                        )
+                    }
                     Spacer(Modifier.height(12.dp))
                     Text("Nenhum veículo cadastrado", color = textDim)
                 }
@@ -230,9 +222,42 @@ fun GaragemOverviewScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(innerPadding),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                    contentPadding = PaddingValues(vertical = 12.dp)
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp)
                 ) {
+                    item {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = cardBg),
+                            border = BorderStroke(1.dp, cardBorder),
+                            shape = RoundedCornerShape(16.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                if (isDark) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(34.dp)
+                                            .background(accentBlue.copy(alpha = 0.24f), RoundedCornerShape(999.dp)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(Icons.Rounded.DirectionsCar, contentDescription = null, tint = accentBlue, modifier = Modifier.size(18.dp))
+                                    }
+                                }
+                                Text(
+                                    "${carros.size} veiculo(s) cadastrado(s)",
+                                    color = textPrimary,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 14.sp
+                                )
+                            }
+                        }
+                    }
                     item {
                         OutlinedTextField(
                             value = busca,
@@ -245,11 +270,10 @@ fun GaragemOverviewScreen(
                                 )
                             },
                             placeholder = { Text("Buscar veiculo", color = textDim) },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 24.dp),
+                            modifier = Modifier.fillMaxWidth(),
                             singleLine = true,
-                            colors = searchFieldColors
+                            colors = searchFieldColors,
+                            shape = RoundedCornerShape(14.dp)
                         )
                     }
                     if (carrosFiltrados.isEmpty()) {
@@ -273,21 +297,14 @@ fun GaragemOverviewScreen(
                         }
                     } else {
                         items(carrosFiltrados) { carro ->
-                            val infoLinha = listOfNotNull(
-                                carro.marca.takeIf { it.isNotBlank() },
-                                carro.modelo.takeIf { it.isNotBlank() }
-                            ).joinToString(" - ").ifBlank { "Marca e modelo nao informados" }
-                            val kmTexto =
-                                if (carro.kmAtual > 0) "${carro.kmAtual} km" else "KM nao informado"
                             Card(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(horizontal = 24.dp)
                                     .clickable { onSelecionar(carro) },
-                                shape = RoundedCornerShape(16.dp),
+                                shape = RoundedCornerShape(18.dp),
                                 colors = CardDefaults.cardColors(containerColor = cardBg),
-                                border = if (isDark) null else BorderStroke(1.dp, cardBorder),
-                                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+                                border = BorderStroke(1.dp, cardBorder),
+                                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                             ) {
                                 Row(
                                     modifier = Modifier
@@ -299,7 +316,7 @@ fun GaragemOverviewScreen(
                                         modifier = Modifier
                                             .size(56.dp)
                                             .clip(CircleShape)
-                                            .background(carro.getCorUI().copy(alpha = 0.35f)),
+                                            .background(carro.getCorUI().copy(alpha = if (isDark) 0.38f else 0.24f)),
                                         contentAlignment = Alignment.Center
                                     ) {
                                         VehicleIcon(
@@ -319,7 +336,6 @@ fun GaragemOverviewScreen(
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 16.sp
                             )
-                            Text(infoLinha, color = textDim, fontSize = 13.sp)
                             Text(
                                 text = "Proprietário: ${carro.proprietario.ifBlank { "Não informado" }}",
                                 color = if (isDark) Color(0xFFCBD5E1) else textDim,
@@ -346,3 +362,4 @@ fun GaragemOverviewScreen(
         }
     }
 }
+

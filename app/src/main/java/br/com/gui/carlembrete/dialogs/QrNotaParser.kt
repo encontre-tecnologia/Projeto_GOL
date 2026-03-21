@@ -144,10 +144,63 @@ suspend fun consultarNotaPorQrCode(url: String): NotaQrInfo? = withContext(Dispa
         }
         val urlNormalizada = normalizarUrlQr(url)
         Log.i(QR_PARSER_TAG, "Iniciando consulta QR URL=$urlNormalizada")
-        val doc = Jsoup.connect(urlNormalizada)
+        var doc = Jsoup.connect(urlNormalizada)
             .userAgent("Mozilla/5.0")
+            .header("Accept-Language", "pt-BR,pt;q=0.9,en;q=0.8")
+            .header("Referer", "https://www.nfce.fazenda.sp.gov.br/")
+            .followRedirects(true)
             .timeout(15000)
             .get()
+        Log.d(
+            QR_PARSER_TAG,
+            "Resposta QR: location=${doc.location()} title=${doc.title().take(120)}"
+        )
+
+        if (doc.location().contains("%257C")) {
+            val retryUrl = normalizarParametroPDaUrl(doc.location())
+            Log.d(QR_PARSER_TAG, "Retry SP: corrigindo dupla codificacao de p e consultando novamente.")
+            doc = Jsoup.connect(retryUrl)
+                .userAgent("Mozilla/5.0")
+                .header("Accept-Language", "pt-BR,pt;q=0.9,en;q=0.8")
+                .header("Referer", "https://www.nfce.fazenda.sp.gov.br/")
+                .followRedirects(true)
+                .timeout(15000)
+                .get()
+            Log.d(
+                QR_PARSER_TAG,
+                "Resposta QR retry: location=${doc.location()} title=${doc.title().take(120)}"
+            )
+        }
+
+        val hostConsulta = runCatching { java.net.URI(doc.location()).host?.lowercase(Locale.ROOT) }
+            .getOrNull()
+            .orEmpty()
+        val pareceRespostaVaziaSp = hostConsulta.contains("nfce.fazenda.sp.gov.br") &&
+            doc.select("#tabResult, .txtTit, .txtProd, .totalNumb, #linhaTotal").isEmpty()
+        if (pareceRespostaVaziaSp) {
+            Log.d(QR_PARSER_TAG, "SP bootstrap: tentando consulta com sessao/cookies.")
+            val baseUrlSp = "https://www.nfce.fazenda.sp.gov.br/NFCeConsultaPublica/Paginas/ConsultaQRCode.aspx"
+            val bootstrap = Jsoup.connect(baseUrlSp)
+                .userAgent("Mozilla/5.0")
+                .header("Accept-Language", "pt-BR,pt;q=0.9,en;q=0.8")
+                .followRedirects(true)
+                .timeout(15000)
+                .execute()
+            val cookies = bootstrap.cookies()
+            val retrySessionUrl = normalizarParametroPDaUrl(normalizarRotaSpNfce(urlNormalizada))
+            doc = Jsoup.connect(retrySessionUrl)
+                .userAgent("Mozilla/5.0")
+                .header("Accept-Language", "pt-BR,pt;q=0.9,en;q=0.8")
+                .header("Referer", baseUrlSp)
+                .cookies(cookies)
+                .followRedirects(true)
+                .timeout(15000)
+                .get()
+            Log.d(
+                QR_PARSER_TAG,
+                "Resposta QR sessao: location=${doc.location()} title=${doc.title().take(120)} hasTabResult=${doc.select("#tabResult").isNotEmpty()}"
+            )
+        }
 
         // Padrões mais comuns por estado (SP / MG).
         val porLayout = extrairNotaPorLayout(doc)
@@ -216,15 +269,97 @@ suspend fun consultarNotaPorQrCode(url: String): NotaQrInfo? = withContext(Dispa
     }.getOrNull()
 }
 
+internal fun sanitizeQrUrlText(value: String): String {
+    return value
+        .replace("\uFEFF", "")
+        .replace("\u200B", "")
+        .replace("\u200C", "")
+        .replace("\u200D", "")
+        .replace("\u2060", "")
+        .replace('\u00A0', ' ')
+        .replace(Regex("[\\u0000-\\u001F\\u007F]"), "")
+        .trim()
+}
+
 private fun normalizarUrlQr(url: String): String {
-    val urlLimpa = url.trim()
+    val urlLimpa = sanitizeQrUrlText(url)
+        .replace(Regex("^[^A-Za-z0-9]+(?=https?://)", RegexOption.IGNORE_CASE), "")
+        .let { cleaned ->
+            if (cleaned.startsWith("www.", ignoreCase = true)) "https://$cleaned" else cleaned
+        }
     val uri = runCatching { Uri.parse(urlLimpa) }.getOrNull() ?: return urlLimpa
-    if (!uri.scheme.equals("http", ignoreCase = true)) return urlLimpa
     val host = uri.host.orEmpty()
     if (host.isBlank()) return urlLimpa
-    val httpsUrl = uri.buildUpon().scheme("https").build().toString()
-    Log.d(QR_PARSER_TAG, "URL QR normalizada para HTTPS: host=$host")
-    return httpsUrl
+
+    val httpsUrl = if (uri.scheme.equals("http", ignoreCase = true)) {
+        uri.buildUpon().scheme("https").build().toString()
+    } else {
+        urlLimpa
+    }
+
+    val urlComRotaNormalizada = normalizarRotaSpNfce(httpsUrl)
+    val urlComQueryNormalizada = normalizarParametroPDaUrl(urlComRotaNormalizada)
+    val urlFinal = urlComQueryNormalizada
+    if (urlComRotaNormalizada != urlComQueryNormalizada) {
+        Log.d(QR_PARSER_TAG, "URL QR ajustada (query p codificada): host=$host")
+    }
+    if (httpsUrl != urlComRotaNormalizada) {
+        Log.d(QR_PARSER_TAG, "URL QR ajustada para endpoint canônico SP.")
+    } else if (uri.scheme.equals("http", ignoreCase = true)) {
+        Log.d(QR_PARSER_TAG, "URL QR normalizada para HTTPS: host=$host")
+    }
+    return urlFinal
+}
+
+private fun normalizarParametroPDaUrl(url: String): String {
+    val uri = runCatching { Uri.parse(url) }.getOrNull() ?: return url
+    val host = uri.host.orEmpty().lowercase(Locale.ROOT)
+    val isSpHost = host.contains("nfce.fazenda.sp.gov.br")
+    val query = uri.encodedQuery ?: return url
+    if (!query.contains("p=", ignoreCase = true)) return url
+
+    val queryAjustada = query.split("&").joinToString("&") { parte ->
+        val idx = parte.indexOf('=')
+        if (idx <= 0) return@joinToString parte
+        val chave = parte.substring(0, idx)
+        val valor = parte.substring(idx + 1)
+        if (chave.equals("p", ignoreCase = true)) {
+            val valorAjustado = if (isSpHost) {
+                valor.replace("%257C", "|", ignoreCase = true)
+                    .replace("%7C", "|", ignoreCase = true)
+            } else {
+                valor.replace("|", "%7C")
+            }
+            "$chave=$valorAjustado"
+        } else {
+            parte
+        }
+    }
+
+    if (queryAjustada == query) return url
+    return uri.buildUpon().encodedQuery(queryAjustada).build().toString()
+}
+
+private fun normalizarRotaSpNfce(url: String): String {
+    val uri = runCatching { Uri.parse(url) }.getOrNull() ?: return url
+    val host = uri.host.orEmpty().lowercase(Locale.ROOT)
+    if (!host.contains("nfce.fazenda.sp.gov.br")) return url
+
+    val query = uri.encodedQuery ?: return url
+    if (!query.contains("p=", ignoreCase = true)) return url
+
+    val pathAtual = uri.encodedPath.orEmpty()
+    if (pathAtual.contains("/NFCeConsultaPublica/Paginas/ConsultaQRCode.aspx", ignoreCase = true)) {
+        return url
+    }
+
+    val urlCanonica = uri.buildUpon()
+        .encodedPath("/NFCeConsultaPublica/Paginas/ConsultaQRCode.aspx")
+        .encodedQuery(query)
+        .build()
+        .toString()
+    Log.d(QR_PARSER_TAG, "URL QR SP ajustada para rota canônica de consulta.")
+    return urlCanonica
 }
 
 internal fun parseNotaHtmlForTest(html: String, url: String = "https://www.fazenda.sp.gov.br"): NotaQrInfo? {
@@ -283,9 +418,14 @@ internal fun parseNotaHtmlForTest(html: String, url: String = "https://www.fazen
 private fun extrairNotaPorLayout(doc: Document): NotaQrInfo? {
     val host = runCatching { java.net.URI(doc.location()).host?.lowercase(Locale.ROOT) }.getOrNull().orEmpty()
     return when {
+        host.contains("nfse.gov.br") -> {
+            Log.d(QR_PARSER_TAG, "Parser selecionado: NFS-e nacional (host=$host)")
+            extrairNotaLayoutNfse(doc)
+        }
+
         host.contains("dfe.ms.gov.br") || host.contains("sefaz.ms.gov.br") -> {
-            Log.d(QR_PARSER_TAG, "Parser selecionado: MS (host=$host) - usando fallback robusto")
-            null
+            Log.d(QR_PARSER_TAG, "Parser selecionado: MS (host=$host) - tentando layout nacional")
+            extrairNotaLayoutNacional(doc)
         }
 
         host.contains("fazenda.sp.gov.br") ||
@@ -301,8 +441,8 @@ private fun extrairNotaPorLayout(doc: Document): NotaQrInfo? {
         }
 
         else -> {
-            Log.d(QR_PARSER_TAG, "Nenhum layout SP/MG identificado (host=$host)")
-            null
+            Log.d(QR_PARSER_TAG, "Layout nacional/fallback (host=$host)")
+            extrairNotaLayoutNacional(doc)
         }
     }
 }
@@ -374,11 +514,122 @@ private fun extrairNotaLayoutMg(doc: Document): NotaQrInfo? {
     )
 }
 
+private fun extrairNotaLayoutNacional(doc: Document): NotaQrInfo? {
+    val valor = sequenceOf(
+        doc.select("#totalNota").text(),
+        doc.select("#valorTotal").text(),
+        doc.select(".totalNumb").text(),
+        doc.select(".valorTotal").text(),
+        doc.select(".vNF").text(),
+        doc.select(".txtMax").text(),
+        doc.select("td:matchesOwn((?i)valor\\s*a\\s*pagar|valor\\s*total|total\\s*da\\s*nota|v\\.?\\s*nf)").text()
+    ).map { extrairPrimeiroValorMonetario(it) }.firstOrNull { it != null }
+        ?: encontrarValorProximoAoRotulo(
+            doc,
+            Regex("(?i)valor\\s*a\\s*pagar|valor\\s*total|total\\s*da\\s*nota|v\\.?\\s*nf|total")
+        )
+
+    val data = sequenceOf(
+        doc.select("#dataEmissao").text(),
+        doc.select(".dataEmissao").text(),
+        doc.select(".dhEmi").text(),
+        doc.select(".txtCenter").text(),
+        doc.select(".dadosNf").text(),
+        doc.select("td:matchesOwn((?i)data\\s*de\\s*emissao|emissao|data)").text()
+    ).map { extrairPrimeiraData(it) }.firstOrNull { it != null }
+        ?: encontrarDataProximaAoRotulo(doc, Regex("(?i)data\\s*de\\s*emissao|emissao|data"))
+
+    val descricaoItens = extrairItensGenerico(doc)
+    val estabelecimento = extrairDadosEstabelecimento(doc)
+    Log.d(
+        QR_PARSER_TAG,
+        "Nacional parser => valor=$valor data=$data itens=$descricaoItens estabelecimento=${estabelecimento.first} endereco=${estabelecimento.second}"
+    )
+    return if (valor == null && data == null && descricaoItens.isNullOrBlank()) null else NotaQrInfo(
+        valorTotal = valor,
+        dataCompra = data,
+        descricaoItens = descricaoItens,
+        nomeEstabelecimento = estabelecimento.first,
+        enderecoEstabelecimento = estabelecimento.second
+    )
+}
+
+private fun extrairNotaLayoutNfse(doc: Document): NotaQrInfo? {
+    val texto = Parser.unescapeEntities(doc.text(), false).replace(Regex("\\s+"), " ").trim()
+    val valor = sequenceOf(
+        doc.select("#ValorServico").text(),
+        doc.select("#ValorLiquidoNfse").text(),
+        doc.select("#ValorNfse").text(),
+        doc.select("td:matchesOwn((?i)valor\\s*do\\s*servi[cç]o|valor\\s*total|valor\\s*líquido)").text(),
+        texto
+    ).map { extrairPrimeiroValorMonetario(it) }.firstOrNull { it != null }
+
+    val data = sequenceOf(
+        doc.select("#DataEmissao").text(),
+        doc.select("td:matchesOwn((?i)data\\s*de\\s*emiss[aã]o|compet[êe]ncia|emiss[aã]o)").text(),
+        texto
+    ).map { extrairPrimeiraData(it) }.firstOrNull { it != null }
+
+    val prestador = sequenceOf(
+        doc.select("#PrestadorServico").text(),
+        doc.select("#NomePrestador").text(),
+        doc.select("td:matchesOwn((?i)prestador|emitente)").text()
+    ).map { it.trim() }.firstOrNull { it.isNotBlank() }
+
+    val itens = extrairItensGenerico(doc)
+    val exigeValidacaoHumana = doc.select("script[src*='hcaptcha'], .h-captcha, iframe[src*='hcaptcha']").isNotEmpty() ||
+        doc.select("#ChaveAcesso, input[name='ChaveAcesso']").isNotEmpty()
+
+    if (valor == null && data == null && itens.isNullOrBlank()) {
+        if (exigeValidacaoHumana) {
+            val descricao = "NFS-e detectada. A consulta publica exige validacao manual (captcha)."
+            Log.d(QR_PARSER_TAG, "NFS-e sem dados estruturados: exige validacao manual.")
+            return NotaQrInfo(
+                valorTotal = null,
+                dataCompra = null,
+                descricaoItens = descricao,
+                nomeEstabelecimento = prestador ?: "NFS-e",
+                enderecoEstabelecimento = null
+            )
+        }
+        return null
+    }
+
+    return NotaQrInfo(
+        valorTotal = valor,
+        dataCompra = data,
+        descricaoItens = itens ?: "NFS-e detectada",
+        nomeEstabelecimento = prestador,
+        enderecoEstabelecimento = null
+    )
+}
+
 private fun extrairItensSp(doc: Document): String? {
+    val porTabelaResumo = extrairItensSpPorTitulosEValores(doc)
+    if (!porTabelaResumo.isNullOrBlank()) return porTabelaResumo
     return extrairItensPorLinhas(
         doc = doc,
         seletoresLinha = listOf("#tabResult tr", ".txtTit", ".txtProd", "table tr")
     )
+}
+
+private fun extrairItensSpPorTitulosEValores(doc: Document): String? {
+    val nomes = doc.select("#tabResult .txtTit, .txtTit")
+        .mapNotNull { limparNomeProduto(it.text()) }
+        .distinct()
+    if (nomes.isEmpty()) return null
+
+    val valores = doc.select("#tabResult .valor, #tabResult .valorItem, .valor")
+        .mapNotNull { extrairPrimeiroValorMonetario(it.text()) }
+        .toList()
+    if (valores.isEmpty()) return nomes.take(4).joinToString(" + ")
+
+    val limite = minOf(nomes.size, valores.size, 8)
+    if (limite == 0) return null
+    val itens = (0 until limite).map { i ->
+        "${nomes[i].take(60)} (${String.format(Locale.US, "%.2f", valores[i])})"
+    }
+    return normalizarItensDescricao(itens)
 }
 
 private fun extrairItensMg(doc: Document): String? {
@@ -415,6 +666,11 @@ private fun montarItemDescricao(textoLinha: String): String? {
     if (
         lower.contains("valor total") ||
         lower.contains("total da nota") ||
+        lower.contains("vl. total") ||
+        lower.contains("vl total") ||
+        lower.startsWith(". total") ||
+        lower.startsWith("total ") ||
+        lower.startsWith("valor pago") ||
         lower.contains("chave de acesso") ||
         lower.contains("protocolo") ||
         lower.contains("tribut") ||
@@ -441,12 +697,16 @@ private fun montarItemDescricao(textoLinha: String): String? {
 }
 
 private fun extrairItensPorTitulosEValores(doc: Document): String? {
-    val nomes = doc.select(".txtTit, .txtProd, .descricao, .xProd")
+    val nomes = doc.select(
+        ".txtTit, .txtProd, .descricao, .xProd, .descProd, .produto, [id*=xProd], [class*=xProd]"
+    )
         .mapNotNull { limparNomeProduto(it.text()) }
         .distinct()
     if (nomes.isEmpty()) return null
 
-    val valores = doc.select(".valor, .valorItem, .vProd, .preco, .valorProduto, .RxValor")
+    val valores = doc.select(
+        ".valor, .valorItem, .vProd, .preco, .valorProduto, .RxValor, [id*=vProd], [class*=vProd], [class*=valor]"
+    )
         .mapNotNull { extrairPrimeiroValorMonetario(it.text()) }
         .toList()
     if (valores.isEmpty()) return nomes.take(4).joinToString(" + ")

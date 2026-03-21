@@ -44,14 +44,19 @@ import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioTrack
+import android.content.pm.PackageManager
 import com.google.firebase.Timestamp
+import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.firestore.SetOptions
 import java.nio.ByteBuffer
 import java.util.UUID
 import kotlin.math.sin
+import androidx.core.content.ContextCompat
 
 class AnjoDaGuardaService : Service(), SensorEventListener {
     companion object {
@@ -85,6 +90,8 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
     private var sensorManager: SensorManager? = null
     private var accelSensor: Sensor? = null
     private var lastMagnitude = 0f
+    private var filteredDelta = 0f
+    private var motionNoiseFloor = 0.35f
     private var lastAlertAt = 0L
     private var spikeCount = 0
     private var firstSpikeAt = 0L
@@ -97,8 +104,14 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
     private var gattClient: BluetoothGatt? = null
     private var connectedDevices = mutableSetOf<BluetoothDevice>()
     private var firestoreListener: ListenerRegistration? = null
+    private var firestoreFallbackListener: ListenerRegistration? = null
+    private var armedStateListener: ListenerRegistration? = null
+    private var armedStateFallbackListener: ListenerRegistration? = null
     private var lastAlertTimestamp: Timestamp? = null
     private var lastAlertMillis: Long = 0L
+    private var lastRemotePrimaryEventId: String? = null
+    private var lastRemoteFallbackEventId: String? = null
+    private var remoteListenerStartedAtClientMillis: Long = 0L
     private var lastBleAlertMillis: Long = 0L
     private var lastOwnerAlertAt: Long = 0L
     private var lastRemoteAlertAt: Long = 0L
@@ -113,6 +126,9 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
     private var lowBatterySent = false
     private var unpluggedSent = false
     private var lastCharging: Boolean? = null
+    private var lastBatteryStatusWriteAt: Long = 0L
+    private var lastBatteryStatusPercent: Int? = null
+    private var lastArmedStateVersion: Long = 0L
     private val remoteAlertCooldownByType = mutableMapOf<String, Long>()
 
     private val scanRestartDebounceMs = 8_000L
@@ -129,17 +145,17 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
 
     override fun onCreate() {
         super.onCreate()
-        bluetoothManager = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
-        adapter = bluetoothManager?.adapter
         sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
         accelSensor = sensorManager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
         createChannel()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        Log.d(TAG, "onStartCommand action=${intent?.action} startId=$startId")
         when (intent?.action) {
             ACTION_STOP -> {
                 clearFirestoreAlerts()
+                stopArmedStateListener()
                 stopSelf()
                 return START_NOT_STICKY
             }
@@ -151,6 +167,7 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
                 alarmLocal = intent.getBooleanExtra(EXTRA_ALARM_LOCAL, alarmLocal)
                 alarmRemote = intent.getBooleanExtra(EXTRA_ALARM_REMOTE, alarmRemote)
                 stopOwnerAlarm()
+                publishArmedState(false)
             }
             ACTION_UPDATE -> {
                 isCarMode = intent.getBooleanExtra(EXTRA_IS_CAR, isCarMode)
@@ -170,72 +187,56 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
                 if (!alarmRemote) {
                     stopOwnerAlarm()
                 }
+                publishArmedState(isArmed)
             }
         }
 
         if (isCarMode) {
             stopFirestoreListener()
             stopOwnerAlarm()
-            stopBleScanner()
-            closeGattClient()
-            stopBleWatchdog()
-            unregisterBluetoothStateReceiver()
         } else {
             stopMotionMonitor()
             stopBatteryMonitor()
-            stopBleAdvertiser()
-            stopGattServer()
         }
+        Log.d(
+            TAG,
+            "state mode=${if (isCarMode) "CAR" else "OWNER"} armed=$isArmed notifyRemote=$notifyRemote alarmLocal=$alarmLocal alarmRemote=$alarmRemote"
+        )
 
         if (intent?.action != ACTION_UPDATE) {
-            startForeground(
-                NOTIF_ID,
-                buildStatusNotification(if (isArmed) "Vigia ativo" else "Vigia pausado")
-            )
+            val started = startForegroundSafely(if (isArmed) "Vigia ativo" else "Vigia desativado")
+            if (!started) {
+                return START_NOT_STICKY
+            }
         }
 
         if (isCarMode) {
             if (isArmed) {
                 startMotionMonitor()
                 startBatteryMonitor()
-                startBleAdvertiser()
-                startGattServer()
             } else {
                 stopMotionMonitor()
                 stopBatteryMonitor()
-                stopBleAdvertiser()
-                stopGattServer()
             }
         } else {
             lastAlertMillis = System.currentTimeMillis()
             lastAlertTimestamp = Timestamp.now()
             if (isArmed) {
                 startFirestoreListener()
-                registerBluetoothStateReceiver()
-                startBleScanner()
-                startBleWatchdog()
             } else {
                 stopFirestoreListener()
-                stopBleScanner()
-                closeGattClient()
-                stopBleWatchdog()
-                unregisterBluetoothStateReceiver()
             }
         }
 
+        startArmedStateListener()
         return START_STICKY
     }
 
     override fun onDestroy() {
         stopMotionMonitor()
         stopFirestoreListener()
+        stopArmedStateListener()
         stopBatteryMonitor()
-        stopBleAdvertiser()
-        stopGattServer()
-        stopBleScanner()
-        closeGattClient()
-        stopBleWatchdog()
-        unregisterBluetoothStateReceiver()
         stopOwnerAlarm()
         bleConnected = false
         super.onDestroy()
@@ -253,14 +254,22 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
 
     override fun onSensorChanged(event: SensorEvent?) {
         if (event?.sensor?.type != Sensor.TYPE_ACCELEROMETER) return
+        if (!isCarMode || !isArmed) return
         val values = event.values
         val magnitude = kotlin.math.sqrt(values[0] * values[0] + values[1] * values[1] + values[2] * values[2])
+        if (lastMagnitude == 0f) {
+            lastMagnitude = magnitude
+            return
+        }
         val delta = kotlin.math.abs(magnitude - lastMagnitude)
         lastMagnitude = magnitude
+        filteredDelta = (filteredDelta * 0.82f) + (delta * 0.18f)
+        motionNoiseFloor = (motionNoiseFloor * 0.97f) + (filteredDelta * 0.03f)
+        val dynamicThreshold = kotlin.math.max(1.7f, motionNoiseFloor * 3.4f)
 
         val now = SystemClock.elapsedRealtime()
-        if (delta > 2.6f) {
-            if (firstSpikeAt == 0L || now - firstSpikeAt > 1200) {
+        if (filteredDelta > dynamicThreshold) {
+            if (firstSpikeAt == 0L || now - firstSpikeAt > 1600) {
                 firstSpikeAt = now
                 spikeCount = 0
             }
@@ -271,15 +280,15 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
                 firstSpikeAt = 0L
                 handleMotionDetected()
             }
+        } else if (firstSpikeAt != 0L && now - firstSpikeAt > 1800) {
+            spikeCount = 0
+            firstSpikeAt = 0L
         }
     }
 
     private fun handleMotionDetected() {
-        if (!isArmed) return
-        if (isCarMode) {
-            notifyBleClients()
-        }
-        showAlertNotification("Movimento detectado")
+        if (!isArmed || !isCarMode) return
+        Log.d(TAG, "motion detected mode=${if (isCarMode) "CAR" else "OWNER"} notifyRemote=$notifyRemote")
         if (notifyRemote) {
             sendFirestoreAlert("Movimento")
         }
@@ -524,7 +533,7 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
     }
 
     private fun startFirestoreListener() {
-        if (!notifyRemote || !isArmed) return
+        if (!isArmed) return
         val uid = FirebaseAuth.getInstance().currentUser?.uid
         if (uid == null) {
             Log.w(TAG, "Sem login para escutar alertas remotos")
@@ -532,59 +541,262 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
             return
         }
         val db = FirebaseFirestore.getInstance()
-        firestoreListener = db.collection("guardian_alerts")
+        val projectId = FirebaseApp.getInstance().options.projectId ?: "unknown"
+        Log.d(TAG, "startFirestoreListener uid=$uid project=$projectId")
+        stopFirestoreListener()
+        lastRemotePrimaryEventId = null
+        lastRemoteFallbackEventId = null
+        remoteListenerStartedAtClientMillis = System.currentTimeMillis() - 5_000L
+        Log.d(TAG, "listen events primary path=guardian_alerts/$uid/events")
+        Log.d(TAG, "listen events fallback path=users/$uid/guardian_alerts/main/events")
+
+        val primaryQuery = db.collection("guardian_alerts")
             .document(uid)
             .collection("events")
             .orderBy("timestamp", com.google.firebase.firestore.Query.Direction.DESCENDING)
             .limit(1)
-            .addSnapshotListener { snapshot, err ->
-                if (err != null) {
-                    Log.e(TAG, "Erro ao escutar alertas remotos", err)
-                    return@addSnapshotListener
-                }
-                val doc = snapshot?.documents?.firstOrNull() ?: return@addSnapshotListener
-                val clientMillis = doc.getLong("clientMillis")
-                if (clientMillis != null) {
-                    if (clientMillis > lastAlertMillis) {
-                        lastAlertMillis = clientMillis
-                        Log.d(TAG, "Alerta remoto recebido (clientMillis)")
-                        handleOwnerAlert("Movimento no carro detectado")
-                    }
-                    return@addSnapshotListener
-                }
-                val ts = doc.getTimestamp("timestamp") ?: return@addSnapshotListener
-                val lastTs = lastAlertTimestamp
-                if (lastTs == null || ts > lastTs) {
-                    lastAlertTimestamp = ts
-                    Log.d(TAG, "Alerta remoto recebido (timestamp)")
-                    handleOwnerAlert("Movimento no carro detectado")
-                }
+        firestoreListener = primaryQuery.addSnapshotListener { snapshot, err ->
+            if (err != null) {
+                logFirestoreError("listen_primary", uid, err)
+                return@addSnapshotListener
             }
+            processRemoteAlertSnapshot(
+                doc = snapshot?.documents?.firstOrNull(),
+                source = "primary"
+            )
+        }
+
+        val fallbackQuery = db.collection("users")
+            .document(uid)
+            .collection("guardian_alerts")
+            .document("main")
+            .collection("events")
+            .orderBy("timestamp", com.google.firebase.firestore.Query.Direction.DESCENDING)
+            .limit(1)
+        firestoreFallbackListener = fallbackQuery.addSnapshotListener { snapshot, err ->
+            if (err != null) {
+                logFirestoreError("listen_fallback", uid, err)
+                return@addSnapshotListener
+            }
+            processRemoteAlertSnapshot(
+                doc = snapshot?.documents?.firstOrNull(),
+                source = "fallback"
+            )
+        }
     }
 
     private fun stopFirestoreListener() {
+        Log.d(TAG, "stopFirestoreListener")
         firestoreListener?.remove()
         firestoreListener = null
+        firestoreFallbackListener?.remove()
+        firestoreFallbackListener = null
+    }
+
+    private fun startArmedStateListener() {
+        val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
+        armedStateListener?.remove()
+        armedStateFallbackListener?.remove()
+        val db = FirebaseFirestore.getInstance()
+        Log.d(TAG, "startArmedStateListener uid=$uid")
+
+        fun extractArmedVersion(snapshot: com.google.firebase.firestore.DocumentSnapshot?): Long {
+            val clientVersion = snapshot?.getLong("updatedAtClient") ?: 0L
+            if (clientVersion > 0L) return clientVersion
+            return snapshot?.getTimestamp("updatedAt")?.toDate()?.time ?: 0L
+        }
+
+        fun applyRemoteArmedState(remoteArmed: Boolean) {
+            if (remoteArmed == isArmed) return
+            Log.d(TAG, "remote armed state changed: $remoteArmed")
+            isArmed = remoteArmed
+            if (!isArmed) {
+                clearFirestoreAlerts()
+            }
+            if (isCarMode) {
+                if (isArmed) {
+                    startMotionMonitor()
+                    startBatteryMonitor()
+                } else {
+                    stopMotionMonitor()
+                    stopBatteryMonitor()
+                }
+            } else {
+                if (isArmed) {
+                    startFirestoreListener()
+                } else {
+                    stopFirestoreListener()
+                    stopOwnerAlarm()
+                }
+            }
+            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            manager.notify(NOTIF_ID, buildStatusNotification(if (isArmed) "Vigia ativo" else "Vigia desativado"))
+        }
+
+        fun handleArmedSnapshot(
+            stage: String,
+            snapshot: com.google.firebase.firestore.DocumentSnapshot?,
+            err: FirebaseFirestoreException?
+        ) {
+            if (err != null) {
+                logFirestoreError(stage, uid, err)
+                return
+            }
+            val remoteArmed = snapshot?.getBoolean("armed") ?: return
+            val version = extractArmedVersion(snapshot)
+            if (version > 0L) {
+                if (version < lastArmedStateVersion) return
+                lastArmedStateVersion = version
+            }
+            applyRemoteArmedState(remoteArmed)
+        }
+
+        Log.d(TAG, "listen armed primary path=guardian_alerts/$uid")
+        armedStateListener = db.collection("guardian_alerts")
+            .document(uid)
+            .addSnapshotListener { snapshot, err ->
+                handleArmedSnapshot("listen_armed_state_primary", snapshot, err)
+            }
+
+        Log.d(TAG, "listen armed fallback path=users/$uid/guardian_alerts/main")
+        armedStateFallbackListener = db.collection("users")
+            .document(uid)
+            .collection("guardian_alerts")
+            .document("main")
+            .addSnapshotListener { snapshot, err ->
+                handleArmedSnapshot("listen_armed_state_fallback", snapshot, err)
+            }
+    }
+
+    private fun stopArmedStateListener() {
+        armedStateListener?.remove()
+        armedStateListener = null
+        armedStateFallbackListener?.remove()
+        armedStateFallbackListener = null
+    }
+
+    private fun publishArmedState(armed: Boolean) {
+        val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
+        val db = FirebaseFirestore.getInstance()
+        val payload = hashMapOf(
+            "armed" to armed,
+            "updatedAt" to FieldValue.serverTimestamp(),
+            "updatedAtClient" to System.currentTimeMillis(),
+            "lastDevice" to Build.MODEL
+        )
+        val primaryRef = db.collection("guardian_alerts").document(uid)
+        val fallbackRef = db.collection("users")
+            .document(uid)
+            .collection("guardian_alerts")
+            .document("main")
+
+        primaryRef.set(payload, SetOptions.merge())
+            .addOnFailureListener { err ->
+                logFirestoreError("publish_armed_primary", uid, err)
+            }
+        fallbackRef.set(payload, SetOptions.merge())
+            .addOnFailureListener { fallbackErr ->
+                logFirestoreError("publish_armed_fallback", uid, fallbackErr)
+            }
+    }
+
+    private fun publishBatteryStatus(percent: Int, plugged: Boolean) {
+        val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
+        val now = SystemClock.elapsedRealtime()
+        val previous = lastBatteryStatusPercent
+        val changedEnough = previous == null || kotlin.math.abs(previous - percent) >= 3
+        val timeOk = now - lastBatteryStatusWriteAt >= 30_000L
+        if (!changedEnough && !timeOk) return
+        lastBatteryStatusWriteAt = now
+        lastBatteryStatusPercent = percent
+
+        val db = FirebaseFirestore.getInstance()
+        val payload = hashMapOf(
+            "batteryPercent" to percent,
+            "batteryCharging" to plugged,
+            "batteryUpdatedAt" to FieldValue.serverTimestamp(),
+            "lastDevice" to Build.MODEL
+        )
+        val primaryRef = db.collection("guardian_alerts").document(uid)
+        primaryRef.set(payload, SetOptions.merge())
+            .addOnFailureListener { err ->
+                if (err is FirebaseFirestoreException && err.code == FirebaseFirestoreException.Code.PERMISSION_DENIED) {
+                    val fallbackRef = db.collection("users")
+                        .document(uid)
+                        .collection("guardian_alerts")
+                        .document("main")
+                    fallbackRef.set(payload, SetOptions.merge())
+                        .addOnFailureListener { fallbackErr ->
+                            logFirestoreError("publish_battery_fallback", uid, fallbackErr)
+                        }
+                } else {
+                    logFirestoreError("publish_battery_primary", uid, err)
+                }
+            }
     }
 
     private fun clearFirestoreAlerts() {
         val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
         val db = FirebaseFirestore.getInstance()
-        db.collection("guardian_alerts")
+        Log.d(TAG, "clearFirestoreAlerts uid=$uid")
+        val now = System.currentTimeMillis()
+        val primaryEvents = db.collection("guardian_alerts")
             .document(uid)
             .collection("events")
-            .get()
-            .addOnSuccessListener { snapshot ->
-                if (snapshot.isEmpty) return@addOnSuccessListener
-                val batch = db.batch()
-                snapshot.documents.forEach { doc -> batch.delete(doc.reference) }
-                batch.commit()
-                    .addOnFailureListener { err ->
-                        Log.e(TAG, "Falha ao apagar alertas do guardiao", err)
+        val fallbackEvents = db.collection("users")
+            .document(uid)
+            .collection("guardian_alerts")
+            .document("main")
+            .collection("events")
+        val resetPayload = hashMapOf(
+            "armed" to false,
+            "carReady" to false,
+            "ownerReady" to false,
+            "carReadyAtClient" to 0L,
+            "ownerReadyAtClient" to 0L,
+            "updatedAt" to FieldValue.serverTimestamp(),
+            "updatedAtClient" to now,
+            "lastDevice" to Build.MODEL,
+            "batteryPercent" to FieldValue.delete(),
+            "batteryCharging" to FieldValue.delete(),
+            "batteryUpdatedAt" to FieldValue.delete()
+        )
+        val primaryRoot = db.collection("guardian_alerts").document(uid)
+        val fallbackRoot = db.collection("users")
+            .document(uid)
+            .collection("guardian_alerts")
+            .document("main")
+
+        fun clearCollection(ref: com.google.firebase.firestore.CollectionReference, label: String) {
+            ref.get()
+                .addOnSuccessListener { snapshot ->
+                    if (snapshot.isEmpty) return@addOnSuccessListener
+                    val batch = db.batch()
+                    snapshot.documents.forEach { doc -> batch.delete(doc.reference) }
+                    batch.commit()
+                        .addOnFailureListener { err ->
+                            Log.e(TAG, "Falha ao apagar alertas do guardiao ($label)", err)
+                        }
+                }
+                .addOnFailureListener { err ->
+                    if (err is FirebaseFirestoreException && err.code == FirebaseFirestoreException.Code.PERMISSION_DENIED) {
+                        Log.w(TAG, "Sem permissao para limpar $label")
+                    } else {
+                        logFirestoreError("clear_$label", uid, err)
                     }
-            }
+                }
+        }
+
+        clearCollection(primaryEvents, "primary")
+        clearCollection(fallbackEvents, "fallback")
+
+        primaryRoot.set(resetPayload, SetOptions.merge())
             .addOnFailureListener { err ->
-                Log.e(TAG, "Falha ao carregar alertas para apagar", err)
+                logFirestoreError("clear_root_primary", uid, err)
+            }
+        fallbackRoot.set(resetPayload, SetOptions.merge())
+            .addOnFailureListener { err ->
+                logFirestoreError("clear_root_fallback", uid, err)
             }
     }
 
@@ -603,6 +815,8 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
             Log.d(TAG, "Alerta remoto ignorado por cooldown: ${type ?: "geral"}")
             return
         }
+        val projectId = FirebaseApp.getInstance().options.projectId ?: "unknown"
+        Log.d(TAG, "sendFirestoreAlert uid=$uid project=$projectId type=${type ?: "geral"}")
         val db = FirebaseFirestore.getInstance()
         val payload = hashMapOf(
             "timestamp" to FieldValue.serverTimestamp(),
@@ -612,15 +826,101 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
         if (!type.isNullOrBlank()) {
             payload["type"] = type
         }
-        db.collection("guardian_alerts")
-            .document(uid)
-            .collection("events")
-            .add(payload)
-            .addOnSuccessListener { markRemoteAlertSent(type) }
-            .addOnFailureListener { err ->
-                Log.e(TAG, "Falha ao enviar alerta remoto", err)
-                showAlertNotification("Falha ao enviar alerta remoto")
+        sendFirestoreAlertPrimary(uid, payload, type)
+    }
+
+    private fun sendFirestoreAlertPrimary(uid: String, payload: HashMap<String, Any>, type: String?) {
+        val db = FirebaseFirestore.getInstance()
+        val rootRef = db.collection("guardian_alerts").document(uid)
+        val eventRef = rootRef.collection("events").document()
+        Log.d(TAG, "send primary path=${rootRef.path}/events/${eventRef.id}")
+        val rootPayload = hashMapOf(
+            "ownerUid" to uid,
+            "updatedAt" to FieldValue.serverTimestamp(),
+            "lastDevice" to Build.MODEL
+        )
+        db.runBatch { batch ->
+            batch.set(rootRef, rootPayload, SetOptions.merge())
+            batch.set(eventRef, payload)
+        }.addOnSuccessListener {
+            Log.d(TAG, "send primary success uid=$uid")
+            markRemoteAlertSent(type)
+        }.addOnFailureListener { err ->
+            if (err is FirebaseFirestoreException && err.code == FirebaseFirestoreException.Code.PERMISSION_DENIED) {
+                Log.w(TAG, "Sem permissao no caminho principal, tentando fallback", err)
+                sendFirestoreAlertFallback(uid, payload, type)
+            } else {
+                logFirestoreError("send_primary", uid, err)
+                val detail = err.message?.take(120) ?: "erro desconhecido"
+                showAlertNotification("Falha ao enviar alerta remoto: $detail")
             }
+        }
+    }
+
+    private fun sendFirestoreAlertFallback(uid: String, payload: HashMap<String, Any>, type: String?) {
+        val db = FirebaseFirestore.getInstance()
+        val rootRef = db.collection("users").document(uid).collection("guardian_alerts").document("main")
+        val eventRef = rootRef.collection("events").document()
+        Log.d(TAG, "send fallback path=${rootRef.path}/events/${eventRef.id}")
+        val rootPayload = hashMapOf(
+            "ownerUid" to uid,
+            "updatedAt" to FieldValue.serverTimestamp(),
+            "lastDevice" to Build.MODEL
+        )
+        db.runBatch { batch ->
+            batch.set(rootRef, rootPayload, SetOptions.merge())
+            batch.set(eventRef, payload)
+        }.addOnSuccessListener {
+            Log.d(TAG, "send fallback success uid=$uid")
+            markRemoteAlertSent(type)
+        }.addOnFailureListener { err ->
+            logFirestoreError("send_fallback", uid, err)
+            val detail = err.message?.take(120) ?: "erro desconhecido"
+            showAlertNotification("Falha ao enviar alerta remoto: $detail")
+        }
+    }
+
+    private fun processRemoteAlertSnapshot(
+        doc: com.google.firebase.firestore.DocumentSnapshot?,
+        source: String
+    ) {
+        doc ?: return
+        val isPrimary = source == "primary"
+        val lastId = if (isPrimary) lastRemotePrimaryEventId else lastRemoteFallbackEventId
+        if (doc.id == lastId) return
+        if (isPrimary) {
+            lastRemotePrimaryEventId = doc.id
+        } else {
+            lastRemoteFallbackEventId = doc.id
+        }
+        val eventClientMillis = doc.getLong("clientMillis")
+        val eventTsMillis = doc.getTimestamp("timestamp")?.toDate()?.time
+        val eventMillis = eventClientMillis ?: eventTsMillis ?: 0L
+        if (eventMillis in 1 until remoteListenerStartedAtClientMillis) {
+            Log.d(TAG, "remote stale event ignored source=$source doc=${doc.id} eventMillis=$eventMillis")
+            return
+        }
+        Log.d(TAG, "remote snapshot source=$source doc=${doc.id} eventMillis=$eventMillis")
+        val type = doc.getString("type") ?: "Alerta"
+        val alertMessage = when {
+            type.startsWith("Bateria baixa", ignoreCase = true) -> type
+            type.equals("Energia desconectada", ignoreCase = true) -> "Energia desconectada do veiculo"
+            type.equals("Movimento", ignoreCase = true) -> "Movimento no carro detectado"
+            else -> type
+        }
+        val clientMillis = doc.getLong("clientMillis")
+        if (clientMillis != null) {
+            lastAlertMillis = maxOf(lastAlertMillis, clientMillis)
+        }
+        val ts = doc.getTimestamp("timestamp")
+        if (ts != null) {
+            val prev = lastAlertTimestamp
+            if (prev == null || ts > prev) {
+                lastAlertTimestamp = ts
+            }
+        }
+        Log.d(TAG, "Alerta remoto recebido source=$source type=$type")
+        handleOwnerAlert(alertMessage)
     }
 
     private fun shouldSendRemoteAlert(type: String?): Boolean {
@@ -650,6 +950,12 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
         }
     }
 
+    private fun logFirestoreError(stage: String, uid: String?, err: Exception) {
+        val code = if (err is FirebaseFirestoreException) err.code.name else "UNKNOWN"
+        val projectId = FirebaseApp.getInstance().options.projectId ?: "unknown"
+        Log.e(TAG, "firestore stage=$stage uid=${uid ?: "null"} project=$projectId code=$code msg=${err.message}", err)
+    }
+
     private fun buildStatusNotification(text: String): Notification {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Anjo da Guarda")
@@ -657,6 +963,22 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
             .setSmallIcon(R.drawable.logonotificacao)
             .setOngoing(true)
             .build()
+    }
+
+    private fun startForegroundSafely(text: String): Boolean {
+        val notif = buildStatusNotification(text)
+        return try {
+            startForeground(NOTIF_ID, notif)
+            true
+        } catch (se: SecurityException) {
+            val granted = ContextCompat.checkSelfPermission(
+                this,
+                "android.permission.FOREGROUND_SERVICE_DATA_SYNC"
+            ) == PackageManager.PERMISSION_GRANTED
+            Log.e(TAG, "FGS start failed type=dataSync permGranted=$granted sdk=${Build.VERSION.SDK_INT}", se)
+            showAlertNotification("Falha ao iniciar monitoramento: permissão de serviço em primeiro plano.")
+            false
+        }
     }
 
     private fun showAlertNotification(text: String) {
@@ -718,6 +1040,9 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
                 val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, 100)
                 val percent = if (level >= 0 && scale > 0) (level * 100 / scale) else -1
                 val plugged = intent.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) != 0
+                if (percent in 0..100) {
+                    publishBatteryStatus(percent, plugged)
+                }
 
                 val wasCharging = lastCharging
                 lastCharging = plugged
@@ -758,6 +1083,8 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
         lowBatterySent = false
         unpluggedSent = false
         lastCharging = null
+        lastBatteryStatusWriteAt = 0L
+        lastBatteryStatusPercent = null
     }
 
     private fun playOwnerAlarm() {

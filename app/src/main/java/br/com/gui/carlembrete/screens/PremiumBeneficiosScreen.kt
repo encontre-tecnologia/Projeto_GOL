@@ -20,11 +20,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBackIosNew
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.LocalPolice
 import androidx.compose.material.icons.filled.Route
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.Warehouse
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -166,7 +162,7 @@ fun PremiumBeneficiosScreen(
                     Text(
                         text = buildAnnotatedString {
                             withStyle(SpanStyle(fontSize = 18.sp, fontWeight = FontWeight.Normal)) { append("R$ ") }
-                            withStyle(SpanStyle(fontSize = 36.sp, fontWeight = FontWeight.Bold)) { append("19,90") }
+                            withStyle(SpanStyle(fontSize = 36.sp, fontWeight = FontWeight.Bold)) { append("9,90") }
                             withStyle(SpanStyle(fontSize = 16.sp, fontWeight = FontWeight.Normal)) { append(" /mês") }
                         },
                         color = MaterialTheme.colorScheme.onSurface
@@ -197,23 +193,9 @@ fun PremiumBeneficiosScreen(
             // Lista de Benefícios
             Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 BeneficioItem(
-                    icon = Icons.Default.LocalPolice,
-                    title = "Zellu Guardião",
-                    description = "Alertas de segurança e movimento suspeito em tempo real.",
-                    iconTint = goldEnd
-                )
-
-                BeneficioItem(
-                    icon = Icons.Default.Warehouse,
-                    title = "Gestão de Frota",
-                    description = "Controle total de múltiplos veículos e histórico técnico.",
-                    iconTint = goldEnd
-                )
-
-                BeneficioItem(
                     icon = Icons.Default.Route,
                     title = "Controle de Viagens",
-                    description = "Organize gastos, rotas e exporte relatórios PDF.",
+                    description = "Viagens ilimitadas com gastos, rotas e exportacao de relatorios.",
                     iconTint = goldEnd
                 )
             }
@@ -269,3 +251,4 @@ private fun BeneficioItem(
         }
     }
 }
+

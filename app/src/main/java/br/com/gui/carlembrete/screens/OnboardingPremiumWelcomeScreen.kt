@@ -26,9 +26,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.LocalPolice
 import androidx.compose.material.icons.filled.Route
-import androidx.compose.material.icons.filled.Warehouse
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -216,19 +214,9 @@ fun OnboardingPremiumWelcomeScreen(
                             verticalArrangement = Arrangement.spacedBy(18.dp)
                         ) {
                             PremiumBenefitLine(
-                                icon = Icons.Default.LocalPolice,
-                                title = "Zellu Guardião",
-                                desc = "Alertas de segurança e movimento."
-                            )
-                            PremiumBenefitLine(
-                                icon = Icons.Default.Warehouse,
-                                title = "Gestão de Frota",
-                                desc = "Controle de múltiplos veículos."
-                            )
-                            PremiumBenefitLine(
                                 icon = Icons.Default.Route,
                                 title = "Controle de Viagens",
-                                desc = "Organize gastos, rotas e relatórios."
+                                desc = "Viagens ilimitadas com gastos e relatorios."
                             )
                         }
                     }
@@ -254,7 +242,7 @@ fun OnboardingPremiumWelcomeScreen(
                             verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             Text(
-                                text = "Depois: R$ 19,90/mês",
+                                text = "Depois: R$ 9,90/mês",
                                 color = Color.White,
                                 fontSize = 16.sp,
                                 fontWeight = FontWeight.Bold

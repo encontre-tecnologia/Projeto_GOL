@@ -1,7 +1,8 @@
-package br.com.gui.carlembrete
+﻿package br.com.gui.carlembrete
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Box
@@ -12,21 +13,22 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBackIosNew
 import androidx.compose.material.icons.rounded.EventNote
-import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -35,6 +37,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -48,7 +51,6 @@ data class AvisoItem(
     val onClick: () -> Unit
 )
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TipoAvisoScreen(
     itensAviso: List<AvisoItem>,
@@ -56,33 +58,11 @@ fun TipoAvisoScreen(
     surfaceDark: Color,
     textLight: Color,
     textDim: Color,
+    onOpenVehicleGuide: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
     Scaffold(
-        containerColor = Color.Transparent,
-        topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = "Criar Aviso",
-                        color = if (surfaceDark.luminance() < 0.5f) textLight else textLight,
-                        fontWeight = FontWeight.Bold
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = onDismiss) {
-                        Icon(
-                            imageVector = Icons.Rounded.ArrowBackIosNew,
-                            contentDescription = "Voltar",
-                            tint = textDim
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = if (surfaceDark.luminance() < 0.5f) Color(0xFF16233A) else surfaceDark
-                )
-            )
-        }
+        containerColor = Color.Transparent
     ) { innerPadding ->
         Box(
             modifier = Modifier
@@ -96,33 +76,84 @@ fun TipoAvisoScreen(
             ) {
                 Column(
                     modifier = Modifier
-                        .align(Alignment.Center)
-                        .offset(y = (-60).dp)
-                        .padding(horizontal = 16.dp, vertical = 12.dp)
-                        .verticalScroll(rememberScrollState()),
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Icon(
-                        imageVector = Icons.Rounded.EventNote,
-                        contentDescription = null,
-                        tint = textDim,
-                        modifier = Modifier.size(28.dp)
-                    )
-                    Text(
-                        "Novo aviso",
-                        color = textLight,
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        "Escolha o tipo de aviso:",
-                        color = textDim,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(onClick = onDismiss) {
+                            Icon(
+                                imageVector = androidx.compose.material.icons.Icons.Rounded.ArrowBackIosNew,
+                                contentDescription = "Voltar",
+                                tint = textDim
+                            )
+                        }
+                        val playButtonColor = if (surfaceDark.luminance() < 0.5f) Color.White else Color(0xFF2563EB)
+                        OutlinedButton(
+                            onClick = onOpenVehicleGuide,
+                            border = BorderStroke(1.dp, playButtonColor.copy(alpha = 0.85f)),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = playButtonColor.copy(alpha = if (surfaceDark.luminance() < 0.5f) 0.18f else 0.12f),
+                                contentColor = playButtonColor
+                            ),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.wrapContentWidth()
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.PlayArrow,
+                                contentDescription = "Abrir instrucoes rapidas",
+                                tint = playButtonColor,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(Modifier.size(6.dp))
+                            Text(
+                                text = "Instruções rápidas",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(14.dp))
 
                     Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 2.dp, bottom = 8.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(56.dp)
+                                .background(textDim.copy(alpha = 0.12f), CircleShape)
+                                .padding(0.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.EventNote,
+                                contentDescription = null,
+                                tint = textDim,
+                                modifier = Modifier.size(30.dp)
+                            )
+                        }
+                        Text(
+                            "O que vamos lembrar?",
+                            color = textLight,
+                            fontSize = 25.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .widthIn(max = 620.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         val wideItems = itensAviso.filter { it.wide }
@@ -130,8 +161,12 @@ fun TipoAvisoScreen(
                         wideItems.forEach { item ->
                             OutlinedButton(
                                 onClick = item.onClick,
-                                border = BorderStroke(1.dp, if (surfaceDark.luminance() < 0.5f) Color(0xFF334155) else Color.Black),
-                                shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+                                border = BorderStroke(1.dp, if (surfaceDark.luminance() < 0.5f) Color(0xFF334155) else Color.Black.copy(alpha = 0.18f)),
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    containerColor = if (surfaceDark.luminance() < 0.5f) Color(0xFF0F172A).copy(alpha = 0.55f) else Color.White.copy(alpha = 0.80f),
+                                    contentColor = textLight
+                                ),
+                                shape = RoundedCornerShape(14.dp),
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .height(64.dp)
@@ -155,12 +190,19 @@ fun TipoAvisoScreen(
                                             )
                                         }
                                     } else {
-                                        Icon(
-                                            imageVector = item.iconOverride ?: item.icon,
-                                            contentDescription = null,
-                                            tint = item.color,
-                                            modifier = Modifier.size(26.dp)
-                                        )
+                                        Box(
+                                            modifier = Modifier
+                                                .size(30.dp)
+                                                .background(item.color.copy(alpha = 0.14f), CircleShape),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = item.iconOverride ?: item.icon,
+                                                contentDescription = null,
+                                                tint = item.color,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
                                     }
                                     Text(
                                         item.label,
@@ -178,45 +220,69 @@ fun TipoAvisoScreen(
                                 linha.forEach { item ->
                                     OutlinedButton(
                                         onClick = item.onClick,
-                                        border = BorderStroke(1.dp, Color(0xFF334155)),
-                                        shape = androidx.compose.foundation.shape.RoundedCornerShape(
-                                            10.dp
+                                        border = BorderStroke(1.dp, if (surfaceDark.luminance() < 0.5f) Color(0xFF334155) else Color.Black.copy(alpha = 0.12f)),
+                                        colors = ButtonDefaults.outlinedButtonColors(
+                                            containerColor = if (surfaceDark.luminance() < 0.5f) Color(0xFF0F172A).copy(alpha = 0.45f) else Color.White.copy(alpha = 0.78f),
+                                            contentColor = textLight
                                         ),
+                                        shape = RoundedCornerShape(14.dp),
                                         modifier = Modifier
                                             .weight(1f)
-                                            .height(72.dp)
+                                            .height(76.dp)
                                     ) {
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                                         ) {
                                             if (item.iconOverride != null) {
-                                                Icon(
-                                                    imageVector = item.iconOverride,
-                                                    contentDescription = null,
-                                                    tint = item.color,
-                                                    modifier = Modifier.size(24.dp)
-                                                )
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(30.dp)
+                                                        .background(item.color.copy(alpha = 0.14f), CircleShape),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Icon(
+                                                        imageVector = item.iconOverride,
+                                                        contentDescription = null,
+                                                        tint = item.color,
+                                                        modifier = Modifier.size(18.dp)
+                                                    )
+                                                }
                                             } else if (item.tipo != null) {
-                                                TipoIcon(
-                                                    tipo = item.tipo,
-                                                    tint = item.color,
-                                                    size = 24.dp,
-                                                    textSize = 15.sp
-                                                )
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(30.dp)
+                                                        .background(item.color.copy(alpha = 0.14f), CircleShape),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    TipoIcon(
+                                                        tipo = item.tipo,
+                                                        tint = item.color,
+                                                        size = 18.dp,
+                                                        textSize = 12.sp
+                                                    )
+                                                }
                                             } else {
-                                                Icon(
-                                                    imageVector = item.icon,
-                                                    contentDescription = null,
-                                                    tint = item.color,
-                                                    modifier = Modifier.size(24.dp)
-                                                )
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(30.dp)
+                                                        .background(item.color.copy(alpha = 0.14f), CircleShape),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Icon(
+                                                        imageVector = item.icon,
+                                                        contentDescription = null,
+                                                        tint = item.color,
+                                                        modifier = Modifier.size(18.dp)
+                                                    )
+                                                }
                                             }
                                             Text(
                                                 item.label,
                                                 color = textLight,
                                                 fontWeight = FontWeight.SemiBold,
-                                                fontSize = 15.sp
+                                                fontSize = 14.sp,
+                                                lineHeight = 16.sp
                                             )
                                         }
                                     }
@@ -230,4 +296,5 @@ fun TipoAvisoScreen(
                 }
             }
         }
-    }}
+    }
+}

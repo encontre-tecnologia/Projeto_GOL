@@ -87,9 +87,11 @@ fun NovoCarroScreen(
     onDismiss: () -> Unit,
     onSalvar: (CarroInfo) -> Unit
 ) {
-    NovoCarroScreenPrimeiroFluxoComVoltar(
+    NovoCarroScreenContent(
         onDismiss = onDismiss,
-        onSalvar = onSalvar
+        onSalvar = onSalvar,
+        allowBackNavigation = true,
+        isOnboardingVariant = false
     )
 }
 
@@ -151,7 +153,7 @@ internal fun NovoCarroScreenContent(
     var proprietario by remember { mutableStateOf(nomeUsuarioLogado) }
     var quemUsaOpcao by remember { mutableStateOf("Eu mesmo") }
     var quemUsaExpanded by remember { mutableStateOf(false) }
-    var kmAtualStr by remember { mutableStateOf("100.000") }
+    var kmAtualStr by remember { mutableStateOf("0") }
     var tipoSelecionado by remember {
         mutableStateOf<TipoVeiculo?>(null)
     }
@@ -171,7 +173,6 @@ internal fun NovoCarroScreenContent(
     var marcasFipeOnibus by remember { mutableStateOf<List<String>>(emptyList()) }
     var tipoEscolhidoManualmente by remember { mutableStateOf(false) }
     val contentScrollState = rememberScrollState()
-    val showTopBar by remember { derivedStateOf { contentScrollState.value <= 8 } }
     val sugestoesNomeExibidas = remember(modelosFipe) { modelosFipe }
     var filtroNomeVeiculo by remember { mutableStateOf("") }
     val sugestoesNomeFiltradas = remember(sugestoesNomeExibidas, filtroNomeVeiculo) {
@@ -190,29 +191,29 @@ internal fun NovoCarroScreenContent(
             opcoesCor.firstOrNull { it.color.toArgb() == cor }?.name
         } ?: "Selecione"
     }
+    val isBikeTypeGlobal =
+        tipoSelecionado == TipoVeiculo.BICICLETA || tipoSelecionado == TipoVeiculo.BIKE_ELETRICA
+    val anoObrigatorio = !isBikeTypeGlobal && anosFipe.isNotEmpty()
     val etapa1Valida = tipoSelecionado != null &&
         marca.isNotBlank() &&
         nome.isNotBlank() &&
         modelo.isNotBlank() &&
+        (!anoObrigatorio || anoSelecionado.isNotBlank()) &&
         corSelecionada != null
-    val isBikeTypeGlobal =
-        tipoSelecionado == TipoVeiculo.BICICLETA || tipoSelecionado == TipoVeiculo.BIKE_ELETRICA
     val hasTypeSelected = tipoSelecionado != null
     val etapaBikeValida = etapa1Valida &&
-        proprietario.isNotBlank() &&
-        kmAtualStr.filter(Char::isDigit).isNotEmpty()
+        proprietario.isNotBlank()
     val erroTipo = etapaCadastro == 1 && tentouAvancarEtapa1 && tipoSelecionado == null
     val erroMarca = etapaCadastro == 1 && tentouAvancarEtapa1 && marca.isBlank()
     val erroNome = etapaCadastro == 1 && tentouAvancarEtapa1 && nome.isBlank()
     val erroModelo = etapaCadastro == 1 && tentouAvancarEtapa1 && modelo.isBlank()
+    val erroAno = etapaCadastro == 1 && !isBikeTypeGlobal && tentouAvancarEtapa1 && anoObrigatorio && anoSelecionado.isBlank()
     val erroCor = etapaCadastro == 1 && tentouAvancarEtapa1 && corSelecionada == null
-    val erroKm =
-        (etapaCadastro == 2 && !isBikeTypeGlobal && tentouSalvarEtapa2 && kmAtualStr.filter(Char::isDigit).isEmpty()) ||
-        (etapaCadastro == 1 && isBikeTypeGlobal && tentouAvancarEtapa1 && kmAtualStr.filter(Char::isDigit).isEmpty())
+    val erroKm = etapaCadastro == 2 && !isBikeTypeGlobal && tentouSalvarEtapa2 && kmAtualStr.filter(Char::isDigit).isEmpty()
     val etapa2Valida = proprietario.isNotBlank() &&
         vezesBatido != null &&
         tempoComVeiculo.isNotBlank() &&
-        kmAtualStr.filter(Char::isDigit).isNotEmpty()
+        (isBikeTypeGlobal || kmAtualStr.filter(Char::isDigit).isNotEmpty())
     val erroProprietario =
         (etapaCadastro == 2 && !isBikeTypeGlobal && tentouSalvarEtapa2 && proprietario.isBlank()) ||
         (etapaCadastro == 1 && isBikeTypeGlobal && tentouAvancarEtapa1 && proprietario.isBlank())
@@ -232,7 +233,7 @@ internal fun NovoCarroScreenContent(
             proprietario = nomeUsuarioLogado
             quemUsaOpcao = "Eu mesmo"
             quemUsaExpanded = false
-            kmAtualStr = "100.000"
+            kmAtualStr = "0"
             corSelecionada = null
             vezesBatido = null
             tempoComVeiculo = ""
@@ -286,8 +287,6 @@ internal fun NovoCarroScreenContent(
         anosFipe = withContext(Dispatchers.IO) { carregarAnosFipe(context, marca, codigoModelo, tipoSelecionado) }
         if (anosFipe.isEmpty()) {
             anoSelecionado = ""
-        } else if (anoSelecionado !in anosFipe) {
-            anoSelecionado = anosFipe.first()
         }
     }
 
@@ -349,7 +348,7 @@ internal fun NovoCarroScreenContent(
     Scaffold(
         containerColor = bgLight,
         topBar = {
-            if (!isOnboardingVariant && showTopBar) {
+            if (!isOnboardingVariant) {
                 CenterAlignedTopAppBar(
                     title = { Text("Adicione seus veículos", color = textPrimary, fontWeight = FontWeight.Bold) },
                     navigationIcon = if (allowBackNavigation) {
@@ -490,6 +489,15 @@ internal fun NovoCarroScreenContent(
                             tipoEscolhidoManualmente = true
                         }
                     )
+                } else {
+                    OnboardingGarageHeader(
+                        selectedType = tipoSelecionado,
+                        hasUserSelection = tipoEscolhidoManualmente,
+                        onSelectType = {
+                            tipoSelecionado = it
+                            tipoEscolhidoManualmente = true
+                        }
+                    )
                 }
                 NovoSectionCard(
                     title = "",
@@ -551,13 +559,13 @@ internal fun NovoCarroScreenContent(
                                         marca = marcaNome
                                         carregandoModelos = true
                                         modelosFipe = emptyList()
-                                            nome = ""
-                                            modeloSelecionadoCodigo = null
-                                            anosFipe = emptyList()
-                                            anoSelecionado = ""
-                                            filtroNomeVeiculo = ""
-                                            marcaExpanded = false
-                                        }
+                                        nome = ""
+                                        modeloSelecionadoCodigo = null
+                                        anosFipe = emptyList()
+                                        anoSelecionado = ""
+                                        filtroNomeVeiculo = ""
+                                        marcaExpanded = false
+                                    }
                                     )
                             }
                         }
@@ -808,6 +816,42 @@ internal fun NovoCarroScreenContent(
                         enabled = hasTypeSelected
                     )
 
+                    if (!isBikeTypeGlobal && anosFipe.isNotEmpty()) {
+                        ExposedDropdownMenuBox(
+                            expanded = anoExpanded,
+                            onExpandedChange = { anoExpanded = !anoExpanded }
+                        ) {
+                            OutlinedTextField(
+                                value = anoSelecionado,
+                                onValueChange = {},
+                                readOnly = true,
+                                isError = erroAno,
+                                label = { Text("Ano") },
+                                placeholder = { Text("Selecione") },
+                                modifier = Modifier
+                                    .menuAnchor()
+                                    .fillMaxWidth(),
+                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = anoExpanded) },
+                                colors = selectorFieldColors
+                            )
+                            ExposedDropdownMenu(
+                                expanded = anoExpanded,
+                                onDismissRequest = { anoExpanded = false },
+                                modifier = Modifier.background(selectorDropdownBg)
+                            ) {
+                                anosFipe.forEach { anoItem ->
+                                    DropdownMenuItem(
+                                        text = { Text(anoItem, color = textPrimary) },
+                                        onClick = {
+                                            anoSelecionado = anoItem
+                                            anoExpanded = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+
                     if (isBikeTypeGlobal) {
                         ExposedDropdownMenuBox(
                             expanded = quemUsaExpanded,
@@ -863,52 +907,8 @@ internal fun NovoCarroScreenContent(
                             )
                         }
 
-                        OutlinedTextField(
-                            value = kmAtualStr,
-                            onValueChange = { kmAtualStr = formatarKmTextoLocal(it) },
-                            isError = erroKm,
-                            label = { Text("KM Atual (Painel)") },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            singleLine = true,
-                            colors = selectorFieldColors,
-                            modifier = Modifier.fillMaxWidth()
-                        )
                     }
 
-                    if (anosFipe.isNotEmpty()) {
-                        ExposedDropdownMenuBox(
-                            expanded = anoExpanded,
-                            onExpandedChange = { anoExpanded = !anoExpanded }
-                        ) {
-                            OutlinedTextField(
-                                value = anoSelecionado,
-                                onValueChange = {},
-                                readOnly = true,
-                                label = { Text("Ano") },
-                                placeholder = { Text("Selecione") },
-                                modifier = Modifier
-                                    .menuAnchor()
-                                    .fillMaxWidth(),
-                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = anoExpanded) },
-                                colors = selectorFieldColors
-                            )
-                            ExposedDropdownMenu(
-                                expanded = anoExpanded,
-                                onDismissRequest = { anoExpanded = false },
-                                modifier = Modifier.background(selectorDropdownBg)
-                            ) {
-                                anosFipe.forEach { anoItem ->
-                                    DropdownMenuItem(
-                                        text = { Text(anoItem, color = textPrimary) },
-                                        onClick = {
-                                            anoSelecionado = anoItem
-                                            anoExpanded = false
-                                        }
-                                    )
-                                }
-                            }
-                        }
-                    }
                     }
                     if (etapaCadastro == 2 && !isBikeTypeGlobal) {
                         OutlinedTextField(
@@ -921,9 +921,7 @@ internal fun NovoCarroScreenContent(
                             colors = selectorFieldColors,
                             modifier = Modifier.fillMaxWidth()
                         )
-                    }
 
-                    if (etapaCadastro == 2 && !isBikeTypeGlobal) {
                         ExposedDropdownMenuBox(
                             expanded = quemUsaExpanded,
                             onExpandedChange = { quemUsaExpanded = !quemUsaExpanded }
@@ -1640,7 +1638,7 @@ internal val fipeApiReservaV2: FipeApiReservaV2 by lazy {
 
 internal const val FIPE_CACHE_MODELOS_TTL_MS = 7L * 24L * 60L * 60L * 1000L
 internal const val FIPE_CACHE_ANOS_TTL_MS = 7L * 24L * 60L * 60L * 1000L
-internal const val FIPE_RETRY_TIMEOUT_MS = 1800L
+internal const val FIPE_RETRY_TIMEOUT_MS = 3500L
 private const val TAG_FIPE_RETRY = "FipeRetry"
 
 internal suspend fun carregarModelosFipePorMarca(
@@ -1658,7 +1656,12 @@ internal suspend fun carregarModelosFipePorMarca(
     val tentativa = runCatching {
         withFipeRetry {
             val marcas = fipeApi.listarMarcas(tipoFipe)
-            val codigoMarca = encontrarCodigoMarcaFipe(marcaSelecionada, marcas) ?: return@withFipeRetry emptyList()
+            val codigoMarca = encontrarCodigoMarcaFipe(marcaSelecionada, marcas)
+            Log.d(
+                TAG_FIPE_RETRY,
+                "modelos consulta primaria tipo='$tipoFipe' marca='$marcaSelecionada' marcas=${marcas.size} codigoMarca=${codigoMarca ?: "null"}"
+            )
+            if (codigoMarca == null) return@withFipeRetry emptyList()
             val modelos = fipeApi.listarModelos(tipoFipe, codigoMarca).modelos
                 .map { it.copy(nome = it.nome.trim()) }
                 .filter { it.nome.isNotEmpty() }
@@ -1669,17 +1672,29 @@ internal suspend fun carregarModelosFipePorMarca(
 
     val resultado = tentativa.getOrDefault(emptyList())
 
-    if (resultado.isEmpty() && tentativa.exceptionOrNull() != null) {
+    if (resultado.isEmpty()) {
         val reserva = runCatching {
             withFipeRetry {
                 carregarModelosFipeReservaPorMarca(marcaSelecionada, tipoVeiculo)
             }
+        }.onFailure { erro ->
+            Log.w(
+                TAG_FIPE_RETRY,
+                "API reserva modelos falhou marca='$marcaSelecionada': ${erro::class.simpleName}"
+            )
         }.getOrDefault(emptyList())
         if (reserva.isNotEmpty()) {
-            Log.w(TAG_FIPE_RETRY, "usando API reserva de modelos para marca='$marcaSelecionada'")
+            Log.w(
+                TAG_FIPE_RETRY,
+                "usando API reserva de modelos para marca='$marcaSelecionada' (motivo=${if (tentativa.exceptionOrNull() != null) "erro_primaria" else "lista_vazia_primaria"})"
+            )
             AppPreferences.putFipeCache(context, cacheKey, encodeModelosCache(reserva))
             return reserva
         }
+        Log.w(
+            TAG_FIPE_RETRY,
+            "modelos vazios para marca='$marcaSelecionada' (primaria+reserva)"
+        )
         AppPreferences.getFipeCacheAnyAge(context, cacheKey)?.let { stale ->
             decodeModelosCache(stale).takeIf { it.isNotEmpty() }?.let {
                 Log.w(TAG_FIPE_RETRY, "usando cache antigo de modelos para marca='$marcaSelecionada'")
@@ -1803,7 +1818,7 @@ internal suspend fun carregarAnosFipe(
 
 internal suspend fun <T> withFipeRetry(block: suspend () -> T): T {
     var lastError: Throwable? = null
-    val delays = listOf(0L)
+    val delays = listOf(0L, 250L)
     for ((attemptIndex, waitMs) in delays.withIndex()) {
         try {
             if (waitMs > 0) delay(waitMs)
@@ -1884,10 +1899,16 @@ internal fun decodeAnosCache(data: String): List<String> =
     data.split("|").map { it.trim() }.filter { it.isNotBlank() }.distinct()
 
 internal fun encontrarCodigoMarcaFipe(marcaSelecionada: String, marcasFipe: List<FipeMarcaDto>): String? {
-    val alvo = normalizarTextoBusca(marcaSelecionada)
-    if (alvo.isBlank()) return null
-    marcasFipe.firstOrNull { normalizarTextoBusca(it.nome) == alvo }?.let { return it.codigo }
-    marcasFipe.firstOrNull { normalizarTextoBusca(it.nome).contains(alvo) || alvo.contains(normalizarTextoBusca(it.nome)) }?.let { return it.codigo }
+    val alvos = variacoesMarcaBusca(marcaSelecionada)
+    if (alvos.isEmpty()) return null
+    marcasFipe.firstOrNull { item ->
+        val nome = normalizarTextoBusca(item.nome)
+        alvos.any { it == nome }
+    }?.let { return it.codigo }
+    marcasFipe.firstOrNull { item ->
+        val nome = normalizarTextoBusca(item.nome)
+        alvos.any { alvo -> nome.contains(alvo) || alvo.contains(nome) }
+    }?.let { return it.codigo }
     return null
 }
 
@@ -1929,14 +1950,32 @@ internal fun encontrarCodigoMarcaFipeReserva(
     marcaSelecionada: String,
     marcas: List<FipeNamedDto>
 ): String? {
-    val alvo = normalizarTextoBusca(marcaSelecionada)
-    if (alvo.isBlank()) return null
-    marcas.firstOrNull { normalizarTextoBusca(it.nome.orEmpty()) == alvo }?.codigo?.let { return it }
+    val alvos = variacoesMarcaBusca(marcaSelecionada)
+    if (alvos.isEmpty()) return null
     marcas.firstOrNull {
         val nome = normalizarTextoBusca(it.nome.orEmpty())
-        nome.contains(alvo) || alvo.contains(nome)
+        alvos.any { alvo -> nome == alvo }
+    }?.codigo?.let { return it }
+    marcas.firstOrNull {
+        val nome = normalizarTextoBusca(it.nome.orEmpty())
+        alvos.any { alvo -> nome.contains(alvo) || alvo.contains(nome) }
     }?.codigo?.let { return it }
     return null
+}
+
+internal fun variacoesMarcaBusca(marcaSelecionada: String): Set<String> {
+    val alvo = normalizarTextoBusca(marcaSelecionada)
+    if (alvo.isBlank()) return emptySet()
+    val aliases = when (alvo) {
+        "VOLKSWAGEN" -> setOf("VW")
+        "CHEVROLET" -> setOf("GM")
+        "MERCEDES BENZ" -> setOf("MERCEDES", "MB")
+        "LAND ROVER" -> setOf("LANDROVER")
+        "CITROEN" -> setOf("CITROEN")
+        "PEUGEOT" -> setOf("PEUGEOT")
+        else -> emptySet()
+    }
+    return linkedSetOf(alvo).apply { addAll(aliases) }
 }
 
 internal fun filtrarModelosPorTipo(

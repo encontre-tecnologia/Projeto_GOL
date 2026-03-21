@@ -7,7 +7,7 @@ val ZelluBlueLight = Color(0xFF60A5FA)
 val ZelluAmber = Color(0xFFF59E0B)
 val ZelluAmberLight = Color(0xFFFBBF24)
 
-val LightBackground = Color(0xFFF8FAFC)
+val LightBackground = Color(0xFFFFFFFF)
 val LightSurface = Color(0xFFFFFFFF)
 val LightOnSurface = Color(0xFF0F172A)
 val LightOnSurfaceVariant = Color(0xFF475569)

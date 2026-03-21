@@ -133,8 +133,9 @@ fun RelatorioVeiculoScreen(carroAtual: CarroInfo, lembretes: List<Lembrete>, isP
             ?: "Sem dados"
     }
     val formatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
-    val lembretesPorTipo = TipoManutencao.values().associateWith { tipo -> lembretes.count { it.tipo == tipo } }
-    val proximos = lembretes.mapNotNull { lembrete ->
+    val lembretesSemAbastecimento = lembretes.filter { it.tipo != TipoManutencao.ABASTECIMENTO }
+    val lembretesPorTipo = TipoManutencao.values().associateWith { tipo -> lembretesSemAbastecimento.count { it.tipo == tipo } }
+    val proximos = lembretesSemAbastecimento.mapNotNull { lembrete ->
         val data = try { LocalDate.parse(lembrete.dataLimite, formatter) } catch (e: Exception) { null }
         data?.let { lembrete to it }
     }.sortedBy { it.second }
@@ -216,11 +217,6 @@ fun RelatorioVeiculoScreen(carroAtual: CarroInfo, lembretes: List<Lembrete>, isP
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalAlignment = Alignment.CenterHorizontally
                                 ) {
-                                    VehicleIcon(
-                                        tipoVeiculo = carroAtual.tipoVeiculo,
-                                        tint = Color.Black,
-                                        size = 210.dp
-                                    )
                                     Text(
                                         text = carroAtual.nome,
                                         color = textoPrimario,

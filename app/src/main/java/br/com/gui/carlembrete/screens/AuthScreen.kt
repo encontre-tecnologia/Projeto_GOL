@@ -38,6 +38,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
@@ -63,6 +64,8 @@ import androidx.compose.foundation.BorderStroke
 @Composable
 fun AuthScreen(onSignedIn: () -> Unit) {
     val context = LocalContext.current
+    val colorScheme = MaterialTheme.colorScheme
+    val isDark = colorScheme.background.luminance() < 0.5f
     val auth = remember { FirebaseAuth.getInstance() }
     var email by remember { mutableStateOf("") }
     var senha by remember { mutableStateOf("") }
@@ -126,6 +129,7 @@ fun AuthScreen(onSignedIn: () -> Unit) {
             val credential = GoogleAuthProvider.getCredential(token, null)
             auth.signInWithCredential(credential).addOnCompleteListener { signInTask ->
                 if (signInTask.isSuccessful) {
+                    AdminUsersSync.syncCurrentUser()
                     onSignedIn()
                 } else {
                     Toast.makeText(context, "Falha no login com Google", Toast.LENGTH_SHORT).show()
@@ -143,6 +147,7 @@ fun AuthScreen(onSignedIn: () -> Unit) {
         }
         auth.signInWithEmailAndPassword(email, senha).addOnCompleteListener { task ->
             if (task.isSuccessful) {
+                AdminUsersSync.syncCurrentUser()
                 onSignedIn()
             } else {
                 Toast.makeText(context, "Falha ao entrar", Toast.LENGTH_SHORT).show()
@@ -154,13 +159,22 @@ fun AuthScreen(onSignedIn: () -> Unit) {
         modifier = Modifier
             .fillMaxSize()
             .background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        Color(0xFF081428),
-                        Color(0xFF0B2342),
-                        Color(0xFF143A6C)
+                if (isDark) {
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            colorScheme.background,
+                            colorScheme.background
+                        )
                     )
-                )
+                } else {
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color(0xFF081428),
+                            Color(0xFF0B2342),
+                            Color(0xFF143A6C)
+                        )
+                    )
+                }
             )
             .padding(24.dp),
         verticalArrangement = Arrangement.Center,

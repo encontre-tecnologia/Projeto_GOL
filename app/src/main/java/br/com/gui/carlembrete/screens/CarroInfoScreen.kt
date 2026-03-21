@@ -45,6 +45,7 @@ import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.GET
 import retrofit2.http.Path
+import java.text.NumberFormat
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -65,13 +66,14 @@ fun CarroInfoScreen(
     val textLight = if (isDark) Color(0xFFF1F5F9) else Color(0xFF0F172A)
     val textDim = if (isDark) Color(0xFF94A3B8) else Color(0xFF64748B)
     val accentColor = Color(0xFF38BDF8)
-    val cardBorder = if (isDark) Color(0xFF475569) else Color.Black.copy(alpha = 0.85f)
+    val cardBorder = if (isDark) Color.White.copy(alpha = 0.14f) else Color.Black.copy(alpha = 0.18f)
     val dividerColor = if (isDark) Color.White.copy(alpha = 0.12f) else Color(0xFFE2E8F0)
     val pdfAccent = if (isDark) Color.White else Color.Black
     val pdfContainer = Color.Transparent
 
-    val lembretesAtivos = lembretes.filterNot(::isLembreteRealizado)
-    val lembretesRealizados = lembretes.filter(::isLembreteRealizado)
+    val lembretesSemAbastecimento = lembretes.filter { it.tipo != TipoManutencao.ABASTECIMENTO }
+    val lembretesAtivos = lembretesSemAbastecimento.filterNot(::isLembreteRealizado)
+    val lembretesRealizados = lembretesSemAbastecimento.filter(::isLembreteRealizado)
     val totalGastos = lembretes.sumOf { it.valor }
     val context = LocalContext.current
     val view = LocalView.current
@@ -115,14 +117,16 @@ fun CarroInfoScreen(
     var carregandoPrecoFipe by remember(carro.id, carro.marca, carro.modelo, carro.tipoVeiculo) { mutableStateOf(false) }
 
     val corNome = corNomePorArgb(carro.corArgb)
-    val (tituloSaude, descricaoSaude) = calcularReputacao(lembretes)
-
-    val corSaude = when (tituloSaude) {
-        "Excelente" -> Color(0xFF10B981)
-        "Crítica" -> Color(0xFFEF4444)
-        "Em atenção" -> Color(0xFFEAB308)
-        else -> textLight
+    val (tituloSaudeOriginal, descricaoSaude) = calcularReputacao(lembretes)
+    val saudeCritica = tituloSaudeOriginal.trim().lowercase(Locale("pt", "BR")).contains("crit")
+    val tituloSaude = if (saudeCritica) "Crítica" else "Em dia"
+    val kmAtualResumo = if (carro.kmAtual > 0) {
+        "${NumberFormat.getIntegerInstance(Locale("pt", "BR")).format(carro.kmAtual)} km"
+    } else {
+        "--"
     }
+
+    val corSaude = if (saudeCritica) Color(0xFFEF4444) else Color(0xFF10B981)
 
     val historicoManutencoes = (
         lembretesAtivos
@@ -144,13 +148,18 @@ fun CarroInfoScreen(
             val data = dataParaOrdenacao(lembrete)
             if (data == LocalDate.MAX) null else data to lembrete
         }
-        .filter { (data, _) -> !data.isBefore(LocalDate.now()) }
+        .filter { (data, lembrete) ->
+            !data.isBefore(LocalDate.now()) &&
+                lembrete.tipo != TipoManutencao.IPVA &&
+                lembrete.tipo != TipoManutencao.LICENCIAMENTO
+        }
         .sortedBy { it.first }
         .take(10)
 
     val documentos = listOf(
         TipoManutencao.IPVA to "IPVA",
-        TipoManutencao.LICENCIAMENTO to "Licenc."
+        TipoManutencao.LICENCIAMENTO to "Licenciamento",
+        TipoManutencao.SEGURO to "Seguro"
     ).map { (tipo, label) ->
         val ultimaData = lembretesAtivos
             .filter { it.tipo == tipo }
@@ -166,42 +175,21 @@ fun CarroInfoScreen(
         Triple(label, status, corStatus)
     }
 
-    // Processamento de peças
-    val pecaLabels = linkedMapOf<String, String>()
-    val tipoPorPeca = mutableMapOf<String, TipoManutencao>()
-    lembretes.forEach { lembrete ->
-        val raw = lembrete.peca.ifBlank { lembrete.titulo }.trim()
-        if (raw.isNotBlank()) {
-            val key = raw.lowercase(Locale.getDefault())
-            pecaLabels.putIfAbsent(key, raw)
-            tipoPorPeca.putIfAbsent(key, lembrete.tipo)
-        }
-    }
-    val trocasPorPeca = lembretes
-        .map { lembrete -> lembrete.peca.ifBlank { lembrete.titulo }.trim() }
-        .filter { it.isNotBlank() }
-        .groupingBy { it.lowercase(Locale.getDefault()) }
-        .eachCount()
-        .map { (key, count) ->
-            val label = pecaLabels[key] ?: key
-            val tipo = tipoPorPeca[key] ?: TipoManutencao.OUTROS
-            PecaResumo(label, count, tipo)
-        }
-        .sortedByDescending { it.count }
-        .take(5)
-
     val valorFipeNumerico = remember(precoTabelaFipe) {
         precoTabelaFipe?.let(::parseMoedaBrParaDouble)
     }
-    val fatorVendaSugerido = remember(tituloSaude, lembretes.size) {
-        val fatorSaude = when (tituloSaude) {
+    val fatorVendaSugerido = remember(tituloSaudeOriginal, lembretes.size, carro.vezesBatido, carro.tempoComVeiculo) {
+        val fatorSaude = when (tituloSaudeOriginal) {
             "Excelente" -> 0.98
             "Em atenção" -> 0.93
             "Crítica" -> 0.86
             else -> 0.94
         }
         val descontoAvisos = (lembretes.size * 0.012).coerceAtMost(0.10)
-        max(0.75, fatorSaude - descontoAvisos)
+        val fatorBase = max(0.75, fatorSaude - descontoAvisos)
+        val fatorBatidas = fatorPorBatidas(carro.vezesBatido)
+        val fatorTempo = fatorPorTempoComVeiculo(carro.tempoComVeiculo)
+        (fatorBase * fatorBatidas * fatorTempo).coerceIn(0.60, 1.08)
     }
     val valorVendaSugerido = valorFipeNumerico?.let { it * fatorVendaSugerido }
 
@@ -314,12 +302,12 @@ fun CarroInfoScreen(
                         .offset(y = (-64).dp)
                         .padding(horizontal = 16.dp)
                         .fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp),
-                    color = if (isDark) Color.White.copy(alpha = 0.06f) else Color.Black.copy(alpha = 0.035f),
-                    border = BorderStroke(1.dp, if (isDark) Color.White.copy(alpha = 0.14f) else Color.Black.copy(alpha = 0.12f))
+                    shape = RoundedCornerShape(16.dp),
+                    color = cardColor,
+                    border = BorderStroke(0.8.dp, cardBorder)
                 ) {
                     Column(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Text(
@@ -349,28 +337,27 @@ fun CarroInfoScreen(
                         modifier = Modifier.offset(y = (-54).dp)
                     )
                 } else if (!precoTabelaFipe.isNullOrBlank()) {
-                    Row(
+                    ElevatedCard(
                         modifier = Modifier
                             .offset(y = (-54).dp)
                             .padding(horizontal = 16.dp)
                             .fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.elevatedCardColors(containerColor = cardColor),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
                     ) {
-                        PriceInfoPill(
-                            title = "Tabela FIPE",
-                            value = precoTabelaFipe.orEmpty(),
-                            valueColor = Color(0xFF22C55E),
-                            modifier = Modifier.weight(1f),
-                            isDark = isDark
-                        )
-                        if (valorVendaSugerido != null) {
-                            PriceInfoPill(
-                                title = "Por quanto vender",
-                                value = formatarMoedaLocal(valorVendaSugerido),
-                                valueColor = Color(0xFF22C55E),
-                                modifier = Modifier.weight(1f),
-                                isDark = isDark
-                            )
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .border(0.8.dp, cardBorder, RoundedCornerShape(16.dp))
+                                .padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            InfoRowModern("Tabela FIPE", precoTabelaFipe.orEmpty(), textDim, Color(0xFF22C55E))
+                            if (valorVendaSugerido != null) {
+                                Divider(color = dividerColor)
+                                InfoRowModern("Por quanto vender", formatarMoedaLocal(valorVendaSugerido), textDim, Color(0xFF22C55E))
+                            }
                         }
                     }
                 }
@@ -385,7 +372,6 @@ fun CarroInfoScreen(
                         containerColor = Color(0xFF3B82F6),
                         contentColor = Color.White
                     ),
-                    border = BorderStroke(1.dp, cardBorder),
                     contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier
@@ -401,48 +387,24 @@ fun CarroInfoScreen(
 
             Spacer(Modifier.height(0.dp))
 
-            // --- DASHBOARD STATS (Grid Rápido) ---
-            Row(
+            // --- RESUMO RÁPIDO ---
+            ContentSection(
                 modifier = Modifier
                     .offset(y = (-34).dp)
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                title = "Resumo",
+                icon = Icons.Outlined.Info,
+                cardColor = cardColor,
+                titleColor = textLight,
+                borderColor = cardBorder
             ) {
-                // Card 1: Saúde
-                DashboardCard(
-                    modifier = Modifier.weight(1f),
-                    title = "Saúde",
-                    value = tituloSaude,
-                    valueColor = corSaude,
-                    icon = Icons.Outlined.Info,
-                    cardColor = cardColor,
-                    dimColor = textDim,
-                    borderColor = cardBorder
-                )
-                // Card 2: Gasto
-                DashboardCard(
-                    modifier = Modifier.weight(1f),
-                    title = "Total Gasto",
-                    value = formatarMoedaLocal(totalGastos),
-                    valueColor = textLight,
-                    icon = Icons.Outlined.Description,
-                    cardColor = cardColor,
-                    dimColor = textDim,
-                    borderColor = cardBorder
-                )
+                InfoRowModern("Saúde", tituloSaude, textDim, corSaude)
+                Divider(color = dividerColor)
+                InfoRowModern("Total gasto", formatarMoedaLocal(totalGastos), textDim, textLight)
                 if (!isBikeType) {
-                    DashboardCard(
-                        modifier = Modifier.weight(1f),
-                        title = "Km Atual",
-                        value = if(carro.kmAtual > 0) "${carro.kmAtual / 1000}k" else "--",
-                        subValue = null,
-                        valueColor = accentColor,
-                        icon = Icons.Default.Speed,
-                        cardColor = cardColor,
-                        dimColor = textDim,
-                        borderColor = cardBorder
-                    )
+                    Divider(color = dividerColor)
+                    InfoRowModern("KM atual", kmAtualResumo, textDim, accentColor)
                 }
             }
 
@@ -482,8 +444,21 @@ fun CarroInfoScreen(
                         titleColor = textLight,
                         borderColor = cardBorder
                     ) {
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            documentos.forEach { (label, status, color) ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(IntrinsicSize.Min),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            documentos.forEachIndexed { index, (label, status, color) ->
+                                if (index > 0) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxHeight()
+                                            .width(1.dp)
+                                            .background(dividerColor.copy(alpha = 0.9f))
+                                    )
+                                }
                                 Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
                                     Text(label, style = MaterialTheme.typography.labelSmall, color = textDim)
                                     Text(status, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = color)
@@ -561,61 +536,6 @@ fun CarroInfoScreen(
                     }
                 }
 
-                // Peças Trocadas
-                ContentSection(title = "Trocas por Peca", icon = Icons.Default.Settings, cardColor = cardColor, titleColor = textLight, borderColor = cardBorder) {
-                    if (trocasPorPeca.isEmpty()) {
-                        Text("Sem dados de peças.", color = textDim, fontSize = 12.sp)
-                    } else {
-                        Surface(
-                            modifier = Modifier.fillMaxWidth(),
-                            color = Color.Transparent,
-                            border = BorderStroke(1.dp, dividerColor),
-                            shape = RoundedCornerShape(10.dp)
-                        ) {
-                            Column {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .background(if (isDark) Color.White.copy(alpha = 0.08f) else Color(0xFFE2E8F0))
-                                        .padding(horizontal = 10.dp, vertical = 8.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text("Peça", color = textLight, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                                    Text("Qtd.", color = textLight, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(82.dp), textAlign = TextAlign.End)
-                                }
-                                trocasPorPeca.forEachIndexed { index, (label, count, _) ->
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 10.dp, vertical = 8.dp),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(
-                                            label,
-                                            color = textLight,
-                                            fontSize = 12.sp,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            modifier = Modifier.weight(1f)
-                                        )
-                                        Text(
-                                            "x$count",
-                                            color = accentColor,
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            modifier = Modifier.width(82.dp),
-                                            textAlign = TextAlign.End
-                                        )
-                                    }
-                                    if (index < trocasPorPeca.lastIndex) Divider(color = dividerColor)
-                                }
-                            }
-                        }
-                    }
-                }
-
                 ContentSection(
                     title = "Manutencoes Futuras",
                     icon = Icons.Default.Event,
@@ -626,6 +546,8 @@ fun CarroInfoScreen(
                     if (manutencoesFuturas.isEmpty()) {
                         Text("Nenhum lembrete futuro.", color = textDim, fontSize = 12.sp)
                     } else {
+                        val colData = 110.dp
+                        val colKm = 90.dp
                         Surface(
                             modifier = Modifier.fillMaxWidth(),
                             color = Color.Transparent,
@@ -638,20 +560,19 @@ fun CarroInfoScreen(
                                         .fillMaxWidth()
                                         .background(if (isDark) Color.White.copy(alpha = 0.08f) else Color(0xFFE2E8F0))
                                         .padding(horizontal = 10.dp, vertical = 8.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text("Item", color = textLight, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                                    Text("Data", color = textLight, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(94.dp))
-                                    Text("KM", color = textLight, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(64.dp), textAlign = TextAlign.End)
-                                    Text("Cat.", color = textLight, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(66.dp), textAlign = TextAlign.End)
+                                    Text("Data", color = textLight, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(colData), textAlign = TextAlign.Center)
+                                    Text("KM", color = textLight, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(colKm), textAlign = TextAlign.End)
                                 }
                                 manutencoesFuturas.forEachIndexed { index, (data, lembrete) ->
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .padding(horizontal = 10.dp, vertical = 8.dp),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Text(
@@ -659,7 +580,7 @@ fun CarroInfoScreen(
                                             color = textLight,
                                             fontWeight = FontWeight.Medium,
                                             fontSize = 12.sp,
-                                            maxLines = 1,
+                                            maxLines = 2,
                                             overflow = TextOverflow.Ellipsis,
                                             modifier = Modifier.weight(1f)
                                         )
@@ -667,23 +588,14 @@ fun CarroInfoScreen(
                                             data.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")),
                                             color = textDim,
                                             fontSize = 11.sp,
-                                            modifier = Modifier.width(94.dp)
+                                            modifier = Modifier.width(colData),
+                                            textAlign = TextAlign.Center
                                         )
                                         Text(
                                             lembrete.kmLimite.ifBlank { "--" },
                                             color = textLight,
                                             fontSize = 11.sp,
-                                            modifier = Modifier.width(64.dp),
-                                            textAlign = TextAlign.End
-                                        )
-                                        Text(
-                                            lembrete.tipo.label,
-                                            color = accentColor,
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            modifier = Modifier.width(66.dp),
+                                            modifier = Modifier.width(colKm),
                                             textAlign = TextAlign.End
                                         )
                                     }
@@ -715,7 +627,7 @@ fun DashboardCard(
     ElevatedCard(
         modifier = modifier
             .height(100.dp)
-            .border(1.dp, borderColor, RoundedCornerShape(16.dp)),
+            .border(0.8.dp, borderColor, RoundedCornerShape(16.dp)),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.elevatedCardColors(containerColor = cardColor),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
@@ -740,6 +652,7 @@ fun DashboardCard(
 
 @Composable
 fun ContentSection(
+    modifier: Modifier = Modifier,
     title: String,
     icon: ImageVector,
     cardColor: Color,
@@ -748,9 +661,9 @@ fun ContentSection(
     content: @Composable ColumnScope.() -> Unit
 ) {
     ElevatedCard(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
-            .border(1.dp, borderColor, RoundedCornerShape(16.dp)),
+            .border(0.8.dp, borderColor, RoundedCornerShape(16.dp)),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.elevatedCardColors(containerColor = cardColor),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
@@ -773,11 +686,27 @@ fun ContentSection(
 fun InfoRowModern(label: String, value: String, labelColor: Color, valueColor: Color) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(label, color = labelColor, fontSize = 13.sp)
-        Text(value, color = valueColor, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+        Text(
+            label,
+            color = labelColor,
+            fontSize = 13.sp,
+            modifier = Modifier.weight(0.42f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Text(
+            value,
+            color = valueColor,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.weight(0.58f),
+            textAlign = TextAlign.End,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 
@@ -819,6 +748,30 @@ private fun PriceInfoPill(
 
 // --- FUNÇÕES UTILITÁRIAS ---
 
+private fun fatorPorBatidas(vezesBatido: Int?): Double {
+    val totalBatidas = (vezesBatido ?: 0).coerceAtLeast(0)
+    return when {
+        totalBatidas <= 0 -> 1.00
+        totalBatidas == 1 -> 0.97
+        totalBatidas == 2 -> 0.94
+        totalBatidas == 3 -> 0.90
+        else -> 0.85
+    }
+}
+
+private fun fatorPorTempoComVeiculo(tempoComVeiculo: String): Double {
+    val tempoNormalizado = tempoComVeiculo.trim().lowercase(Locale("pt", "BR"))
+    return when {
+        tempoNormalizado.startsWith("menos de 6 meses") -> 0.97
+        tempoNormalizado.startsWith("6 meses a 1 ano") -> 0.98
+        tempoNormalizado.startsWith("1 a 2 anos") -> 1.00
+        tempoNormalizado.startsWith("2 a 3 anos") -> 1.02
+        tempoNormalizado.startsWith("3 a 5 anos") -> 1.04
+        tempoNormalizado.startsWith("mais de 5 anos") -> 1.05
+        else -> 1.00
+    }
+}
+
 private fun corNomePorArgb(argb: Int): String {
     val cores = listOf(
         "Branco" to Color(0xFFFFFFFF).toArgb(),
@@ -846,12 +799,6 @@ private fun codigoCurto(id: String): String {
     val numero = abs(id.hashCode()) % 10000
     return numero.toString().padStart(4, '0')
 }
-
-private data class PecaResumo(
-    val label: String,
-    val count: Int,
-    val tipo: TipoManutencao
-)
 
 private fun extrairAnoVeiculo(modelo: String): String? {
     val match = Regex("(19|20)\\d{2}(?:/(19|20)\\d{2})?").find(modelo)
