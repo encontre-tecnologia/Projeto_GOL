@@ -1,4 +1,4 @@
-package br.com.gui.carlembrete
+﻿package br.com.gui.carlembrete
 
 import android.app.AlarmManager
 import android.app.NotificationChannel
@@ -8,10 +8,13 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
+import android.content.pm.PackageManager
 import android.os.Build
+import android.util.Log
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import br.com.gui.carlembrete.NotificacaoReceiver.Companion.CHANNEL_ID
 import org.json.JSONArray
 import org.json.JSONObject
@@ -45,6 +48,17 @@ class NotificacaoReceiver : BroadcastReceiver() {
             openIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+
+        if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) {
+            Log.e("NotificacaoHelper", "notificacao bloqueada pelo sistema (areNotificationsEnabled=false)")
+            return
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            Log.e("NotificacaoHelper", "notificacao bloqueada: POST_NOTIFICATIONS nao concedida")
+            return
+        }
 
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.logonotificacao)
@@ -87,7 +101,41 @@ class NotificacaoReceiver : BroadcastReceiver() {
                     }
                 }
             }
+        } else {
+            processarRecorrenciaSeNecessario(context, lembreteId)
         }
+    }
+
+    private fun processarRecorrenciaSeNecessario(context: Context, lembreteId: String) {
+        if (lembreteId.startsWith("INSTANT_")) return
+        val config = NotificacaoHelper.obterRecorrencia(context, lembreteId) ?: return
+        val formatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
+        val lembretes = BancoDeDados.carregarLembretes(context).toMutableList()
+        val idx = lembretes.indexOfFirst { it.id == lembreteId }
+        if (idx < 0) {
+            NotificacaoHelper.removerRecorrencia(context, lembreteId)
+            return
+        }
+        val lembreteAtual = lembretes[idx]
+        if (isLembreteRealizado(lembreteAtual)) {
+            NotificacaoHelper.removerRecorrencia(context, lembreteId)
+            return
+        }
+        val dataBase = runCatching {
+            LocalDate.parse(lembreteAtual.dataLimite, formatter)
+        }.getOrNull() ?: LocalDate.now()
+        val proximaData = when (config.unit) {
+            NotificacaoHelper.REC_UNIT_DAY -> dataBase.plusDays(config.interval.toLong())
+            NotificacaoHelper.REC_UNIT_WEEK -> dataBase.plusWeeks(config.interval.toLong())
+            NotificacaoHelper.REC_UNIT_MONTH -> dataBase.plusMonths(config.interval.toLong())
+            NotificacaoHelper.REC_UNIT_YEAR -> dataBase.plusYears(config.interval.toLong())
+            else -> null
+        } ?: return
+        if (!proximaData.isAfter(dataBase)) return
+        val atualizado = lembreteAtual.copy(dataLimite = proximaData.format(formatter))
+        lembretes[idx] = atualizado
+        BancoDeDados.salvarLembretes(context, lembretes)
+        NotificacaoHelper.agendarNotificacao(context, atualizado, atualizado.horaAviso)
     }
 
     companion object {
@@ -106,7 +154,15 @@ class NotificacaoReceiver : BroadcastReceiver() {
 }
 
 object NotificacaoHelper {
+    private const val TAG_NOTIF = "NotificacaoHelper"
     private const val PREFS_NAME = "notificacoes_prefs"
+    data class RecorrenciaConfig(val unit: String, val interval: Int)
+    const val REC_UNIT_DAY = "DAY"
+    const val REC_UNIT_WEEK = "WEEK"
+    const val REC_UNIT_MONTH = "MONTH"
+    const val REC_UNIT_YEAR = "YEAR"
+    private const val REC_PREFIX_UNIT = "rec_unit_"
+    private const val REC_PREFIX_INTERVAL = "rec_interval_"
     private const val PREFS_HISTORY_KEY = "historico_disparadas_v1"
     private const val HISTORY_LIMIT = 100
     private val dateFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
@@ -120,6 +176,23 @@ object NotificacaoHelper {
 
     private fun podeUsarAlarmeExato(alarmManager: AlarmManager): Boolean {
         return Build.VERSION.SDK_INT < Build.VERSION_CODES.S || alarmManager.canScheduleExactAlarms()
+    }
+
+    private fun nomeVeiculoParaNotificacao(context: Context, carroId: String?): String? {
+        if (carroId.isNullOrBlank()) return null
+        val carro = BancoDeDados.carregarCarros(context).orEmpty().firstOrNull { it.id == carroId } ?: return null
+        return carro.nome
+            .ifBlank { "${carro.marca} ${carro.modelo}".trim() }
+            .ifBlank { null }
+    }
+
+    private fun tituloComVeiculo(context: Context, lembrete: Lembrete): String {
+        val nomeVeiculo = nomeVeiculoParaNotificacao(context, lembrete.carroId)
+        return if (nomeVeiculo.isNullOrBlank()) {
+            lembrete.titulo
+        } else {
+            "$nomeVeiculo: ${lembrete.titulo}"
+        }
     }
 
     private fun agendarAlarmManager(
@@ -169,10 +242,10 @@ object NotificacaoHelper {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "Alertas de manutenção",
+                "Alertas de manutenÃ§Ã£o",
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "Lembretes para serviços e avisos do carro"
+                description = "Lembretes para serviÃ§os e avisos do carro"
             }
             val manager = context.getSystemService(NotificationManager::class.java)
             manager?.createNotificationChannel(channel)
@@ -181,6 +254,7 @@ object NotificacaoHelper {
 
     fun agendarNotificacao(context: Context, lembrete: Lembrete, hora: String) {
         cancelarNotificacoesEmEtapas(context, lembrete.id)
+        val tituloCompleto = tituloComVeiculo(context, lembrete)
 
         if (lembrete.tipo in tiposAvisoEtapas) {
             val dataVencimento = runCatching {
@@ -190,7 +264,7 @@ object NotificacaoHelper {
                 agendarProximaNotificacaoEtapas(
                     context = context,
                     baseReminderId = lembrete.id,
-                    tituloBase = lembrete.titulo,
+                    tituloBase = tituloCompleto,
                     tipoLabel = lembrete.tipo.label,
                     dataVencimento = dataVencimento,
                     hora = hora,
@@ -204,8 +278,8 @@ object NotificacaoHelper {
         agendarNotificacaoUnica(
             context = context,
             id = lembrete.id,
-            titulo = lembrete.titulo,
-            descricao = "Atencao! O prazo de ${lembrete.titulo} vence em ${lembrete.dataLimite}.",
+            titulo = tituloCompleto,
+            descricao = "Lembrete agendado para ${lembrete.dataLimite} as $hora. Abra o app para revisar e concluir.",
             data = lembrete.dataLimite,
             hora = hora,
             carroId = lembrete.carroId
@@ -215,6 +289,34 @@ object NotificacaoHelper {
     fun cancelarNotificacao(context: Context, lembreteId: String) {
         cancelarNotificacaoPorId(context, lembreteId)
         cancelarNotificacoesEmEtapas(context, lembreteId)
+        removerRecorrencia(context, lembreteId)
+    }
+
+    fun salvarRecorrencia(context: Context, lembreteId: String, unit: String, interval: Int) {
+        if (lembreteId.isBlank() || interval <= 0) return
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit()
+            .putString("$REC_PREFIX_UNIT$lembreteId", unit)
+            .putInt("$REC_PREFIX_INTERVAL$lembreteId", interval)
+            .apply()
+    }
+
+    fun obterRecorrencia(context: Context, lembreteId: String): RecorrenciaConfig? {
+        if (lembreteId.isBlank()) return null
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val unit = prefs.getString("$REC_PREFIX_UNIT$lembreteId", null)?.trim().orEmpty()
+        val interval = prefs.getInt("$REC_PREFIX_INTERVAL$lembreteId", 0)
+        if (unit.isBlank() || interval <= 0) return null
+        return RecorrenciaConfig(unit = unit, interval = interval)
+    }
+
+    fun removerRecorrencia(context: Context, lembreteId: String) {
+        if (lembreteId.isBlank()) return
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit()
+            .remove("$REC_PREFIX_UNIT$lembreteId")
+            .remove("$REC_PREFIX_INTERVAL$lembreteId")
+            .apply()
     }
 
     fun reagendarExistentes(context: Context, lembretes: List<Lembrete>) {
@@ -275,9 +377,9 @@ object NotificacaoHelper {
             else -> "$tituloBase vencido"
         }
         val descricaoEtapa = when {
-            diasAntes > 0 -> "Lembrete de $tipoLabel: faltam $diasAntes dias para $tituloBase."
-            diasAntes == 0 -> "Hoje e o vencimento de $tituloBase. Regularize para evitar pendencia."
-            else -> "$tituloBase esta vencido ha $diasAtraso dia(s). Regularize assim que possivel."
+            diasAntes > 0 -> "Faltam $diasAntes dias. Vencimento em ${dataVencimento.format(dateFormatter)} as $hora."
+            diasAntes == 0 -> "Vence hoje (${dataVencimento.format(dateFormatter)}) as $hora. Regularize para evitar pendencias."
+            else -> "Vencido ha $diasAtraso dia(s). Regularize assim que possivel no app."
         }
         agendarNotificacaoUnica(
             context = context,
@@ -310,7 +412,22 @@ object NotificacaoHelper {
         tipoLabel: String? = null
     ) {
         val triggerAt = calcularMillis(data, hora) ?: return
-        if (triggerAt <= System.currentTimeMillis()) return
+        val now = System.currentTimeMillis()
+        var triggerAtFinal = triggerAt
+        if (triggerAtFinal <= now) {
+            val atrasoMs = now - triggerAtFinal
+            val dataSelecionada = runCatching { LocalDate.parse(data, dateFormatter) }.getOrNull()
+            if (dataSelecionada == LocalDate.now()) {
+                triggerAtFinal = now + 5_000L
+                Log.w(TAG_NOTIF, "horario do dia ja passou; disparo imediato em ~5s id=$id data=$data hora=$hora")
+            } else if (atrasoMs <= 60_000L) {
+                triggerAtFinal = now + 5_000L
+                Log.w(TAG_NOTIF, "trigger ajustado para proximo instante (atraso=${atrasoMs}ms) id=$id data=$data hora=$hora")
+            } else {
+                Log.w(TAG_NOTIF, "trigger descartado por estar no passado id=$id data=$data hora=$hora atrasoMs=$atrasoMs")
+                return
+            }
+        }
 
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
         salvarHora(context, id, hora)
@@ -334,7 +451,8 @@ object NotificacaoHelper {
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        agendarAlarmManager(context, alarmManager, triggerAt, pendingIntent)
+        Log.d(TAG_NOTIF, "agendar id=$id data=$data hora=$hora triggerAt=$triggerAtFinal now=$now")
+        agendarAlarmManager(context, alarmManager, triggerAtFinal, pendingIntent)
     }
 
     private fun cancelarNotificacoesEmEtapas(context: Context, lembreteId: String) {
@@ -524,3 +642,5 @@ object NotificacaoHelper {
         }
     }
 }
+
+
