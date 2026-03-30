@@ -38,6 +38,7 @@ import br.com.gui.carlembrete.Abastecimento
 import br.com.gui.carlembrete.AppPreferences
 import br.com.gui.carlembrete.BancoDeDados
 import br.com.gui.carlembrete.formatarMoedaLocal
+import br.com.gui.carlembrete.tr
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -63,14 +64,14 @@ private val SurfaceDark = Color(0xFF1E293B)
 fun HistoricoAbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
     val colorScheme = MaterialTheme.colorScheme
     val isDark = colorScheme.background.luminance() < 0.5f
-    val screenBg = if (isDark) PrimaryDark else Color.White
+    val screenBg = if (isDark) PrimaryDark else colorScheme.background
     val titleColor = colorScheme.onSurface
     val bodyColor = colorScheme.onSurfaceVariant
     val cardBorderColor = if (isDark) Color.White.copy(alpha = 0.10f) else Color(0xFFCBD5E1)
     val summaryGradient = if (isDark) {
         Brush.verticalGradient(listOf(Color(0xFF334155), Color(0xFF1E293B)))
     } else {
-        Brush.verticalGradient(listOf(Color(0xFFF8FAFC), Color(0xFFE2E8F0)))
+        Brush.verticalGradient(listOf(Color.White, Color.White))
     }
     val context = LocalContext.current
     val view = LocalView.current
@@ -573,14 +574,14 @@ fun DialogExcluir(onDismiss: () -> Unit, onConfirm: () -> Unit) {
 
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
-                        "Excluir registro?",
+                        tr("Excluir registro?", "Delete record?"),
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         color = titleColor
                     )
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        "Tem certeza que deseja apagar este abastecimento?",
+                        tr("Tem certeza que deseja apagar este abastecimento?", "Are you sure you want to delete this fuel entry?"),
                         style = MaterialTheme.typography.bodyMedium,
                         color = bodyColor,
                         textAlign = TextAlign.Center,
@@ -600,7 +601,7 @@ fun DialogExcluir(onDismiss: () -> Unit, onConfirm: () -> Unit) {
                         shape = RoundedCornerShape(12.dp),
                         border = BorderStroke(1.dp, AlertRed)
                     ) {
-                        Text("Cancelar", color = AlertRed)
+                        Text(tr("Cancelar", "Cancel"), color = AlertRed)
                     }
 
                     Button(
@@ -611,7 +612,7 @@ fun DialogExcluir(onDismiss: () -> Unit, onConfirm: () -> Unit) {
                         shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = AlertRed)
                     ) {
-                        Text("Excluir", fontWeight = FontWeight.Bold, color = TextWhite)
+                        Text(tr("Excluir", "Delete"), fontWeight = FontWeight.Bold, color = TextWhite)
                     }
                 }
             }
