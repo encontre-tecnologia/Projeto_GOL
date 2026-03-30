@@ -23,6 +23,7 @@ import androidx.compose.material.icons.rounded.FactCheck
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -58,15 +59,18 @@ fun EtapaRevisaoAvisoContent(
     contatoSelecionado: ContatoProfissional?,
     cidadeAtual: String?,
     ufAtual: String?,
+    repetirAteDesativar: Boolean,
+    descricaoRepeticao: String,
     mostrarResumoSimplificadoPosto: Boolean,
     tituloCategoria: String,
     onAcaoContato: (ContatoProfissional) -> Unit
 ) {
-    val bgCard = if (isDark) Color(0xFF111827) else Color(0xFFF8FAFC)
+    val scheme = MaterialTheme.colorScheme
+    val bgCard = if (isDark) Color(0xFF111827) else scheme.surface
     val borderColor = if (isDark) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.10f)
-    val headerBg = if (isDark) Color(0xFF0F172A) else Color.White
-    val itemBg = if (isDark) Color(0xFF0B1220) else Color.White
-    val bodyBg = if (isDark) itemBg else Color.White
+    val headerBg = if (isDark) Color(0xFF0F172A) else scheme.surface
+    val itemBg = if (isDark) Color(0xFF0B1220) else scheme.surface
+    val bodyBg = if (isDark) itemBg else scheme.background
     val avisos = if (isModoLista && listaItensDetectados.isNotEmpty()) {
         listaItensDetectados.flatMap { item ->
             val repeticoes = maxOf(1, item.quantidade)
@@ -75,27 +79,29 @@ fun EtapaRevisaoAvisoContent(
                 val tipo = itemTipoOverrides[item.id] ?: item.tipo
                 AvisoResumoUi(
                     titulo = tituloFormatado,
-                    categoria = if (tipo == TipoManutencao.ABASTECIMENTO) "Posto" else tipo.label,
+                    categoria = if (tipo == TipoManutencao.ABASTECIMENTO) tr("Posto", "Fuel") else tipo.label,
                     tipo = tipo,
-                    km = kmBase.ifBlank { "Nao informado" },
-                    hora = horaNotificacao.ifBlank { "Nao informado" },
+                    km = kmBase.ifBlank { tr("Nao informado", "Not informed") },
+                    hora = horaNotificacao.ifBlank { tr("Nao informado", "Not informed") },
                     valor = "R$ ${itemValorOverrides[item.id] ?: item.valor.formatResumo()}",
                     dataAviso = itemDataAvisoOverrides[item.id] ?: dataAviso,
-                    dataServico = data.ifBlank { "Nao informado" }
+                    dataServico = data.ifBlank { tr("Nao informado", "Not informed") },
+                    repeticao = if (repetirAteDesativar) tr("Sim", "Yes") + " (${descricaoRepeticao})" else tr("Nao", "No")
                 )
             }
         }
     } else {
         listOf(
             AvisoResumoUi(
-                titulo = descricao.ifBlank { "Aviso sem nome" },
+                titulo = descricao.ifBlank { tr("Aviso sem nome", "Unnamed reminder") },
                 categoria = tituloCategoria,
                 tipo = tipoSelecionado,
-                km = kmBase.ifBlank { "Nao informado" },
-                hora = horaNotificacao.ifBlank { "Nao informado" },
-                valor = if (valorInput.isBlank()) "Nao informado" else "R$ $valorInput",
-                dataAviso = dataAviso.ifBlank { "Nao informado" },
-                dataServico = data.ifBlank { "Nao informado" }
+                km = kmBase.ifBlank { tr("Nao informado", "Not informed") },
+                hora = horaNotificacao.ifBlank { tr("Nao informado", "Not informed") },
+                valor = if (valorInput.isBlank()) tr("Nao informado", "Not informed") else "R$ $valorInput",
+                dataAviso = dataAviso.ifBlank { tr("Nao informado", "Not informed") },
+                dataServico = data.ifBlank { tr("Nao informado", "Not informed") },
+                repeticao = if (repetirAteDesativar) tr("Sim", "Yes") + " (${descricaoRepeticao})" else tr("Nao", "No")
             )
         )
     }
@@ -117,7 +123,7 @@ fun EtapaRevisaoAvisoContent(
             Icon(Icons.Rounded.FactCheck, contentDescription = null, tint = accentBlue, modifier = Modifier.size(30.dp))
         }
         Spacer(Modifier.height(6.dp))
-        Text("Revisar aviso", color = textPrimary, fontWeight = FontWeight.Bold, fontSize = 25.sp)
+        Text(tr("Revisar aviso", "Review reminder"), color = textPrimary, fontWeight = FontWeight.Bold, fontSize = 25.sp)
     }
 
     Column(
@@ -168,6 +174,31 @@ private fun AvisoResumoCardPosto(
                 .padding(horizontal = 14.dp, vertical = 14.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(28.dp)
+                        .background(corCategoria(aviso.tipo).copy(alpha = 0.18f), CircleShape)
+                        .border(1.dp, corCategoria(aviso.tipo).copy(alpha = 0.28f), CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    TipoIcon(
+                        tipo = aviso.tipo,
+                        tint = corCategoria(aviso.tipo),
+                        size = 15.dp
+                    )
+                }
+                Text(
+                    aviso.categoria,
+                    color = textPrimary,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
             Text(
                 aviso.titulo,
                 color = textPrimary,
@@ -175,10 +206,16 @@ private fun AvisoResumoCardPosto(
                 fontWeight = FontWeight.SemiBold
             )
             Text(
-                "Valor: ${aviso.valor}",
+                "${tr("Valor", "Amount")}: ${aviso.valor}",
                 color = textSecondary,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Bold
+            )
+            Text(
+                "${tr("Repeticao", "Repeat")}: ${aviso.repeticao}",
+                color = textSecondary,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium
             )
         }
     }
@@ -192,7 +229,8 @@ private data class AvisoResumoUi(
     val hora: String,
     val valor: String,
     val dataAviso: String,
-    val dataServico: String
+    val dataServico: String,
+    val repeticao: String
 )
 
 private fun Double.formatResumo(): String = if (this == 0.0) {
@@ -202,7 +240,7 @@ private fun Double.formatResumo(): String = if (this == 0.0) {
 }
 
 private fun formatarKmResumo(value: String): String {
-    val numero = value.filter(Char::isDigit).toLongOrNull() ?: return value.ifBlank { "Nao informado" }
+    val numero = value.filter(Char::isDigit).toLongOrNull() ?: return value.ifBlank { "Not informed" }
     return "${NumberFormat.getIntegerInstance(Locale("pt", "BR")).format(numero)} km"
 }
 
@@ -270,18 +308,26 @@ private fun AvisoResumoCard(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    ResumoTagGridItem("Categoria", aviso.categoria, textPrimary, textSecondary, itemBg, borderColor)
+                    ResumoTagGridItem(tr("Categoria", "Category"), aviso.categoria, textPrimary, textSecondary, itemBg, borderColor)
                     ResumoTagKmGridItem(aviso.km, textPrimary, textSecondary, itemBg, borderColor)
-                    ResumoTagGridItem("Hora", aviso.hora, textPrimary, textSecondary, itemBg, borderColor)
+                    ResumoTagGridItem(tr("Hora", "Time"), aviso.hora, textPrimary, textSecondary, itemBg, borderColor)
                 }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    ResumoTagGridItem("Valor", aviso.valor, textPrimary, textSecondary, itemBg, borderColor)
-                    ResumoTagGridItem("Aviso", aviso.dataAviso, textPrimary, textSecondary, itemBg, borderColor)
-                    ResumoTagGridItem("Servico", aviso.dataServico, textPrimary, textSecondary, itemBg, borderColor)
+                    ResumoTagGridItem(tr("Valor", "Amount"), aviso.valor, textPrimary, textSecondary, itemBg, borderColor)
+                    ResumoTagGridItem(tr("Aviso", "Reminder"), aviso.dataAviso, textPrimary, textSecondary, itemBg, borderColor)
+                    ResumoTagGridItem(tr("Servico", "Service"), aviso.dataServico, textPrimary, textSecondary, itemBg, borderColor)
                 }
+                ResumoLinhaCompacta(
+                    titulo = tr("Repeticao", "Repeat"),
+                    valor = aviso.repeticao,
+                    textPrimary = textPrimary,
+                    textSecondary = textSecondary,
+                    itemBg = itemBg,
+                    borderColor = borderColor
+                )
             }
         }
     }

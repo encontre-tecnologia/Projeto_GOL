@@ -18,6 +18,12 @@ import android.net.Uri
 import android.os.Build
 import android.speech.RecognizerIntent
 import android.util.Log
+import android.webkit.CookieManager
+import android.webkit.WebSettings
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import android.widget.MediaController
+import android.widget.VideoView
 import android.widget.Toast
 import java.net.URLEncoder
 import androidx.activity.compose.BackHandler
@@ -149,6 +155,17 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import kotlin.math.roundToInt
 
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
+}
+
+private enum class FluxoCadastroAviso {
+    CRIAR_LEMBRETE,
+    REGISTRAR_SERVICO
+}
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun NovoAgendamentoDialog(
@@ -171,23 +188,28 @@ fun NovoAgendamentoDialog(
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
     val appContext = context.applicationContext
+    val englishUi = isEnglishUi()
     val isPremium = planTier != PlanTier.FREE
     val scheme = MaterialTheme.colorScheme
     val isDark = scheme.background.luminance() < 0.5f
-    val pageBackground = if (isDark) scheme.background else Color.White
-    val surfaceCardColor = if (isDark) Color(0xFF111827) else Color.White
+    val pageBackground = if (isDark) scheme.background else scheme.background
+    val surfaceCardColor = if (isDark) Color(0xFF111827) else scheme.surface
     val cardBorder = if (isDark) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.12f)
     val currencyFormatter = remember { NumberFormat.getCurrencyInstance(Locale("pt", "BR")) }
     val textPrimary = if (isDark) Color.White else Color.Black
     val textSecondary = if (isDark) Color(0xFF94A3B8) else Color(0xFF475569)
     val iconColor = if (isDark) Color.White else Color.Black
     val cameraIconColor = Color.White
-    val modalContainer = if (isDark) Color(0xFF1E293B) else Color.White
+    val modalContainer = if (isDark) Color(0xFF1E293B) else scheme.surface
     val modalTextSecondary = if (isDark) Color(0xFF94A3B8) else Color(0xFF475569)
-    val modalOptionContainer = if (isDark) Color(0xFF111827) else Color(0xFFF8FAFC)
+    val modalOptionContainer = if (isDark) Color(0xFF111827) else scheme.surface
     val modalOptionSelectedContainer = if (isDark) Color(0xFF1E293B) else Color(0xFFEFF6FF)
     val modalOptionBorder = if (isDark) Color(0xFF334155) else Color(0xFFBFDBFE)
     val modalPrimaryAction = Color(0xFF3B82F6)
+    val nextActionBlue = Color(0xFF2563EB)
+    val neutralButtonContainer = if (isDark) Color(0xFF1E293B) else scheme.surface
+    val neutralButtonContent = textPrimary
+    val neutralButtonBorder = if (isDark) Color(0xFF334155) else scheme.outlineVariant
     val categoriasDisponiveis = tiposAvisoCadastroPorVeiculo(carroAtual.tipoVeiculo)
     var descricao by remember { mutableStateOf("") }
     var localServicoInput by remember { mutableStateOf("") }
@@ -228,8 +250,22 @@ fun NovoAgendamentoDialog(
     var fotoCaminho by remember { mutableStateOf<String?>(null) }
     var horaNotificacao by remember { mutableStateOf("09:00") }
     var dataAviso by remember { mutableStateOf(LocalDate.now().format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))) }
+    var frequenciaLembreteKey by remember { mutableStateOf("NONE") }
+    var repetirAteDesativar by remember { mutableStateOf(false) }
+    var intervaloDiasPersonalizado by remember { mutableStateOf("1") }
+    var intervaloMesesPersonalizado by remember { mutableStateOf("3") }
+    var intervaloAnosPersonalizado by remember { mutableStateOf("2") }
+    var menuFrequenciaExpanded by remember { mutableStateOf(false) }
+    val isInitialPosto = initialTipo == TipoManutencao.ABASTECIMENTO
     var avisoPersonalizado by remember { mutableStateOf(false) }
-    var etapaAtual by remember { mutableStateOf(1) }
+    var etapaAtual by remember { mutableStateOf(if (isInitialPosto) 1 else 0) }
+    var fluxoCadastro by remember {
+        mutableStateOf<FluxoCadastroAviso?>(
+            if (isInitialPosto) FluxoCadastroAviso.REGISTRAR_SERVICO else null
+        )
+    }
+    val isFluxoPosto = tipoSelecionado == TipoManutencao.ABASTECIMENTO
+    val isRegistroServico = fluxoCadastro == FluxoCadastroAviso.REGISTRAR_SERVICO || isFluxoPosto
     val descricaoFocusRequester = remember { FocusRequester() }
     var textosDetectados by remember { mutableStateOf<List<String>>(emptyList()) }
     var showTextosDialog by remember { mutableStateOf(false) }
@@ -239,6 +275,14 @@ fun NovoAgendamentoDialog(
     var marcaSelecionadaDialog by remember { mutableStateOf<String?>(null) }
     var qrNomeEstabelecimento by remember { mutableStateOf("") }
     var qrEnderecoEstabelecimento by remember { mutableStateOf("") }
+    var qrUrlValidacaoSpPendente by remember { mutableStateOf<String?>(null) }
+    var resultadoQrPendente by remember { mutableStateOf<ResultadoCaptura?>(null) }
+    var reprocessandoQrSp by remember { mutableStateOf(false) }
+    var showValidacaoSpWebView by remember { mutableStateOf(false) }
+    var webViewSpCarregando by remember { mutableStateOf(false) }
+    var showTutorialDialog by remember { mutableStateOf(false) }
+    var showCadastroHelpDialog by remember { mutableStateOf(false) }
+    var tutorialVideoPath by remember { mutableStateOf<String?>(null) }
     var descricaoAntesDialog by remember { mutableStateOf("") }
     var tipoAntesDialog by remember { mutableStateOf(TipoManutencao.OLEO) }
     var showScannerGuide by remember { mutableStateOf(false) }
@@ -263,11 +307,36 @@ fun NovoAgendamentoDialog(
         label = "profissionais_loading_alpha"
     )
     val isBikeVehicle = carroAtual.tipoVeiculo == TipoVeiculo.BICICLETA || carroAtual.tipoVeiculo == TipoVeiculo.BIKE_ELETRICA
+    val activity = remember(context) { context.findActivity() }
     val scannerGuidePrefs = remember(context) {
         context.getSharedPreferences("scanner_guide_prefs", Context.MODE_PRIVATE)
     }
     val scannerGuideImageResId = remember(context) {
         context.resources.getIdentifier("notaexemplo", "drawable", context.packageName)
+    }
+
+    DisposableEffect(activity, isDark, pageBackground) {
+        val window = activity?.window
+        if (window == null) {
+            onDispose { }
+        } else {
+            val oldStatusColor = window.statusBarColor
+            val oldNavColor = window.navigationBarColor
+            val insetsController = WindowInsetsControllerCompat(window, window.decorView)
+            val oldLightStatus = insetsController.isAppearanceLightStatusBars
+            val oldLightNav = insetsController.isAppearanceLightNavigationBars
+            val targetBarColor = pageBackground.toArgb()
+            window.statusBarColor = targetBarColor
+            window.navigationBarColor = targetBarColor
+            insetsController.isAppearanceLightStatusBars = !isDark
+            insetsController.isAppearanceLightNavigationBars = !isDark
+            onDispose {
+                window.statusBarColor = oldStatusColor
+                window.navigationBarColor = oldNavColor
+                insetsController.isAppearanceLightStatusBars = oldLightStatus
+                insetsController.isAppearanceLightNavigationBars = oldLightNav
+            }
+        }
     }
 
     LaunchedEffect(carroAtual.tipoVeiculo) {
@@ -281,6 +350,9 @@ fun NovoAgendamentoDialog(
     }
 
     LaunchedEffect(tipoSelecionado) {
+        if (tipoSelecionado == TipoManutencao.ABASTECIMENTO) {
+            fluxoCadastro = FluxoCadastroAviso.REGISTRAR_SERVICO
+        }
         val sugestaoDescricao = descricaoPadraoPorCategoria(tipoSelecionado, anoAtual) ?: return@LaunchedEffect
         if (descricao.isBlank() || isDescricaoPadraoCategoria(descricao)) {
             descricao = sugestaoDescricao
@@ -298,6 +370,97 @@ fun NovoAgendamentoDialog(
             }
         }
     }
+    fun aplicarNotaReprocessadaNoFormulario(notaReconsultada: NotaQrInfo, resultadoPendente: ResultadoCaptura) {
+        val valorExtraido = notaReconsultada.valorTotal
+        val dataExtraida = notaReconsultada.dataCompra
+
+        if (valorExtraido != null) {
+            valorInput = String.format(Locale.US, "%.2f", valorExtraido)
+        }
+        if (!dataExtraida.isNullOrBlank()) {
+            data = dataExtraida
+            dataAviso = dataExtraida
+            avisoPersonalizado = true
+        }
+        qrNomeEstabelecimento = notaReconsultada.nomeEstabelecimento.orEmpty()
+        qrEnderecoEstabelecimento = notaReconsultada.enderecoEstabelecimento.orEmpty()
+        val descricaoExtraida = notaReconsultada.descricaoItens?.trim()
+        val descricaoExtraidaSemTotal = descricaoExtraida?.let { limparTextoProdutosRemovendoTotal(it) }
+        val itensQr = extrairItensDaDescricaoQr(descricaoExtraida)
+        qrPossuiItensSeparaveis = itensQr.size > 1
+        qrModoSeparado = false
+        if (itensQr.isNotEmpty()) {
+            listaItensDetectados = itensQr
+            if (valorExtraido == null) {
+                val totalItens = itensQr.sumOf { item -> item.valor }
+                if (totalItens > 0.0) {
+                    valorInput = String.format(Locale.US, "%.2f", totalItens)
+                }
+            }
+            itemDataAvisoOverrides = emptyMap()
+            itemHoraAvisoOverrides = emptyMap()
+            itemValorOverrides = emptyMap()
+            itemTipoOverrides = itensQr.associate { item ->
+                item.id to detectarTipoInicialDoLembrete(
+                    nomeItem = item.nome,
+                    tipoBase = item.tipo,
+                    categoriasDisponiveis = categoriasDisponiveis
+                )
+            }
+        } else {
+            itemDataAvisoOverrides = emptyMap()
+            itemHoraAvisoOverrides = emptyMap()
+            itemValorOverrides = emptyMap()
+            itemTipoOverrides = emptyMap()
+        }
+        itemCategoriaMenuAbertoId = null
+        localServicoInput = montarLocalNota(
+            estabelecimento = qrNomeEstabelecimento,
+            endereco = qrEnderecoEstabelecimento
+        )
+        descricaoQrConsolidada = montarDescricaoItensNota(
+            total = null,
+            itens = descricaoExtraidaSemTotal
+        )
+        val sugestaoOcr = resultadoPendente.sugestoesProduto
+            .map { it.trim() }
+            .firstOrNull { it.isNotBlank() }
+        val sugestaoOcrLimpa =
+            sugestaoOcr?.let { limparTextoProdutosRemovendoTotal(it) }?.takeIf { it.isNotBlank() }
+        descricao = when {
+            descricaoExtraidaSemTotal.isNullOrBlank() && !sugestaoOcrLimpa.isNullOrBlank() -> sugestaoOcrLimpa
+            else -> descricaoQrConsolidada
+        }
+        isModoLista = false
+    }
+
+    fun reprocessarNotaSpAposValidacao(urlReconsulta: String, origem: String) {
+        val resultadoPendente = resultadoQrPendente ?: return
+        val cookieHeader = CookieManager.getInstance().getCookie(urlReconsulta)
+        scope.launch {
+            reprocessandoQrSp = true
+            val notaReconsultada = consultarNotaPorQrCode(
+                url = urlReconsulta,
+                cookieHeader = cookieHeader
+            )
+            reprocessandoQrSp = false
+            if (notaReconsultada != null && !notaQrIndicaBloqueioSp(notaReconsultada)) {
+                aplicarNotaReprocessadaNoFormulario(notaReconsultada, resultadoPendente)
+                showValidacaoSpWebView = false
+                qrUrlValidacaoSpPendente = null
+                resultadoQrPendente = null
+                Toast.makeText(context, "Nota validada na SEFAZ-SP e reprocessada.", Toast.LENGTH_SHORT).show()
+                Log.i(QR_PARSER_TAG, "Reprocessamento SP concluido com sucesso. origem=$origem")
+            } else {
+                Toast.makeText(
+                    context,
+                    "Validacao concluida, mas os dados da nota ainda estao indisponiveis.",
+                    Toast.LENGTH_LONG
+                ).show()
+                Log.w(QR_PARSER_TAG, "Reprocessamento SP sem dados apos validacao. origem=$origem")
+            }
+        }
+    }
 
     fun tentarAbrirCamera(exibirGuia: Boolean = true) {
         val chaveGuiaNovoAviso = "mostrar_guia_scanner_produto_novo_aviso"
@@ -308,6 +471,22 @@ fun NovoAgendamentoDialog(
             return
         }
         showCamera = true
+    }
+
+    fun prepararVideoTutorialLocal(): String? {
+        return runCatching {
+            val destino = File(context.cacheDir, "tutorial.mp4")
+            if (!destino.exists() || destino.length() <= 0L) {
+                context.assets.open("tutorial.mp4").use { input ->
+                    destino.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+            }
+            destino.absolutePath
+        }.onFailure {
+            Log.e(QR_PARSER_TAG, "Falha ao preparar video tutorial em cache.", it)
+        }.getOrNull()
     }
 
     LaunchedEffect(autoAbrirCamera) {
@@ -371,6 +550,62 @@ fun NovoAgendamentoDialog(
             TipoManutencao.IPVA,
             TipoManutencao.LICENCIAMENTO -> estadoUfSelecionado
             else -> (kmAtualBase + getKmAdicionalPorTipo(tipo)).toString()
+        }
+    }
+
+    fun tipoPermiteFrequencia(tipo: TipoManutencao): Boolean {
+        return tipo != TipoManutencao.LICENCIAMENTO &&
+            tipo != TipoManutencao.SEGURO &&
+            tipo != TipoManutencao.IPVA &&
+            tipo != TipoManutencao.ABASTECIMENTO
+    }
+
+    fun diaSemanaDaDataAviso(): String {
+        val dia = runCatching {
+            LocalDate.parse(dataAviso, dataFormatter).dayOfWeek
+        }.getOrDefault(DayOfWeek.WEDNESDAY)
+        return when (dia) {
+            DayOfWeek.MONDAY -> "segunda-feira"
+            DayOfWeek.TUESDAY -> "terça-feira"
+            DayOfWeek.WEDNESDAY -> "quarta-feira"
+            DayOfWeek.THURSDAY -> "quinta-feira"
+            DayOfWeek.FRIDAY -> "sexta-feira"
+            DayOfWeek.SATURDAY -> "sábado"
+            DayOfWeek.SUNDAY -> "domingo"
+        }
+    }
+
+    fun descricaoFrequenciaSelecionada(): String = when (frequenciaLembreteKey) {
+        "DAY_CUSTOM" -> if (englishUi) "Every X days" else "A cada X dias"
+        "WEEK_1" -> if (englishUi) "Every ${diaSemanaDaDataAviso()}" else "Toda ${diaSemanaDaDataAviso()}"
+        "MONTH_1" -> if (englishUi) "Every month" else "Todo mês"
+        "MONTH_6" -> if (englishUi) "Every 6 months" else "A cada 6 meses"
+        "MONTH_CUSTOM" -> if (englishUi) "Every X months" else "A cada X meses"
+        "YEAR_1" -> if (englishUi) "Every year" else "Todo ano"
+        "YEAR_CUSTOM" -> if (englishUi) "Every X years" else "A cada X anos"
+        else -> if (englishUi) "Do not repeat" else "Não repetir"
+    }
+
+    fun recorrenciaSelecionadaConfig(): Pair<String, Int>? {
+        if (!repetirAteDesativar) return null
+        return when (frequenciaLembreteKey) {
+            "DAY_CUSTOM" -> {
+                val dias = intervaloDiasPersonalizado.filter(Char::isDigit).toIntOrNull() ?: 0
+                if (dias > 0) NotificacaoHelper.REC_UNIT_DAY to dias else null
+            }
+            "WEEK_1" -> NotificacaoHelper.REC_UNIT_WEEK to 1
+            "MONTH_1" -> NotificacaoHelper.REC_UNIT_MONTH to 1
+            "MONTH_6" -> NotificacaoHelper.REC_UNIT_MONTH to 6
+            "MONTH_CUSTOM" -> {
+                val meses = intervaloMesesPersonalizado.filter(Char::isDigit).toIntOrNull() ?: 0
+                if (meses > 0) NotificacaoHelper.REC_UNIT_MONTH to meses else null
+            }
+            "YEAR_1" -> NotificacaoHelper.REC_UNIT_YEAR to 1
+            "YEAR_CUSTOM" -> {
+                val anos = intervaloAnosPersonalizado.filter(Char::isDigit).toIntOrNull() ?: 0
+                if (anos > 0) NotificacaoHelper.REC_UNIT_YEAR to anos else null
+            }
+            else -> null
         }
     }
 
@@ -618,6 +853,7 @@ fun NovoAgendamentoDialog(
         val kmAtualBase = kmAtualBaseForcado ?: (kmBase.toIntOrNull() ?: 0)
         if (kmAtualBase > carroAtual.kmAtual) onUpdateKmCarro(kmAtualBase)
         val dataAvisoStr = dataAviso
+        val recorrenciaConfig = recorrenciaSelecionadaConfig()
         if (isModoLista) {
             val novosLembretes = listaItensDetectados.flatMap { item ->
                 val tipoItem = itemTipoOverrides[item.id] ?: item.tipo
@@ -648,10 +884,33 @@ fun NovoAgendamentoDialog(
             val valoresAbastecimento = novosLembretes
                 .filter { it.tipo == TipoManutencao.ABASTECIMENTO }
                 .map { it.valor }
-            lembretesSemPosto.forEach { NotificacaoHelper.agendarNotificacao(appContext, it, it.horaAviso) }
+            if (!isRegistroServico) {
+                lembretesSemPosto.forEach { lembrete ->
+                    NotificacaoHelper.agendarNotificacao(appContext, lembrete, lembrete.horaAviso)
+                    if (tipoPermiteFrequencia(lembrete.tipo)) {
+                        if (recorrenciaConfig != null) {
+                            NotificacaoHelper.salvarRecorrencia(
+                                context = appContext,
+                                lembreteId = lembrete.id,
+                                unit = recorrenciaConfig.first,
+                                interval = recorrenciaConfig.second
+                            )
+                        } else {
+                            NotificacaoHelper.removerRecorrencia(appContext, lembrete.id)
+                        }
+                    } else {
+                        NotificacaoHelper.removerRecorrencia(appContext, lembrete.id)
+                    }
+                }
+            }
             registrarAbastecimentosNoHistorico(valoresAbastecimento)
             if (lembretesSemPosto.isNotEmpty()) {
-                onMultiConfirm(lembretesSemPosto)
+                val resultado = if (isRegistroServico) {
+                    lembretesSemPosto.map { marcarLembreteComoRealizado(it) }
+                } else {
+                    lembretesSemPosto
+                }
+                onMultiConfirm(resultado)
             } else if (valoresAbastecimento.any { it > 0.0 }) {
                 Toast.makeText(context, "Registro salvo no historico de abastecimento.", Toast.LENGTH_SHORT).show()
             }
@@ -674,25 +933,31 @@ fun NovoAgendamentoDialog(
             if (novoLembrete.tipo == TipoManutencao.ABASTECIMENTO) {
                 registrarAbastecimentosNoHistorico(listOf(novoLembrete.valor))
                 Toast.makeText(context, "Registro salvo no historico de abastecimento.", Toast.LENGTH_SHORT).show()
+            } else if (isRegistroServico) {
+                onConfirm(marcarLembreteComoRealizado(novoLembrete))
+                Toast.makeText(context, trNow("Serviço registrado no histórico.", "Service recorded in history."), Toast.LENGTH_SHORT).show()
             } else {
                 NotificacaoHelper.agendarNotificacao(appContext, novoLembrete, horaNotificacao)
+                if (tipoPermiteFrequencia(novoLembrete.tipo)) {
+                    if (recorrenciaConfig != null) {
+                        NotificacaoHelper.salvarRecorrencia(
+                            context = appContext,
+                            lembreteId = novoLembrete.id,
+                            unit = recorrenciaConfig.first,
+                            interval = recorrenciaConfig.second
+                        )
+                    } else {
+                        NotificacaoHelper.removerRecorrencia(appContext, novoLembrete.id)
+                    }
+                } else {
+                    NotificacaoHelper.removerRecorrencia(appContext, novoLembrete.id)
+                }
                 onConfirm(novoLembrete)
             }
         }
     }
 
     fun tentarSalvarAvisos() {
-        val deveSugerirKm =
-            (isModoLista && listaItensDetectados.any { (itemTipoOverrides[it.id] ?: it.tipo) == TipoManutencao.ABASTECIMENTO }) ||
-                (!isModoLista && tipoSelecionado == TipoManutencao.ABASTECIMENTO)
-        if (deveSugerirKm) {
-            val kmSugerido = estimarKmSugeridoParaAbastecimento()
-            if (kmSugerido != null && kmSugerido > (kmBase.toIntOrNull() ?: carroAtual.kmAtual)) {
-                kmSugeridoParaConfirmar = kmSugerido
-                showKmSugeridoDialog = true
-                return
-            }
-        }
         salvarAvisos()
         onDismiss()
     }
@@ -798,12 +1063,39 @@ fun NovoAgendamentoDialog(
             val qrUrl = resultado.qrCodeUrl?.trim()
             Log.i(QR_PARSER_TAG, "Camera retorno => qrUrl=$qrUrl foto=${resultado.arquivoFoto.name}")
             if (!qrUrl.isNullOrBlank()) {
+                val notaInfo = resultado.notaQrInfo
+                if (notaInfo != null && notaQrIndicaBloqueioSp(notaInfo)) {
+                    val urlValidacao = montarUrlValidacaoHumanaSp(qrUrl)
+                    if (!urlValidacao.isNullOrBlank()) {
+                        qrNomeEstabelecimento = notaInfo.nomeEstabelecimento.orEmpty()
+                        qrEnderecoEstabelecimento = notaInfo.enderecoEstabelecimento.orEmpty()
+                        localServicoInput = montarLocalNota(
+                            estabelecimento = qrNomeEstabelecimento,
+                            endereco = qrEnderecoEstabelecimento
+                        )
+                        qrUrlValidacaoSpPendente = urlValidacao
+                        resultadoQrPendente = resultado
+                        showCamera = false
+                        showValidacaoSpWebView = true
+                        webViewSpCarregando = true
+                        Toast.makeText(
+                            context,
+                            "Abrindo validacao da SEFAZ-SP dentro do app.",
+                            Toast.LENGTH_LONG
+                        ).show()
+                        Log.w(
+                            QR_PARSER_TAG,
+                            "Bloqueio SP detectado na camera. Direcionando direto para WebView."
+                        )
+                        return@CameraCapturaDialog
+                    }
+                }
+
                 isModoLista = false
                 textosDetectados = emptyList()
                 showTextosDialog = false
                 showMarcaDialog = false
                 showCamera = false
-                val notaInfo = resultado.notaQrInfo
                 if (notaInfo == null) {
                     val sugestaoOcr = resultado.sugestoesProduto
                         .map { it.trim() }
@@ -940,6 +1232,239 @@ fun NovoAgendamentoDialog(
         })
     }
 
+    if (showValidacaoSpWebView) {
+        DisposableEffect(activity, isDark, pageBackground) {
+            val window = activity?.window
+            if (window == null) {
+                onDispose { }
+            } else {
+                val oldStatusColor = window.statusBarColor
+                val oldNavColor = window.navigationBarColor
+                val insetsController = WindowInsetsControllerCompat(window, window.decorView)
+                val oldLightStatus = insetsController.isAppearanceLightStatusBars
+                val oldLightNav = insetsController.isAppearanceLightNavigationBars
+                val targetBarColor = pageBackground.toArgb()
+                window.statusBarColor = targetBarColor
+                window.navigationBarColor = targetBarColor
+                insetsController.isAppearanceLightStatusBars = !isDark
+                insetsController.isAppearanceLightNavigationBars = !isDark
+                onDispose {
+                    window.statusBarColor = oldStatusColor
+                    window.navigationBarColor = oldNavColor
+                    insetsController.isAppearanceLightStatusBars = oldLightStatus
+                    insetsController.isAppearanceLightNavigationBars = oldLightNav
+                }
+            }
+        }
+    }
+
+    if (showValidacaoSpWebView && !qrUrlValidacaoSpPendente.isNullOrBlank()) {
+        Dialog(
+            onDismissRequest = {
+                showValidacaoSpWebView = false
+                qrUrlValidacaoSpPendente = null
+                resultadoQrPendente = null
+            },
+            properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
+        ) {
+            Surface(
+                modifier = Modifier.fillMaxSize(),
+                color = pageBackground
+            ) {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .statusBarsPadding()
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                            .height(40.dp)
+                    ) {
+                        IconButton(
+                            onClick = {
+                                showValidacaoSpWebView = false
+                                qrUrlValidacaoSpPendente = null
+                                resultadoQrPendente = null
+                            },
+                            modifier = Modifier
+                                .size(36.dp)
+                                .align(Alignment.CenterStart)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ArrowBackIosNew,
+                                contentDescription = tr("Voltar", "Back"),
+                                tint = textPrimary
+                            )
+                        }
+                        Text(
+                            text = "Valide a SEFAZ abaixo. A leitura da nota sera automatica.",
+                            color = textPrimary,
+                            style = MaterialTheme.typography.bodyMedium,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier
+                                .align(Alignment.Center)
+                                .padding(horizontal = 44.dp)
+                        )
+                    }
+                    if (webViewSpCarregando) {
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    }
+                    AndroidView(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth(),
+                        factory = { ctx ->
+                            WebView(ctx).apply {
+                                settings.javaScriptEnabled = true
+                                settings.domStorageEnabled = true
+                                settings.cacheMode = WebSettings.LOAD_DEFAULT
+                                settings.useWideViewPort = true
+                                settings.loadWithOverviewMode = true
+                                settings.setSupportZoom(true)
+                                settings.builtInZoomControls = true
+                                settings.displayZoomControls = false
+                                settings.textZoom = 100
+                                settings.userAgentString =
+                                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+                                        "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                                setInitialScale(55)
+                                CookieManager.getInstance().setAcceptCookie(true)
+                                CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+                                webViewClient = object : WebViewClient() {
+                                    override fun onPageFinished(view: WebView, url: String?) {
+                                        view.setInitialScale(55)
+                                        webViewSpCarregando = false
+                                        if (url.isNullOrBlank() || reprocessandoQrSp) return
+                                        val script =
+                                            "Boolean(document.querySelector('#tabResult, .txtTit, .txtProd, .totalNumb, #linhaTotal'))"
+                                        view.evaluateJavascript(script) { hasData ->
+                                            val possuiDados = hasData?.contains("true", ignoreCase = true) == true
+                                            if (possuiDados && !reprocessandoQrSp) {
+                                                reprocessarNotaSpAposValidacao(url, origem = "auto-webview")
+                                            }
+                                        }
+                                    }
+                                }
+                                loadUrl(qrUrlValidacaoSpPendente!!)
+                            }
+                        },
+                        update = { view ->
+                            val urlAlvo = qrUrlValidacaoSpPendente
+                            if (!urlAlvo.isNullOrBlank() && view.url != urlAlvo) {
+                                webViewSpCarregando = true
+                                view.loadUrl(urlAlvo)
+                            }
+                        }
+                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .navigationBarsPadding()
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Button(
+                            onClick = {
+                                val path = prepararVideoTutorialLocal()
+                                if (path.isNullOrBlank()) {
+                                    Toast.makeText(context, "Nao foi possivel abrir o tutorial.", Toast.LENGTH_LONG).show()
+                                } else {
+                                    tutorialVideoPath = path
+                                    showTutorialDialog = true
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp),
+                            border = BorderStroke(1.dp, neutralButtonBorder),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = neutralButtonContainer,
+                                contentColor = neutralButtonContent
+                            )
+                        ) {
+                            Text("Tutorial")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (showTutorialDialog && !tutorialVideoPath.isNullOrBlank()) {
+        Dialog(
+            onDismissRequest = { showTutorialDialog = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth(0.82f)
+                    .padding(16.dp),
+                shape = RoundedCornerShape(12.dp),
+                color = surfaceCardColor
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        text = "Tutorial",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = textPrimary,
+                        modifier = Modifier.fillMaxWidth(),
+                        textAlign = TextAlign.Center
+                    )
+                    AndroidView(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(380.dp),
+                        factory = { ctx ->
+                            VideoView(ctx).apply {
+                                val mediaController = MediaController(ctx)
+                                mediaController.setAnchorView(this)
+                                setMediaController(mediaController)
+                                setVideoPath(tutorialVideoPath)
+                                setOnPreparedListener { mp ->
+                                    mp.isLooping = true
+                                    start()
+                                }
+                            }
+                        },
+                        update = { view ->
+                            val path = tutorialVideoPath
+                            if (!path.isNullOrBlank() && view.duration <= 0) {
+                                view.setVideoPath(path)
+                                view.start()
+                            }
+                        }
+                    )
+                    Button(
+                        onClick = { showTutorialDialog = false },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text("Fechar")
+                    }
+                }
+            }
+        }
+    }
+
+    if (reprocessandoQrSp) {
+        AlertDialog(
+            onDismissRequest = {},
+            title = { Text("Processando nota") },
+            text = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
+                    Text("Reconsultando a NFC-e apos validacao na SEFAZ-SP...")
+                }
+            },
+            confirmButton = {}
+        )
+    }
+
     if (showKmConfirmDialog) {
         AlertDialog(
             modifier = Modifier.border(dialogBorderStroke, dialogCornerShape),
@@ -1068,12 +1593,16 @@ fun NovoAgendamentoDialog(
                         showMarcaDialog = true
                     },
                     enabled = textoSelecionadoDialog != null,
-                    colors = ButtonDefaults.buttonColors(containerColor = modalPrimaryAction),
+                    border = BorderStroke(1.dp, neutralButtonBorder),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = neutralButtonContainer,
+                        contentColor = neutralButtonContent
+                    ),
                     shape = RoundedCornerShape(6.dp),
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(48.dp)
-                ) { Text("Proximo", fontWeight = FontWeight.Bold) }
+                ) { Text(tr("Proximo", "Next"), fontWeight = FontWeight.Bold) }
             },
             dismissButton = {}
         )
@@ -1177,7 +1706,11 @@ fun NovoAgendamentoDialog(
                         marcaSelecionadaDialog = null
                     },
                     enabled = marcaSelecionadaDialog != null,
-                    colors = ButtonDefaults.buttonColors(containerColor = modalPrimaryAction),
+                    border = BorderStroke(1.dp, neutralButtonBorder),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = neutralButtonContainer,
+                        contentColor = neutralButtonContent
+                    ),
                     shape = RoundedCornerShape(6.dp),
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1188,7 +1721,6 @@ fun NovoAgendamentoDialog(
         )
     }
 
-    val isFluxoPosto = tipoSelecionado == TipoManutencao.ABASTECIMENTO
     val valorTotalManual = valorInput.replace(",", ".").toDoubleOrNull()
     val valorTotalValido = valorTotalManual != null && valorTotalManual > 0.0
     val podeAvancarEtapa1 = if (isModoLista && listaItensDetectados.isNotEmpty()) {
@@ -1306,7 +1838,7 @@ fun NovoAgendamentoDialog(
                     TextButton(
                         onClick = {
                             showKmSugeridoDialog = false
-                            etapaAtual = if (isFluxoPosto) 1 else 2
+                            etapaAtual = if (isRegistroServico) 1 else 2
                         },
                         modifier = Modifier.fillMaxWidth()
                     ) { Text("Editar KM manualmente", color = textPrimary) }
@@ -1329,29 +1861,41 @@ fun NovoAgendamentoDialog(
             }
         )
     }
-    val accentBlue = Color(0xFF3B82F6)
-    val labelCategoriaSelecionada = if (isFluxoPosto) "Posto" else tipoSelecionado.label
+    val accentBlue = scheme.primary
+    val labelCategoriaSelecionada = if (isFluxoPosto) tr("Posto", "Fuel") else tipoManutencaoLabel(tipoSelecionado)
     val quantidadeLembretesConfigurados = if (qrModoSeparado && listaItensDetectados.isNotEmpty()) {
         listaItensDetectados.size
     } else {
         1
     }
     val textoBotaoEtapa1 = if (qrModoSeparado && listaItensDetectados.isNotEmpty()) {
-        "Avançar com $quantidadeLembretesConfigurados lembretes"
+        if (isRegistroServico) {
+            tr("Avançar com $quantidadeLembretesConfigurados registros", "Continue with $quantidadeLembretesConfigurados records")
+        } else {
+            tr("Avançar com $quantidadeLembretesConfigurados lembretes", "Continue with $quantidadeLembretesConfigurados reminders")
+        }
     } else {
-        "Avançar"
+        tr("Avançar", "Continue")
     }
     val textoBotaoSalvar = if (isFluxoPosto) {
-        "Cadastrar abastecimento"
+        tr("Cadastrar abastecimento", "Register fuel")
+    } else if (isRegistroServico) {
+        if (qrModoSeparado && listaItensDetectados.isNotEmpty()) {
+            tr("Salvar $quantidadeLembretesConfigurados serviços", "Save $quantidadeLembretesConfigurados services")
+        } else {
+            tr("Salvar serviço", "Save service")
+        }
     } else if (qrModoSeparado && listaItensDetectados.isNotEmpty()) {
-        "Cadastrar $quantidadeLembretesConfigurados lembretes"
+        tr("Cadastrar $quantidadeLembretesConfigurados lembretes", "Create $quantidadeLembretesConfigurados reminders")
     } else {
-        "Cadastrar lembrete"
+        tr("Cadastrar lembrete", "Create reminder")
     }
     fun etapaAnteriorAtual(etapa: Int): Int = when {
+        etapa == 1 -> 0
         isFluxoPosto && etapa == 3 -> 1
+        isRegistroServico && etapa == 3 -> 1
         etapa > 1 -> etapa - 1
-        else -> 1
+        else -> 0
     }
     val voltarUmaEtapaOuFechar = {
         if (etapaAtual > 1) {
@@ -1364,7 +1908,7 @@ fun NovoAgendamentoDialog(
     BackHandler(onBack = voltarUmaEtapaOuFechar)
 
     Scaffold(
-        containerColor = Color.Transparent,
+        containerColor = pageBackground,
         bottomBar = {
             Column(
                 modifier = Modifier
@@ -1375,13 +1919,33 @@ fun NovoAgendamentoDialog(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 when (etapaAtual) {
+                    0 -> {
+                        Button(
+                            onClick = { etapaAtual = 1 },
+                            enabled = fluxoCadastro != null,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = nextActionBlue,
+                                contentColor = Color.White,
+                                disabledContainerColor = nextActionBlue.copy(alpha = 0.42f),
+                                disabledContentColor = Color.White.copy(alpha = 0.85f)
+                            ),
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.fillMaxWidth().height(52.dp).offset(y = (-10).dp)
+                        ) {
+                            Text(tr("Próximo", "Next"), fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                            Spacer(Modifier.width(8.dp))
+                            Icon(Icons.Default.KeyboardArrowRight, contentDescription = null)
+                        }
+                    }
                     1 -> {
                         Button(
-                            onClick = { etapaAtual = if (isFluxoPosto) 3 else 2 },
+                            onClick = { etapaAtual = if (isRegistroServico) 3 else 2 },
                             enabled = podeAvancarEtapa1,
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = accentBlue,
-                                contentColor = Color.White
+                                containerColor = nextActionBlue,
+                                contentColor = Color.White,
+                                disabledContainerColor = nextActionBlue.copy(alpha = 0.42f),
+                                disabledContentColor = Color.White.copy(alpha = 0.85f)
                             ),
                             shape = RoundedCornerShape(14.dp),
                             modifier = Modifier.fillMaxWidth().height(52.dp).offset(y = (-10).dp)
@@ -1391,21 +1955,22 @@ fun NovoAgendamentoDialog(
                         Button(
                             onClick = { etapaAtual = 3 },
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = accentBlue,
+                                containerColor = nextActionBlue,
                                 contentColor = Color.White
                             ),
                             shape = RoundedCornerShape(14.dp),
                             modifier = Modifier.fillMaxWidth().height(52.dp).offset(y = (-10).dp)
-                        ) { Text("Próximo", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
+                        ) { Text(tr("Próximo", "Next"), fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
                     }
                     3 -> {
                         Button(
                             onClick = {
                                 tentarSalvarAvisos()
                             },
+                            border = BorderStroke(1.dp, neutralButtonBorder),
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = accentBlue,
-                                contentColor = Color.White
+                                containerColor = neutralButtonContainer,
+                                contentColor = neutralButtonContent
                             ),
                             shape = RoundedCornerShape(14.dp),
                             modifier = Modifier.fillMaxWidth().height(52.dp).offset(y = (-10).dp)
@@ -1436,7 +2001,7 @@ fun NovoAgendamentoDialog(
                     .padding(
                         start = 16.dp,
                         end = 16.dp,
-                        top = 2.dp,
+                        top = 0.dp,
                         bottom = 12.dp
                     ),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -1444,18 +2009,291 @@ fun NovoAgendamentoDialog(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 4.dp),
-                    horizontalArrangement = Arrangement.Start
+                        .padding(top = 0.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     IconButton(onClick = voltarUmaEtapaOuFechar) {
-                        Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar", tint = iconColor)
+                        Icon(Icons.Default.ArrowBackIosNew, contentDescription = tr("Voltar", "Back"), tint = iconColor)
+                    }
+                    if (etapaAtual == 0) {
+                        Surface(
+                            shape = CircleShape,
+                            color = accentBlue.copy(alpha = if (isDark) 0.24f else 0.14f),
+                            border = BorderStroke(
+                                1.dp,
+                                accentBlue.copy(alpha = if (isDark) 0.38f else 0.28f)
+                            )
+                        ) {
+                            IconButton(
+                                onClick = { showCadastroHelpDialog = true },
+                                modifier = Modifier.size(38.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.HelpOutline,
+                                    contentDescription = tr("Ajuda sobre cadastro", "Registration help"),
+                                    tint = accentBlue
+                                )
+                            }
+                        }
+                    } else {
+                        Spacer(Modifier.width(38.dp))
                     }
                 }
                 Column(
-                    modifier = Modifier.padding(top = 4.dp, bottom = 10.dp),
+                    modifier = Modifier.padding(top = 0.dp, bottom = 6.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                 when (etapaAtual) {
+                    0 -> {
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(56.dp)
+                                    .clip(CircleShape)
+                                    .background(accentBlue.copy(alpha = 0.18f))
+                                    .border(
+                                        width = 1.dp,
+                                        color = accentBlue.copy(alpha = 0.28f),
+                                        shape = CircleShape
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    Icons.Rounded.CalendarMonth,
+                                    contentDescription = null,
+                                    tint = accentBlue,
+                                    modifier = Modifier.size(30.dp)
+                                )
+                            }
+                            Spacer(Modifier.height(2.dp))
+                            Text(
+                                tr("Como deseja cadastrar?", "How do you want to register?"),
+                                color = textPrimary,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 25.sp,
+                                textAlign = TextAlign.Center
+                            )
+                            Text(
+                                tr(
+                                    "Escolha entre registrar um serviço já realizado ou criar um lembrete futuro.",
+                                    "Choose between recording a completed service or creating a future reminder."
+                                ),
+                                color = textSecondary,
+                                textAlign = TextAlign.Center,
+                                fontSize = 14.sp,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        val opcoesCadastro = listOf(
+                            FluxoCadastroAviso.REGISTRAR_SERVICO to tr("Registrar um serviço já realizado", "Record a completed service"),
+                            FluxoCadastroAviso.CRIAR_LEMBRETE to tr("Criar um lembrete de um serviço a ser realizado", "Create a service reminder")
+                        )
+                        opcoesCadastro.forEach { (fluxo, tituloOpcao) ->
+                            val selecionado = isFluxoPosto && fluxo == FluxoCadastroAviso.REGISTRAR_SERVICO ||
+                                (!isFluxoPosto && fluxoCadastro == fluxo)
+                            val desabilitado = isFluxoPosto && fluxo == FluxoCadastroAviso.CRIAR_LEMBRETE
+                            if (desabilitado) {
+                                OutlinedButton(
+                                    onClick = {},
+                                    enabled = false,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(56.dp)
+                                        .alpha(0.62f),
+                                    shape = RoundedCornerShape(12.dp),
+                                    border = BorderStroke(1.dp, if (isDark) Color.White.copy(alpha = 0.18f) else Color.Black.copy(alpha = 0.14f)),
+                                    colors = ButtonDefaults.outlinedButtonColors(
+                                        containerColor = if (isDark) Color(0xFF0F172A) else Color(0xFFF8FAFC),
+                                        contentColor = textSecondary,
+                                        disabledContentColor = textSecondary
+                                    )
+                                ) {
+                                    Text(tituloOpcao, fontWeight = FontWeight.SemiBold)
+                                }
+                            } else if (selecionado) {
+                                Surface(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(56.dp)
+                                        .clickable(enabled = !desabilitado) {
+                                            fluxoCadastro = fluxo
+                                        },
+                                    shape = RoundedCornerShape(14.dp),
+                                    color = if (isDark) Color(0xFF334155) else Color(0xFFF1F5F9),
+                                    border = BorderStroke(1.5.dp, Color(0xFF10B981))
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .padding(horizontal = 14.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.Center
+                                    ) {
+                                        Text(tituloOpcao, fontWeight = FontWeight.SemiBold, color = textPrimary)
+                                    }
+                                }
+                            } else {
+                                OutlinedButton(
+                                    onClick = { if (!desabilitado) fluxoCadastro = fluxo },
+                                    enabled = !desabilitado,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(56.dp),
+                                    shape = RoundedCornerShape(12.dp),
+                                    border = BorderStroke(1.dp, cardBorder),
+                                    colors = ButtonDefaults.outlinedButtonColors(
+                                        containerColor = Color.Transparent,
+                                        contentColor = textPrimary,
+                                        disabledContentColor = textSecondary
+                                    )
+                                ) {
+                                    Text(tituloOpcao, fontWeight = FontWeight.SemiBold)
+                                }
+                            }
+                        }
+                        if (isFluxoPosto) {
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 4.dp),
+                                shape = RoundedCornerShape(14.dp),
+                                color = if (isDark) Color(0xFF111827) else Color(0xFFFFFBEB),
+                                border = BorderStroke(
+                                    1.dp,
+                                    if (isDark) Color(0xFFF59E0B).copy(alpha = 0.35f) else Color(0xFFFCD34D)
+                                )
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 12.dp, vertical = 11.dp),
+                                    verticalAlignment = Alignment.Top,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(22.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFFF59E0B).copy(alpha = if (isDark) 0.25f else 0.18f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            Icons.Default.WarningAmber,
+                                            contentDescription = null,
+                                            tint = Color(0xFFF59E0B),
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                    }
+                                    Column(
+                                        modifier = Modifier.weight(1f),
+                                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                                    ) {
+                                        Text(
+                                            tr("Categoria Posto", "Fuel category"),
+                                            color = textPrimary,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                        Text(
+                                            tr("Salva apenas no histórico (sem lembrete ativo).", "Saves only to history (no active reminder)."),
+                                            color = textSecondary,
+                                            fontSize = 11.sp,
+                                            lineHeight = 14.sp
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        if (showCadastroHelpDialog) {
+                            AlertDialog(
+                                onDismissRequest = { showCadastroHelpDialog = false },
+                                icon = {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(50.dp)
+                                            .clip(CircleShape)
+                                            .background(accentBlue.copy(alpha = if (isDark) 0.22f else 0.14f))
+                                            .border(1.dp, accentBlue.copy(alpha = 0.32f), CircleShape),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.HelpOutline,
+                                            contentDescription = null,
+                                            tint = accentBlue
+                                        )
+                                    }
+                                },
+                                title = {
+                                    Text(
+                                        text = tr("Como funciona cada opção?", "How does each option work?"),
+                                        color = textPrimary,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                },
+                                text = {
+                                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                        Text(
+                                            text = tr("Registrar serviço feito", "Record completed service"),
+                                            color = textPrimary,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            text = tr(
+                                                "Use quando a troca de item/peça já foi realizada. Esse registro entra no relatório: Tela inicial > Relatório.",
+                                                "Use this when the item/part replacement has already been completed. This record appears in the report: Home > Report."
+                                            ),
+                                            color = textSecondary
+                                        )
+                                        Text(
+                                            text = tr(
+                                                "Esses registros ajudam o Zellu a montar um relatório do seu veículo, incluindo valor estimado, saúde e histórico.",
+                                                "These records help Zellu build a vehicle report, including estimated value, health, and history."
+                                            ),
+                                            color = textSecondary
+                                        )
+                                        Text(
+                                            text = tr("Criar lembrete de serviço a ser realizado", "Create service reminder"),
+                                            color = textPrimary,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            text = tr(
+                                                "Use para lembrar uma troca, manutenção ou outro serviço que ainda não foi feito.",
+                                                "Use this to remember a replacement, maintenance, or another service that has not been done yet."
+                                            ),
+                                            color = textSecondary
+                                        )
+                                        Text(
+                                            text = tr(
+                                                "As duas opções alimentam o relatório de acordo com a categoria escolhida.",
+                                                "Both options feed the report according to the selected category."
+                                            ),
+                                            color = textSecondary,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    }
+                                },
+                                confirmButton = {
+                                    Button(
+                                        onClick = { showCadastroHelpDialog = false },
+                                        border = BorderStroke(1.dp, neutralButtonBorder),
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = neutralButtonContainer,
+                                            contentColor = neutralButtonContent
+                                        )
+                                    ) {
+                                        Text(tr("Entendi", "Got it"))
+                                    }
+                                }
+                            )
+                        }
+                    }
                     1 -> {
                         Column(
                             modifier = Modifier.fillMaxWidth(),
@@ -1476,29 +2314,35 @@ fun NovoAgendamentoDialog(
                             ) {
                                 Icon(Icons.Rounded.Edit, contentDescription = null, tint = accentBlue, modifier = Modifier.size(30.dp))
                             }
-                            Spacer(Modifier.height(6.dp))
-                            Text("Dados do lembrete", color = textPrimary, fontWeight = FontWeight.Bold, fontSize = 25.sp)
+                            Spacer(Modifier.height(2.dp))
+                            Text(
+                                if (isRegistroServico) tr("Dados do serviço", "Service data") else tr("Dados do lembrete", "Reminder data"),
+                                color = textPrimary,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 25.sp
+                            )
                         }
-                        Spacer(Modifier.height(2.dp))
+                        Spacer(Modifier.height(0.dp))
                         if (categoriaPermiteEscanearNota(tipoSelecionado)) {
                             Button(
                                 onClick = { tentarAbrirCamera() },
                                 modifier = Modifier.fillMaxWidth().height(48.dp),
                                 shape = RoundedCornerShape(12.dp),
+                                border = if (fotoCaminho == null) BorderStroke(1.dp, neutralButtonBorder) else null,
                                 colors = ButtonDefaults.buttonColors(
-                                    containerColor = if (fotoCaminho != null) Color(0xFF10B981) else Color(0xFF3B82F6),
-                                    contentColor = Color.White
+                                    containerColor = if (fotoCaminho != null) Color(0xFF10B981) else neutralButtonContainer,
+                                    contentColor = if (fotoCaminho != null) Color.White else neutralButtonContent
                                 )
                             ) {
                                 Icon(
                                     if (fotoCaminho != null) Icons.Default.Check else Icons.Default.CameraAlt,
                                     null,
-                                    tint = cameraIconColor
+                                    tint = if (fotoCaminho != null) cameraIconColor else neutralButtonContent
                                 )
                                 Spacer(Modifier.width(8.dp))
                                 Text(
                                     if (fotoCaminho != null) "Escanear QR code da nota novamente" else "Escanear QR code da nota",
-                                    color = Color.White
+                                    color = if (fotoCaminho != null) Color.White else neutralButtonContent
                                 )
                             }
                         }
@@ -1508,7 +2352,7 @@ fun NovoAgendamentoDialog(
                                     value = labelCategoriaSelecionada,
                                     onValueChange = {},
                                     readOnly = true,
-                                    label = { Text("Categoria") },
+                                    label = { Text(tr("Categoria", "Category")) },
                                     modifier = Modifier.menuAnchor().fillMaxWidth(),
                                     leadingIcon = {
                                         TipoIcon(
@@ -1523,7 +2367,7 @@ fun NovoAgendamentoDialog(
                                 ExposedDropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
                                     categoriasDisponiveis.forEach { t ->
                                         DropdownMenuItem(
-                                            text = { Text(if (t == TipoManutencao.ABASTECIMENTO) "Posto" else t.label) },
+                                            text = { Text(tipoManutencaoLabel(t)) },
                                             onClick = { tipoSelecionado = t; menuExpanded = false },
                                             leadingIcon = {
                                                 TipoIcon(
@@ -1543,7 +2387,7 @@ fun NovoAgendamentoDialog(
                                 selection = TextRange(descricao.length)
                             ),
                             onValueChange = { descricao = it.text },
-                            label = { Text("Produtos (total e itens)") },
+                            label = { Text(tr("Itens (total e descrição)", "Items (total and description)")) },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .heightIn(max = 280.dp)
@@ -1563,11 +2407,10 @@ fun NovoAgendamentoDialog(
                             OutlinedTextField(
                                 value = valorInput,
                                 onValueChange = { novo ->
-                                    if (novo.all { c -> c.isDigit() || c == '.' || c == ',' }) {
-                                        valorInput = novo
-                                    }
+                                    valorInput = formatarValorMonetarioCampo(novo)
                                 },
                                 label = { Text("Total *") },
+                                prefix = { Text("R$") },
                                 modifier = Modifier.fillMaxWidth(),
                                 keyboardOptions = KeyboardOptions(
                                     keyboardType = KeyboardType.Decimal,
@@ -1588,8 +2431,12 @@ fun NovoAgendamentoDialog(
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 Text(
-                                    "Como deseja criar os lembretes desta nota?",
-                                    color = Color.White,
+                                    if (isRegistroServico) {
+                                        tr("Como deseja registrar os itens desta nota?", "How do you want to register the items from this receipt?")
+                                    } else {
+                                        tr("Como deseja criar os lembretes desta nota?", "How do you want to create reminders from this receipt?")
+                                    },
+                                    color = textPrimary,
                                     fontSize = 15.sp,
                                     fontWeight = FontWeight.Bold,
                                     textAlign = TextAlign.Center,
@@ -1618,7 +2465,14 @@ fun NovoAgendamentoDialog(
                                             contentColor = if (!qrModoSeparado) Color.White else textPrimary
                                         )
                                     ) {
-                                        Text("Criar 1 lembrete", fontWeight = FontWeight.SemiBold)
+                                        Text(
+                                            if (isRegistroServico) {
+                                                tr("Registrar 1 serviço", "Register 1 service")
+                                            } else {
+                                                tr("Criar 1 lembrete", "Create 1 reminder")
+                                            },
+                                            fontWeight = FontWeight.SemiBold
+                                        )
                                     }
                                     OutlinedButton(
                                         onClick = {
@@ -1638,7 +2492,7 @@ fun NovoAgendamentoDialog(
                                             contentColor = if (qrModoSeparado) Color.White else textPrimary
                                         )
                                     ) {
-                                        Text("1 por item", fontWeight = FontWeight.SemiBold)
+                                        Text(tr("1 por item", "1 per item"), fontWeight = FontWeight.SemiBold)
                                     }
                                 }
                                 Spacer(Modifier.height(8.dp))
@@ -1703,10 +2557,10 @@ fun NovoAgendamentoDialog(
                                                             }
                                                         ) {
                                                             OutlinedTextField(
-                                                                value = tipoItem.label,
+                                                                value = tipoManutencaoLabel(tipoItem),
                                                                 onValueChange = {},
                                                                 readOnly = true,
-                                                                label = { Text("Categoria") },
+                                                                label = { Text(tr("Categoria", "Category")) },
                                                                 modifier = Modifier
                                                                     .menuAnchor()
                                                                     .fillMaxWidth(),
@@ -1730,7 +2584,7 @@ fun NovoAgendamentoDialog(
                                                             ) {
                                                                 categoriasDisponiveis.forEach { categoria ->
                                                                     DropdownMenuItem(
-                                                                        text = { Text(categoria.label) },
+                                                                        text = { Text(tipoManutencaoLabel(categoria)) },
                                                                         onClick = {
                                                                             itemTipoOverrides = itemTipoOverrides + (item.id to categoria)
                                                                             itemCategoriaMenuAbertoId = null
@@ -1760,7 +2614,7 @@ fun NovoAgendamentoDialog(
                                                                 verticalAlignment = Alignment.CenterVertically
                                                             ) {
                                                                 Text(
-                                                                    "Valor:",
+                                                                    tr("Valor:", "Amount:"),
                                                                     color = textSecondary,
                                                                     fontSize = 12.sp,
                                                                     fontWeight = FontWeight.SemiBold
@@ -1810,7 +2664,7 @@ fun NovoAgendamentoDialog(
                             }
                             Spacer(Modifier.height(6.dp))
                             Text(
-                                if (exigeEstadoUf) "Estado e data" else "Quilometragem e data",
+                                if (exigeEstadoUf) tr("Estado e data", "State and date") else tr("Quilometragem e data", "Mileage and date"),
                                 color = textPrimary,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 25.sp
@@ -1827,7 +2681,7 @@ fun NovoAgendamentoDialog(
                                         value = estadoUfSelecionado,
                                         onValueChange = {},
                                         readOnly = true,
-                                        label = { Text("Estado (UF)") },
+                                        label = { Text(tr("Estado (UF)", "State (UF)")) },
                                         modifier = Modifier
                                             .menuAnchor()
                                             .fillMaxWidth(),
@@ -1856,7 +2710,7 @@ fun NovoAgendamentoDialog(
                                 OutlinedTextField(
                                     value = formatarKmCampo(kmBase),
                                     onValueChange = { kmBase = it.filter(Char::isDigit) },
-                                    label = { Text("KM Atual") },
+                                    label = { Text(tr("KM Atual", "Current mileage")) },
                                     modifier = Modifier.weight(1f),
                                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                     trailingIcon = {
@@ -1872,14 +2726,17 @@ fun NovoAgendamentoDialog(
                             OutlinedTextField(
                                 value = data,
                                 onValueChange = {},
-                                label = { Text("Data do servico") },
+                                label = { Text(tr("Data do servico", "Service date")) },
                                 readOnly = true,
                                 modifier = Modifier.weight(1f),
                                 trailingIcon = {
                                     IconButton(onClick = {
                                         abrirDatePicker(data) {
                                             data = it
-                                            avisoPersonalizado = false
+                                            // Ao editar manualmente a data do servico, sincroniza o lembrete
+                                            // para evitar que o calculo automatico empurre para meses a frente.
+                                            dataAviso = it
+                                            avisoPersonalizado = true
                                         }
                                     }) {
                                         Icon(Icons.Default.DateRange, contentDescription = null)
@@ -1893,7 +2750,7 @@ fun NovoAgendamentoDialog(
                             OutlinedTextField(
                                 value = dataAviso,
                                 onValueChange = {},
-                                label = { Text(if (qrModoSeparado) "Data padrão" else "Data do lembrete") },
+                                label = { Text(if (qrModoSeparado) tr("Data padrão", "Default date") else tr("Data do lembrete", "Reminder date")) },
                                 readOnly = true,
                                 modifier = Modifier.weight(1f),
                                 trailingIcon = {
@@ -1912,7 +2769,7 @@ fun NovoAgendamentoDialog(
                             OutlinedTextField(
                                 value = horaNotificacao,
                                 onValueChange = {},
-                                label = { Text("Hora do lembrete") },
+                                label = { Text(tr("Hora do lembrete", "Reminder time")) },
                                 readOnly = true,
                                 modifier = Modifier.weight(1f),
                                 trailingIcon = {
@@ -1927,6 +2784,136 @@ fun NovoAgendamentoDialog(
                                 singleLine = true,
                                 shape = RoundedCornerShape(12.dp)
                             )
+                        }
+                        val mostrarFrequencia = if (qrModoSeparado && listaItensDetectados.isNotEmpty()) {
+                            listaItensDetectados.any { item ->
+                                val tipoItem = itemTipoOverrides[item.id] ?: item.tipo
+                                tipoPermiteFrequencia(tipoItem)
+                            }
+                        } else {
+                            tipoPermiteFrequencia(tipoSelecionado)
+                        }
+                        if (mostrarFrequencia) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null
+                                    ) {
+                                        val novoValor = !repetirAteDesativar
+                                        repetirAteDesativar = novoValor
+                                        if (novoValor) {
+                                            if (frequenciaLembreteKey == "NONE") {
+                                                frequenciaLembreteKey = "DAY_CUSTOM"
+                                            }
+                                        } else {
+                                            frequenciaLembreteKey = "NONE"
+                                            menuFrequenciaExpanded = false
+                                        }
+                                    }
+                                    .padding(vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Checkbox(
+                                    checked = repetirAteDesativar,
+                                    onCheckedChange = { marcado ->
+                                        repetirAteDesativar = marcado
+                                        if (marcado) {
+                                            if (frequenciaLembreteKey == "NONE") {
+                                                frequenciaLembreteKey = "DAY_CUSTOM"
+                                            }
+                                        } else {
+                                            frequenciaLembreteKey = "NONE"
+                                            menuFrequenciaExpanded = false
+                                        }
+                                    }
+                                )
+                                Text(
+                                    text = tr("Repitir esse aviso até eu desativar", "Repeat this reminder until I disable it"),
+                                    color = textPrimary,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                            if (repetirAteDesativar) {
+                                ExposedDropdownMenuBox(
+                                    expanded = menuFrequenciaExpanded,
+                                    onExpandedChange = { menuFrequenciaExpanded = !menuFrequenciaExpanded },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    OutlinedTextField(
+                                        value = descricaoFrequenciaSelecionada(),
+                                        onValueChange = {},
+                                        readOnly = true,
+                                        label = { Text(tr("Frequência do lembrete", "Reminder frequency")) },
+                                        modifier = Modifier
+                                            .menuAnchor()
+                                            .fillMaxWidth(),
+                                        trailingIcon = {
+                                            ExposedDropdownMenuDefaults.TrailingIcon(expanded = menuFrequenciaExpanded)
+                                        },
+                                        singleLine = true,
+                                        shape = RoundedCornerShape(12.dp)
+                                    )
+                                    ExposedDropdownMenu(
+                                        expanded = menuFrequenciaExpanded,
+                                        onDismissRequest = { menuFrequenciaExpanded = false }
+                                    ) {
+                                        val opcoes = listOf(
+                                            "DAY_CUSTOM" to tr("A cada X dias", "Every X days"),
+                                            "MONTH_CUSTOM" to tr("A cada X meses", "Every X months"),
+                                            "YEAR_CUSTOM" to tr("A cada X anos", "Every X years")
+                                        )
+                                        opcoes.forEach { (key, label) ->
+                                            DropdownMenuItem(
+                                                text = { Text(label) },
+                                                onClick = {
+                                                    frequenciaLembreteKey = key
+                                                    menuFrequenciaExpanded = false
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
+                                if (
+                                    frequenciaLembreteKey == "DAY_CUSTOM" ||
+                                    frequenciaLembreteKey == "MONTH_CUSTOM" ||
+                                    frequenciaLembreteKey == "YEAR_CUSTOM"
+                                ) {
+                                    OutlinedTextField(
+                                        value = when (frequenciaLembreteKey) {
+                                            "DAY_CUSTOM" -> intervaloDiasPersonalizado
+                                            "MONTH_CUSTOM" -> intervaloMesesPersonalizado
+                                            else -> intervaloAnosPersonalizado
+                                        },
+                                        onValueChange = {
+                                            val filtrado = it.filter(Char::isDigit).take(2)
+                                            when (frequenciaLembreteKey) {
+                                                "DAY_CUSTOM" -> intervaloDiasPersonalizado = filtrado
+                                                "MONTH_CUSTOM" -> intervaloMesesPersonalizado = filtrado
+                                                else -> intervaloAnosPersonalizado = filtrado
+                                            }
+                                        },
+                                        label = {
+                                            Text(
+                                                when (frequenciaLembreteKey) {
+                                                    "DAY_CUSTOM" -> tr("Repetir a cada quantos dias?", "Repeat every how many days?")
+                                                    "MONTH_CUSTOM" -> tr("Repetir a cada quantos meses?", "Repeat every how many months?")
+                                                    else -> tr("Repetir a cada quantos anos?", "Repeat every how many years?")
+                                                }
+                                            )
+                                        },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        keyboardOptions = KeyboardOptions(
+                                            keyboardType = KeyboardType.Number,
+                                            imeAction = ImeAction.Done
+                                        ),
+                                        singleLine = true,
+                                        shape = RoundedCornerShape(12.dp)
+                                    )
+                                }
+                            }
                         }
                         if (qrModoSeparado && listaItensDetectados.isNotEmpty()) {
                             Column(
@@ -1990,7 +2977,7 @@ fun NovoAgendamentoDialog(
                                             OutlinedTextField(
                                                 value = dataItem,
                                                 onValueChange = {},
-                                                label = { Text(if (usaDataPadrao) "Data deste aviso (padrão)" else "Data deste aviso") },
+                                                label = { Text(if (usaDataPadrao) tr("Data deste aviso (padrão)", "Date for this reminder (default)") else tr("Data deste aviso", "Date for this reminder")) },
                                                 readOnly = true,
                                                 modifier = Modifier.fillMaxWidth(),
                                                 trailingIcon = {
@@ -2035,13 +3022,13 @@ fun NovoAgendamentoDialog(
                                                             verticalArrangement = Arrangement.spacedBy(2.dp)
                                                         ) {
                                                             Text(
-                                                                "Categoria",
+                                                                tr("Categoria", "Category"),
                                                                 color = textSecondary,
                                                                 fontSize = 11.sp,
                                                                 fontWeight = FontWeight.SemiBold
                                                             )
                                                             Text(
-                                                                tipoItem.label,
+                                                                tipoManutencaoLabel(tipoItem),
                                                                 color = textPrimary,
                                                                 fontSize = 13.sp,
                                                                 fontWeight = FontWeight.SemiBold
@@ -2053,7 +3040,7 @@ fun NovoAgendamentoDialog(
                                                         verticalArrangement = Arrangement.spacedBy(2.dp)
                                                     ) {
                                                         Text(
-                                                            "Valor",
+                                                            tr("Valor", "Amount"),
                                                             color = textSecondary,
                                                             fontSize = 11.sp,
                                                             fontWeight = FontWeight.SemiBold
@@ -2094,8 +3081,10 @@ fun NovoAgendamentoDialog(
                             contatoSelecionado = contatoSelecionado,
                             cidadeAtual = cidadeAtual,
                             ufAtual = ufAtual,
+                            repetirAteDesativar = repetirAteDesativar,
+                            descricaoRepeticao = descricaoFrequenciaSelecionada(),
                             mostrarResumoSimplificadoPosto = isFluxoPosto,
-                            tituloCategoria = if (isFluxoPosto) "Posto" else tipoSelecionado.label,
+                            tituloCategoria = if (isFluxoPosto) tr("Posto", "Fuel") else tipoManutencaoLabel(tipoSelecionado),
                             onAcaoContato = { enviarMensagemWhatsapp(it) }
                         )
                     }
@@ -2121,7 +3110,24 @@ private fun descricaoPadraoPorCategoria(tipo: TipoManutencao, ano: Int): String?
     TipoManutencao.IPVA -> "IPVA Ano $ano"
     TipoManutencao.LICENCIAMENTO -> "Licenciamento Ano $ano"
     TipoManutencao.SEGURO -> "Renovacao de seguro $ano"
+    TipoManutencao.LAVAGEM -> "Realizar lavagem"
     else -> null
+}
+
+private fun formatarValorMonetarioCampo(input: String): String {
+    val filtrado = input.filter { it.isDigit() || it == '.' || it == ',' }
+    if (filtrado.isBlank()) return ""
+
+    val normalizado = filtrado.replace(",", ".")
+    val partes = normalizado.split(".")
+    val inteiro = partes.firstOrNull().orEmpty().ifBlank { "0" }
+    val decimal = partes.drop(1).joinToString("").take(2)
+
+    return if (decimal.isNotEmpty()) {
+        "$inteiro,$decimal"
+    } else {
+        inteiro
+    }
 }
 
 private fun isDescricaoPadraoCategoria(texto: String): Boolean {
@@ -2130,7 +3136,7 @@ private fun isDescricaoPadraoCategoria(texto: String): Boolean {
         "^(IPVA|Licenciamento|Seguro|Renovacao\\s+de\\s+seguro)\\s+(Ano\\s+)?\\d{4}$",
         RegexOption.IGNORE_CASE
     )
-        .matches(textoLimpo)
+        .matches(textoLimpo) || textoLimpo.equals("Realizar lavagem", ignoreCase = true)
 }
 
 private fun tiposAvisoCadastroPorVeiculo(tipoVeiculo: TipoVeiculo): List<TipoManutencao> = when (tipoVeiculo) {
@@ -2144,6 +3150,7 @@ private fun tiposAvisoCadastroPorVeiculo(tipoVeiculo: TipoVeiculo): List<TipoMan
         TipoManutencao.CONFORTO,
         TipoManutencao.PNEU,
         TipoManutencao.TRANSMISSAO,
+        TipoManutencao.LAVAGEM,
         TipoManutencao.REVISAO,
         TipoManutencao.FREIO,
         TipoManutencao.SEGURO,
@@ -2152,7 +3159,9 @@ private fun tiposAvisoCadastroPorVeiculo(tipoVeiculo: TipoVeiculo): List<TipoMan
     TipoVeiculo.MOTO -> listOf(
         TipoManutencao.ABASTECIMENTO,
         TipoManutencao.OLEO,
+        TipoManutencao.LAVAGEM,
         TipoManutencao.FREIO,
+        TipoManutencao.VIDROS,
         TipoManutencao.MECANICA,
         TipoManutencao.BATERIA,
         TipoManutencao.PNEU,
@@ -2166,9 +3175,25 @@ private fun tiposAvisoCadastroPorVeiculo(tipoVeiculo: TipoVeiculo): List<TipoMan
     TipoVeiculo.ONIBUS -> listOf(
         TipoManutencao.ABASTECIMENTO,
         TipoManutencao.OLEO,
+        TipoManutencao.LAVAGEM,
         TipoManutencao.FREIO,
+        TipoManutencao.VIDROS,
         TipoManutencao.MECANICA,
         TipoManutencao.FUNILARIA,
+        TipoManutencao.BATERIA,
+        TipoManutencao.PNEU,
+        TipoManutencao.REVISAO,
+        TipoManutencao.LICENCIAMENTO,
+        TipoManutencao.SEGURO,
+        TipoManutencao.OUTROS
+    )
+    TipoVeiculo.TRATOR -> listOf(
+        TipoManutencao.ABASTECIMENTO,
+        TipoManutencao.OLEO,
+        TipoManutencao.LAVAGEM,
+        TipoManutencao.FREIO,
+        TipoManutencao.VIDROS,
+        TipoManutencao.MECANICA,
         TipoManutencao.BATERIA,
         TipoManutencao.PNEU,
         TipoManutencao.REVISAO,
@@ -2179,6 +3204,8 @@ private fun tiposAvisoCadastroPorVeiculo(tipoVeiculo: TipoVeiculo): List<TipoMan
     TipoVeiculo.VEICULO_ELETRICO -> listOf(
         TipoManutencao.ABASTECIMENTO,
         TipoManutencao.FREIO,
+        TipoManutencao.LAVAGEM,
+        TipoManutencao.VIDROS,
         TipoManutencao.MECANICA,
         TipoManutencao.BATERIA,
         TipoManutencao.PNEU,
@@ -2189,6 +3216,7 @@ private fun tiposAvisoCadastroPorVeiculo(tipoVeiculo: TipoVeiculo): List<TipoMan
     )
     TipoVeiculo.CARRETINHA -> listOf(
         TipoManutencao.ABASTECIMENTO,
+        TipoManutencao.LAVAGEM,
         TipoManutencao.PNEU,
         TipoManutencao.LICENCIAMENTO,
         TipoManutencao.SEGURO,
@@ -2197,6 +3225,8 @@ private fun tiposAvisoCadastroPorVeiculo(tipoVeiculo: TipoVeiculo): List<TipoMan
     else -> listOf(
         TipoManutencao.ABASTECIMENTO,
         TipoManutencao.OLEO,
+        TipoManutencao.LAVAGEM,
+        TipoManutencao.VIDROS,
         TipoManutencao.MECANICA,
         TipoManutencao.FUNILARIA,
         TipoManutencao.BATERIA,
@@ -2215,6 +3245,8 @@ private fun categoriaPermiteEscanearNota(tipo: TipoManutencao): Boolean = when (
     TipoManutencao.MECANICA,
     TipoManutencao.FUNILARIA,
     TipoManutencao.BATERIA,
+    TipoManutencao.LAVAGEM,
+    TipoManutencao.VIDROS,
     TipoManutencao.PNEU,
     TipoManutencao.REVISAO,
     TipoManutencao.IPVA -> true
@@ -2646,6 +3678,8 @@ private val ESTADOS_UF = listOf(
     "MA", "MT", "MS", "MG", "PA", "PB", "PR", "PE", "PI",
     "RJ", "RN", "RS", "RO", "RR", "SC", "SP", "SE", "TO"
 )
+
+
 
 
 

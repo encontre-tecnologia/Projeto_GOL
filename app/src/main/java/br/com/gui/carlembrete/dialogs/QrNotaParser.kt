@@ -136,21 +136,42 @@ data class NotaQrInfo(
 
 const val QR_PARSER_TAG = "ZelluQrParser"
 private const val ENABLE_QR_MOCK_DIAGNOSTIC = false
+private const val MENSAGEM_BLOQUEIO_SP =
+    "Consulta automatica indisponivel na SEFAZ-SP (sessao/captcha). Tente novamente ou use OCR da foto."
 
-suspend fun consultarNotaPorQrCode(url: String): NotaQrInfo? = withContext(Dispatchers.IO) {
+internal fun notaQrIndicaBloqueioSp(notaInfo: NotaQrInfo?): Boolean {
+    val descricao = notaInfo?.descricaoItens?.trim().orEmpty()
+    return descricao.equals(MENSAGEM_BLOQUEIO_SP, ignoreCase = true)
+}
+
+internal fun montarUrlValidacaoHumanaSp(qrUrl: String): String? {
+    val normalizada = normalizarUrlQr(qrUrl)
+    val uri = runCatching { Uri.parse(normalizada) }.getOrNull() ?: return null
+    val host = uri.host.orEmpty().lowercase(Locale.ROOT)
+    if (!host.contains("nfce.fazenda.sp.gov.br")) return null
+    return normalizarRotaSpNfce(normalizarParametroPDaUrl(normalizada))
+}
+
+suspend fun consultarNotaPorQrCode(url: String, cookieHeader: String? = null): NotaQrInfo? = withContext(Dispatchers.IO) {
     runCatching {
         if (ENABLE_QR_MOCK_DIAGNOSTIC) {
             testarParserSpMock()
         }
         val urlNormalizada = normalizarUrlQr(url)
+        fun conexao(urlConsulta: String): org.jsoup.Connection {
+            val req = Jsoup.connect(urlConsulta)
+                .userAgent("Mozilla/5.0")
+                .header("Accept-Language", "pt-BR,pt;q=0.9,en;q=0.8")
+                .header("Referer", "https://www.nfce.fazenda.sp.gov.br/")
+                .followRedirects(true)
+                .timeout(15000)
+            if (!cookieHeader.isNullOrBlank()) {
+                req.header("Cookie", cookieHeader)
+            }
+            return req
+        }
         Log.i(QR_PARSER_TAG, "Iniciando consulta QR URL=$urlNormalizada")
-        var doc = Jsoup.connect(urlNormalizada)
-            .userAgent("Mozilla/5.0")
-            .header("Accept-Language", "pt-BR,pt;q=0.9,en;q=0.8")
-            .header("Referer", "https://www.nfce.fazenda.sp.gov.br/")
-            .followRedirects(true)
-            .timeout(15000)
-            .get()
+        var doc = conexao(urlNormalizada).get()
         Log.d(
             QR_PARSER_TAG,
             "Resposta QR: location=${doc.location()} title=${doc.title().take(120)}"
@@ -159,13 +180,7 @@ suspend fun consultarNotaPorQrCode(url: String): NotaQrInfo? = withContext(Dispa
         if (doc.location().contains("%257C")) {
             val retryUrl = normalizarParametroPDaUrl(doc.location())
             Log.d(QR_PARSER_TAG, "Retry SP: corrigindo dupla codificacao de p e consultando novamente.")
-            doc = Jsoup.connect(retryUrl)
-                .userAgent("Mozilla/5.0")
-                .header("Accept-Language", "pt-BR,pt;q=0.9,en;q=0.8")
-                .header("Referer", "https://www.nfce.fazenda.sp.gov.br/")
-                .followRedirects(true)
-                .timeout(15000)
-                .get()
+            doc = conexao(retryUrl).get()
             Log.d(
                 QR_PARSER_TAG,
                 "Resposta QR retry: location=${doc.location()} title=${doc.title().take(120)}"
@@ -180,21 +195,12 @@ suspend fun consultarNotaPorQrCode(url: String): NotaQrInfo? = withContext(Dispa
         if (pareceRespostaVaziaSp) {
             Log.d(QR_PARSER_TAG, "SP bootstrap: tentando consulta com sessao/cookies.")
             val baseUrlSp = "https://www.nfce.fazenda.sp.gov.br/NFCeConsultaPublica/Paginas/ConsultaQRCode.aspx"
-            val bootstrap = Jsoup.connect(baseUrlSp)
-                .userAgent("Mozilla/5.0")
-                .header("Accept-Language", "pt-BR,pt;q=0.9,en;q=0.8")
-                .followRedirects(true)
-                .timeout(15000)
-                .execute()
+            val bootstrap = conexao(baseUrlSp).execute()
             val cookies = bootstrap.cookies()
             val retrySessionUrl = normalizarParametroPDaUrl(normalizarRotaSpNfce(urlNormalizada))
-            doc = Jsoup.connect(retrySessionUrl)
-                .userAgent("Mozilla/5.0")
-                .header("Accept-Language", "pt-BR,pt;q=0.9,en;q=0.8")
+            doc = conexao(retrySessionUrl)
                 .header("Referer", baseUrlSp)
                 .cookies(cookies)
-                .followRedirects(true)
-                .timeout(15000)
                 .get()
             Log.d(
                 QR_PARSER_TAG,
@@ -254,7 +260,19 @@ suspend fun consultarNotaPorQrCode(url: String): NotaQrInfo? = withContext(Dispa
             "Resultado fallback: valor=$valorTotalFinal valorUrl=$valorTotalPelaUrl data=$dataCompra itens=$descricaoItens estabelecimento=${estabelecimento.first} endereco=${estabelecimento.second}"
         )
         if (valorTotalFinal == null && dataCompra == null && descricaoItens.isNullOrBlank()) {
-            null
+            val bloqueioSp = detectarBloqueioConsultaSp(doc)
+            if (bloqueioSp != null) {
+                Log.w(QR_PARSER_TAG, "Consulta SP sem dados estruturados: motivo=$bloqueioSp")
+                NotaQrInfo(
+                    valorTotal = null,
+                    dataCompra = null,
+                    descricaoItens = MENSAGEM_BLOQUEIO_SP,
+                    nomeEstabelecimento = estabelecimento.first ?: "SEFAZ-SP",
+                    enderecoEstabelecimento = estabelecimento.second
+                )
+            } else {
+                null
+            }
         } else {
             NotaQrInfo(
                 valorTotal = valorTotalFinal,
@@ -404,6 +422,16 @@ internal fun parseNotaHtmlForTest(html: String, url: String = "https://www.fazen
     val descricaoItens = extrairItensGenerico(doc)
     val estabelecimento = extrairDadosEstabelecimento(doc)
     if (valorTotalFinal == null && dataCompra == null && descricaoItens.isNullOrBlank()) {
+        val bloqueioSp = detectarBloqueioConsultaSp(doc)
+        if (bloqueioSp != null) {
+            return NotaQrInfo(
+                valorTotal = null,
+                dataCompra = null,
+                descricaoItens = MENSAGEM_BLOQUEIO_SP,
+                nomeEstabelecimento = estabelecimento.first ?: "SEFAZ-SP",
+                enderecoEstabelecimento = estabelecimento.second
+            )
+        }
         return null
     }
     return NotaQrInfo(
@@ -413,6 +441,40 @@ internal fun parseNotaHtmlForTest(html: String, url: String = "https://www.fazen
         nomeEstabelecimento = estabelecimento.first,
         enderecoEstabelecimento = estabelecimento.second
     )
+}
+
+private fun detectarBloqueioConsultaSp(doc: Document): String? {
+    val host = runCatching { java.net.URI(doc.location()).host?.lowercase(Locale.ROOT) }
+        .getOrNull()
+        .orEmpty()
+    if (!host.contains("nfce.fazenda.sp.gov.br")) return null
+
+    val temDadosNota = doc.select(
+        "#tabResult, .txtTit, .txtProd, .totalNumb, #linhaTotal, #totalNota, #dataEmissao"
+    ).isNotEmpty()
+    if (temDadosNota) return null
+
+    val title = doc.title().lowercase(Locale.ROOT)
+    val texto = doc.text().lowercase(Locale.ROOT)
+    val html = doc.html().lowercase(Locale.ROOT)
+
+    val indiciosCaptcha = listOf("captcha", "hcaptcha", "recaptcha")
+    if (indiciosCaptcha.any { html.contains(it) || texto.contains(it) }) return "captcha"
+
+    val indiciosBloqueio = listOf(
+        "acesso negado",
+        "requisicao bloqueada",
+        "sessao expirada",
+        "temporariamente indisponivel",
+        "validacao"
+    )
+    if (indiciosBloqueio.any { texto.contains(it) || html.contains(it) }) return "bloqueio"
+
+    val paginaBaseConsulta =
+        title.contains("consulta nfc-e qr code") ||
+            texto.contains("secretaria da fazenda - governo do estado de sao paulo") ||
+            texto.contains("secretaria da fazenda - governo do estado de são paulo")
+    return if (paginaBaseConsulta) "pagina-base" else null
 }
 
 private fun extrairNotaPorLayout(doc: Document): NotaQrInfo? {

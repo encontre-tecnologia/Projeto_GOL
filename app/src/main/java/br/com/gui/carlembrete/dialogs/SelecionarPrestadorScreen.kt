@@ -92,7 +92,7 @@ fun SelecionarPrestadorScreen(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
-                    text = "Adicionar prestador",
+                    text = tr("Adicionar prestador", "Add provider"),
                     color = textPrimary,
                     fontWeight = FontWeight.Bold,
                     fontSize = 22.sp,
@@ -100,7 +100,10 @@ fun SelecionarPrestadorScreen(
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    text = "Preencha os dados para vincular ao aviso de ${tipoSelecionado.label}.",
+                    text = tr(
+                        "Preencha os dados para vincular ao aviso de ${tipoSelecionado.label}.",
+                        "Fill in the details to link to the ${tipoSelecionado.label} reminder."
+                    ),
                     color = textSecondary,
                     fontSize = 13.sp,
                     textAlign = TextAlign.Center
@@ -116,7 +119,7 @@ fun SelecionarPrestadorScreen(
                     value = nomeInput,
                     onValueChange = { nomeInput = it },
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Nome *") },
+                    label = { Text(tr("Nome *", "Name *")) },
                     singleLine = true,
                     leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
                     keyboardOptions = KeyboardOptions(
@@ -136,7 +139,7 @@ fun SelecionarPrestadorScreen(
                         telefoneInput = novo.filter { it.isDigit() || it == ' ' || it == '(' || it == ')' || it == '-' || it == '+' }
                     },
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Telefone *") },
+                    label = { Text(tr("Telefone *", "Phone *")) },
                     singleLine = true,
                     leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null) },
                     keyboardOptions = KeyboardOptions(
@@ -151,7 +154,7 @@ fun SelecionarPrestadorScreen(
                     )
                 )
                 Text(
-                    text = "Campos obrigatórios marcados com *",
+                    text = tr("Campos obrigatórios marcados com *", "Required fields are marked with *"),
                     color = textSecondary,
                     fontSize = 12.sp
                 )
@@ -162,9 +165,11 @@ fun SelecionarPrestadorScreen(
                 onClick = onDismiss,
                 shape = RoundedCornerShape(12.dp),
                 border = androidx.compose.foundation.BorderStroke(1.dp, borderColor),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(54.dp)
             ) {
-                Text("Cancelar")
+                Text(tr("Cancelar", "Cancel"), fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
             }
         },
         confirmButton = {
@@ -183,9 +188,11 @@ fun SelecionarPrestadorScreen(
                     containerColor = accentBlue,
                     contentColor = Color.White
                 ),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(54.dp)
             ) {
-                Text("Salvar prestador", fontWeight = FontWeight.SemiBold)
+                Text(tr("Salvar prestador", "Save provider"), fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
             }
         }
     )

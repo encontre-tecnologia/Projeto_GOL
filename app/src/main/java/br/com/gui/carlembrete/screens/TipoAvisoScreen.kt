@@ -26,6 +26,7 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -61,6 +62,8 @@ fun TipoAvisoScreen(
     onOpenVehicleGuide: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
+    val scheme = MaterialTheme.colorScheme
+    val titleIconTint = scheme.primary
     Scaffold(
         containerColor = Color.Transparent
     ) { innerPadding ->
@@ -78,72 +81,46 @@ fun TipoAvisoScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .verticalScroll(rememberScrollState())
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                        .padding(horizontal = 16.dp, vertical = 0.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
+                        horizontalArrangement = Arrangement.Start,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         IconButton(onClick = onDismiss) {
                             Icon(
                                 imageVector = androidx.compose.material.icons.Icons.Rounded.ArrowBackIosNew,
-                                contentDescription = "Voltar",
+                                contentDescription = tr("Voltar", "Back"),
                                 tint = textDim
                             )
                         }
-                        val playButtonColor = if (surfaceDark.luminance() < 0.5f) Color.White else Color(0xFF2563EB)
-                        OutlinedButton(
-                            onClick = onOpenVehicleGuide,
-                            border = BorderStroke(1.dp, playButtonColor.copy(alpha = 0.85f)),
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                containerColor = playButtonColor.copy(alpha = if (surfaceDark.luminance() < 0.5f) 0.18f else 0.12f),
-                                contentColor = playButtonColor
-                            ),
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier.wrapContentWidth()
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.PlayArrow,
-                                contentDescription = "Abrir instrucoes rapidas",
-                                tint = playButtonColor,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(Modifier.size(6.dp))
-                            Text(
-                                text = "Instruções rápidas",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
                     }
-                    Spacer(Modifier.height(14.dp))
-
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 2.dp, bottom = 8.dp),
+                            .padding(top = 0.dp, bottom = 2.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Box(
                             modifier = Modifier
                                 .size(56.dp)
-                                .background(textDim.copy(alpha = 0.12f), CircleShape)
+                                .background(titleIconTint.copy(alpha = 0.14f), CircleShape)
                                 .padding(0.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
                                 imageVector = Icons.Rounded.EventNote,
                                 contentDescription = null,
-                                tint = textDim,
+                                tint = titleIconTint,
                                 modifier = Modifier.size(30.dp)
                             )
                         }
                         Text(
-                            "O que vamos lembrar?",
+                            tr("O que vamos lembrar?", "What should we remember?"),
                             color = textLight,
                             fontSize = 25.sp,
                             fontWeight = FontWeight.Bold
@@ -153,6 +130,7 @@ fun TipoAvisoScreen(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .padding(top = 8.dp)
                             .widthIn(max = 620.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
@@ -163,13 +141,13 @@ fun TipoAvisoScreen(
                                 onClick = item.onClick,
                                 border = BorderStroke(1.dp, if (surfaceDark.luminance() < 0.5f) Color(0xFF334155) else Color.Black.copy(alpha = 0.18f)),
                                 colors = ButtonDefaults.outlinedButtonColors(
-                                    containerColor = if (surfaceDark.luminance() < 0.5f) Color(0xFF0F172A).copy(alpha = 0.55f) else Color.White.copy(alpha = 0.80f),
+                                    containerColor = if (surfaceDark.luminance() < 0.5f) Color(0xFF0F172A).copy(alpha = 0.55f) else surfaceDark.copy(alpha = 0.92f),
                                     contentColor = textLight
                                 ),
                                 shape = RoundedCornerShape(14.dp),
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(64.dp)
+                                    .height(58.dp)
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
@@ -222,13 +200,13 @@ fun TipoAvisoScreen(
                                         onClick = item.onClick,
                                         border = BorderStroke(1.dp, if (surfaceDark.luminance() < 0.5f) Color(0xFF334155) else Color.Black.copy(alpha = 0.12f)),
                                         colors = ButtonDefaults.outlinedButtonColors(
-                                            containerColor = if (surfaceDark.luminance() < 0.5f) Color(0xFF0F172A).copy(alpha = 0.45f) else Color.White.copy(alpha = 0.78f),
+                                            containerColor = if (surfaceDark.luminance() < 0.5f) Color(0xFF0F172A).copy(alpha = 0.45f) else surfaceDark.copy(alpha = 0.90f),
                                             contentColor = textLight
                                         ),
                                         shape = RoundedCornerShape(14.dp),
                                         modifier = Modifier
                                             .weight(1f)
-                                            .height(76.dp)
+                                            .height(66.dp)
                                     ) {
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
@@ -292,9 +270,55 @@ fun TipoAvisoScreen(
                                 }
                             }
                         }
+
+                        OutlinedButton(
+                            onClick = onOpenVehicleGuide,
+                            border = BorderStroke(
+                                1.dp,
+                                if (surfaceDark.luminance() < 0.5f) Color(0xFF334155) else Color.Black.copy(alpha = 0.12f)
+                            ),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = if (surfaceDark.luminance() < 0.5f) {
+                                    Color(0xFF0F172A).copy(alpha = 0.45f)
+                                } else {
+                                    surfaceDark.copy(alpha = 0.90f)
+                                },
+                                contentColor = textLight
+                            ),
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(66.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                val playButtonColor = Color(0xFF2563EB)
+                                Box(
+                                    modifier = Modifier
+                                        .size(30.dp)
+                                        .background(playButtonColor.copy(alpha = 0.14f), CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.PlayArrow,
+                                        contentDescription = tr("Abrir dicas de mecânica", "Open mechanic tips"),
+                                        tint = playButtonColor,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                                Text(
+                                    text = tr("Dicas de Mecânica", "Mechanic Tips"),
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
                     }
                 }
             }
         }
     }
 }
+
