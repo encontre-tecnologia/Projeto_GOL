@@ -1211,6 +1211,15 @@ internal fun detectarTipoPeloTexto(texto: String): TipoManutencao {
             "SCAN", "SCANNER", "RASTREAMENTO", "VISTORIA", "TROCA PROGRAMADA"
         ).any { normalized.contains(it) } -> TipoManutencao.REVISAO
         listOf(
+            "LAVAGEM", "LAVA", "LAVA JATO", "LAVACAO", "HIGIENIZACAO", "HIGIENIZAÇÃO",
+            "LIMPEZA TECNICA", "LIMPEZA INTERNA", "ESTETICA AUTOMOTIVA", "DETALHAMENTO"
+        ).any { normalized.contains(it) } -> TipoManutencao.LAVAGEM
+        listOf(
+            "VIDRO", "VIDROS", "PARABRISA", "PARA-BRISA", "PARA BRISA", "VIDRACARIA",
+            "RETROVISOR", "PELÍCULA", "PELICULA", "INSULFILM", "LIMPADOR PARABRISA",
+            "PALHETA", "PALHETAS"
+        ).any { normalized.contains(it) } -> TipoManutencao.VIDROS
+        listOf(
             "FUNILARIA", "PINTURA", "MASSA POLIR", "POLIMENTO", "LANTERNAGEM", "PARACHOQUE",
             "PARA-CHOQUE", "LATARIA", "PORTA", "CAPO", "PARALAMA", "PARA-LAMA", "RETROVISOR PINTURA"
         ).any { normalized.contains(it) } -> TipoManutencao.FUNILARIA

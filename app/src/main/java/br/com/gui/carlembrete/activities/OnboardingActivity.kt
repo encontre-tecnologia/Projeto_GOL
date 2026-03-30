@@ -1,6 +1,7 @@
 package br.com.gui.carlembrete
 
 import android.app.Activity
+import android.content.Context
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -14,7 +15,12 @@ import androidx.compose.ui.Modifier
 import br.com.gui.carlembrete.ui.theme.CarLembreteTheme
 
 class OnboardingActivity : ComponentActivity() {
+    override fun attachBaseContext(newBase: Context) {
+        super.attachBaseContext(LocaleManager.wrap(newBase))
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
+        LocaleManager.applySavedLanguage(this)
         super.onCreate(savedInstanceState)
         setContent {
             var themeMode by remember { mutableStateOf(AppThemeMode.DARK) }

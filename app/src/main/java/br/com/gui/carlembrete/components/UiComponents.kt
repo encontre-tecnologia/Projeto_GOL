@@ -266,11 +266,11 @@ fun LembreteCard(
             onDismissRequest = { showDeleteDialog = false },
             modifier = Modifier.border(dialogBorderStroke, dialogCornerShape),
             shape = dialogCornerShape,
-            title = { Text("Excluir?", color = Color.White) },
-            text = { Text("Apagar '${lembrete.titulo}' permanentemente?", color = Color(0xFF94A3B8)) },
+            title = { Text(tr("Excluir?", "Delete?"), color = Color.White) },
+            text = { Text(tr("Apagar '${lembrete.titulo}' permanentemente?", "Delete '${lembrete.titulo}' permanently?"), color = Color(0xFF94A3B8)) },
             containerColor = Color(0xFF1E293B),
-            confirmButton = { TextButton(onClick = { onDelete(); showDeleteDialog = false }) { Text("Excluir", color = Color(0xFFEF4444)) } },
-            dismissButton = { TextButton(onClick = { showDeleteDialog = false }) { Text("Cancelar") } }
+            confirmButton = { TextButton(onClick = { onDelete(); showDeleteDialog = false }) { Text(tr("Excluir", "Delete"), color = Color(0xFFEF4444)) } },
+            dismissButton = { TextButton(onClick = { showDeleteDialog = false }) { Text(tr("Cancelar", "Cancel")) } }
         )
     }
 

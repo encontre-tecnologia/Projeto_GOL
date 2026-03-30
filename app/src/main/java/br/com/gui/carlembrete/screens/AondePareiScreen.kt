@@ -1,4 +1,4 @@
-package br.com.gui.carlembrete
+﻿package br.com.gui.carlembrete
 
 import android.Manifest
 import android.app.Activity
@@ -89,6 +89,7 @@ fun AondePareiScreen(
     val secondaryColor = Color(0xFF64748B)
     val successColor = Color(0xFF10B981)
     val themedIconTint = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) Color.White else Color.Black
+    val englishUi = isEnglishUi()
 
     // --- ESTADOS ---
     var savedLocation by remember { mutableStateOf(AppPreferences.getParkedLocation(context)) }
@@ -114,12 +115,12 @@ fun AondePareiScreen(
     var finalizedPhotoUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
 
     // --- VEICULOS ---
-    val otherVehicleLabel = "Outro"
+    val otherVehicleLabel = tr("Outro", "Other")
     val registeredVehicles = remember {
         BancoDeDados.carregarCarros(context).orEmpty()
     }
     val vehicleDisplayName: (CarroInfo) -> String = { carro ->
-        carro.nome.ifBlank { "${carro.marca} ${carro.modelo}".trim().ifBlank { "Veículo sem nome" } }
+        carro.nome.ifBlank { "${carro.marca} ${carro.modelo}".trim().ifBlank { if (englishUi) "Unnamed vehicle" else "Veículo sem nome" } }
     }
     val registeredVehicleNames = remember(registeredVehicles) {
         registeredVehicles.map(vehicleDisplayName).filter { it.isNotBlank() }.distinct()
@@ -142,7 +143,7 @@ fun AondePareiScreen(
             AppPreferences.clearParkingPhotoUris(context)
             showParkingOngoingNotification(context, it)
         }
-        else Toast.makeText(context, "Permissão necessária para salvar o local.", Toast.LENGTH_SHORT).show()
+        else Toast.makeText(context, trNow("Permissão necessária para salvar o local.", "Permission required to save location."), Toast.LENGTH_SHORT).show()
     }
 
     val cameraLauncher = rememberLauncherForActivityResult(
@@ -204,10 +205,10 @@ fun AondePareiScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(onClick = onDismiss) {
-                    Icon(Icons.Default.ArrowBackIosNew, "Voltar")
+                    Icon(Icons.Default.ArrowBackIosNew, tr("Voltar", "Back"))
                 }
                 Text(
-                    text = "Onde parei",
+                    text = tr("Onde parei", "Where I parked"),
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -222,7 +223,7 @@ fun AondePareiScreen(
                 primaryColor = primaryColor
             )
 
-            // 2. AÇÕES PRINCIPAIS
+            // 2. AÃ‡Ã•ES PRINCIPAIS
             Column(
                 modifier = Modifier.animateContentSize(
                     animationSpec = spring(stiffness = Spring.StiffnessLow)
@@ -235,7 +236,7 @@ fun AondePareiScreen(
                 ) { parked ->
                     if (!parked) {
                         BigActionButton(
-                            text = "Marcar Local Atual",
+                            text = tr("Marcar Local Atual", "Mark Current Location"),
                             icon = Icons.Rounded.LocationOn,
                             color = primaryColor,
                             onClick = { requestLocation() }
@@ -243,7 +244,7 @@ fun AondePareiScreen(
                     } else {
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             BigActionButton(
-                                text = "Encontrei meu Carro",
+                                text = tr("Encontrei meu Carro", "I found my car"),
                                 icon = Icons.Default.CheckCircle,
                                 color = successColor,
                                 onClick = {
@@ -276,7 +277,7 @@ fun AondePareiScreen(
 
                             OutlinedButton(
                                 onClick = {
-                                    // VERIFICA SE O USUARIO MARCOU "NÃO MOSTRAR NOVAMENTE"
+                                    // VERIFICA SE O USUARIO MARCOU "NÃƒO MOSTRAR NOVAMENTE"
                                     val dontShowAgain = prefs.getBoolean("skip_nav_warning", false)
                                     if (dontShowAgain) {
                                         openMapsNavigation()
@@ -294,7 +295,7 @@ fun AondePareiScreen(
                                 Icon(Icons.Rounded.Navigation, null)
                                 Spacer(Modifier.width(8.dp))
                                 Text(
-                                    text = "Abrir rota no Maps",
+                                    text = tr("Abrir rota no Maps", "Open route in Maps"),
                                     fontWeight = FontWeight.SemiBold,
                                     fontSize = 16.sp,
                                     maxLines = 1,
@@ -306,14 +307,14 @@ fun AondePareiScreen(
                 }
             }
 
-            // 3. DETALHES (Veículo e Fotos)
+            // 3. DETALHES (VeÃ­culo e Fotos)
             Card(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
                 shape = RoundedCornerShape(20.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Text("Qual veículo?", style = MaterialTheme.typography.labelLarge, color = secondaryColor)
+                    Text(tr("Qual veículo?", "Which vehicle?"), style = MaterialTheme.typography.labelLarge, color = secondaryColor)
                     Surface(
                         color = MaterialTheme.colorScheme.surface,
                         shape = RoundedCornerShape(12.dp),
@@ -350,7 +351,7 @@ fun AondePareiScreen(
                             }
                             Spacer(Modifier.width(12.dp))
                             Text(
-                                text = selectedVehicleName.ifBlank { "Selecionar veículo" },
+                                text = selectedVehicleName.ifBlank { tr("Selecionar veículo", "Select vehicle") },
                                 style = MaterialTheme.typography.bodyLarge,
                                 fontWeight = FontWeight.Medium,
                                 color = themedIconTint,
@@ -366,7 +367,7 @@ fun AondePareiScreen(
                         OutlinedTextField(
                             value = customVehicleName,
                             onValueChange = { customVehicleName = it },
-                            label = { Text("Nome personalizado") },
+                            label = { Text(tr("Nome personalizado", "Custom name")) },
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(12.dp)
                         )
@@ -379,7 +380,7 @@ fun AondePareiScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("Fotos de referência", style = MaterialTheme.typography.labelLarge, color = secondaryColor)
+                        Text(tr("Fotos de referência", "Reference photos"), style = MaterialTheme.typography.labelLarge, color = secondaryColor)
                         OutlinedButton(
                             onClick = {
                                 val uri = createTempImageUri(context)
@@ -392,7 +393,7 @@ fun AondePareiScreen(
                         ) {
                             Icon(Icons.Outlined.PhotoCamera, null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(4.dp))
-                            Text("Adicionar")
+                            Text(tr("Adicionar", "Add"))
                         }
                     }
 
@@ -409,7 +410,7 @@ fun AondePareiScreen(
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Icon(Icons.Outlined.PhotoCamera, null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
                                 Spacer(Modifier.height(4.dp))
-                                Text("Nenhuma foto", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(tr("Nenhuma foto", "No photos"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                     } else {
@@ -452,20 +453,20 @@ fun AondePareiScreen(
                         Icon(Icons.Rounded.NotificationsActive, null, tint = primaryColor)
                         Spacer(Modifier.width(12.dp))
                         Text(
-                            "Lembrete Rápido",
+                            tr("Lembrete Rápido", "Quick reminder"),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
                     }
 
                     Text(
-                        "Quando voltar ao carro, toque em \"Encontrei meu carro\" para registrar o tempo corretamente.",
+                        tr("Quando voltar ao carro, toque em \"Encontrei meu carro\" para registrar o tempo corretamente.", "When you return to the car, tap \"I found my car\" to record time correctly."),
                         textAlign = TextAlign.Start, // TEXTO ALINHADO A ESQUERDA
                         color = MaterialTheme.colorScheme.onSurface,
                         style = MaterialTheme.typography.bodyMedium
                     )
 
-                    // CHECKBOX "NÃO EXIBIR NOVAMENTE"
+                    // CHECKBOX "NÃƒO EXIBIR NOVAMENTE"
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -480,7 +481,7 @@ fun AondePareiScreen(
                         )
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            "Não exibir esse aviso novamente",
+                            tr("Não exibir esse aviso novamente", "Do not show this warning again"),
                             style = MaterialTheme.typography.bodyMedium,
                             color = secondaryColor,
                             maxLines = 2,
@@ -500,14 +501,14 @@ fun AondePareiScreen(
                         shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = primaryColor)
                     ) {
-                        Text("Entendi, abrir Maps", fontWeight = FontWeight.Bold)
+                        Text(tr("Entendi, abrir Maps", "Got it, open Maps"), fontWeight = FontWeight.Bold)
                     }
 
                     TextButton(
                         onClick = { showNavigationDialog = false },
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text("Cancelar", color = secondaryColor)
+                        Text(tr("Cancelar", "Cancel"), color = secondaryColor)
                     }
                 }
             }
@@ -541,14 +542,14 @@ fun AondePareiScreen(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(10.dp)
                     ) {
-                        Text("Fechar")
+                        Text(tr("Fechar", "Close"))
                     }
                 }
             }
         }
     }
 
-    // 3. Seletor de Veículo
+    // 3. Seletor de VeÃ­culo
     if (showVehicleSelectorDialog) {
         Dialog(onDismissRequest = { showVehicleSelectorDialog = false }) {
             Card(
@@ -561,7 +562,7 @@ fun AondePareiScreen(
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     Text(
-                        "Selecionar veículo",
+                        tr("Selecionar veículo", "Select vehicle"),
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface
@@ -645,7 +646,7 @@ fun AondePareiScreen(
                         shape = RoundedCornerShape(10.dp)
                     ) {
                         Text(
-                            "Cancelar",
+                            tr("Cancelar", "Cancel"),
                             color = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
                                 Color.White.copy(alpha = 0.92f)
                             } else {
@@ -684,7 +685,7 @@ fun AondePareiScreen(
                         onClick = { showVehicleImageDialog = false },
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text("Fechar")
+                        Text(tr("Fechar", "Close"))
                     }
                 }
             }
@@ -714,9 +715,9 @@ fun AondePareiScreen(
                     }
 
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("Tudo certo!", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                        Text(tr("Tudo certo!", "All good!"), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                         Spacer(Modifier.height(4.dp))
-                        Text("Estacionamento finalizado.", style = MaterialTheme.typography.bodyMedium, color = secondaryColor, textAlign = TextAlign.Center)
+                        Text(tr("Estacionamento finalizado.", "Parking finished."), style = MaterialTheme.typography.bodyMedium, color = secondaryColor, textAlign = TextAlign.Center)
                     }
 
                     if (finishedParkingDurationText != null) {
@@ -732,7 +733,7 @@ fun AondePareiScreen(
                             ) {
                                 Icon(Icons.Default.Timer, null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(20.dp))
                                 Spacer(Modifier.width(8.dp))
-                                Text("Tempo Total: ", style = MaterialTheme.typography.bodyMedium)
+                                Text(tr("Tempo Total: ", "Total time: "), style = MaterialTheme.typography.bodyMedium)
                                 Text(finishedParkingDurationText.orEmpty(), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
                             }
                         }
@@ -758,7 +759,7 @@ fun AondePareiScreen(
                                         photoUris = finalizedPhotoUris
                                     )
                                     if (pdf != null) shareParkingReceiptPdf(context, pdf)
-                                    else Toast.makeText(context, "Erro ao gerar PDF", Toast.LENGTH_SHORT).show()
+                                    else Toast.makeText(context, trNow("Erro ao gerar PDF", "Error generating PDF"), Toast.LENGTH_SHORT).show()
                                 }
                             },
                             modifier = Modifier.weight(1f).height(50.dp),
@@ -785,7 +786,7 @@ fun AondePareiScreen(
     }
 }
 
-// --- HELPERS E PDF (Mantenha o StatusHeader e funções de PDF iguais) ---
+// --- HELPERS E PDF (Mantenha o StatusHeader e funÃ§Ãµes de PDF iguais) ---
 @Composable
 fun StatusHeader(isParked: Boolean, location: ParkedLocation?, primaryColor: Color) {
     val bgBrush = if (isParked) {
@@ -822,7 +823,7 @@ fun StatusHeader(isParked: Boolean, location: ParkedLocation?, primaryColor: Col
                 Spacer(Modifier.width(16.dp))
                 Column {
                     Text(
-                        if (isParked) "Estacionado" else "Livre",
+                        if (isParked) tr("Estacionado", "Parked") else tr("Livre", "Free"),
                         color = Color.White,
                         fontWeight = FontWeight.Bold,
                         fontSize = 22.sp
@@ -830,13 +831,13 @@ fun StatusHeader(isParked: Boolean, location: ParkedLocation?, primaryColor: Col
                     if (isParked && location != null) {
                         val sdf = SimpleDateFormat("HH:mm", Locale("pt", "BR"))
                         Text(
-                            "Desde as ${sdf.format(Date(location.timeMillis))}",
+                            tr("Desde as ${sdf.format(Date(location.timeMillis))}", "Since ${sdf.format(Date(location.timeMillis))}"),
                             color = Color.White.copy(alpha = 0.9f),
                             fontSize = 14.sp
                         )
                     } else {
                         Text(
-                            "Toque para marcar o local",
+                            tr("Toque para marcar o local", "Tap to mark the location"),
                             color = Color.White.copy(alpha = 0.8f),
                             fontSize = 14.sp
                         )
@@ -887,9 +888,9 @@ fun salvarLocalizacao(context: Context, onSaved: (ParkedLocation) -> Unit) {
         val loc = ParkedLocation(bestLoc.latitude, bestLoc.longitude, System.currentTimeMillis())
         AppPreferences.setParkedLocation(context, loc.lat, loc.lng, loc.timeMillis)
         onSaved(loc)
-        Toast.makeText(context, "Local salvo!", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, trNow("Local salvo!", "Location saved!"), Toast.LENGTH_SHORT).show()
     } else {
-        Toast.makeText(context, "Ative o GPS e tente novamente.", Toast.LENGTH_LONG).show()
+        Toast.makeText(context, trNow("Ative o GPS e tente novamente.", "Enable GPS and try again."), Toast.LENGTH_LONG).show()
     }
 }
 
@@ -930,11 +931,11 @@ private fun showParkingOngoingNotification(context: Context, location: ParkedLoc
     val sinceText = SimpleDateFormat("dd/MM HH:mm", Locale("pt", "BR")).format(Date(location.timeMillis))
     val notification = NotificationCompat.Builder(context, PARKING_NOTIFICATION_CHANNEL_ID)
         .setSmallIcon(R.drawable.logonotificacao)
-        .setContentTitle("Estacionamento em andamento")
-        .setContentText("Toque quando encontrar o carro. Desde: $sinceText")
+        .setContentTitle(trNow("Estacionamento em andamento", "Parking in progress"))
+        .setContentText(trNow("Toque quando encontrar o carro. Desde: $sinceText", "Tap when you find the car. Since: $sinceText"))
         .setStyle(
             NotificationCompat.BigTextStyle().bigText(
-                "Local marcado com sucesso. Esta notificacao fica ativa ate voce tocar em \"Encontrei meu carro\" no app."
+                trNow("Local marcado com sucesso. Esta notificacao fica ativa ate voce tocar em \"Encontrei meu carro\" no app.", "Location saved successfully. This notification stays active until you tap \"I found my car\" in the app.")
             )
         )
         .setPriority(NotificationCompat.PRIORITY_DEFAULT)
@@ -949,8 +950,8 @@ private fun showParkingOngoingNotification(context: Context, location: ParkedLoc
     NotificacaoHelper.registrarNotificacaoDisparadaUnica(
         context = context,
         id = PARKING_NOTIFICATION_HISTORY_ID,
-        titulo = "Estacionamento em andamento",
-        descricao = "Local marcado com sucesso. A notificacao permanece ate voce finalizar no app.",
+        titulo = trNow("Estacionamento em andamento", "Parking in progress"),
+        descricao = trNow("Local marcado com sucesso. A notificacao permanece ate voce finalizar no app.", "Location saved successfully. The notification remains until you finish in the app."),
         carroId = null
     )
 }
@@ -965,10 +966,10 @@ private fun createParkingNotificationChannel(context: Context) {
     val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
     val channel = NotificationChannel(
         PARKING_NOTIFICATION_CHANNEL_ID,
-        "Estacionamento",
+        trNow("Estacionamento", "Parking"),
         NotificationManager.IMPORTANCE_DEFAULT
     ).apply {
-        description = "Lembrete de estacionamento em andamento"
+        description = trNow("Lembrete de estacionamento em andamento", "Parking in-progress reminder")
         setShowBadge(false)
     }
     manager.createNotificationChannel(channel)
@@ -979,7 +980,7 @@ private fun hasNotificationPermission(context: Context): Boolean {
         ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
 }
 
-// --- GERAÇÃO DE PDF ---
+// --- GERAÃ‡ÃƒO DE PDF ---
 private fun generateParkingReceiptPdf(
     context: Context,
     location: ParkedLocation,
@@ -1022,19 +1023,19 @@ private fun generateParkingReceiptPdf(
         val startedText = sdf.format(Date(startedAtMillis))
         val endedText = sdf.format(Date(endedAtMillis))
         canvas.drawText("RESUMO DO ESTACIONAMENTO", margin + 14f, y + 22f, labelPaint)
-        canvas.drawText("Veículo: $vehicleName", margin + 14f, y + 40f, valuePaint)
-        canvas.drawText("Início: $startedText", margin + 14f, y + 58f, valuePaint)
+        canvas.drawText("VeÃ­culo: $vehicleName", margin + 14f, y + 40f, valuePaint)
+        canvas.drawText("InÃ­cio: $startedText", margin + 14f, y + 58f, valuePaint)
         canvas.drawText("Fim: $endedText", margin + 14f, y + 74f, valuePaint)
         canvas.drawText("Tempo total: ${if (durationText.isBlank()) "-" else durationText}", margin + 14f, y + 92f, valueBoldPaint)
         canvas.drawLine(margin + 14f, y + 106f, margin + contentWidth - 14f, y + 106f, dividerPaint)
         val latStr = "%.6f".format(Locale.US, location.lat)
         val lngStr = "%.6f".format(Locale.US, location.lng)
-        canvas.drawText("DADOS TÉCNICOS", margin + 14f, y + 126f, labelPaint)
+        canvas.drawText("DADOS TÃ‰CNICOS", margin + 14f, y + 126f, labelPaint)
         canvas.drawText("Lat: $latStr", margin + 14f, y + 144f, valuePaint)
         canvas.drawText("Lng: $lngStr", margin + 14f, y + 160f, valuePaint)
         canvas.drawText("Mapa: http://maps.google.com/?q=${location.lat},${location.lng}", margin + 14f, y + 178f, valuePaint)
         y += 226f
-        canvas.drawText("FOTOS DE REFERÊNCIA", margin, y, Paint().apply { textSize = 12.5f; typeface = Typeface.DEFAULT_BOLD })
+        canvas.drawText("FOTOS DE REFERÃŠNCIA", margin, y, Paint().apply { textSize = 12.5f; typeface = Typeface.DEFAULT_BOLD })
         y += 8f
         canvas.drawLine(margin, y, pageWidth - margin, y, dividerPaint)
         y += 12f
@@ -1058,7 +1059,7 @@ private fun generateParkingReceiptPdf(
                 if (bitmap != null) {
                     drawBitmapFitForPdf(canvas, bitmap, left + 8f, top + 30f, slotWidth - 16f, slotHeight - 38f)
                 } else {
-                    canvas.drawText("Imagem indisponível", left + 10f, top + 50f, valuePaint)
+                    canvas.drawText("Imagem indisponÃ­vel", left + 10f, top + 50f, valuePaint)
                 }
             }
         }
@@ -1077,7 +1078,7 @@ private fun shareParkingReceiptPdf(context: Context, pdfFile: File) {
         putExtra(Intent.EXTRA_STREAM, uri)
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
-    context.startActivity(Intent.createChooser(intent, "Compartilhar comprovante"))
+    context.startActivity(Intent.createChooser(intent, trNow("Compartilhar comprovante", "Share receipt")))
 }
 
 private fun drawBitmapFitForPdf(canvas: Canvas, bitmap: Bitmap, left: Float, top: Float, maxWidth: Float, maxHeight: Float) {
@@ -1093,3 +1094,7 @@ private fun toPortraitBitmapForPdf(bitmap: Bitmap): Bitmap {
     val matrix = Matrix().apply { postRotate(90f) }
     return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
 }
+
+
+
+

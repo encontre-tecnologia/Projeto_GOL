@@ -44,8 +44,8 @@ import java.util.Locale
 fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
     val scheme = MaterialTheme.colorScheme
     val isDark = scheme.background.luminance() < 0.5f
-    val primaryDark = if (isDark) Color(0xFF0F172A) else Color.White
-    val surfaceDark = if (isDark) Color(0xFF1E293B) else Color.White
+    val primaryDark = if (isDark) Color(0xFF0F172A) else scheme.background
+    val surfaceDark = if (isDark) Color(0xFF1E293B) else scheme.surface
     val accentBlue = Color(0xFF3B82F6)
     val accentGreen = Color(0xFF34D399)
     val cardStroke = if (isDark) Color(0xFF1F2A44) else Color(0xFFCBD5E1)
@@ -55,7 +55,11 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
     val scope = rememberCoroutineScope()
     var precoGasolina by remember { mutableStateOf("5,60") }
     var valorAbastecido by remember { mutableStateOf("20,00") }
-    val opcoesCombustivel = listOf("Gasolina", "Etanol", "Diesel", "GNV", "Flex")
+    val opcoesCombustivel = if (isEnglishUi()) {
+        listOf("Gasoline", "Ethanol", "Diesel", "CNG", "Flex")
+    } else {
+        listOf("Gasolina", "Etanol", "Diesel", "GNV", "Flex")
+    }
     var tipoCombustivel by remember { mutableStateOf("") }
     var combustivelExpanded by remember { mutableStateOf(false) }
     var precoEditado by remember { mutableStateOf(false) }
@@ -124,7 +128,7 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
             CenterAlignedTopAppBar(
                 title = {
                     Text(
-                        "Abastecimento",
+                        tr("Abastecimento", "Fuel"),
                         color = textPrimary,
                         fontWeight = FontWeight.Bold,
                         style = MaterialTheme.typography.titleMedium
@@ -132,7 +136,7 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
                 },
                 navigationIcon = {
                     IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar", tint = textPrimary)
+                        Icon(Icons.Default.ArrowBackIosNew, contentDescription = tr("Voltar", "Back"), tint = textPrimary)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = primaryDark)
@@ -156,7 +160,7 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Text(
-                        "Dados do posto",
+                        tr("Dados do posto", "Gas station data"),
                         color = textPrimary,
                         fontWeight = FontWeight.Bold,
                         fontSize = 16.sp
@@ -166,10 +170,10 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
                         onExpandedChange = { combustivelExpanded = !combustivelExpanded }
                     ) {
                         OutlinedTextField(
-                            value = if (tipoCombustivel.isBlank()) "Selecione o tipo" else tipoCombustivel,
+                            value = if (tipoCombustivel.isBlank()) tr("Selecione o tipo", "Select type") else tipoCombustivel,
                             onValueChange = {},
                             readOnly = true,
-                            label = { Text("Combustivel") },
+                            label = { Text(tr("Combustivel", "Fuel type")) },
                             modifier = Modifier
                                 .menuAnchor()
                                 .fillMaxWidth()
@@ -199,7 +203,7 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
                             precoGasolina = it
                             precoEditado = true
                         },
-                        label = { Text("Valor do combustivel (R$/L)") },
+                        label = { Text(tr("Valor do combustivel (R$/L)", "Fuel price (R$/L)")) },
                         leadingIcon = {
                             Icon(
                                 imageVector = Icons.Rounded.LocalGasStation,
@@ -221,7 +225,7 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
                             valorAbastecido = it
                             valorEditado = true
                         },
-                        label = { Text("Valor abastecido (R$)") },
+                        label = { Text(tr("Valor abastecido (R$)", "Refuel amount (R$)")) },
                         leadingIcon = {
                             Icon(
                                 imageVector = Icons.Default.Payments,
@@ -253,7 +257,7 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
                         value = dataSelecionada.format(dateFormatter),
                         onValueChange = {},
                         readOnly = true,
-                        label = { Text("Data do registro") },
+                        label = { Text(tr("Data do registro", "Record date")) },
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(58.dp),
@@ -262,7 +266,7 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
                             IconButton(onClick = abrirDatePicker) {
                                 Icon(
                                     imageVector = Icons.Default.CalendarMonth,
-                                    contentDescription = "Selecionar data",
+                                    contentDescription = tr("Selecionar data", "Select date"),
                                     tint = if (isDark) Color(0xFFCBD5F5) else Color(0xFF334155)
                                 )
                             }
@@ -295,20 +299,20 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
                             tint = accentGreen,
                             modifier = Modifier.size(16.dp)
                         )
-                        Text("Resumo", color = textPrimary, fontWeight = FontWeight.Bold)
+                        Text(tr("Resumo", "Summary"), color = textPrimary, fontWeight = FontWeight.Bold)
                     }
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         ResumoItem(
-                            title = "Litros",
+                            title = tr("Litros", "Liters"),
                             value = litrosTexto,
                             accent = accentBlue,
                             modifier = Modifier.weight(1f)
                         )
                         ResumoItem(
-                            title = "Gasto",
+                            title = tr("Gasto", "Amount"),
                             value = gastoTexto,
                             accent = accentGreen,
                             modifier = Modifier.weight(1f)
@@ -316,19 +320,19 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
                     }
                     HorizontalDivider(color = cardStroke.copy(alpha = 0.65f))
                     InfoRow(
-                        label = "Consumo medio (km/L)",
+                        label = tr("Consumo medio (km/L)", "Average consumption (km/L)"),
                         value = resumoConsumo.consumoKmPorLitro?.let { String.format(Locale("pt", "BR"), "%.1f", it) } ?: "--",
                         textLight = textPrimary,
                         textDim = textDim
                     )
                     InfoRow(
-                        label = "Abastecimento semanal",
+                        label = tr("Abastecimento semanal", "Weekly fuel"),
                         value = resumoConsumo.custoSemana?.let { formatarMoeda(it) } ?: "--",
                         textLight = textPrimary,
                         textDim = textDim
                     )
                     InfoRow(
-                        label = "Abastecimento mensal",
+                        label = tr("Abastecimento mensal", "Monthly fuel"),
                         value = resumoConsumo.custoMes?.let { formatarMoeda(it) } ?: "--",
                         textLight = textPrimary,
                         textDim = textDim
@@ -378,7 +382,7 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
                 shape = RoundedCornerShape(12.dp)
             ) {
                 Text(
-                    if (isSaving) "Salvando..." else "Salvar gasto",
+                    if (isSaving) tr("Salvando...", "Saving...") else tr("Salvar gasto", "Save expense"),
                     color = Color.White,
                     fontWeight = FontWeight.Bold
                 )
@@ -416,14 +420,14 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
 
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
-                            "Abastecimento registrado",
+                            tr("Abastecimento registrado", "Fuel record saved"),
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold,
                             color = textPrimary
                         )
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            "O gasto registrado esta na tela Historico de abastecimento.",
+                            tr("O gasto registrado esta na tela Historico de abastecimento.", "Your expense is now in Fuel history."),
                             style = MaterialTheme.typography.bodyMedium,
                             color = textDim,
                             textAlign = TextAlign.Center
@@ -442,7 +446,7 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
                             shape = RoundedCornerShape(12.dp),
                             border = BorderStroke(1.dp, accentBlue)
                         ) {
-                            Text("Fechar", color = accentBlue)
+                            Text(tr("Fechar", "Close"), color = accentBlue)
                         }
 
                         Button(
@@ -456,7 +460,7 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
                             shape = RoundedCornerShape(12.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = accentBlue)
                         ) {
-                            Text("Historico", fontWeight = FontWeight.Bold, color = Color.White)
+                            Text(tr("Historico", "History"), fontWeight = FontWeight.Bold, color = Color.White)
                         }
                     }
                 }
@@ -486,7 +490,7 @@ private fun ResumoItem(
 ) {
     val scheme = MaterialTheme.colorScheme
     val isDark = scheme.background.luminance() < 0.5f
-    val bg = if (isDark) Color(0xFF0B1224) else Color.White
+    val bg = if (isDark) Color(0xFF0B1224) else scheme.background
     val border = if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.12f)
     val titleColor = if (isDark) Color(0xFF94A3B8) else Color(0xFF475569)
     Column(

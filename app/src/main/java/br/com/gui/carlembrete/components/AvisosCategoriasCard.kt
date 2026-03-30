@@ -48,6 +48,8 @@ import br.com.gui.carlembrete.TipoIcon
 import br.com.gui.carlembrete.TipoManutencao
 import br.com.gui.carlembrete.abrirWhatsApp
 import br.com.gui.carlembrete.dataParaOrdenacao
+import br.com.gui.carlembrete.isEnglishUi
+import br.com.gui.carlembrete.tr
 import java.text.NumberFormat
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
@@ -144,7 +146,7 @@ fun AvisosCategoriasCard(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
-                        text = "CATEGORIAS",
+                        text = tr("CATEGORIAS", "CATEGORIES"),
                         color = palette.textPrimary,
                         fontSize = 16.sp,
                         fontWeight = FontWeight.ExtraBold,
@@ -222,9 +224,11 @@ fun AvisosCategoriasCard(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.padding(start = 8.dp)) {
-                        val tituloFiltro = labelOverrides[filtroTipo] ?: filtroTipo?.label
+                        val tituloFiltro = filtroTipo?.let { tipo ->
+                            labelOverrides[tipo] ?: tipo.localizedLabel()
+                        }
                         Text(
-                            text = if (tituloFiltro != null) tituloFiltro.uppercase() else "PROXIMOS LEMBRETES:",
+                            text = if (tituloFiltro != null) tituloFiltro.uppercase() else tr("PROXIMOS LEMBRETES:", "UPCOMING REMINDERS:"),
                             color = palette.textPrimary,
                             fontSize = 16.sp,
                             fontWeight = FontWeight.ExtraBold,
@@ -288,6 +292,7 @@ fun LembreteCardLocal(
 ) {
     val palette = avisosPalette()
     val context = LocalContext.current
+    val isEnglish = isEnglishUi()
 
     val valorFormatado = remember(lembrete.valor) {
         try {
@@ -376,7 +381,7 @@ fun LembreteCardLocal(
             ) {
                 val ufAviso = lembrete.kmLimite.trim().uppercase(Locale("pt", "BR"))
                 if (lembrete.tipo == TipoManutencao.IPVA || lembrete.tipo == TipoManutencao.LICENCIAMENTO) {
-                    val textoAcao = if (lembrete.tipo == TipoManutencao.IPVA) "Renovar IPVA" else "Renovar Licença"
+                    val textoAcao = if (lembrete.tipo == TipoManutencao.IPVA) tr("Renovar IPVA", "Renew IPVA") else tr("Renovar Licença", "Renew License")
                     Surface(
                         color = palette.accent.copy(alpha = 0.15f),
                         shape = CircleShape,
@@ -417,13 +422,13 @@ fun LembreteCardLocal(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.OpenInNew,
-                                contentDescription = "Cotar seguro",
+                                contentDescription = tr("Cotar seguro", "Get insurance quote"),
                                 tint = palette.accent,
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(Modifier.width(8.dp))
                             Text(
-                                text = "Cotar seguro",
+                                text = tr("Cotar seguro", "Get insurance quote"),
                                 color = palette.accent,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold
@@ -441,16 +446,20 @@ fun LembreteCardLocal(
                                     dataParaOrdenacao(lembrete).format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))
                                 } catch (e: Exception) { lembrete.dataLimite.ifBlank { "--/--/----" } }
                                 val saudacao = when (LocalTime.now().hour) {
-                                    in 5..11 -> "Bom dia"
-                                    in 12..17 -> "Boa tarde"
-                                    else -> "Boa noite"
+                                    in 5..11 -> if (isEnglish) "Good morning" else "Bom dia"
+                                    in 12..17 -> if (isEnglish) "Good afternoon" else "Boa tarde"
+                                    else -> if (isEnglish) "Good evening" else "Boa noite"
                                 }
-                                val servico = lembrete.titulo.ifBlank { "serviço" }
-                                val itemTrocado = lembrete.peca.ifBlank { lembrete.titulo }.ifBlank { "item do serviço" }
+                                val servico = lembrete.titulo.ifBlank { if (isEnglish) "service" else "serviço" }
+                                val itemTrocado = lembrete.peca.ifBlank { lembrete.titulo }.ifBlank { if (isEnglish) "service item" else "item do serviço" }
                                 abrirWhatsApp(
                                     context,
                                     contato.telefone,
-                                    "$saudacao, ${contato.nome}! Tudo bem?\n\nFiz a *$servico* com você, do item *$itemTrocado*, no dia *$dataFormatada*.\nGostaria de perguntar se o valor ainda é *$valorFormatado* e quando você teria uma data para realizar esse serviço novamente."
+                                    if (isEnglish) {
+                                        "$saudacao, ${contato.nome}! How are you?\n\nI did the *$servico* with you, for *$itemTrocado*, on *$dataFormatada*.\nCould you confirm if the price is still *$valorFormatado* and when you could do this service again?"
+                                    } else {
+                                        "$saudacao, ${contato.nome}! Tudo bem?\n\nFiz a *$servico* com você, do item *$itemTrocado*, no dia *$dataFormatada*.\nGostaria de perguntar se o valor ainda é *$valorFormatado* e quando você teria uma data para realizar esse serviço novamente."
+                                    }
                                 )
                             }
                     ) {
@@ -460,13 +469,13 @@ fun LembreteCardLocal(
                         ) {
                             Icon(
                                 imageVector = Icons.Rounded.Message,
-                                contentDescription = "WhatsApp",
+                                contentDescription = tr("WhatsApp", "WhatsApp"),
                                 tint = WhatsAppGreen,
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(Modifier.width(8.dp))
                             Text(
-                                text = "Chamar no WhatsApp",
+                                text = tr("Chamar no WhatsApp", "Message on WhatsApp"),
                                 color = WhatsAppGreen,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold
@@ -487,13 +496,13 @@ fun LembreteCardLocal(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Add,
-                                contentDescription = "Adicionar telefone",
+                                contentDescription = tr("Adicionar telefone", "Add phone"),
                                 tint = palette.accent,
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(Modifier.width(8.dp))
                             Text(
-                                text = "Adicionar telefone",
+                                text = tr("Adicionar telefone", "Add phone"),
                                 color = palette.accent,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold
@@ -514,13 +523,13 @@ fun LembreteCardLocal(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Add,
-                                contentDescription = "Adicionar contato",
+                                contentDescription = tr("Adicionar contato", "Add contact"),
                                 tint = palette.accent,
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(Modifier.width(8.dp))
                             Text(
-                                text = "Adicionar contato",
+                                text = tr("Adicionar contato", "Add contact"),
                                 color = palette.accent,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold
@@ -579,7 +588,7 @@ fun MonitorIcon(
     )
 
     val iconColor = if (selected) Color.White else palette.textSecondary
-    val labelText = labelOverride ?: tipo.label
+    val labelText = labelOverride ?: tipo.localizedLabel()
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -651,6 +660,30 @@ fun MonitorIcon(
 }
 
 @Composable
+private fun TipoManutencao.localizedLabel(): String = when (this) {
+    TipoManutencao.CORRENTE -> tr("Corrente", "Chain")
+    TipoManutencao.LUBRIFICACAO -> tr("Lubrificação", "Lubrication")
+    TipoManutencao.PEDIVELA -> tr("Pedivela", "Crankset")
+    TipoManutencao.ACESSORIOS -> tr("Acessórios", "Accessories")
+    TipoManutencao.CONFORTO -> tr("Conforto", "Comfort")
+    TipoManutencao.PNEU -> tr("Pneu", "Tire")
+    TipoManutencao.TRANSMISSAO -> tr("Transmissão", "Transmission")
+    TipoManutencao.REVISAO -> tr("Revisão", "Checkup")
+    TipoManutencao.OLEO -> tr("Óleo", "Oil")
+    TipoManutencao.LAVAGEM -> tr("Lavagem", "Wash")
+    TipoManutencao.ABASTECIMENTO -> tr("Posto", "Fuel")
+    TipoManutencao.BATERIA -> tr("Elétrica", "Electric")
+    TipoManutencao.VIDROS -> tr("Vidros", "Glass")
+    TipoManutencao.MECANICA -> tr("Mecânica", "Mechanical")
+    TipoManutencao.FUNILARIA -> tr("Funilaria", "Bodywork")
+    TipoManutencao.FREIO -> tr("Freio", "Brake")
+    TipoManutencao.LICENCIAMENTO -> tr("Licença", "License")
+    TipoManutencao.IPVA -> tr("IPVA", "IPVA")
+    TipoManutencao.SEGURO -> tr("Seguro", "Insurance")
+    TipoManutencao.OUTROS -> tr("Outros", "Others")
+}
+
+@Composable
 private fun MonitorAllIcon(selected: Boolean, onClick: () -> Unit) {
     val palette = avisosPalette()
     val animatedColor by animateColorAsState(
@@ -683,13 +716,13 @@ private fun MonitorAllIcon(selected: Boolean, onClick: () -> Unit) {
                 ),
             contentAlignment = Alignment.Center
         ) {
-            Icon(Icons.Rounded.Notifications, "Todos", tint = iconColor, modifier = Modifier.size(26.dp))
+            Icon(Icons.Rounded.Notifications, tr("Todos", "All"), tint = iconColor, modifier = Modifier.size(26.dp))
         }
 
         Spacer(Modifier.height(8.dp))
 
         Text(
-            text = "Todos",
+            text = tr("Todos", "All"),
             color = if (selected) palette.textPrimary else palette.textSecondary,
             fontSize = 13.sp,
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
@@ -722,8 +755,8 @@ private fun EmptyStateView(textColor: Color) {
             )
         }
         Spacer(Modifier.height(16.dp))
-        Text("Tudo 100%!", color = palette.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-        Text("Nenhum aviso nessa categoria.", color = textColor, fontSize = 13.sp)
+        Text(tr("Tudo 100%!", "All set!"), color = palette.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+        Text(tr("Nenhum aviso nessa categoria.", "No reminders in this category."), color = textColor, fontSize = 13.sp)
     }
 }
 

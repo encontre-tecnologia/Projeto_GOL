@@ -298,12 +298,12 @@ private fun OnboardingNovoCarroScreenContent(
     val erroKm = etapaCadastro == 2 && !isBikeTypeGlobal && tentouSalvarEtapa2 && kmAtualStr.filter(Char::isDigit).isEmpty()
     val etapa2Valida = proprietario.isNotBlank() &&
             quemUsaOpcao != "Selecione" &&
-            vezesBatido != null &&
+            (isBikeTypeGlobal || vezesBatido != null) &&
             tempoComVeiculo.isNotBlank() &&
             (isBikeTypeGlobal || kmAtualStr.filter(Char::isDigit).isNotEmpty())
     val erroQuemUsa = etapaCadastro == 2 && tentouSalvarEtapa2 && quemUsaOpcao == "Selecione"
     val erroProprietario = etapaCadastro == 2 && tentouSalvarEtapa2 && proprietario.isBlank()
-    val erroBatidas = etapaCadastro == 2 && tentouSalvarEtapa2 && vezesBatido == null
+    val erroBatidas = etapaCadastro == 2 && !isBikeTypeGlobal && tentouSalvarEtapa2 && vezesBatido == null
     val erroTempo = etapaCadastro == 2 && tentouSalvarEtapa2 && tempoComVeiculo.isBlank()
 
     val marcasDisponiveis = when {
@@ -530,6 +530,7 @@ private fun OnboardingNovoCarroScreenContent(
                 .fillMaxSize()
                 .background(bgLight)
                 .padding(innerPadding)
+                .then(if (isOnboardingVariant) Modifier.statusBarsPadding() else Modifier)
         ) {
             Column(
                 modifier = Modifier
@@ -1360,14 +1361,12 @@ private fun OnboardingNovoCarroScreenContent(
                                 OutlinedTextField(
                                     value = anoSelecionado,
                                     onValueChange = {
-                                        if (hasBrandSelected && anosFipe.isEmpty()) {
-                                            anoSelecionado = it.filter(Char::isDigit).take(4)
-                                        }
+                                        anoSelecionado = it.filter(Char::isDigit).take(4)
                                     },
-                                    readOnly = anosFipe.isNotEmpty(),
+                                    readOnly = false,
                                     isError = erroAno,
                                     label = { Text("Ano") },
-                                    placeholder = { Text("Selecione") },
+                                    placeholder = { Text("Selecione ou digite") },
                                     keyboardOptions = KeyboardOptions(
                                         keyboardType = KeyboardType.Number,
                                         imeAction = ImeAction.Done
@@ -1385,7 +1384,7 @@ private fun OnboardingNovoCarroScreenContent(
                                         filled = anoSelecionado.isNotBlank(),
                                         isError = erroAno
                                     ),
-                                    enabled = hasBrandSelected && !aguardarBuscaModelos,
+                                    enabled = !aguardarBuscaModelos,
                                     shape = RoundedCornerShape(14.dp)
                                 )
                                 ExposedDropdownMenu(
@@ -1490,50 +1489,52 @@ private fun OnboardingNovoCarroScreenContent(
                             )
                         }
 
-                        ExposedDropdownMenuBox(
-                            expanded = batidasExpanded,
-                            onExpandedChange = { batidasExpanded = !batidasExpanded }
-                        ) {
-                            OutlinedTextField(
-                                value = when (vezesBatido) {
-                                    null -> ""
-                                    0 -> "Nunca foi batido"
-                                    else -> vezesBatido.toString()
-                                },
-                                onValueChange = {},
-                                readOnly = true,
-                                isError = erroBatidas,
-                                label = { Text("Vezes batido") },
-                                placeholder = { Text("Selecione") },
-                                singleLine = true,
-                                modifier = Modifier
-                                    .menuAnchor()
-                                    .fillMaxWidth(),
-                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = batidasExpanded) },
-                                colors = selectorFieldColorsWithState(
-                                    filled = vezesBatido != null,
-                                    isError = erroBatidas
-                                ),
-                                shape = RoundedCornerShape(14.dp)
-                            )
-                            ExposedDropdownMenu(
+                        if (!isBikeTypeGlobal) {
+                            ExposedDropdownMenuBox(
                                 expanded = batidasExpanded,
-                                onDismissRequest = { batidasExpanded = false },
-                                modifier = Modifier.background(selectorDropdownBg)
+                                onExpandedChange = { batidasExpanded = !batidasExpanded }
                             ) {
-                                (0..10).forEach { quantidade ->
-                                    DropdownMenuItem(
-                                        text = {
-                                            Text(
-                                                if (quantidade == 0) "Nunca foi batido" else quantidade.toString(),
-                                                color = textPrimary
-                                            )
-                                        },
-                                        onClick = {
-                                            vezesBatido = quantidade
-                                            batidasExpanded = false
-                                        }
-                                    )
+                                OutlinedTextField(
+                                    value = when (vezesBatido) {
+                                        null -> ""
+                                        0 -> "Nunca foi batido"
+                                        else -> vezesBatido.toString()
+                                    },
+                                    onValueChange = {},
+                                    readOnly = true,
+                                    isError = erroBatidas,
+                                    label = { Text("Vezes batido") },
+                                    placeholder = { Text("Selecione") },
+                                    singleLine = true,
+                                    modifier = Modifier
+                                        .menuAnchor()
+                                        .fillMaxWidth(),
+                                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = batidasExpanded) },
+                                    colors = selectorFieldColorsWithState(
+                                        filled = vezesBatido != null,
+                                        isError = erroBatidas
+                                    ),
+                                    shape = RoundedCornerShape(14.dp)
+                                )
+                                ExposedDropdownMenu(
+                                    expanded = batidasExpanded,
+                                    onDismissRequest = { batidasExpanded = false },
+                                    modifier = Modifier.background(selectorDropdownBg)
+                                ) {
+                                    (0..10).forEach { quantidade ->
+                                        DropdownMenuItem(
+                                            text = {
+                                                Text(
+                                                    if (quantidade == 0) "Nunca foi batido" else quantidade.toString(),
+                                                    color = textPrimary
+                                                )
+                                            },
+                                            onClick = {
+                                                vezesBatido = quantidade
+                                                batidasExpanded = false
+                                            }
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -1547,7 +1548,7 @@ private fun OnboardingNovoCarroScreenContent(
                                 onValueChange = {},
                                 readOnly = true,
                                 isError = erroTempo,
-                                label = { Text("Tempo com veículo") },
+                                label = { Text(if (isBikeTypeGlobal) "Tempo com a bike" else "Tempo com veículo") },
                                 placeholder = { Text("Selecione") },
                                 singleLine = true,
                                 modifier = Modifier
@@ -1989,8 +1990,9 @@ private fun ColorRowNovoOnboarding(
 }
 
 private fun formatarKmTextoOnboarding(texto: String): String {
-    val digits = texto.filter(Char::isDigit)
-    val value = digits.toLongOrNull() ?: 0L
+    val digits = texto.filter(Char::isDigit).take(10)
+    if (digits.isEmpty()) return ""
+    val value = (digits.toLongOrNull() ?: 0L).coerceAtMost(Int.MAX_VALUE.toLong())
     return NumberFormat.getIntegerInstance(Locale("pt", "BR")).format(value)
 }
 

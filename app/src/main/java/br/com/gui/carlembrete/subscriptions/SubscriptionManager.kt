@@ -22,6 +22,7 @@ class SubscriptionManager(context: Context) : PurchasesUpdatedListener {
         .build()
 
     private var productDetails: ProductDetails? = null
+    private var selectedOfferToken: String? = null
 
     private val _planTier = MutableStateFlow(PlanTier.FREE)
     val planTier: StateFlow<PlanTier> = _planTier
@@ -51,11 +52,16 @@ class SubscriptionManager(context: Context) : PurchasesUpdatedListener {
 
     fun launchPurchaseFlow(activity: android.app.Activity) {
         val details = productDetails ?: return
+        val offerToken = selectedOfferToken ?: run {
+            Log.w("Billing", "Oferta de assinatura indisponivel para $SUBSCRIPTION_PRODUCT_ID")
+            return
+        }
         val params = BillingFlowParams.newBuilder()
             .setProductDetailsParamsList(
                 listOf(
                     BillingFlowParams.ProductDetailsParams.newBuilder()
                         .setProductDetails(details)
+                        .setOfferToken(offerToken)
                         .build()
                 )
             )
@@ -74,10 +80,24 @@ class SubscriptionManager(context: Context) : PurchasesUpdatedListener {
                 )
             )
             .build()
-        billingClient.queryProductDetailsAsync(params) { _, detailsList ->
+        billingClient.queryProductDetailsAsync(params) { billingResult, detailsList ->
+            if (billingResult.responseCode != BillingClient.BillingResponseCode.OK) {
+                productDetails = null
+                selectedOfferToken = null
+                Log.w("Billing", "Falha ao consultar produto: code=${billingResult.responseCode}")
+                return@queryProductDetailsAsync
+            }
+
             productDetails = detailsList.firstOrNull()
+            selectedOfferToken = productDetails
+                ?.subscriptionOfferDetails
+                ?.firstOrNull()
+                ?.offerToken
+
             if (productDetails == null) {
                 Log.w("Billing", "Produto nao encontrado: $SUBSCRIPTION_PRODUCT_ID")
+            } else if (selectedOfferToken == null) {
+                Log.w("Billing", "Produto encontrado sem oferta ativa: $SUBSCRIPTION_PRODUCT_ID")
             }
         }
     }

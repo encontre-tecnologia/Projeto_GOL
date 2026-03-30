@@ -1,4 +1,4 @@
-package br.com.gui.carlembrete
+﻿package br.com.gui.carlembrete
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -50,13 +50,13 @@ fun BikeDistanceHistoryScreen(
         }
     }
 
-    // Modal de Confirmação
+    // Modal de ConfirmaÃ§Ã£o
     if (deleteItem != null) {
         AlertDialog(
             onDismissRequest = { deleteItem = null },
             icon = { Icon(Icons.Default.DeleteOutline, contentDescription = null, tint = dangerColor) },
-            title = { Text("Excluir Registro?", color = textColor, fontWeight = FontWeight.Bold) },
-            text = { Text("Essa ação removerá permanentemente este registro do histórico.", color = subTextColor, textAlign = TextAlign.Center) },
+            title = { Text(tr("Excluir Registro?", "Delete record?"), color = textColor, fontWeight = FontWeight.Bold) },
+            text = { Text(tr("Essa ação removerá permanentemente este registro do histórico.", "This action will permanently remove this history record."), color = subTextColor, textAlign = TextAlign.Center) },
             confirmButton = {
                 Button(
                     onClick = {
@@ -72,11 +72,11 @@ fun BikeDistanceHistoryScreen(
                         }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = dangerColor)
-                ) { Text("Excluir") }
+                 ) { Text(tr("Excluir", "Delete")) }
             },
             dismissButton = {
                 TextButton(onClick = { deleteItem = null }) {
-                    Text("Cancelar", color = subTextColor)
+                    Text(tr("Cancelar", "Cancel"), color = subTextColor)
                 }
             },
             containerColor = cardColor,
@@ -88,7 +88,7 @@ fun BikeDistanceHistoryScreen(
         containerColor = backgroundColor,
         topBar = {
             TopAppBar(
-                title = { Text("Histórico", color = textColor, fontWeight = FontWeight.Bold) },
+                title = { Text("HistÃ³rico", color = textColor, fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onDismiss) {
                         Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar", tint = textColor)
@@ -171,7 +171,7 @@ fun BikeDistanceHistoryScreen(
                                     .padding(16.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                // Bolinha com a data (estilo calendário)
+                                // Bolinha com a data (estilo calendÃ¡rio)
                                 Box(
                                     modifier = Modifier
                                         .size(48.dp)
@@ -184,14 +184,14 @@ fun BikeDistanceHistoryScreen(
                                             Text(parts[0], color = textColor, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                                             Text(parts[1], color = subTextColor, fontSize = 10.sp)
                                         } else {
-                                            Text("📅", fontSize = 14.sp)
+                                            Text("ðŸ“…", fontSize = 14.sp)
                                         }
                                     }
                                 }
 
                                 Spacer(modifier = Modifier.width(16.dp))
 
-                                // Informação de KM
+                                // InformaÃ§Ã£o de KM
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
                                         text = "${String.format("%.2f", item.km)} km",
@@ -200,13 +200,13 @@ fun BikeDistanceHistoryScreen(
                                         fontSize = 18.sp
                                     )
                                     Text(
-                                        text = "Distância percorrida",
+                                        text = "DistÃ¢ncia percorrida",
                                         color = subTextColor,
                                         fontSize = 12.sp
                                     )
                                 }
 
-                                // Botão Deletar
+                                // BotÃ£o Deletar
                                 IconButton(onClick = { deleteItem = item }) {
                                     Icon(
                                         Icons.Default.DeleteOutline,

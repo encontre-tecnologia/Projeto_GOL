@@ -106,4 +106,26 @@ class QrNotaParserTest {
         assertEquals(28.3, nota!!.valorTotal!!, 0.001)
         assertEquals("06/03/2026", nota.dataCompra)
     }
+
+    @Test
+    fun parseNotaHtmlForTest_sp_paginaBaseRetornaMensagemDeBloqueio() {
+        val html = """
+            <html>
+                <head>
+                    <title>Consulta NFC-e QR Code - Secretaria da Fazenda - Governo do Estado de Sao Paulo</title>
+                </head>
+                <body>
+                    <h1>Secretaria da Fazenda - Governo do Estado de Sao Paulo</h1>
+                </body>
+            </html>
+        """.trimIndent()
+
+        val nota = parseNotaHtmlForTest(
+            html,
+            "https://www.nfce.fazenda.sp.gov.br/NFCeConsultaPublica/Paginas/ConsultaQRCode.aspx?p=x"
+        )
+        assertNotNull(nota)
+        assertEquals(null, nota!!.valorTotal)
+        assertTrue(nota.descricaoItens.orEmpty().contains("SEFAZ-SP"))
+    }
 }

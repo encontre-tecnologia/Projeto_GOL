@@ -1,4 +1,4 @@
-package br.com.gui.carlembrete
+﻿package br.com.gui.carlembrete
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -68,14 +68,14 @@ fun PremiumBeneficiosScreen(
             CenterAlignedTopAppBar(
                 title = {
                     Text(
-                        "Zellu Premium",
+                        tr("Zellu Premium", "Zellu Premium"),
                         fontWeight = FontWeight.Bold,
                         style = MaterialTheme.typography.titleLarge
                     )
                 },
                 navigationIcon = {
                     IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar")
+                        Icon(Icons.Default.ArrowBackIosNew, contentDescription = tr("Voltar", "Back"))
                     }
                 },
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
@@ -85,7 +85,7 @@ fun PremiumBeneficiosScreen(
             )
         },
         bottomBar = {
-            // Botão fixo no rodapé para melhor conversão
+            // BotÃ£o fixo no rodapÃ© para melhor conversÃ£o
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -101,7 +101,7 @@ fun PremiumBeneficiosScreen(
                     colors = ButtonDefaults.buttonColors(
                         containerColor = Color.Transparent
                     ),
-                    contentPadding = PaddingValues() // Remove padding padrão para o gradiente funcionar
+                    contentPadding = PaddingValues() // Remove padding padrÃ£o para o gradiente funcionar
                 ) {
                     Box(
                         modifier = Modifier
@@ -110,7 +110,7 @@ fun PremiumBeneficiosScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "ASSINAR AGORA",
+                            text = tr("ASSINAR AGORA", "SUBSCRIBE NOW"),
                             fontWeight = FontWeight.Bold,
                             fontSize = 16.sp,
                             color = Color.Black,
@@ -132,7 +132,7 @@ fun PremiumBeneficiosScreen(
         ) {
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Card Principal de Preço (Hero)
+            // Card Principal de PreÃ§o (Hero)
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(24.dp),
@@ -152,7 +152,7 @@ fun PremiumBeneficiosScreen(
                             .padding(horizontal = 12.dp, vertical = 4.dp)
                     ) {
                         Text(
-                            "MELHOR ESCOLHA",
+                            tr("MELHOR ESCOLHA", "BEST CHOICE"),
                             color = Color.Black,
                             fontWeight = FontWeight.Bold,
                             fontSize = 10.sp
@@ -163,20 +163,20 @@ fun PremiumBeneficiosScreen(
                         text = buildAnnotatedString {
                             withStyle(SpanStyle(fontSize = 18.sp, fontWeight = FontWeight.Normal)) { append("R$ ") }
                             withStyle(SpanStyle(fontSize = 36.sp, fontWeight = FontWeight.Bold)) { append("9,90") }
-                            withStyle(SpanStyle(fontSize = 16.sp, fontWeight = FontWeight.Normal)) { append(" /mês") }
+                            withStyle(SpanStyle(fontSize = 16.sp, fontWeight = FontWeight.Normal)) { append(tr(" /mês", " /month")) }
                         },
                         color = MaterialTheme.colorScheme.onSurface
                     )
 
                     Text(
-                        "7 dias grátis para testar",
+                        tr("7 dias grátis para testar", "7 free trial days"),
                         color = goldStart,
                         fontWeight = FontWeight.SemiBold,
                         fontSize = 16.sp
                     )
 
                     Text(
-                        "Cancele quando quiser",
+                        tr("Cancele quando quiser", "Cancel anytime"),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 12.sp
                     )
@@ -184,23 +184,23 @@ fun PremiumBeneficiosScreen(
             }
 
             Text(
-                "Benefícios Exclusivos",
+                tr("Benefícios Exclusivos", "Exclusive Benefits"),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.align(Alignment.Start)
             )
 
-            // Lista de Benefícios
+            // Lista de BenefÃ­cios
             Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 BeneficioItem(
                     icon = Icons.Default.Route,
-                    title = "Controle de Viagens",
-                    description = "Viagens ilimitadas com gastos, rotas e exportacao de relatorios.",
+                    title = tr("Controle de Viagens", "Trip Management"),
+                    description = tr("Viagens ilimitadas com gastos, rotas e exportacao de relatorios.", "Unlimited trips with expenses, routes, and report exports."),
                     iconTint = goldEnd
                 )
             }
 
-            // Espaço extra no final para não cortar conteúdo por causa do botão flutuante se houver muito texto
+            // EspaÃ§o extra no final para nÃ£o cortar conteÃºdo por causa do botÃ£o flutuante se houver muito texto
             Spacer(modifier = Modifier.height(20.dp))
         }
     }
@@ -218,7 +218,7 @@ private fun BeneficioItem(
         horizontalArrangement = Arrangement.spacedBy(16.dp),
         verticalAlignment = Alignment.Top
     ) {
-        // Ícone com fundo sutil
+        // Ãcone com fundo sutil
         Box(
             modifier = Modifier
                 .size(48.dp)
@@ -251,4 +251,5 @@ private fun BeneficioItem(
         }
     }
 }
+
 

@@ -22,6 +22,7 @@ import androidx.compose.material.icons.rounded.FormatPaint
 import androidx.compose.material.icons.rounded.Inventory2
 import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.LocalGasStation
+import androidx.compose.material.icons.rounded.LocalCarWash
 import androidx.compose.material.icons.rounded.LocalShipping
 import androidx.compose.material.icons.rounded.Motorcycle
 import androidx.compose.material.icons.rounded.Payments
@@ -510,8 +511,10 @@ enum class TipoManutencao(val label: String) {
     TRANSMISSAO("Transmissão"),
     REVISAO("Revisão"),
     OLEO("Óleo"),
+    LAVAGEM("Lavagem"),
     ABASTECIMENTO("Posto"),
-    BATERIA("Bateria"),
+    BATERIA("Elétrica"),
+    VIDROS("Vidros"),
     MECANICA("Mecânica"),
     FUNILARIA("Funilaria"),
     FREIO("Freio"),
@@ -530,8 +533,10 @@ enum class TipoManutencao(val label: String) {
         TRANSMISSAO -> Icons.Rounded.Settings
         REVISAO -> Icons.Rounded.Description
         OLEO -> Icons.Rounded.WaterDrop
+        LAVAGEM -> Icons.Rounded.LocalCarWash
         ABASTECIMENTO -> Icons.Rounded.LocalGasStation
         BATERIA -> Icons.Rounded.BatteryChargingFull
+        VIDROS -> Icons.Rounded.DirectionsCar
         MECANICA -> Icons.Rounded.Build
         FUNILARIA -> Icons.Rounded.FormatPaint
         FREIO -> Icons.Rounded.DiscFull

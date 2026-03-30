@@ -229,7 +229,7 @@ fun OnboardingScreen(
     var carroNome by remember { mutableStateOf("") }
     var carroMarca by remember { mutableStateOf("") }
     var carroModeloUnico by remember { mutableStateOf("") }
-    var carroKm by remember { mutableStateOf("") }
+    var carroKm by remember { mutableStateOf("0") }
     var carroTipo by remember { mutableStateOf(TipoVeiculo.CARRO) }
     var frotaTemporaria by remember { mutableStateOf(listOf<CarroInfo>()) }
     var showOutroVeiculoDialog by remember { mutableStateOf(false) }
@@ -415,10 +415,10 @@ fun OnboardingScreen(
                             },
                             modifier = Modifier.weight(1f).height(50.dp),
                             shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = primaryColor,
-                                contentColor = Color.White
-                            )
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = Color(0xFF2563EB),
+                                    contentColor = Color.White
+                                )
                         ) {
                             Text("Próximo", color = Color.White)
                         }
@@ -455,7 +455,8 @@ fun OnboardingScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF0F2A4A)),
+            .background(Color(0xFF0F2A4A))
+            .statusBarsPadding(),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
@@ -567,8 +568,9 @@ fun OnboardingScreen(
                         LazyColumn(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .fillMaxHeight(),
-                            contentPadding = PaddingValues(bottom = 12.dp),
+                                .fillMaxHeight()
+                                .statusBarsPadding(),
+                            contentPadding = PaddingValues(top = 24.dp, bottom = 12.dp),
                             verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             item {
@@ -599,10 +601,11 @@ fun OnboardingScreen(
                             item { Spacer(Modifier.height(10.dp)) }
                             item {
                                 Text(
-                                    "Para o Zellu funcionar bem no dia a dia, permita os acessos necessários. Isso garante lembretes, recursos automáticos e uma experiência completa. Você pode ajustar depois nas configurações do celular.",
+                                    "Permita os acessos para receber lembretes e usar todos os recursos do Zellu.",
                                     color = Color(0xFFBFDBFE),
                                     textAlign = TextAlign.Center,
-                                    lineHeight = 20.sp,
+                                    fontSize = 14.sp,
+                                    lineHeight = 18.sp,
                                     modifier = Modifier.fillMaxWidth()
                                 )
                             }
@@ -665,7 +668,14 @@ fun OnboardingScreen(
                                                         "click Permitir -> permission='${item.permission}' required=${isRuntimePermissionRequired(item.permission)} currentGranted=${permissionStatus[item.permission] == true}"
                                                     )
                                                     if (item.permission == Manifest.permission.POST_NOTIFICATIONS) {
-                                                        step = 9
+                                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                                                            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                                                        ) {
+                                                            requestedPermissionOnce[Manifest.permission.POST_NOTIFICATIONS] = true
+                                                            permissionLauncher.launch(arrayOf(Manifest.permission.POST_NOTIFICATIONS))
+                                                        } else {
+                                                            openAppNotificationSettings(context)
+                                                        }
                                                     } else if (isRuntimePermissionRequired(item.permission)) {
                                                         val activity = context.findActivity()
                                                         val wasRequested = requestedPermissionOnce[item.permission] == true
@@ -694,7 +704,7 @@ fun OnboardingScreen(
                                                 ),
                                                 shape = RoundedCornerShape(10.dp)
                                             ) {
-                                                Text(if (item.permission == Manifest.permission.POST_NOTIFICATIONS) "Configurar notificações" else "Permitir")
+                                                Text("Permitir")
                                             }
                                         }
                                     }
@@ -710,7 +720,7 @@ fun OnboardingScreen(
                                         .height(56.dp),
                                     shape = RoundedCornerShape(10.dp),
                                     colors = ButtonDefaults.buttonColors(
-                                        containerColor = if (allRequiredPermissionsGranted) Color(0xFF60A5FA) else Color(0xFF475569),
+                                        containerColor = if (allRequiredPermissionsGranted) Color(0xFF2563EB) else Color(0xFF475569),
                                         contentColor = Color.White
                                     )
                                 ) { Text("Próximo", fontSize = 19.sp) }
@@ -723,6 +733,7 @@ fun OnboardingScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .fillMaxHeight()
+                                .padding(top = 28.dp)
                         ) {
                             Box(
                                 modifier = Modifier
@@ -990,7 +1001,7 @@ fun OnboardingScreen(
                                     .height(56.dp),
                                 shape = RoundedCornerShape(10.dp),
                                 colors = ButtonDefaults.buttonColors(
-                                    containerColor = if (aceitouTermos && aceitouPrivacidade) Color(0xFF60A5FA) else Color(0xFF475569),
+                                    containerColor = if (aceitouTermos && aceitouPrivacidade) Color(0xFF2563EB) else Color(0xFF475569),
                                     contentColor = Color.White
                                 )
                             ) { Text("Próximo", fontSize = 19.sp) }
@@ -1077,7 +1088,7 @@ fun OnboardingScreen(
                         Spacer(Modifier.height(8.dp))
                         OutlinedTextField(
                             value = carroKm,
-                            onValueChange = { if (it.all(Char::isDigit)) carroKm = it },
+                            onValueChange = { carroKm = it.filter(Char::isDigit).take(10) },
                             label = { Text("KM Atual") },
                             modifier = Modifier.fillMaxWidth(),
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -1107,7 +1118,7 @@ fun OnboardingScreen(
                                     carroNome = ""
                                     carroMarca = ""
                                     carroModeloUnico = ""
-                                    carroKm = ""
+                                    carroKm = "0"
                                     carroTipo = TipoVeiculo.CARRO
                                 }
                             },

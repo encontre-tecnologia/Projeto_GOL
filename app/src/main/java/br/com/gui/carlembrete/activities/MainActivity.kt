@@ -27,6 +27,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.mutableStateOf
@@ -37,6 +38,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import br.com.gui.carlembrete.ui.theme.CarLembreteTheme
@@ -57,6 +59,8 @@ private const val TAG_MAIN_STARTUP = "MainStartup"
 class MainActivity : ComponentActivity() {
     private var contentInitialized = false
     private var openAondePareiFromIntent by mutableStateOf(false)
+    @Volatile
+    private var keepNativeSplashVisible: Boolean = false
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -64,7 +68,16 @@ class MainActivity : ComponentActivity() {
         if (!isGranted) Toast.makeText(this, "Permissão de câmera necessária", Toast.LENGTH_SHORT).show()
     }
 
+    override fun attachBaseContext(newBase: Context) {
+        super.attachBaseContext(LocaleManager.wrap(newBase))
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
+        LocaleManager.applySavedLanguage(this)
+        val shouldHoldSplashForHomeData = FirebaseAuth.getInstance().currentUser != null &&
+            !AppPreferences.needsOnboarding(this)
+        keepNativeSplashVisible = shouldHoldSplashForHomeData
+        installSplashScreen().setKeepOnScreenCondition { keepNativeSplashVisible }
         super.onCreate(savedInstanceState)
         val startupAt = System.currentTimeMillis()
         Log.d(TAG_MAIN_STARTUP, "onCreate start")
@@ -78,6 +91,12 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun requestStartupPermissionsIfNeeded() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            return
+        }
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
             requestPermissionLauncher.launch(Manifest.permission.CAMERA)
         }
@@ -114,6 +133,7 @@ class MainActivity : ComponentActivity() {
                     AppThemeMode.SYSTEM -> isSystemInDarkTheme()
                     AppThemeMode.LIGHT -> false
                     AppThemeMode.DARK -> true
+                    AppThemeMode.ROSE -> false
                 }
                 val colorScheme = MaterialTheme.colorScheme
                 val auth = remember { FirebaseAuth.getInstance() }
@@ -123,17 +143,14 @@ class MainActivity : ComponentActivity() {
                         AppPreferences.needsOnboarding(this@MainActivity)
                     )
                 }
-                var showLoading by remember(usuario, showOnboarding) {
-                    mutableStateOf(usuario != null && !showOnboarding)
-                }
                 LaunchedEffect(isDarkTheme) {
                     val insetsController = WindowInsetsControllerCompat(window, window.decorView)
-                    window.statusBarColor = if (isDarkTheme) {
-                        colorScheme.background.toArgb()
-                    } else {
-                        Color.White.toArgb()
-                    }
-                    insetsController.isAppearanceLightStatusBars = !isDarkTheme
+                    val systemBarColor = colorScheme.background.toArgb()
+                    val useDarkIcons = colorScheme.background.luminance() > 0.5f
+                    window.statusBarColor = systemBarColor
+                    window.navigationBarColor = systemBarColor
+                    insetsController.isAppearanceLightStatusBars = useDarkIcons
+                    insetsController.isAppearanceLightNavigationBars = useDarkIcons
                 }
                 DisposableEffect(Unit) {
                     val listener = FirebaseAuth.AuthStateListener { firebaseAuth ->
@@ -148,12 +165,10 @@ class MainActivity : ComponentActivity() {
                         AdminUsageMetrics.markAppOpen(this@MainActivity)
                     }
                 }
-                LaunchedEffect(usuario, showOnboarding) {
-                    showLoading = usuario != null && !showOnboarding
-                }
                 val baseBackground = MaterialTheme.colorScheme.background
                 Surface(modifier = Modifier.fillMaxSize(), color = baseBackground) {
                     if (usuario == null) {
+                        keepNativeSplashVisible = false
                         AuthScreen(
                             onSignedIn = {
                                 usuario = auth.currentUser
@@ -163,6 +178,7 @@ class MainActivity : ComponentActivity() {
                     } else {
                         Box(modifier = Modifier.fillMaxSize()) {
                             if (showOnboarding) {
+                                keepNativeSplashVisible = false
                                 OnboardingScreen(
                                     onFinish = {
                                         AppPreferences.markOnboardingComplete(this@MainActivity)
@@ -176,12 +192,9 @@ class MainActivity : ComponentActivity() {
                                 ManutencaoScreen(
                                     openAondePareiOnStart = openAondePareiFromIntent,
                                     onAondePareiStartConsumed = { openAondePareiFromIntent = false },
-                                    onLoaded = { showLoading = false },
+                                    onLoaded = { keepNativeSplashVisible = false },
                                     onThemeModeChanged = { themeMode = it }
                                 )
-                            }
-                            if (showLoading && !showOnboarding) {
-                                LoadingScreen()
                             }
                         }
                     }
@@ -212,8 +225,10 @@ fun calcularProximaData(tipo: TipoManutencao, dataServico: LocalDate): String {
         TipoManutencao.TRANSMISSAO -> 12L
         TipoManutencao.REVISAO -> 12L
         TipoManutencao.OLEO -> 6L
+        TipoManutencao.LAVAGEM -> 1L
         TipoManutencao.ABASTECIMENTO -> 1L
         TipoManutencao.BATERIA -> 24L
+        TipoManutencao.VIDROS -> 12L
         TipoManutencao.FREIO -> 12L
         TipoManutencao.MECANICA -> 12L
         TipoManutencao.FUNILARIA -> 6L
@@ -236,8 +251,10 @@ fun getKmAdicionalPorTipo(tipo: TipoManutencao): Int {
         TipoManutencao.TRANSMISSAO -> 10000
         TipoManutencao.REVISAO -> 10000
         TipoManutencao.OLEO -> 10000
+        TipoManutencao.LAVAGEM -> 500
         TipoManutencao.ABASTECIMENTO -> 500
         TipoManutencao.BATERIA -> 40000
+        TipoManutencao.VIDROS -> 10000
         TipoManutencao.FREIO -> 15000
         TipoManutencao.MECANICA -> 15000
         TipoManutencao.FUNILARIA -> 10000
@@ -245,6 +262,31 @@ fun getKmAdicionalPorTipo(tipo: TipoManutencao): Int {
         TipoManutencao.IPVA -> 0
         TipoManutencao.SEGURO -> 0
         TipoManutencao.OUTROS -> 5000
+    }
+}
+
+fun TipoManutencao.ehManutencaoTecnica(): Boolean {
+    return when (this) {
+        TipoManutencao.CORRENTE,
+        TipoManutencao.LUBRIFICACAO,
+        TipoManutencao.PEDIVELA,
+        TipoManutencao.ACESSORIOS,
+        TipoManutencao.CONFORTO,
+        TipoManutencao.PNEU,
+        TipoManutencao.TRANSMISSAO,
+        TipoManutencao.REVISAO,
+        TipoManutencao.OLEO,
+        TipoManutencao.BATERIA,
+        TipoManutencao.VIDROS,
+        TipoManutencao.MECANICA,
+        TipoManutencao.FUNILARIA,
+        TipoManutencao.FREIO -> true
+        TipoManutencao.LAVAGEM,
+        TipoManutencao.ABASTECIMENTO,
+        TipoManutencao.LICENCIAMENTO,
+        TipoManutencao.IPVA,
+        TipoManutencao.SEGURO,
+        TipoManutencao.OUTROS -> false
     }
 }
 
@@ -461,22 +503,24 @@ fun gerarPdfRelatorio(
         drawHeader()
 
         val lembretesSemAbastecimento = lembretes.filter { it.tipo != TipoManutencao.ABASTECIMENTO }
+        val lembretesTecnicos = lembretes.filter { it.tipo.ehManutencaoTecnica() }
+        val lembretesTecnicosAtivos = lembretesTecnicos.filterNot(::isLembreteRealizado)
         val lembretesAtivos = lembretesSemAbastecimento.filterNot(::isLembreteRealizado)
         val totalGastos = lembretes.sumOf { it.valor }
-        val proximos = lembretesAtivos
+        val proximos = lembretesTecnicosAtivos
             .mapNotNull { lembrete ->
                 val data = try { LocalDate.parse(lembrete.dataLimite, DateTimeFormatter.ofPattern("dd/MM/yyyy")) } catch (_: Exception) { null }
                 data?.let { lembrete to it }
             }
             .sortedBy { it.second }
         val manutencoesRealizadas = (
-            lembretesAtivos
+            lembretesTecnicosAtivos
             .mapNotNull { lembrete ->
                 val data = try { LocalDate.parse(lembrete.dataLimite, DateTimeFormatter.ofPattern("dd/MM/yyyy")) } catch (_: Exception) { null }
                 data?.let { it to lembrete }
             }
             .filter { (data, _) -> data.isBefore(LocalDate.now()) } +
-            lembretesSemAbastecimento.filter(::isLembreteRealizado).mapNotNull { lembrete ->
+            lembretesTecnicos.filter(::isLembreteRealizado).mapNotNull { lembrete ->
                 val data = dataRealizacaoLembrete(lembrete) ?: runCatching {
                     LocalDate.parse(lembrete.dataLimite, DateTimeFormatter.ofPattern("dd/MM/yyyy"))
                 }.getOrNull()
@@ -548,7 +592,7 @@ fun gerarPdfRelatorio(
             y += infoBoxHeight + 24f
         }
 
-        drawSectionTitle("IDENTIFICACAO DO VEICULO")
+        drawSectionTitle("IDENTIFICACAO")
         val boxHeight = if (isBike) 150f else 180f
         ensureSpace(boxHeight)
         canvas.drawRect(marginX, y, marginX + contentWidth, y + boxHeight, cardBgPaint)
@@ -1019,6 +1063,8 @@ private fun corNomePorArgb(argb: Int): String {
     )
     return cores.firstOrNull { it.second == argb }?.first ?: "Personalizada"
 }
+
+
 
 
 

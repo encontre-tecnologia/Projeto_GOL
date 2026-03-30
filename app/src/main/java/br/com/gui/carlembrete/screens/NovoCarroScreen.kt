@@ -54,9 +54,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -105,6 +109,8 @@ internal fun NovoCarroScreenContent(
     onboardingVehicleNumber: Int = 1
 ) {
     val context = LocalContext.current
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
     val nomeUsuarioLogado = remember {
         val displayName = FirebaseAuth.getInstance().currentUser?.displayName
             ?.trim()
@@ -211,13 +217,13 @@ internal fun NovoCarroScreenContent(
     val erroCor = etapaCadastro == 1 && tentouAvancarEtapa1 && corSelecionada == null
     val erroKm = etapaCadastro == 2 && !isBikeTypeGlobal && tentouSalvarEtapa2 && kmAtualStr.filter(Char::isDigit).isEmpty()
     val etapa2Valida = proprietario.isNotBlank() &&
-        vezesBatido != null &&
+        (isBikeTypeGlobal || vezesBatido != null) &&
         tempoComVeiculo.isNotBlank() &&
         (isBikeTypeGlobal || kmAtualStr.filter(Char::isDigit).isNotEmpty())
     val erroProprietario =
         (etapaCadastro == 2 && !isBikeTypeGlobal && tentouSalvarEtapa2 && proprietario.isBlank()) ||
         (etapaCadastro == 1 && isBikeTypeGlobal && tentouAvancarEtapa1 && proprietario.isBlank())
-    val erroBatidas = etapaCadastro == 2 && tentouSalvarEtapa2 && vezesBatido == null
+    val erroBatidas = etapaCadastro == 2 && !isBikeTypeGlobal && tentouSalvarEtapa2 && vezesBatido == null
     val erroTempo = etapaCadastro == 2 && tentouSalvarEtapa2 && tempoComVeiculo.isBlank()
 
     val marcasDisponiveis = when {
@@ -350,11 +356,11 @@ internal fun NovoCarroScreenContent(
         topBar = {
             if (!isOnboardingVariant) {
                 CenterAlignedTopAppBar(
-                    title = { Text("Adicione seus veículos", color = textPrimary, fontWeight = FontWeight.Bold) },
+                    title = { Text(trNow("Adicione seus veículos", "Add your vehicles"), color = textPrimary, fontWeight = FontWeight.Bold) },
                     navigationIcon = if (allowBackNavigation) {
                         {
                             IconButton(onClick = ::voltarTela) {
-                                Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar", tint = textPrimary)
+                                Icon(Icons.Default.ArrowBackIosNew, contentDescription = trNow("Voltar", "Back"), tint = textPrimary)
                             }
                         }
                     } else {
@@ -378,7 +384,7 @@ internal fun NovoCarroScreenContent(
                                     tentouAvancarEtapa1 = true
                                     if (isBikeTypeGlobal) {
                                         if (!etapaBikeValida || tipoSelecionado == null) {
-                                            Toast.makeText(context, "Preencha os campos obrigatorios", Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(context, trNow("Preencha os campos obrigatorios", "Fill in required fields"), Toast.LENGTH_SHORT).show()
                                             return@Button
                                         }
                                         onSalvar(
@@ -397,7 +403,7 @@ internal fun NovoCarroScreenContent(
                                         return@Button
                                     }
                                     if (!etapa1Valida) {
-                                        Toast.makeText(context, "Preencha os campos obrigatorios", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, trNow("Preencha os campos obrigatorios", "Fill in required fields"), Toast.LENGTH_SHORT).show()
                                         return@Button
                                     }
                                     etapaCadastro = 2
@@ -422,7 +428,7 @@ internal fun NovoCarroScreenContent(
                                 onClick = {
                                     tentouSalvarEtapa2 = true
                                     if (!etapa2Valida || tipoSelecionado == null) {
-                                        Toast.makeText(context, "Preencha os campos obrigatorios", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, trNow("Preencha os campos obrigatorios", "Fill in required fields"), Toast.LENGTH_SHORT).show()
                                         return@Button
                                     }
                                     onSalvar(
@@ -448,7 +454,7 @@ internal fun NovoCarroScreenContent(
                                 ),
                                 shape = RoundedCornerShape(12.dp)
                             ) {
-                                Text("Cadastrar", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                                Text(trNow("Cadastrar", "Register"), fontWeight = FontWeight.Bold, fontSize = 18.sp)
                             }
                         }
                     }
@@ -816,18 +822,32 @@ internal fun NovoCarroScreenContent(
                         enabled = hasTypeSelected
                     )
 
-                    if (!isBikeTypeGlobal && anosFipe.isNotEmpty()) {
+                    if (!isBikeTypeGlobal) {
                         ExposedDropdownMenuBox(
                             expanded = anoExpanded,
-                            onExpandedChange = { anoExpanded = !anoExpanded }
+                            onExpandedChange = {
+                                if (anosFipe.isNotEmpty()) {
+                                    anoExpanded = !anoExpanded
+                                }
+                            }
                         ) {
                             OutlinedTextField(
                                 value = anoSelecionado,
-                                onValueChange = {},
-                                readOnly = true,
+                                onValueChange = { anoSelecionado = it.filter(Char::isDigit).take(4) },
+                                readOnly = false,
                                 isError = erroAno,
                                 label = { Text("Ano") },
-                                placeholder = { Text("Selecione") },
+                                placeholder = { Text("Selecione ou digite") },
+                                keyboardOptions = KeyboardOptions(
+                                    keyboardType = KeyboardType.Number,
+                                    imeAction = ImeAction.Done
+                                ),
+                                keyboardActions = KeyboardActions(
+                                    onDone = {
+                                        keyboardController?.hide()
+                                        focusManager.clearFocus()
+                                    }
+                                ),
                                 modifier = Modifier
                                     .menuAnchor()
                                     .fillMaxWidth(),
@@ -976,47 +996,49 @@ internal fun NovoCarroScreenContent(
                             )
                         }
 
-                        ExposedDropdownMenuBox(
-                            expanded = batidasExpanded,
-                            onExpandedChange = { batidasExpanded = !batidasExpanded }
-                        ) {
-                        OutlinedTextField(
-                            value = vezesBatido?.toString() ?: "N\u00E3o informado",
-                            onValueChange = {},
-                            readOnly = true,
-                            isError = erroBatidas,
-                            label = { Text("Vezes batido") },
-                            placeholder = { Text("Selecione") },
-                            singleLine = true,
-                            modifier = Modifier
-                                .menuAnchor()
-                                .fillMaxWidth(),
-                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = batidasExpanded) },
-                            colors = selectorFieldColors
-                        )
-                        ExposedDropdownMenu(
-                            expanded = batidasExpanded,
-                            onDismissRequest = { batidasExpanded = false },
-                            modifier = Modifier.background(selectorDropdownBg)
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text("N\u00E3o informado", color = textPrimary, maxLines = 1) },
-                                onClick = {
-                                    vezesBatido = null
-                                    batidasExpanded = false
-                                }
-                            )
-                            (0..10).forEach { quantidade ->
-                                DropdownMenuItem(
-                                    text = { Text(quantidade.toString(), color = textPrimary) },
-                                    onClick = {
-                                        vezesBatido = quantidade
-                                        batidasExpanded = false
-                                    }
+                        if (!isBikeTypeGlobal) {
+                            ExposedDropdownMenuBox(
+                                expanded = batidasExpanded,
+                                onExpandedChange = { batidasExpanded = !batidasExpanded }
+                            ) {
+                                OutlinedTextField(
+                                    value = vezesBatido?.toString() ?: "N\u00E3o informado",
+                                    onValueChange = {},
+                                    readOnly = true,
+                                    isError = erroBatidas,
+                                    label = { Text("Vezes batido") },
+                                    placeholder = { Text("Selecione") },
+                                    singleLine = true,
+                                    modifier = Modifier
+                                        .menuAnchor()
+                                        .fillMaxWidth(),
+                                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = batidasExpanded) },
+                                    colors = selectorFieldColors
                                 )
+                                ExposedDropdownMenu(
+                                    expanded = batidasExpanded,
+                                    onDismissRequest = { batidasExpanded = false },
+                                    modifier = Modifier.background(selectorDropdownBg)
+                                ) {
+                                    DropdownMenuItem(
+                                        text = { Text("N\u00E3o informado", color = textPrimary, maxLines = 1) },
+                                        onClick = {
+                                            vezesBatido = null
+                                            batidasExpanded = false
+                                        }
+                                    )
+                                    (0..10).forEach { quantidade ->
+                                        DropdownMenuItem(
+                                            text = { Text(quantidade.toString(), color = textPrimary) },
+                                            onClick = {
+                                                vezesBatido = quantidade
+                                                batidasExpanded = false
+                                            }
+                                        )
+                                    }
+                                }
                             }
                         }
-                    }
 
                         ExposedDropdownMenuBox(
                         expanded = tempoExpanded,
@@ -1027,7 +1049,7 @@ internal fun NovoCarroScreenContent(
                             onValueChange = {},
                             readOnly = true,
                             isError = erroTempo,
-                            label = { Text("Tempo com veiculo") },
+                            label = { Text(if (isBikeTypeGlobal) "Tempo com a bike" else "Tempo com veiculo") },
                             placeholder = { Text("Selecione") },
                             singleLine = true,
                             modifier = Modifier
@@ -1074,7 +1096,7 @@ internal fun NovoCarroScreenContent(
                                     tentouAvancarEtapa1 = true
                                     if (isBikeTypeGlobal) {
                                         if (!etapaBikeValida || tipoSelecionado == null) {
-                                            Toast.makeText(context, "Preencha os campos obrigatorios", Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(context, trNow("Preencha os campos obrigatorios", "Fill in required fields"), Toast.LENGTH_SHORT).show()
                                             return@Button
                                         }
                                         onSalvar(
@@ -1093,7 +1115,7 @@ internal fun NovoCarroScreenContent(
                                         return@Button
                                     }
                                     if (!etapa1Valida) {
-                                        Toast.makeText(context, "Preencha os campos obrigatorios", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, trNow("Preencha os campos obrigatorios", "Fill in required fields"), Toast.LENGTH_SHORT).show()
                                         return@Button
                                     }
                                     etapaCadastro = 2
@@ -1118,7 +1140,7 @@ internal fun NovoCarroScreenContent(
                                 onClick = {
                                     tentouSalvarEtapa2 = true
                                     if (!etapa2Valida || tipoSelecionado == null) {
-                                        Toast.makeText(context, "Preencha os campos obrigatorios", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, trNow("Preencha os campos obrigatorios", "Fill in required fields"), Toast.LENGTH_SHORT).show()
                                         return@Button
                                     }
                                     onSalvar(
@@ -1144,7 +1166,7 @@ internal fun NovoCarroScreenContent(
                                 ),
                                 shape = RoundedCornerShape(12.dp)
                             ) {
-                                Text("Cadastrar", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                                Text(trNow("Cadastrar", "Register"), fontWeight = FontWeight.Bold, fontSize = 18.sp)
                             }
                         }
                     }
@@ -1512,8 +1534,9 @@ internal fun ColorRowNovo(
 }
 
 internal fun formatarKmTextoLocal(texto: String): String {
-    val digits = texto.filter(Char::isDigit)
-    val value = digits.toLongOrNull() ?: 0L
+    val digits = texto.filter(Char::isDigit).take(10)
+    if (digits.isEmpty()) return ""
+    val value = (digits.toLongOrNull() ?: 0L).coerceAtMost(Int.MAX_VALUE.toLong())
     return NumberFormat.getIntegerInstance(Locale("pt", "BR")).format(value)
 }
 
@@ -2079,6 +2102,9 @@ internal fun separarNomeEMotorModelo(
     val resto = tokens.drop(indiceTecnico).joinToString(" ").trim()
     return nome to resto
 }
+
+
+
 
 
 

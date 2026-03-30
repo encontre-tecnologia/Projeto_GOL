@@ -136,7 +136,7 @@ private val pecasSugestao = listOf(
     "Pastilha de freio",
     "Disco de freio",
     "Fluido de freio",
-    "Bateria",
+    "Elétrica",
     "Pneus",
     "Amortecedor",
     "Correia dentada",

@@ -62,6 +62,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -69,6 +70,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -95,23 +98,7 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
     else -> null
 }
 
-private const val HOME_TUTORIAL_PREFS = "home_tutorial_prefs"
-private const val KEY_HOME_TUTORIAL_VERSION = "home_tutorial_version"
-private const val CURRENT_HOME_TUTORIAL_VERSION = 1
 private val lembreteUiDateFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
-
-private fun shouldAutoStartHomeTutorial(context: Context): Boolean {
-    val savedVersion = context.getSharedPreferences(HOME_TUTORIAL_PREFS, Context.MODE_PRIVATE)
-        .getInt(KEY_HOME_TUTORIAL_VERSION, 0)
-    return savedVersion < CURRENT_HOME_TUTORIAL_VERSION
-}
-
-private fun markHomeTutorialSeen(context: Context) {
-    context.getSharedPreferences(HOME_TUTORIAL_PREFS, Context.MODE_PRIVATE)
-        .edit()
-        .putInt(KEY_HOME_TUTORIAL_VERSION, CURRENT_HOME_TUTORIAL_VERSION)
-        .apply()
-}
 
 /* ----------------- TELA PRINCIPAL (Visual Dashboard Premium) ----------------- */
 
@@ -140,13 +127,18 @@ fun ManutencaoScreen(
     // CORES DO TEMA (Azul Premium)
     val primaryDark = colorScheme.background
     val surfaceDark = colorScheme.surface
-    val homeScreenBg = if (isDark) colorScheme.background else Color.White
-    val fuelCardStart = if (isDark) colorScheme.surface else Color.White
-    val fuelCardEnd = if (isDark) colorScheme.background else Color.White
-    val topBarDark = if (isDark) colorScheme.background else Color.White
+    val homeScreenBg = if (isDark) colorScheme.background else colorScheme.background
+    val fuelCardStart = if (isDark) colorScheme.surface else colorScheme.surface
+    val fuelCardEnd = if (isDark) colorScheme.background else colorScheme.background
+    val topBarDark = if (isDark) colorScheme.background else colorScheme.background
     val accentBlue = colorScheme.primary
     val textLight = colorScheme.onSurface
     val textDim = colorScheme.onSurfaceVariant
+    val drawerItemBorderColor = if (isDark) {
+        Color.White.copy(alpha = 0.08f)
+    } else {
+        colorScheme.outlineVariant.copy(alpha = 0.9f)
+    }
 
     // ----------------- CARREGAMENTO DE DADOS -----------------
     LaunchedEffect(Unit) {
@@ -179,6 +171,7 @@ fun ManutencaoScreen(
             val lembretes = BancoDeDados.carregarLembretes(context)
             val abastecimentosDb = BancoDeDados.carregarAbastecimentos(context)
             val pedaladasDb = BancoDeDados.carregarPedaladas(context)
+            val lembretesPendentes = lembretes.filterNot(::isLembreteRealizado)
             withContext(Dispatchers.Main) {
                 listaCarros = carros
                 listaContatos = contatos
@@ -186,10 +179,13 @@ fun ManutencaoScreen(
                 abastecimentos = abastecimentosDb
                 pedaladas = pedaladasDb
                 isLoading = false
-                NotificacaoHelper.reagendarExistentes(
-                    context.applicationContext,
-                    lembretes.filterNot(::isLembreteRealizado)
-                )
+                // Reagendar notificacoes fora da thread principal para nao travar a animacao de loading.
+                launch(Dispatchers.IO) {
+                    NotificacaoHelper.reagendarExistentes(
+                        context.applicationContext,
+                        lembretesPendentes
+                    )
+                }
             }
         }
     }
@@ -255,7 +251,7 @@ fun ManutencaoScreen(
     var showAiAssistantScreen by remember { mutableStateOf(false) }
     var showFaqScreen by remember { mutableStateOf(false) }
     var showVehicleGuideScreen by remember { mutableStateOf(false) }
-    val shouldShowHomeTutorial = remember(context) { shouldAutoStartHomeTutorial(context) }
+    
     val density = LocalDensity.current
     var showHomeTutorial by remember { mutableStateOf(false) }
     var homeTutorialStep by remember { mutableIntStateOf(0) }
@@ -308,9 +304,6 @@ fun ManutencaoScreen(
     var lembreteSelecionado by remember { mutableStateOf<Lembrete?>(null) }
     var showLembreteDetalhesScreen by remember { mutableStateOf(false) }
     var contatoDetalheSelecionado by remember { mutableStateOf<ContatoProfissional?>(null) }
-    var showRenovarAvisoDialog by remember { mutableStateOf(false) }
-    var lembreteParaFinalizar by remember { mutableStateOf<Lembrete?>(null) }
-    var processandoRenovacaoAviso by remember { mutableStateOf(false) }
     var filtroTipo by remember { mutableStateOf<TipoManutencao?>(null) }
     var buscaTexto by remember { mutableStateOf("") }
 
@@ -332,65 +325,6 @@ fun ManutencaoScreen(
         }
     }
     val totalGastos = lembretesAtivosDoCarroAtual.sumOf { it.valor }
-
-    fun finalizarLembreteSemRenovar(lembrete: Lembrete) {
-        if (processandoRenovacaoAviso) return
-        processandoRenovacaoAviso = true
-        showRenovarAvisoDialog = false
-        lembreteParaFinalizar = null
-        NotificacaoHelper.cancelarNotificacao(context.applicationContext, lembrete.id)
-        todosLembretes = todosLembretes.map {
-            if (it.id == lembrete.id) marcarLembreteComoRealizado(it) else it
-        }
-        lembreteSelecionado = null
-        contatoDetalheSelecionado = null
-        showLembreteDetalhesScreen = false
-        processandoRenovacaoAviso = false
-        Toast.makeText(context, "Manutenção marcada como realizada.", Toast.LENGTH_SHORT).show()
-    }
-
-    fun finalizarLembreteComRenovacao(lembrete: Lembrete) {
-        val dataLimiteOriginal = runCatching {
-            LocalDate.parse(lembrete.dataLimite, lembreteUiDateFormatter)
-        }.getOrNull()
-        val podeRenovarAgora = dataLimiteOriginal != null && !LocalDate.now().isBefore(dataLimiteOriginal)
-        if (!podeRenovarAgora) {
-            Toast.makeText(
-                context,
-                "A renovacao so fica disponivel no vencimento ou apos a data final do aviso.",
-                Toast.LENGTH_SHORT
-            ).show()
-            return
-        }
-        if (processandoRenovacaoAviso) return
-        processandoRenovacaoAviso = true
-        showRenovarAvisoDialog = false
-        lembreteParaFinalizar = null
-        NotificacaoHelper.cancelarNotificacao(context.applicationContext, lembrete.id)
-        val baseData = runCatching { LocalDate.parse(lembrete.dataLimite, lembreteUiDateFormatter) }
-            .getOrElse { LocalDate.now() }
-        val novaData = when (lembrete.tipo) {
-            TipoManutencao.SEGURO,
-            TipoManutencao.LICENCIAMENTO,
-            TipoManutencao.IPVA -> baseData.plusYears(1)
-            else -> runCatching {
-                LocalDate.parse(calcularProximaData(lembrete.tipo, LocalDate.now()), lembreteUiDateFormatter)
-            }.getOrElse { LocalDate.now().plusMonths(1) }
-        }
-        val novoLembrete = lembrete.copy(
-            id = UUID.randomUUID().toString(),
-            dataLimite = novaData.format(lembreteUiDateFormatter)
-        )
-        NotificacaoHelper.agendarNotificacao(context.applicationContext, novoLembrete, novoLembrete.horaAviso)
-        todosLembretes = todosLembretes.map {
-            if (it.id == lembrete.id) marcarLembreteComoRealizado(it) else it
-        } + novoLembrete
-        lembreteSelecionado = null
-        contatoDetalheSelecionado = null
-        showLembreteDetalhesScreen = false
-        processandoRenovacaoAviso = false
-        Toast.makeText(context, "Aviso renovado para ${novoLembrete.dataLimite}.", Toast.LENGTH_SHORT).show()
-    }
 
     val usuarioNome = FirebaseAuth.getInstance().currentUser?.displayName
     val nomeExibido = usuarioNome?.trim()?.split("\\s+".toRegex())?.let { partes ->
@@ -531,7 +465,7 @@ fun ManutencaoScreen(
         val tiposAviso = tiposAvisoPorVeiculo(carroAtual.tipoVeiculo)
         val itensAviso = listOf(
             AvisoItem(
-                label = "Lembrar aonde estacionei",
+                label = tr("Lembrar aonde estacionei", "Remember where I parked"),
                 icon = Icons.Default.LocalParking,
                 color = accentBlue,
                 wide = true
@@ -540,7 +474,7 @@ fun ManutencaoScreen(
                 showAondePareiScreen = true
             }
         ) + tiposAviso.map { tipo ->
-            val label = if (isBike && tipo == TipoManutencao.REVISAO) "Peças" else tipo.label
+            val label = if (isBike && tipo == TipoManutencao.REVISAO) tr("Peças", "Parts") else tipoManutencaoLabel(tipo)
             AvisoItem(
                 label,
                 tipo.getIcon(),
@@ -560,7 +494,7 @@ fun ManutencaoScreen(
         TipoAvisoScreen(
             itensAviso = itensAviso,
             backgroundBrush = avisoBackground,
-            surfaceDark = if (isDark) surfaceDark else Color.White,
+            surfaceDark = if (isDark) surfaceDark else colorScheme.surface,
             textLight = avisoTextPrimary,
             textDim = avisoTextDim,
             onOpenVehicleGuide = {
@@ -650,7 +584,6 @@ fun ManutencaoScreen(
         LembreteDetalhesScreen(
             lembrete = lembreteSelecionado!!,
             contato = contatoDetalheSelecionado,
-            contatosDisponiveis = listaContatos,
             carro = carroAtual,
             onDismiss = { showLembreteDetalhesScreen = false },
             onDelete = { selecionado ->
@@ -661,9 +594,14 @@ fun ManutencaoScreen(
                 showLembreteDetalhesScreen = false
             },
             onMarkAsDone = { selecionado ->
-                lembreteParaFinalizar = selecionado
+                NotificacaoHelper.cancelarNotificacao(context.applicationContext, selecionado.id)
+                todosLembretes = todosLembretes.map {
+                    if (it.id == selecionado.id) marcarLembreteComoRealizado(it) else it
+                }
+                lembreteSelecionado = null
+                contatoDetalheSelecionado = null
                 showLembreteDetalhesScreen = false
-                showRenovarAvisoDialog = true
+                Toast.makeText(context, trNow("Aviso marcado como feito.", "Reminder marked as done."), Toast.LENGTH_SHORT).show()
             },
             onSalvar = { atualizado ->
                 todosLembretes = todosLembretes.map { if (it.id == atualizado.id) atualizado else it }
@@ -671,153 +609,35 @@ fun ManutencaoScreen(
                 NotificacaoHelper.agendarNotificacao(context.applicationContext, atualizado, atualizado.horaAviso)
                 lembreteSelecionado = atualizado
                 contatoDetalheSelecionado = listaContatos.find { it.id == atualizado.contatoId }
-                Toast.makeText(context, "Aviso atualizado!", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, trNow("Aviso atualizado!", "Reminder updated!"), Toast.LENGTH_SHORT).show()
+            },
+            onAddPrestador = { lembrete ->
+                lembreteParaVincularContato = lembrete.id
+                showSelecionarPrestadorScreen = true
+                showLembreteDetalhesScreen = false
             }
         )
         return
     }
 
-    if (showRenovarAvisoDialog && lembreteParaFinalizar != null) {
-        val alvo = lembreteParaFinalizar!!
-        val dataLimiteAlvo = runCatching {
-            LocalDate.parse(alvo.dataLimite, lembreteUiDateFormatter)
-        }.getOrNull()
-        val renovacaoDisponivel = dataLimiteAlvo != null && !LocalDate.now().isBefore(dataLimiteAlvo)
-        AlertDialog(
-            onDismissRequest = {
-                processandoRenovacaoAviso = false
-                showRenovarAvisoDialog = false
-                lembreteParaFinalizar = null
-            },
-            containerColor = if (isDark) Color(0xFF0F172A) else Color.White,
-            title = {
-                Box(modifier = Modifier.fillMaxWidth()) {
-                    IconButton(
-                        onClick = {
-                            processandoRenovacaoAviso = false
-                            showRenovarAvisoDialog = false
-                            lembreteParaFinalizar = null
-                        },
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .size(34.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Fechar",
-                            tint = Color(0xFFEF4444)
-                        )
-                    }
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(52.dp)
-                                .clip(CircleShape)
-                                .background(Color(0xFF3B82F6).copy(alpha = if (isDark) 0.24f else 0.14f))
-                                .border(1.dp, Color(0xFF3B82F6).copy(alpha = 0.32f), CircleShape),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Autorenew,
-                                contentDescription = null,
-                                tint = Color(0xFF3B82F6),
-                                modifier = Modifier.size(26.dp)
-                            )
-                        }
-                        Text(
-                            "Renovar aviso?",
-                            color = colorScheme.onSurface,
-                            fontWeight = FontWeight.Bold,
-                            textAlign = TextAlign.Center
-                        )
-                    }
-                }
-            },
-            text = {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(
-                        "Aviso: ${abreviarTituloAvisoDetalhes(alvo.peca.ifBlank { alvo.titulo }, 40)}",
-                        color = colorScheme.onSurface,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Text(
-                        "Se renovar, o app cria automaticamente a próxima data e mantém os alertas.",
-                        color = colorScheme.onSurfaceVariant
-                    )
-                    if (!renovacaoDisponivel) {
-                        Text(
-                            "RENOVACAO DISPONIVEL APENAS NO VENCIMENTO OU APOS ${alvo.dataLimite.ifBlank { "A DATA FINAL" }}.",
-                            color = colorScheme.onSurfaceVariant,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    } else {
-                        Text(
-                            "RENOVACAO DISPONIVEL AGORA.",
-                            color = Color(0xFF10B981),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                    Text(
-                        "SE NAO RENOVAR, O AVISO SERA APENAS MARCADO COMO REALIZADO.",
-                        color = colorScheme.onSurfaceVariant,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = { finalizarLembreteComRenovacao(alvo) },
-                    enabled = !processandoRenovacaoAviso && renovacaoDisponivel,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981))
-                ) {
-                    Icon(Icons.Rounded.Autorenew, contentDescription = null, tint = Color.White)
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        if (processandoRenovacaoAviso) "Processando..." else "Renovar aviso",
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            },
-            dismissButton = {
-                OutlinedButton(
-                    onClick = { finalizarLembreteSemRenovar(alvo) },
-                    enabled = !processandoRenovacaoAviso,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        containerColor = if (isDark) Color(0xFF3F1D1D) else Color(0xFFFFF1F2),
-                        contentColor = Color(0xFFB91C1C)
-                    ),
-                    border = BorderStroke(
-                        1.dp,
-                        if (isDark) Color(0xFFB91C1C).copy(alpha = 0.65f) else Color(0xFFDC2626).copy(alpha = 0.45f)
-                    )
-                ) {
-                    Text("Concluir sem renovar", color = Color(0xFFB91C1C), fontWeight = FontWeight.SemiBold)
-                }
-            }
-        )
-    }
-
     BackHandler(enabled = showTermsScreen) { showTermsScreen = false }
     if (showTermsScreen) {
         LegalInfoScreen(
-            title = "Termos de uso",
+            title = tr("Termos de uso", "Terms of use"),
             icon = Icons.Default.Description,
-            content = """
+            content = if (isEnglishUi()) """
+                1. Purpose: Zellu provides tools for vehicle registration and management, reminders, and related information.
+
+                2. Proper use: you agree to use the app lawfully and provide true, updated information under your responsibility.
+
+                3. User responsibility: maintenance, purchase, sale, travel, and vehicle safety decisions are solely the user's responsibility.
+
+                4. Limitation of liability: Zellu is a support tool and does not replace technical diagnosis, inspection, insurance, mechanical assistance, or professional guidance.
+
+                5. Availability: features may be changed, fixed, suspended, or discontinued without prior notice when necessary.
+
+                6. Jurisdiction: for disputes related to app usage, jurisdiction is Sao Carlos/SP, with no commercial address disclosed at this time.
+            """.trimIndent() else """
                 1. Objeto: o Zellu oferece recursos de cadastro e gerenciamento de veículos, lembretes e informações relacionadas.
 
                 2. Uso adequado: você se compromete a utilizar o app de forma lícita e a fornecer dados verdadeiros, atualizados e de sua responsabilidade.
@@ -837,9 +657,26 @@ fun ManutencaoScreen(
     BackHandler(enabled = showPrivacyScreen) { showPrivacyScreen = false }
     if (showPrivacyScreen) {
         LegalInfoScreen(
-            title = "Política de privacidade",
+            title = tr("Política de privacidade", "Privacy policy"),
             icon = Icons.Default.Lock,
-            content = """
+            content = if (isEnglishUi()) """
+                1. Data processed: the app may process vehicle records, reminders, contacts, location, camera, and notifications according to the features you use.
+
+                2. Purpose: data is used to run app features, personalize your experience, and enable resources requested by the user.
+
+                3. LGPD (Law 13.709/2018): data processing follows necessity, purpose, adequacy, and transparency principles, with legal basis for service execution and consent where required.
+
+                4. Permissions: camera, location, and notifications are used only after consent and can be revoked at any time in device settings.
+
+                5. Sharing: Zellu does not sell personal data and uses information only for service operation and required technical integrations.
+
+                6. Data subject rights: you can request processing confirmation, access, correction, anonymization, deletion, and consent revocation under LGPD.
+
+                7. Account/data deletion: when requested, personal data and linked records are removed, except mandatory legal retention.
+
+                8. Privacy contact, data removal, questions and suggestions:
+                guilhermedevsistemas@gmail.com
+            """.trimIndent() else """
                 1. Dados tratados: o app pode tratar dados de cadastro de veículos, lembretes, contatos, localização, câmera e notificações, conforme recursos utilizados por você.
 
                 2. Finalidade: os dados são usados para executar funcionalidades do app, personalizar a experiência e permitir recursos solicitados pelo usuário.
@@ -1041,6 +878,28 @@ fun ManutencaoScreen(
         }
     }
 
+    if (isLoading) {
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .background(homeScreenBg),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                CircularProgressIndicator(color = accentBlue)
+                Text(
+                    text = "Carregando seus dados...",
+                    color = textDim,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+        }
+        return
+    }
+
     BackHandler(enabled = showAddLembreteDialog) {
         showAddLembreteDialog = false
         iniciarCameraProduto = false
@@ -1090,6 +949,7 @@ fun ManutencaoScreen(
     // ----------------- DRAWER (MENU LATERAL) -----------------
     ModalNavigationDrawer(
         drawerState = drawerState,
+        gesturesEnabled = true,
         drawerContent = {
             ModalDrawerSheet(
                 modifier = Modifier.width(300.dp),
@@ -1104,54 +964,64 @@ fun ManutencaoScreen(
                         .padding(24.dp)
                 ) {
                     val fotoGoogle = FirebaseAuth.getInstance().currentUser?.photoUrl?.toString()
-                    Row(
+                    Card(
                         modifier = Modifier
+                            .fillMaxWidth()
                             .padding(top = 12.dp)
-                            .clip(RoundedCornerShape(12.dp))
                             .clickable {
                                 showPerfilScreen = true
                                 drawerScope.launch { drawerState.close() }
-                            }
-                            .padding(4.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                            },
+                        shape = RoundedCornerShape(14.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = Color.White.copy(alpha = 0.08f)
+                        ),
+                        border = BorderStroke(1.dp, drawerItemBorderColor)
                     ) {
-                        Box(
+                        Row(
                             modifier = Modifier
-                                .size(42.dp)
-                                .clip(CircleShape)
-                                .border(2.dp, accentBlue, CircleShape)
-                                .background(Color.White.copy(0.1f)),
-                            contentAlignment = Alignment.Center
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            if (!fotoGoogle.isNullOrBlank()) {
-                                AsyncImage(
-                                    model = fotoGoogle,
-                                    contentDescription = null,
-                                    modifier = Modifier.fillMaxSize().clip(CircleShape),
-                                    contentScale = ContentScale.Crop
-                                )
-                            } else {
-                                Icon(Icons.Rounded.DirectionsCar, null, tint = textLight, modifier = Modifier.size(28.dp))
+                            Box(
+                                modifier = Modifier
+                                    .size(42.dp)
+                                    .clip(CircleShape)
+                                    .border(2.dp, accentBlue, CircleShape)
+                                    .background(Color.White.copy(0.1f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (!fotoGoogle.isNullOrBlank()) {
+                                    AsyncImage(
+                                        model = fotoGoogle,
+                                        contentDescription = null,
+                                        modifier = Modifier.fillMaxSize().clip(CircleShape),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                } else {
+                                    Icon(Icons.Rounded.DirectionsCar, null, tint = textLight, modifier = Modifier.size(28.dp))
+                                }
                             }
-                        }
-                        Spacer(Modifier.width(12.dp))
-                        Column {
-                            Text(
-                                text = nomeExibido,
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = textLight
-                            )
-                            Text(
-                                text = "Seja bem vindo!",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = textDim
-                            )
+                            Spacer(Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    text = nomeExibido,
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = textLight,
+                                )
+                                Text(
+                                    text = stringResource(R.string.home_welcome_user),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = textDim
+                                )
+                            }
                         }
                     }
                 }
 
-                HorizontalDivider(color = surfaceDark, thickness = 1.dp)
+                HorizontalDivider(color = drawerItemBorderColor, thickness = 1.dp)
 
                 // Itens do Menu
                 Column(
@@ -1162,30 +1032,30 @@ fun ManutencaoScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
-                        text = "VEÍCULO",
+                        text = stringResource(R.string.drawer_section_vehicle),
                         color = textDim,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold
                     )
-                    DrawerMenuItem(Icons.Rounded.DirectionsCar, "Meus Veículos") {
+                    DrawerMenuItem(Icons.Rounded.DirectionsCar, stringResource(R.string.drawer_item_my_vehicles)) {
                         showGaragemScreen = true
                         drawerScope.launch { drawerState.close() }
                     }
-                    DrawerMenuItem(Icons.Default.AddCircle, "Adicionar Veículo") {
+                    DrawerMenuItem(Icons.Default.AddCircle, stringResource(R.string.drawer_item_add_vehicle)) {
                         showAddCarScreen = true
                         drawerScope.launch { drawerState.close() }
                     }
 
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        text = "SERVIÇOS",
+                        text = stringResource(R.string.drawer_section_services),
                         color = textDim,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold
                     )
                     DrawerMenuItem(
                         icon = Icons.Default.WorkspacePremium,
-                        label = "Zellu Premium",
+                        label = stringResource(R.string.drawer_item_zellu_premium),
                         highlighted = true
                     ) {
                         showPremiumHubScreen = true
@@ -1193,28 +1063,28 @@ fun ManutencaoScreen(
                     }
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        text = "SEGURANÇA",
+                        text = stringResource(R.string.drawer_section_security),
                         color = textDim,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold
                     )
-                    DrawerMenuItem(Icons.Default.Description, "Termos de uso") {
+                    DrawerMenuItem(Icons.Default.Description, stringResource(R.string.drawer_item_terms)) {
                         showTermsScreen = true
                         drawerScope.launch { drawerState.close() }
                     }
-                    DrawerMenuItem(Icons.Default.Lock, "Privacidade") {
+                    DrawerMenuItem(Icons.Default.Lock, stringResource(R.string.drawer_item_privacy)) {
                         showPrivacyScreen = true
                         drawerScope.launch { drawerState.close() }
                     }
 
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        text = "AJUSTES",
+                        text = stringResource(R.string.drawer_section_settings),
                         color = textDim,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold
                     )
-                    DrawerMenuItem(Icons.Default.Settings, "Configurações") {
+                    DrawerMenuItem(Icons.Default.Settings, stringResource(R.string.drawer_item_settings)) {
                         showConfiguracoes = true
                         drawerScope.launch { drawerState.close() }
                     }
@@ -1239,7 +1109,7 @@ fun ManutencaoScreen(
                     ) {
                         Icon(Icons.Default.Logout, null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text("Sair da conta", fontWeight = FontWeight.SemiBold)
+                        Text(stringResource(R.string.drawer_item_sign_out), fontWeight = FontWeight.SemiBold)
                     }
                 }
             }
@@ -1257,17 +1127,12 @@ fun ManutencaoScreen(
                 .onGloballyPositioned { tutorialViewportHeightPx = it.size.height.toFloat() }
                 .background(homeScreenBg)
         ) {
-            if (isLoading) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = accentBlue)
-                }
-            } else {
-                Column(
-                    modifier = Modifier
-                        .padding(innerPadding)
-                        .fillMaxSize()
-                        .verticalScroll(contentScrollState)
-                ) {
+            Column(
+                modifier = Modifier
+                    .padding(innerPadding)
+                    .fillMaxSize()
+                    .verticalScroll(contentScrollState)
+            ) {
                     CenterAlignedTopAppBar(
                         title = {
                             Text(
@@ -1347,7 +1212,7 @@ fun ManutencaoScreen(
                                         ) {
                                             Icon(
                                                 imageVector = Icons.Default.NotificationsNone,
-                                                contentDescription = "Notificações dos avisos",
+                                                contentDescription = tr("Notificações dos avisos", "Reminder notifications"),
                                                 tint = textLight
                                             )
                                         }
@@ -1399,7 +1264,7 @@ fun ManutencaoScreen(
                         emptyMap()
                     }
                     val labelOverrides = if (isBikeCategory(carroAtual.tipoVeiculo)) {
-                        mapOf(TipoManutencao.REVISAO to "Peças")
+                        mapOf(TipoManutencao.REVISAO to tr("Peças", "Parts"))
                     } else {
                         emptyMap()
                     }
@@ -1443,7 +1308,6 @@ fun ManutencaoScreen(
                     Spacer(Modifier.height(80.dp))
 
                 }
-                }
             }
         }
     }
@@ -1486,7 +1350,7 @@ fun DrawerMenuItem(
     val borderColor = when {
         highlighted -> Color(0xFFFBBF24)
         isDark -> Color.White.copy(alpha = 0.08f)
-        else -> Color(0xFFCBD5E1)
+        else -> colorScheme.outlineVariant.copy(alpha = 0.9f)
     }
     val iconTint = when {
         highlighted -> Color(0xFFF59E0B)
@@ -1707,6 +1571,182 @@ private fun HomeTutorialSpotlightOverlay(
     }
 }
 
+@Composable
+private fun HomeQuickStartDialog(
+    step: Int,
+    pages: List<Triple<ImageVector, String, String>>,
+    onSkip: () -> Unit,
+    onNext: () -> Unit,
+    onDemoCreateReminder: () -> Unit
+) {
+    if (pages.isEmpty()) return
+    val safeStep = step.coerceIn(0, pages.lastIndex)
+    val (icon, title, body) = pages[safeStep]
+    val isLast = safeStep == pages.lastIndex
+    val progress = (safeStep + 1f) / pages.size.toFloat()
+    val scheme = MaterialTheme.colorScheme
+    val isDark = scheme.background.luminance() < 0.5f
+
+    Dialog(
+        onDismissRequest = {},
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth(0.94f)
+                .fillMaxHeight(0.86f),
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = if (isDark) Color(0xFF0B1220) else scheme.surface
+            ),
+            border = BorderStroke(1.dp, scheme.outline.copy(alpha = if (isDark) 0.28f else 0.2f))
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 18.dp, vertical = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(50.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    Brush.linearGradient(
+                                        colors = listOf(
+                                            scheme.primary.copy(alpha = if (isDark) 0.4f else 0.18f),
+                                            scheme.secondary.copy(alpha = if (isDark) 0.28f else 0.12f)
+                                        )
+                                    )
+                                )
+                                .border(1.dp, scheme.primary.copy(alpha = 0.45f), CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = icon,
+                                contentDescription = null,
+                                tint = scheme.primary,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(
+                                text = "Guia rápido",
+                                color = scheme.onSurface,
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 18.sp
+                            )
+                            Text(
+                                text = "Passo ${safeStep + 1} de ${pages.size}",
+                                color = scheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.labelMedium
+                            )
+                        }
+                    }
+                    TextButton(onClick = onSkip) { Text("Pular") }
+                }
+
+                LinearProgressIndicator(
+                    progress = { progress },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(8.dp)
+                        .clip(RoundedCornerShape(999.dp)),
+                    color = scheme.primary,
+                    trackColor = scheme.outline.copy(alpha = 0.2f)
+                )
+
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(18.dp),
+                    color = if (isDark) Color(0xFF101A2B) else Color(0xFFF8FAFC),
+                    border = BorderStroke(1.dp, scheme.outline.copy(alpha = 0.16f))
+                ) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text(
+                            text = title,
+                            color = scheme.onSurface,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 19.sp,
+                            lineHeight = 24.sp
+                        )
+                        Text(
+                            text = body,
+                            color = scheme.onSurfaceVariant,
+                            fontSize = 14.sp,
+                            lineHeight = 21.sp
+                        )
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    repeat(pages.size) { index ->
+                        Box(
+                            modifier = Modifier
+                                .padding(horizontal = 3.dp)
+                                .size(if (index == safeStep) 20.dp else 8.dp, 8.dp)
+                                .clip(RoundedCornerShape(99.dp))
+                                .background(
+                                    if (index == safeStep) scheme.primary
+                                    else scheme.outline.copy(alpha = 0.35f)
+                                )
+                        )
+                    }
+                }
+
+                if (isLast) {
+                    OutlinedButton(
+                        onClick = onDemoCreateReminder,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(46.dp)
+                    ) {
+                        Icon(
+                            Icons.Rounded.AddCircleOutline,
+                            contentDescription = null,
+                            modifier = Modifier.size(17.dp)
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text("Fazer demonstração")
+                    }
+                }
+
+                Button(
+                    onClick = onNext,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = scheme.primary,
+                        contentColor = Color.White
+                    )
+                ) {
+                    Text(
+                        if (isLast) "Concluir guia" else "Próximo",
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Icon(Icons.Default.KeyboardArrowRight, contentDescription = null)
+                }
+            }
+        }
+    }
+}
 // ----------------- NOVO COMPONENTE LEMBRETE CARD (PREMIUM) -----------------
 @Composable
 fun LembreteCardLocal(
@@ -1955,7 +1995,7 @@ fun LembreteCardLocal(
                         )
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            text = "Adicionar telefone",
+                            text = tr("Adicionar telefone", "Add phone"),
                             color = Color.White,
                             fontSize = 13.sp,
                             fontWeight = FontWeight.SemiBold,
@@ -1980,7 +2020,7 @@ fun LembreteCardLocal(
                         )
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            text = "Adicionar prestador do servico",
+                            text = tr("Adicionar prestador do servico", "Add service provider"),
                             color = Color(0xFFD1FAE5),
                             fontSize = 13.sp,
                             fontWeight = FontWeight.SemiBold,
@@ -2069,21 +2109,23 @@ fun BadgeStatus(label: String, color: Color) {
 private fun LembreteDetalhesScreen(
     lembrete: Lembrete,
     contato: ContatoProfissional?,
-    contatosDisponiveis: List<ContatoProfissional>,
     carro: CarroInfo,
     onDismiss: () -> Unit,
     onDelete: (Lembrete) -> Unit,
     onMarkAsDone: (Lembrete) -> Unit,
-    onSalvar: (Lembrete) -> Unit
+    onSalvar: (Lembrete) -> Unit,
+    onAddPrestador: (Lembrete) -> Unit
 ) {
+    val context = LocalContext.current
     val colorScheme = MaterialTheme.colorScheme
     val isDark = colorScheme.background.luminance() < 0.5f
-    val screenBg = if (isDark) colorScheme.background else Color.White
     val appBarBg = colorScheme.surface
+    val screenBg = if (isDark) appBarBg else colorScheme.background
     val cardBg = colorScheme.surface
     val cardBorder = if (isDark) colorScheme.outline.copy(alpha = 0.45f) else Color(0xFFCBD5E1)
     val textPrimary = colorScheme.onSurface
     val textSecondary = colorScheme.onSurfaceVariant
+    val englishUi = isEnglishUi()
 
     var editando by remember(lembrete.id) { mutableStateOf(false) }
     var titulo by remember(lembrete.id) { mutableStateOf(lembrete.titulo) }
@@ -2092,7 +2134,50 @@ private fun LembreteDetalhesScreen(
     var kmLimite by remember(lembrete.id) { mutableStateOf(lembrete.kmLimite) }
     var valorTexto by remember(lembrete.id) { mutableStateOf(if (lembrete.valor > 0) lembrete.valor.toString() else "") }
     var contatoSelecionadoId by remember(lembrete.id) { mutableStateOf(lembrete.contatoId) }
-    var expandirSeletorPrestador by remember(lembrete.id) { mutableStateOf(false) }
+    var repetirAviso by remember(lembrete.id) { mutableStateOf(false) }
+    var recorrenciaUnit by remember(lembrete.id) { mutableStateOf(NotificacaoHelper.REC_UNIT_DAY) }
+    var recorrenciaIntervaloTexto by remember(lembrete.id) { mutableStateOf("1") }
+    var menuRecorrenciaExpanded by remember(lembrete.id) { mutableStateOf(false) }
+    var showConfirmarFeitoDialog by remember(lembrete.id) { mutableStateOf(false) }
+    var showConfirmarExclusaoDialog by remember(lembrete.id) { mutableStateOf(false) }
+    val tipoPermiteRepeticao = lembrete.tipo != TipoManutencao.LICENCIAMENTO &&
+        lembrete.tipo != TipoManutencao.SEGURO &&
+        lembrete.tipo != TipoManutencao.IPVA &&
+        lembrete.tipo != TipoManutencao.ABASTECIMENTO
+    fun textoRecorrencia(unit: String, interval: Int): String {
+        val intervaloValido = interval.coerceAtLeast(1)
+        return when (unit) {
+            NotificacaoHelper.REC_UNIT_DAY -> if (intervaloValido == 1) {
+                if (englishUi) "Every 1 day" else "A cada 1 dia"
+            } else {
+                if (englishUi) "Every $intervaloValido days" else "A cada $intervaloValido dias"
+            }
+            NotificacaoHelper.REC_UNIT_MONTH -> if (intervaloValido == 1) {
+                if (englishUi) "Every 1 month" else "A cada 1 mes"
+            } else {
+                if (englishUi) "Every $intervaloValido months" else "A cada $intervaloValido meses"
+            }
+            NotificacaoHelper.REC_UNIT_YEAR -> if (intervaloValido == 1) {
+                if (englishUi) "Every 1 year" else "A cada 1 ano"
+            } else {
+                if (englishUi) "Every $intervaloValido years" else "A cada $intervaloValido anos"
+            }
+            else -> if (englishUi) "Do not repeat" else "Nao repetir"
+        }
+    }
+    val descricaoRecorrenciaAtual = if (!tipoPermiteRepeticao || !repetirAviso) {
+        if (englishUi) "No" else "Nao"
+    } else {
+        (if (englishUi) "Yes" else "Sim") + " (${textoRecorrencia(recorrenciaUnit, recorrenciaIntervaloTexto.toIntOrNull() ?: 1)})"
+    }
+
+    LaunchedEffect(lembrete.id) {
+        val recorrenciaAtual = NotificacaoHelper.obterRecorrencia(context.applicationContext, lembrete.id)
+        repetirAviso = recorrenciaAtual != null && tipoPermiteRepeticao
+        recorrenciaUnit = recorrenciaAtual?.unit ?: NotificacaoHelper.REC_UNIT_DAY
+        recorrenciaIntervaloTexto = (recorrenciaAtual?.interval ?: 1).coerceAtLeast(1).toString()
+    }
+
     val resetarEdicao = {
         titulo = lembrete.titulo
         dataAviso = lembrete.dataLimite
@@ -2100,14 +2185,21 @@ private fun LembreteDetalhesScreen(
         kmLimite = lembrete.kmLimite
         valorTexto = if (lembrete.valor > 0) lembrete.valor.toString() else ""
         contatoSelecionadoId = lembrete.contatoId
+        val recorrenciaAtual = NotificacaoHelper.obterRecorrencia(context.applicationContext, lembrete.id)
+        repetirAviso = recorrenciaAtual != null && tipoPermiteRepeticao
+        recorrenciaUnit = recorrenciaAtual?.unit ?: NotificacaoHelper.REC_UNIT_DAY
+        recorrenciaIntervaloTexto = (recorrenciaAtual?.interval ?: 1).coerceAtLeast(1).toString()
+        menuRecorrenciaExpanded = false
     }
     val categoriaColor = remember(lembrete.tipo) {
         when (lembrete.tipo) {
             TipoManutencao.OLEO -> Color(0xFF2563EB)
             TipoManutencao.ABASTECIMENTO -> Color(0xFF0EA5E9)
+            TipoManutencao.LAVAGEM -> Color(0xFF06B6D4)
             TipoManutencao.FREIO -> Color(0xFFDC2626)
             TipoManutencao.PNEU -> Color(0xFFF59E0B)
             TipoManutencao.BATERIA -> Color(0xFF0EA5E9)
+            TipoManutencao.VIDROS -> Color(0xFF38BDF8)
             TipoManutencao.FUNILARIA -> Color(0xFFF97316)
             TipoManutencao.SEGURO, TipoManutencao.LICENCIAMENTO, TipoManutencao.IPVA -> Color(0xFF16A34A)
             else -> Color(0xFF6366F1)
@@ -2118,13 +2210,22 @@ private fun LembreteDetalhesScreen(
         containerColor = screenBg,
         topBar = {
             CenterAlignedTopAppBar(
-                title = { Text("Detalhes do aviso", fontWeight = FontWeight.Bold, color = textPrimary) },
+                title = {},
                 navigationIcon = {
                     IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar", tint = textPrimary)
+                        Icon(Icons.Default.ArrowBackIosNew, contentDescription = tr("Voltar", "Back"), tint = textPrimary)
                     }
                 },
                 actions = {
+                    if (!editando) {
+                        IconButton(onClick = { showConfirmarExclusaoDialog = true }) {
+                            Icon(
+                                imageVector = Icons.Default.Delete,
+                                contentDescription = tr("Apagar aviso", "Delete reminder"),
+                                tint = Color(0xFFDC2626)
+                            )
+                        }
+                    }
                     IconButton(
                         onClick = {
                             if (editando) {
@@ -2137,8 +2238,14 @@ private fun LembreteDetalhesScreen(
                     ) {
                         Icon(
                             imageVector = if (editando) Icons.Default.Close else Icons.Default.Edit,
-                            contentDescription = if (editando) "Cancelar edição" else "Editar",
-                            tint = if (editando) Color(0xFFEF4444) else Color(0xFF2563EB)
+                            contentDescription = if (editando) tr("Cancelar edição", "Cancel editing") else tr("Editar", "Edit"),
+                            tint = if (editando) {
+                                Color(0xFFEF4444)
+                            } else if (isDark) {
+                                Color.White
+                            } else {
+                                Color(0xFF2563EB)
+                            }
                         )
                     }
                 },
@@ -2148,200 +2255,427 @@ private fun LembreteDetalhesScreen(
             )
         }
     ) { innerPadding ->
-        Column(
+        Box(
             modifier = Modifier
                 .padding(innerPadding)
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = cardBg),
-                border = BorderStroke(1.dp, cardBorder),
-                shape = RoundedCornerShape(16.dp)
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 20.dp)
+                    .padding(bottom = if (!editando) 96.dp else 12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Column(
-                    modifier = Modifier.padding(16.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        TipoIcon(tipo = lembrete.tipo, tint = categoriaColor, size = 22.dp)
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = abreviarTituloAvisoDetalhes(lembrete.peca.ifBlank { titulo.ifBlank { lembrete.titulo } }),
-                                color = textPrimary,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 16.sp
-                            )
-                            Text(
-                                text = "Categoria: ${lembrete.tipo.label}",
-                                color = textSecondary,
-                                fontSize = 12.sp
-                            )
-                        }
-                    }
-                    HorizontalDivider(color = cardBorder)
-
-                    if (editando) {
-                        OutlinedTextField(
-                            value = titulo,
-                            onValueChange = { titulo = it },
-                            label = { Text("Título") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        OutlinedTextField(
-                            value = dataAviso,
-                            onValueChange = { dataAviso = it },
-                            label = { Text("Data do aviso (dd/MM/yyyy)") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        OutlinedTextField(
-                            value = horaAviso,
-                            onValueChange = { horaAviso = it },
-                            label = { Text("Hora do aviso (HH:mm)") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        OutlinedTextField(
-                            value = kmLimite,
-                            onValueChange = { if (it.all(Char::isDigit)) kmLimite = it },
-                            label = { Text("KM limite") },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        OutlinedTextField(
-                            value = valorTexto,
-                            onValueChange = { if (it.all { c -> c.isDigit() || c == '.' || c == ',' }) valorTexto = it.replace(',', '.') },
-                            label = { Text("Valor (R$)") },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        ExposedDropdownMenuBox(
-                            expanded = expandirSeletorPrestador,
-                            onExpandedChange = { expandirSeletorPrestador = !expandirSeletorPrestador },
-                            modifier = Modifier.fillMaxWidth()
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
                         ) {
-                            val textoPrestador = contatosDisponiveis
-                                .find { it.id == contatoSelecionadoId }
-                                ?.let { "${it.nome} (${it.tipoServico.ifBlank { "Profissional" }})" }
-                                ?: "Sem prestador"
-
-                            OutlinedTextField(
-                                value = textoPrestador,
-                                onValueChange = {},
-                                readOnly = true,
-                                label = { Text("Profissional") },
-                                trailingIcon = {
-                                    ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandirSeletorPrestador)
-                                },
-                                modifier = Modifier
-                                    .menuAnchor()
-                                    .fillMaxWidth()
-                            )
-                            ExposedDropdownMenu(
-                                expanded = expandirSeletorPrestador,
-                                onDismissRequest = { expandirSeletorPrestador = false }
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                DropdownMenuItem(
-                                    text = { Text("Sem prestador") },
-                                    onClick = {
-                                        contatoSelecionadoId = ""
-                                        expandirSeletorPrestador = false
-                                    }
+                                Box(
+                                    modifier = Modifier
+                                        .size(46.dp)
+                                        .clip(CircleShape)
+                                        .background(categoriaColor.copy(alpha = if (isDark) 0.22f else 0.14f))
+                                        .border(1.dp, categoriaColor.copy(alpha = 0.35f), CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    TipoIcon(tipo = lembrete.tipo, tint = categoriaColor, size = 22.dp)
+                                }
+                                Text(
+                                    text = abreviarTituloAvisoDetalhes(lembrete.peca.ifBlank { titulo.ifBlank { lembrete.titulo } }),
+                                    color = textPrimary,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 17.sp,
+                                    textAlign = TextAlign.Center
                                 )
-                                contatosDisponiveis.forEach { profissional ->
-                                    DropdownMenuItem(
-                                        text = {
+                                Text(
+                            text = tr("Dados do aviso", "Reminder details"),
+                                    color = textSecondary,
+                                    fontSize = 12.sp
+                                )
+                            }
+                        }
+                        HorizontalDivider(color = cardBorder)
+
+                        if (editando) {
+                            OutlinedTextField(
+                                value = titulo,
+                                onValueChange = { titulo = it },
+                                label = { Text(tr("Título", "Title")) },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            OutlinedTextField(
+                                value = dataAviso,
+                                onValueChange = { dataAviso = it },
+                                label = { Text(tr("Data do aviso (dd/MM/yyyy)", "Reminder date (dd/MM/yyyy)")) },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            OutlinedTextField(
+                                value = horaAviso,
+                                onValueChange = { horaAviso = it },
+                                label = { Text(tr("Hora do aviso (HH:mm)", "Reminder time (HH:mm)")) },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            OutlinedTextField(
+                                value = kmLimite,
+                                onValueChange = { if (it.all(Char::isDigit)) kmLimite = it },
+                                label = { Text(tr("KM limite", "Mileage limit")) },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            OutlinedTextField(
+                                value = valorTexto,
+                                onValueChange = { if (it.all { c -> c.isDigit() || c == '.' || c == ',' }) valorTexto = it.replace(',', '.') },
+                                label = { Text(tr("Valor (R$)", "Amount (R$)")) },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            if (tipoPermiteRepeticao) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .clickable { repetirAviso = !repetirAviso }
+                                        .padding(vertical = 2.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Checkbox(
+                                        checked = repetirAviso,
+                                        onCheckedChange = { repetirAviso = it }
+                                    )
+                                    Text(
+                                        text = tr("Repetir esse aviso", "Repeat this reminder"),
+                                        color = textPrimary,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                                if (repetirAviso) {
+                                    ExposedDropdownMenuBox(
+                                        expanded = menuRecorrenciaExpanded,
+                                        onExpandedChange = { menuRecorrenciaExpanded = !menuRecorrenciaExpanded },
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        OutlinedTextField(
+                                            value = textoRecorrencia(recorrenciaUnit, recorrenciaIntervaloTexto.toIntOrNull() ?: 1),
+                                            onValueChange = {},
+                                            readOnly = true,
+                                            label = { Text(tr("Frequência da repetição", "Repeat frequency")) },
+                                            modifier = Modifier
+                                                .menuAnchor()
+                                                .fillMaxWidth(),
+                                            trailingIcon = {
+                                                ExposedDropdownMenuDefaults.TrailingIcon(expanded = menuRecorrenciaExpanded)
+                                            },
+                                            singleLine = true,
+                                            shape = RoundedCornerShape(12.dp)
+                                        )
+                                        ExposedDropdownMenu(
+                                            expanded = menuRecorrenciaExpanded,
+                                            onDismissRequest = { menuRecorrenciaExpanded = false }
+                                        ) {
+                                            listOf(
+                                                NotificacaoHelper.REC_UNIT_DAY to tr("Dias", "Days"),
+                                                NotificacaoHelper.REC_UNIT_MONTH to tr("Meses", "Months"),
+                                                NotificacaoHelper.REC_UNIT_YEAR to tr("Anos", "Years")
+                                            ).forEach { (unitKey, label) ->
+                                                DropdownMenuItem(
+                                                    text = { Text(label) },
+                                                    onClick = {
+                                                        recorrenciaUnit = unitKey
+                                                        menuRecorrenciaExpanded = false
+                                                    }
+                                                )
+                                            }
+                                        }
+                                    }
+                                    OutlinedTextField(
+                                        value = recorrenciaIntervaloTexto,
+                                        onValueChange = { recorrenciaIntervaloTexto = it.filter(Char::isDigit).take(2) },
+                                        label = {
                                             Text(
-                                                "${profissional.nome} (${profissional.tipoServico.ifBlank { "Profissional" }})",
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
+                                                when (recorrenciaUnit) {
+                                                    NotificacaoHelper.REC_UNIT_DAY -> tr("Repetir a cada quantos dias?", "Repeat every how many days?")
+                                                    NotificacaoHelper.REC_UNIT_MONTH -> tr("Repetir a cada quantos meses?", "Repeat every how many months?")
+                                                    else -> tr("Repetir a cada quantos anos?", "Repeat every how many years?")
+                                                }
                                             )
                                         },
-                                        onClick = {
-                                            contatoSelecionadoId = profissional.id
-                                            expandirSeletorPrestador = false
-                                        }
+                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(12.dp)
                                     )
                                 }
                             }
+                        } else {
+                            val tabelaDados = buildList<Pair<String, String>> {
+                                if (lembrete.estabelecimentoEndereco.isNotBlank()) {
+                                    add(tr("Endereço", "Address") to lembrete.estabelecimentoEndereco)
+                                }
+                                add(tr("Veículo", "Vehicle") to carro.nome)
+                                add(tr("Data", "Date") to lembrete.dataLimite.ifBlank { tr("Sem data", "No date") })
+                                add(tr("Hora", "Time") to lembrete.horaAviso.ifBlank { tr("Não definida", "Not set") })
+                                add(tr("KM limite", "Mileage limit") to lembrete.kmLimite.ifBlank { tr("Não definido", "Not set") })
+                                add(tr("Repetição", "Repeat") to descricaoRecorrenciaAtual)
+                                if (lembrete.valor > 0) {
+                                    add(tr("Valor", "Amount") to formatarMoedaLocal(lembrete.valor))
+                                }
+                                add(
+                                    tr("Prestador", "Provider") to (
+                                        contato?.let { "${it.nome} (${it.tipoServico})" }
+                                            ?: tr("Não definido", "Not set")
+                                    )
+                                )
+                            }
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(containerColor = cardBg),
+                                border = BorderStroke(1.dp, cardBorder)
+                            ) {
+                                Column(modifier = Modifier.fillMaxWidth()) {
+                                    tabelaDados.forEachIndexed { index, (label, value) ->
+                                        InfoTableRow(
+                                            label = label,
+                                            value = value,
+                                            textPrimary = textPrimary,
+                                            textSecondary = textSecondary
+                                        )
+                                        if (index != tabelaDados.lastIndex) {
+                                            HorizontalDivider(color = cardBorder.copy(alpha = 0.65f))
+                                        }
+                                    }
+                                }
+                            }
                         }
-                    } else {
-                        if (lembrete.estabelecimentoEndereco.isNotBlank()) {
-                            InfoRow("Endereço", lembrete.estabelecimentoEndereco, textPrimary, textSecondary)
-                        }
-                        InfoRow("Veículo", carro.nome, textPrimary, textSecondary)
-                        InfoRow("Data", lembrete.dataLimite.ifBlank { "Sem data" }, textPrimary, textSecondary)
-                        InfoRow("Hora", lembrete.horaAviso, textPrimary, textSecondary)
-                        InfoRow("KM limite", lembrete.kmLimite.ifBlank { "Não definido" }, textPrimary, textSecondary)
-                        if (lembrete.valor > 0) {
-                            InfoRow("Valor", formatarMoedaLocal(lembrete.valor), textPrimary, textSecondary)
-                        }
-                        contato?.let {
-                            InfoRow("Profissional", "${it.nome} (${it.tipoServico})", textPrimary, textSecondary)
-                        }
+                }
+
+                if (editando) {
+                    Button(
+                        onClick = {
+                            val atualizado = lembrete.copy(
+                                titulo = titulo.ifBlank { lembrete.titulo },
+                                dataLimite = dataAviso.ifBlank { lembrete.dataLimite },
+                                horaAviso = horaAviso.ifBlank { lembrete.horaAviso },
+                                kmLimite = kmLimite,
+                                contatoId = contatoSelecionadoId,
+                                valor = valorTexto.toDoubleOrNull() ?: 0.0
+                            )
+                            val intervaloRecorrencia = (recorrenciaIntervaloTexto.toIntOrNull() ?: 1).coerceAtLeast(1)
+                            if (tipoPermiteRepeticao && repetirAviso) {
+                                NotificacaoHelper.salvarRecorrencia(
+                                    context = context.applicationContext,
+                                    lembreteId = atualizado.id,
+                                    unit = recorrenciaUnit,
+                                    interval = intervaloRecorrencia
+                                )
+                            } else {
+                                NotificacaoHelper.removerRecorrencia(context.applicationContext, atualizado.id)
+                            }
+                            onSalvar(atualizado)
+                            editando = false
+                        },
+                        modifier = Modifier.fillMaxWidth().height(50.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB), contentColor = Color.White),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text(tr("Salvar edição", "Save edit"), fontWeight = FontWeight.Bold)
                     }
                 }
             }
 
-            if (editando) {
-                Button(
-                    onClick = {
-                        val atualizado = lembrete.copy(
-                            titulo = titulo.ifBlank { lembrete.titulo },
-                            dataLimite = dataAviso.ifBlank { lembrete.dataLimite },
-                            horaAviso = horaAviso.ifBlank { lembrete.horaAviso },
-                            kmLimite = kmLimite,
-                            contatoId = contatoSelecionadoId,
-                            valor = valorTexto.toDoubleOrNull() ?: 0.0
+            if (!editando) {
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = { onAddPrestador(lembrete) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(50.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = Color.Transparent,
+                            contentColor = Color(0xFF3B82F6)
+                        ),
+                        border = BorderStroke(1.dp, Color(0xFF3B82F6).copy(alpha = 0.5f)),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PersonAdd,
+                            contentDescription = null
                         )
-                        onSalvar(atualizado)
-                        editando = false
-                    },
-                    modifier = Modifier.fillMaxWidth().height(50.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB), contentColor = Color.White),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Text("Salvar edição", fontWeight = FontWeight.Bold)
-                }
-            } else {
-                Button(
-                    onClick = { onMarkAsDone(lembrete) },
-                    modifier = Modifier.fillMaxWidth().height(50.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF22C55E),
-                        contentColor = Color.White
-                    ),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.CheckCircle,
-                        contentDescription = null,
-                        tint = Color.White
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text("Marcar manutenção como realizada", color = Color.White, fontWeight = FontWeight.Bold)
-                }
-                Button(
-                    onClick = { onDelete(lembrete) },
-                    modifier = Modifier.fillMaxWidth().height(50.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444), contentColor = Color.White),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Text("Apagar aviso", fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.width(8.dp))
+                        Text(tr("Adicionar prestador", "Add provider"), fontWeight = FontWeight.SemiBold)
+                    }
+                    Button(
+                        onClick = { showConfirmarFeitoDialog = true },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(50.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF3B82F6),
+                            contentColor = Color.White
+                        ),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CheckCircle,
+                            contentDescription = null,
+                            tint = Color.White
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(tr("Marcar como feito", "Mark as done"), color = Color.White, fontWeight = FontWeight.Bold)
+                    }
                 }
             }
         }
+    }
+    if (showConfirmarFeitoDialog) {
+        AlertDialog(
+            onDismissRequest = { showConfirmarFeitoDialog = false },
+            title = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(52.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF22C55E).copy(alpha = if (isDark) 0.24f else 0.14f))
+                            .border(1.dp, Color(0xFF22C55E).copy(alpha = 0.35f), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CheckCircle,
+                            contentDescription = null,
+                            tint = Color(0xFF16A34A),
+                            modifier = Modifier.size(27.dp)
+                        )
+                    }
+                    Text(
+                        text = tr("Marcar aviso como concluído?", "Mark reminder as completed?"),
+                        color = textPrimary,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            },
+            text = {
+                Text(
+                    text = tr("Você confirma que este aviso já foi resolvido?", "Do you confirm this reminder has been completed?"),
+                    color = textSecondary
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showConfirmarFeitoDialog = false
+                        onMarkAsDone(lembrete)
+                    },
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF16A34A), contentColor = Color.White)
+                ) {
+                    Text(tr("Sim, concluir", "Yes, complete"), fontWeight = FontWeight.SemiBold)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(
+                    onClick = { showConfirmarFeitoDialog = false },
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, cardBorder)
+                ) {
+                    Text(tr("Voltar", "Back"))
+                }
+            },
+            containerColor = cardBg
+        )
+    }
+    if (showConfirmarExclusaoDialog) {
+        AlertDialog(
+            onDismissRequest = { showConfirmarExclusaoDialog = false },
+            title = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(52.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFFEF4444).copy(alpha = if (isDark) 0.24f else 0.14f))
+                            .border(1.dp, Color(0xFFEF4444).copy(alpha = 0.35f), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = null,
+                            tint = Color(0xFFDC2626),
+                            modifier = Modifier.size(25.dp)
+                        )
+                    }
+                    Text(
+                        text = tr("Apagar este aviso?", "Delete this reminder?"),
+                        color = textPrimary,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            },
+            text = {
+                Text(
+                    text = tr("Essa ação remove o aviso permanentemente. Deseja continuar?", "This action permanently deletes the reminder. Do you want to continue?"),
+                    color = textSecondary
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showConfirmarExclusaoDialog = false
+                        onDelete(lembrete)
+                    },
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626), contentColor = Color.White)
+                ) {
+                    Text(tr("Sim, apagar", "Yes, delete"), fontWeight = FontWeight.SemiBold)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(
+                    onClick = { showConfirmarExclusaoDialog = false },
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, cardBorder)
+                ) {
+                    Text(tr("Cancelar", "Cancel"))
+                }
+            },
+            containerColor = cardBg
+        )
     }
 }
 
@@ -2362,6 +2696,7 @@ private fun tiposAvisoPorVeiculo(tipoVeiculo: TipoVeiculo): List<TipoManutencao>
         TipoManutencao.PEDIVELA,
         TipoManutencao.ACESSORIOS,
         TipoManutencao.CONFORTO,
+        TipoManutencao.LAVAGEM,
         TipoManutencao.FREIO,
         TipoManutencao.PNEU,
         TipoManutencao.TRANSMISSAO,
@@ -2374,6 +2709,7 @@ private fun tiposAvisoPorVeiculo(tipoVeiculo: TipoVeiculo): List<TipoManutencao>
         TipoManutencao.PEDIVELA,
         TipoManutencao.ACESSORIOS,
         TipoManutencao.CONFORTO,
+        TipoManutencao.LAVAGEM,
         TipoManutencao.FREIO,
         TipoManutencao.PNEU,
         TipoManutencao.TRANSMISSAO,
@@ -2383,6 +2719,8 @@ private fun tiposAvisoPorVeiculo(tipoVeiculo: TipoVeiculo): List<TipoManutencao>
     )
     TipoVeiculo.VEICULO_ELETRICO -> listOf(
         TipoManutencao.BATERIA,
+        TipoManutencao.LAVAGEM,
+        TipoManutencao.VIDROS,
         TipoManutencao.PNEU,
         TipoManutencao.MECANICA,
         TipoManutencao.REVISAO,
@@ -2395,7 +2733,9 @@ private fun tiposAvisoPorVeiculo(tipoVeiculo: TipoVeiculo): List<TipoManutencao>
     TipoVeiculo.CAMINHAO,
     TipoVeiculo.TRATOR -> listOf(
         TipoManutencao.ABASTECIMENTO,
+        TipoManutencao.LAVAGEM,
         TipoManutencao.OLEO,
+        TipoManutencao.VIDROS,
         TipoManutencao.MECANICA,
         TipoManutencao.BATERIA,
         TipoManutencao.PNEU,
@@ -2405,6 +2745,7 @@ private fun tiposAvisoPorVeiculo(tipoVeiculo: TipoVeiculo): List<TipoManutencao>
         TipoManutencao.OUTROS
     )
     TipoVeiculo.CARRETINHA -> listOf(
+        TipoManutencao.LAVAGEM,
         TipoManutencao.PNEU,
         TipoManutencao.LICENCIAMENTO,
         TipoManutencao.SEGURO,
@@ -2412,7 +2753,9 @@ private fun tiposAvisoPorVeiculo(tipoVeiculo: TipoVeiculo): List<TipoManutencao>
     )
     else -> listOf(
         TipoManutencao.ABASTECIMENTO,
+        TipoManutencao.LAVAGEM,
         TipoManutencao.OLEO,
+        TipoManutencao.VIDROS,
         TipoManutencao.MECANICA,
         TipoManutencao.FUNILARIA,
         TipoManutencao.BATERIA,
@@ -2436,7 +2779,9 @@ fun calcularCorStatusLocal(lembretes: List<Lembrete>, tipo: TipoManutencao): Col
         TipoManutencao.REVISAO -> Color(0xFF8B5CF6) // roxo
         TipoManutencao.OLEO -> Color(0xFF3B82F6) // Azul
         TipoManutencao.ABASTECIMENTO -> Color(0xFF0EA5E9) // azul ciano
+        TipoManutencao.LAVAGEM -> Color(0xFF06B6D4) // azul agua
         TipoManutencao.FREIO -> Color(0xFFEF4444) // Vermelho
+        TipoManutencao.VIDROS -> Color(0xFF38BDF8) // azul vidro
         TipoManutencao.MECANICA -> Color(0xFFF59E0B) // Laranja
         TipoManutencao.FUNILARIA -> Color(0xFFF97316) // Laranja escuro
         TipoManutencao.LICENCIAMENTO -> Color(0xFF10B981) // Verde
@@ -2484,6 +2829,35 @@ private fun InfoRow(label: String, value: String, textLight: Color, textDim: Col
 }
 
 @Composable
+private fun InfoTableRow(
+    label: String,
+    value: String,
+    textPrimary: Color,
+    textSecondary: Color
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.Top
+    ) {
+        Text(
+            text = label,
+            color = textSecondary,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.width(104.dp)
+        )
+        Text(
+            text = value,
+            color = textPrimary,
+            fontSize = 12.sp,
+            modifier = Modifier.weight(1f)
+        )
+    }
+}
+
+@Composable
 private fun AvisosNotificacoesScreen(
     notificacoes: List<NotificacaoDisparada>,
     onClear: () -> Unit,
@@ -2492,13 +2866,13 @@ private fun AvisosNotificacoesScreen(
 ) {
     val colorScheme = MaterialTheme.colorScheme
     val isDark = colorScheme.background.luminance() < 0.5f
-    val dialogBg = if (isDark) Color(0xFF0F172A) else Color.White
-    val cardBg = if (isDark) Color(0xFF111827) else Color(0xFFF8FAFC)
-    val cardBorder = if (isDark) Color(0xFF334155) else Color(0xFFE2E8F0)
-    val titleColor = if (isDark) Color.White else Color(0xFF0F172A)
-    val textDim = if (isDark) Color(0xFF94A3B8) else Color(0xFF64748B)
-    val closeBorder = if (isDark) Color(0xFF334155) else Color(0xFFCBD5E1)
-    val closeText = if (isDark) Color.White else Color(0xFF0F172A)
+    val dialogBg = if (isDark) Color(0xFF0F172A) else colorScheme.background
+    val cardBg = if (isDark) Color(0xFF111827) else colorScheme.surface
+    val cardBorder = if (isDark) Color(0xFF334155) else colorScheme.outlineVariant.copy(alpha = 0.8f)
+    val titleColor = colorScheme.onSurface
+    val textDim = colorScheme.onSurfaceVariant
+    val closeBorder = if (isDark) Color(0xFF334155) else colorScheme.outlineVariant
+    val closeText = colorScheme.onSurface
 
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -2524,7 +2898,7 @@ private fun AvisosNotificacoesScreen(
                 ) {
                     Icon(
                         imageVector = Icons.Default.ArrowBackIosNew,
-                        contentDescription = "Voltar",
+                        contentDescription = tr("Voltar", "Back"),
                         tint = titleColor,
                         modifier = Modifier.size(18.dp)
                     )
@@ -2537,29 +2911,35 @@ private fun AvisosNotificacoesScreen(
                         modifier = Modifier
                             .size(34.dp)
                             .clip(CircleShape)
-                            .background(if (isDark) Color(0xFF1E3A8A).copy(alpha = 0.35f) else Color(0xFFDBEAFE)),
+                            .background(colorScheme.primary.copy(alpha = if (isDark) 0.24f else 0.14f)),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = Icons.Default.Notifications,
                             contentDescription = null,
-                            tint = Color(0xFF2563EB),
+                            tint = colorScheme.primary,
                             modifier = Modifier.size(20.dp)
                         )
                     }
                     Text(
-                        text = "Notificações",
+                        text = tr("Notificações", "Notifications"),
                         color = titleColor,
                         fontWeight = FontWeight.Bold,
                         fontSize = 17.sp
                     )
                 }
                 if (notificacoes.isNotEmpty()) {
-                    TextButton(
+                    OutlinedButton(
                         onClick = onClear,
-                        modifier = Modifier.align(Alignment.CenterEnd)
+                        modifier = Modifier.align(Alignment.CenterEnd),
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, closeBorder),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = if (isDark) Color(0xFF1E293B) else colorScheme.surface,
+                            contentColor = closeText
+                        )
                     ) {
-                        Text("Limpar")
+                        Text(tr("Limpar", "Clear"))
                     }
                 }
             }
@@ -2581,13 +2961,13 @@ private fun AvisosNotificacoesScreen(
                     )
                     Spacer(Modifier.height(10.dp))
                     Text(
-                        "Tudo em dia por aqui",
+                        tr("Tudo em dia por aqui", "Everything is up to date"),
                         color = titleColor,
                         fontWeight = FontWeight.SemiBold
                     )
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        "Quando houver novos avisos, eles aparecerão aqui.",
+                        tr("Quando houver novos avisos, eles aparecerão aqui.", "When there are new reminders, they will appear here."),
                         color = textDim,
                         fontSize = 13.sp,
                         textAlign = TextAlign.Center
@@ -2602,18 +2982,18 @@ private fun AvisosNotificacoesScreen(
                 ) {
                     HorizontalDivider(
                         modifier = Modifier.weight(1f),
-                        color = if (isDark) Color.White.copy(alpha = 0.16f) else Color(0xFFCBD5E1),
+                        color = if (isDark) Color.White.copy(alpha = 0.16f) else colorScheme.outlineVariant,
                         thickness = 1.dp
                     )
                     Text(
-                        text = "Veja suas notificações",
+                        text = tr("Veja suas notificações", "See your notifications"),
                         color = textDim,
                         fontSize = 12.sp,
                         modifier = Modifier.padding(horizontal = 10.dp)
                     )
                     HorizontalDivider(
                         modifier = Modifier.weight(1f),
-                        color = if (isDark) Color.White.copy(alpha = 0.16f) else Color(0xFFCBD5E1),
+                        color = if (isDark) Color.White.copy(alpha = 0.16f) else colorScheme.outlineVariant,
                         thickness = 1.dp
                     )
                 }
@@ -2656,7 +3036,7 @@ private fun AvisosNotificacoesScreen(
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.Delete,
-                                        contentDescription = "Remover notificação",
+                                        contentDescription = tr("Remover notificação", "Remove notification"),
                                         tint = Color.White
                                     )
                                 }
@@ -2678,19 +3058,19 @@ private fun AvisosNotificacoesScreen(
                                     Icon(
                                         imageVector = Icons.Default.Notifications,
                                         contentDescription = null,
-                                        tint = Color(0xFF2563EB),
+                                        tint = colorScheme.primary,
                                         modifier = Modifier.size(18.dp)
                                     )
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(
-                                            aviso.titulo.ifBlank { "Notificação" },
+                                            aviso.titulo.ifBlank { tr("Notificação", "Notification") },
                                             fontWeight = FontWeight.SemiBold,
                                             color = titleColor,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
                                         )
                                         Text(
-                                            aviso.descricao.ifBlank { "Sem descrição" },
+                                            aviso.descricao.ifBlank { tr("Sem descrição", "No description") },
                                             color = textDim,
                                             fontSize = 12.sp,
                                             maxLines = 2,
@@ -2704,7 +3084,7 @@ private fun AvisosNotificacoesScreen(
                                         }.getOrDefault("--")
                                         Text(
                                             instante,
-                                            color = Color(0xFF94A3B8),
+                                            color = textDim,
                                             fontSize = 11.sp
                                         )
                                     }
@@ -2798,8 +3178,8 @@ data class CategorySpend(
 private fun VehicleBasicsGuideScreen(onDismiss: () -> Unit) {
     val scheme = MaterialTheme.colorScheme
     val isDark = scheme.background.luminance() < 0.5f
-    val pageBg = if (isDark) scheme.background else Color.White
-    val cardBg = if (isDark) Color(0xFF111827) else Color.White
+    val pageBg = if (isDark) scheme.background else scheme.background
+    val cardBg = if (isDark) Color(0xFF111827) else scheme.surface
     val border = if (isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.12f)
     val textPrimary = if (isDark) Color.White else Color.Black
     val textSecondary = if (isDark) Color(0xFF94A3B8) else Color(0xFF475569)
@@ -3029,21 +3409,35 @@ private fun HomeFaqScreen(
 ) {
     val colorScheme = MaterialTheme.colorScheme
     val isDark = colorScheme.background.luminance() < 0.5f
-    val background = if (isDark) colorScheme.background else Color.White
+    val background = if (isDark) colorScheme.background else colorScheme.background
     val titleColor = colorScheme.onSurface
     val bodyColor = colorScheme.onSurfaceVariant
+    val englishUi = isEnglishUi()
     var expandedFaqIndex by remember { mutableIntStateOf(-1) }
     val faqItems = remember {
-        listOf(
-            "Como criar um novo aviso?" to "Toque em Novo aviso, escolha a categoria e siga as etapas até concluir. Na última etapa, revise os dados antes de salvar.",
-            "Como adicionar gasto em uma viagem?" to "Abra a viagem, toque em Adicionar gasto e preencha categoria, itens, valor e veículo. Você também pode usar a câmera para scannear QR code da nota.",
-            "O QR code da nota não leu. E agora?" to "Aproxime a câmera, evite reflexo e tente novamente. Se ainda falhar, continue e preencha os dados manualmente.",
-            "Como finalizar uma viagem?" to "Dentro da viagem, toque em Finalizar viagem. Depois disso, novos gastos ficam bloqueados até a viagem ser reaberta.",
-            "Como exportar os dados da viagem?" to "Dentro da viagem, use o botão com ícone de enviar para abrir a tela de exportação e gerar o arquivo desejado.",
-            "Como recuperar meus dados?" to "Em Configurações > Bakup, use Restaurar backup neste aparelho. Depois da restauração, feche e abra o app novamente para recarregar tudo.",
-            "Posso usar em equipe?" to "O app funciona melhor com gestão centralizada em um aparelho principal. Para compartilhar com a equipe, exporte os arquivos da viagem.",
-            "Onde vejo o status da frota?" to "No Zellu Premium, abra Status da Frota para acompanhar alertas, uso dos veículos e viagens em andamento."
-        )
+        if (englishUi) {
+            listOf(
+                "How do I create a new reminder?" to "Tap New reminder, choose the category, and follow the steps until finish. In the last step, review data before saving.",
+                "How do I add an expense to a trip?" to "Open the trip, tap Add expense, and fill category, items, amount, and vehicle. You can also use camera to scan invoice QR code.",
+                "The invoice QR code failed. What now?" to "Bring camera closer, avoid reflections, and try again. If it still fails, continue and fill data manually.",
+                "How do I finish a trip?" to "Inside the trip, tap Finish trip. After that, new expenses stay blocked until the trip is reopened.",
+                "How do I export trip data?" to "Inside the trip, use the send icon button to open export screen and generate the file you want.",
+                "How do I recover my data?" to "In Settings > Backup, use Restore backup on this device. After restoring, close and open the app again to reload everything.",
+                "Can I use it with a team?" to "The app works best with centralized management on a main device. To share with team, export trip files.",
+                "Where can I see fleet status?" to "In Zellu Premium, open Fleet Status to follow alerts, vehicle usage, and ongoing trips."
+            )
+        } else {
+            listOf(
+                "Como criar um novo aviso?" to "Toque em Novo aviso, escolha a categoria e siga as etapas até concluir. Na última etapa, revise os dados antes de salvar.",
+                "Como adicionar gasto em uma viagem?" to "Abra a viagem, toque em Adicionar gasto e preencha categoria, itens, valor e veículo. Você também pode usar a câmera para scannear QR code da nota.",
+                "O QR code da nota não leu. E agora?" to "Aproxime a câmera, evite reflexo e tente novamente. Se ainda falhar, continue e preencha os dados manualmente.",
+                "Como finalizar uma viagem?" to "Dentro da viagem, toque em Finalizar viagem. Depois disso, novos gastos ficam bloqueados até a viagem ser reaberta.",
+                "Como exportar os dados da viagem?" to "Dentro da viagem, use o botão com ícone de enviar para abrir a tela de exportação e gerar o arquivo desejado.",
+                "Como recuperar meus dados?" to "Em Configurações > Bakup, use Restaurar backup neste aparelho. Depois da restauração, feche e abra o app novamente para recarregar tudo.",
+                "Posso usar em equipe?" to "O app funciona melhor com gestão centralizada em um aparelho principal. Para compartilhar com a equipe, exporte os arquivos da viagem.",
+                "Onde vejo o status da frota?" to "No Zellu Premium, abra Status da Frota para acompanhar alertas, uso dos veículos e viagens em andamento."
+            )
+        }
     }
 
     Surface(
@@ -3063,7 +3457,7 @@ private fun HomeFaqScreen(
                 IconButton(onClick = onDismiss) {
                     Icon(
                         imageVector = Icons.Default.ArrowBack,
-                        contentDescription = "Voltar",
+                        contentDescription = tr("Voltar", "Back"),
                         tint = titleColor
                     )
                 }
@@ -3093,7 +3487,7 @@ private fun HomeFaqScreen(
                 }
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    text = "Dúvidas frequentes",
+                    text = tr("Dúvidas frequentes", "Frequently asked questions"),
                     color = titleColor,
                     fontSize = 25.sp,
                     fontWeight = FontWeight.Bold,
@@ -3101,7 +3495,7 @@ private fun HomeFaqScreen(
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    text = "Respostas rápidas para as dúvidas mais comuns",
+                    text = tr("Respostas rápidas para as dúvidas mais comuns", "Quick answers for the most common questions"),
                     color = bodyColor,
                     fontSize = 13.sp,
                     textAlign = TextAlign.Center
@@ -3110,30 +3504,7 @@ private fun HomeFaqScreen(
 
             Spacer(Modifier.height(12.dp))
 
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(14.dp),
-                color = if (isDark) colorScheme.surfaceVariant.copy(alpha = 0.26f) else Color(0xFFF8FAFC),
-                border = BorderStroke(1.dp, colorScheme.outlineVariant.copy(alpha = if (isDark) 0.4f else 0.55f))
-            ) {
-                Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
-                    Text(
-                        text = "Dica rápida",
-                        color = titleColor,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 13.sp
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        text = "Use os fluxos de câmera quando possível. Eles reduzem erros de preenchimento e deixam a viagem mais organizada.",
-                        color = bodyColor,
-                        fontSize = 13.sp,
-                        lineHeight = 18.sp
-                    )
-                }
-            }
-
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(2.dp))
 
             faqItems.forEachIndexed { index, (pergunta, resposta) ->
                 Surface(
@@ -3143,7 +3514,7 @@ private fun HomeFaqScreen(
                             expandedFaqIndex = if (expandedFaqIndex == index) -1 else index
                         },
                     shape = RoundedCornerShape(14.dp),
-                    color = if (isDark) colorScheme.surface else Color.White,
+                    color = if (isDark) colorScheme.surface else colorScheme.surface,
                     border = BorderStroke(1.dp, colorScheme.outlineVariant.copy(alpha = if (isDark) 0.5f else 0.75f))
                 ) {
                     Column(
@@ -3199,7 +3570,7 @@ private fun LegalInfoScreen(
 ) {
     val colorScheme = MaterialTheme.colorScheme
     val isDark = colorScheme.background.luminance() < 0.5f
-    val background = if (isDark) colorScheme.background else Color.White
+    val background = if (isDark) colorScheme.background else colorScheme.background
     val titleColor = colorScheme.onSurface
     val bodyColor = colorScheme.onSurfaceVariant
 
@@ -3261,7 +3632,7 @@ private fun LegalInfoScreen(
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(24.dp),
-                color = if (isDark) colorScheme.surface else Color.White,
+                color = if (isDark) colorScheme.surface else colorScheme.surface,
                 border = BorderStroke(1.dp, colorScheme.outlineVariant.copy(alpha = if (isDark) 0.5f else 0.75f))
             ) {
                 Text(
@@ -3485,7 +3856,9 @@ fun corCategoria(tipo: TipoManutencao): Color = when (tipo) {
     TipoManutencao.REVISAO -> Color(0xFF8B5CF6)
     TipoManutencao.OLEO -> Color(0xFF3B82F6) // azul
     TipoManutencao.ABASTECIMENTO -> Color(0xFF0EA5E9) // azul ciano
+    TipoManutencao.LAVAGEM -> Color(0xFF06B6D4) // azul agua
     TipoManutencao.BATERIA -> Color(0xFF16A34A) // verde
+    TipoManutencao.VIDROS -> Color(0xFF38BDF8) // azul vidro
     TipoManutencao.MECANICA -> Color(0xFF60A5FA) // azul claro
     TipoManutencao.FUNILARIA -> Color(0xFFF97316) // laranja
     TipoManutencao.FREIO -> Color(0xFFDC2626) // vermelho
@@ -3494,5 +3867,7 @@ fun corCategoria(tipo: TipoManutencao): Color = when (tipo) {
     TipoManutencao.SEGURO -> Color(0xFF10B981) // verde
     TipoManutencao.OUTROS -> Color(0xFF94A3B8)
 }
+
+
 
 

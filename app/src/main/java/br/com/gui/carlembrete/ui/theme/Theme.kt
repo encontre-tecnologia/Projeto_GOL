@@ -39,6 +39,19 @@ private val LightColorScheme = lightColorScheme(
     onSurfaceVariant = LightOnSurfaceVariant
 )
 
+private val RoseColorScheme = lightColorScheme(
+    primary = RosePrimary,
+    secondary = RoseSecondary,
+    tertiary = RoseSecondary,
+    background = RoseBackground,
+    surface = RoseSurface,
+    onPrimary = Color.White,
+    onSecondary = Color.White,
+    onBackground = RoseOnSurface,
+    onSurface = RoseOnSurface,
+    onSurfaceVariant = RoseOnSurfaceVariant
+)
+
 @Composable
 fun CarLembreteTheme(
     themeMode: AppThemeMode = AppThemeMode.SYSTEM,
@@ -50,6 +63,7 @@ fun CarLembreteTheme(
         AppThemeMode.SYSTEM -> isSystemInDarkTheme()
         AppThemeMode.LIGHT -> false
         AppThemeMode.DARK -> true
+        AppThemeMode.ROSE -> false
     }
 
     val colorScheme = when {
@@ -58,6 +72,7 @@ fun CarLembreteTheme(
             if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
         }
 
+        themeMode == AppThemeMode.ROSE -> RoseColorScheme
         darkTheme -> DarkColorScheme
         else -> LightColorScheme
     }
