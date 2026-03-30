@@ -6,6 +6,9 @@ data class BackupPayload(
     val carros: List<CarroInfo>,
     val lembretes: List<Lembrete>,
     val contatos: List<ContatoProfissional>,
+    val abastecimentos: List<Abastecimento> = emptyList(),
+    val pedaladas: List<Pedalada> = emptyList(),
+    val travelTripsJson: String = "",
     val geradoEm: Long = System.currentTimeMillis()
 ) : Serializable
 
@@ -47,6 +50,25 @@ fun BackupPayload.toMap(): Map<String, Any> = mapOf(
             "tipoServico" to contato.tipoServico
         )
     },
+    "abastecimentos" to abastecimentos.map { item ->
+        mapOf(
+            "id" to item.id,
+            "carroId" to item.carroId,
+            "data" to item.data,
+            "precoLitro" to item.precoLitro,
+            "valorPago" to item.valorPago,
+            "litros" to item.litros
+        )
+    },
+    "pedaladas" to pedaladas.map { item ->
+        mapOf(
+            "id" to item.id,
+            "carroId" to item.carroId,
+            "data" to item.data,
+            "km" to item.km
+        )
+    },
+    "travelTripsJson" to travelTripsJson,
     "geradoEm" to geradoEm
 )
 
@@ -96,6 +118,37 @@ fun backupPayloadFromMap(data: Map<String, Any>): BackupPayload {
         )
     } ?: emptyList()
 
+    val abastecimentos = (data["abastecimentos"] as? List<*>)?.mapNotNull { item ->
+        val mapa = item as? Map<*, *> ?: return@mapNotNull null
+        Abastecimento(
+            id = mapa["id"] as? String ?: java.util.UUID.randomUUID().toString(),
+            carroId = mapa["carroId"] as? String ?: "",
+            data = mapa["data"] as? String ?: "",
+            precoLitro = (mapa["precoLitro"] as? Number)?.toDouble() ?: 0.0,
+            valorPago = (mapa["valorPago"] as? Number)?.toDouble() ?: 0.0,
+            litros = (mapa["litros"] as? Number)?.toDouble() ?: 0.0
+        )
+    } ?: emptyList()
+
+    val pedaladas = (data["pedaladas"] as? List<*>)?.mapNotNull { item ->
+        val mapa = item as? Map<*, *> ?: return@mapNotNull null
+        Pedalada(
+            id = mapa["id"] as? String ?: java.util.UUID.randomUUID().toString(),
+            carroId = mapa["carroId"] as? String ?: "",
+            data = mapa["data"] as? String ?: "",
+            km = (mapa["km"] as? Number)?.toDouble() ?: 0.0
+        )
+    } ?: emptyList()
+
+    val travelTripsJson = data["travelTripsJson"] as? String ?: ""
     val geradoEm = (data["geradoEm"] as? Number)?.toLong() ?: System.currentTimeMillis()
-    return BackupPayload(carros, lembretes, contatos, geradoEm)
+    return BackupPayload(
+        carros = carros,
+        lembretes = lembretes,
+        contatos = contatos,
+        abastecimentos = abastecimentos,
+        pedaladas = pedaladas,
+        travelTripsJson = travelTripsJson,
+        geradoEm = geradoEm
+    )
 }

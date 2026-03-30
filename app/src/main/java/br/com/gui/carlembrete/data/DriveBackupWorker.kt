@@ -21,7 +21,17 @@ class DriveBackupWorker(
             val carros = BancoDeDados.carregarCarrosComFallback(applicationContext)
             val lembretes = BancoDeDados.carregarLembretes(applicationContext)
             val contatos = BancoDeDados.carregarContatos(applicationContext)
-            val payload = BackupPayload(carros, lembretes, contatos)
+            val abastecimentos = BancoDeDados.carregarAbastecimentos(applicationContext)
+            val pedaladas = BancoDeDados.carregarPedaladas(applicationContext)
+            val travelTripsJson = loadTravelTripsBackupJson(applicationContext)
+            val payload = BackupPayload(
+                carros = carros,
+                lembretes = lembretes,
+                contatos = contatos,
+                abastecimentos = abastecimentos,
+                pedaladas = pedaladas,
+                travelTripsJson = travelTripsJson
+            )
             DriveBackupManager(applicationContext).uploadBackup(payload, account)
             setLastBackupTime(applicationContext, System.currentTimeMillis())
             Result.success()
