@@ -5,7 +5,7 @@ notify_google_chat:
   stage: notify
   image: alpine:3.20
   rules:
-    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "dev"'
+    - if: '$CI_PIPELINE_SOURCE == "push" && ($CI_COMMIT_BRANCH == "dev" || $CI_COMMIT_BRANCH == "Dev")'
   before_script:
     - apk add --no-cache git curl jq
   script:
@@ -30,17 +30,20 @@ notify_google_chat:
 
       CHANGED_FILES="$(printf '%s\n' "${FILES}" | sed 's/^/- /')"
 
-      MESSAGE="Novo commit em ${CI_PROJECT_PATH}
-Branch: ${CI_COMMIT_BRANCH}
-Autor: ${GITLAB_USER_NAME}
-Commit: ${SHORT_SHA}
-Titulo: ${TITLE}
-Resumo: ${BODY}
+      MESSAGE="$(cat <<EOF
+      Novo commit em ${CI_PROJECT_PATH}
+      Branch: ${CI_COMMIT_BRANCH}
+      Autor: ${GITLAB_USER_NAME}
+      Commit: ${SHORT_SHA}
+      Titulo: ${TITLE}
+      Resumo: ${BODY}
 
-Arquivos alterados (ate 12):
-${CHANGED_FILES}
-Commit: ${CI_PROJECT_URL}/-/commit/${CI_COMMIT_SHA}
-Pipeline: ${CI_PIPELINE_URL}"
+      Arquivos alterados (ate 12):
+      ${CHANGED_FILES}
+      Commit: ${CI_PROJECT_URL}/-/commit/${CI_COMMIT_SHA}
+      Pipeline: ${CI_PIPELINE_URL}
+      EOF
+      )"
 
       PAYLOAD="$(jq -n --arg text "${MESSAGE}" '{text: $text}')"
 
