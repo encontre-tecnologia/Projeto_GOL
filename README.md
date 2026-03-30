@@ -46,7 +46,7 @@ O app atende diferentes tipos de veiculo, incluindo carro, moto, caminhonete, ca
 - WorkManager
 - Retrofit + Gson
 - JUnit 4 + Allure
-- GitHub Actions (CI)
+- GitLab CI/CD
 
 ---
 
@@ -96,29 +96,39 @@ Gerar relatorio Allure:
 
 ---
 
-## CI
+## CI/CD
 
-A pipeline do GitHub Actions executa os testes unitarios em pushes e pull requests para `main` e `master`.
+O projeto usa `.gitlab-ci.yml` com este fluxo:
 
-### Notificacao de commits no Google Chat
+- **Quality**: `lintDebug`
+- **Test**: `testDebugUnitTest`
+- **Build**: `assembleDebug` e `bundleRelease`
+- **Deploy**:
+  - `Dev`: distribuicao automatica para Firebase App Distribution (APK debug), quando variaveis estao configuradas.
+  - `Release`: distribuicao manual de AAB via job manual em pipeline de tag.
+- **Notify**: mensagem no Google Chat a cada `push` na branch `dev`/`Dev`.
 
-O projeto tambem possui pipeline para avisar no Google Chat a cada `push` na branch `dev`.
+### Variaveis necessarias no GitLab
 
-Para ativar:
+Configure em `Settings > CI/CD > Variables`:
 
-1. No Google Chat, crie um **Incoming Webhook** no espaco desejado.
-2. No GitLab, acesse `Settings > CI/CD > Variables`.
-3. Crie a variavel `GOOGLE_CHAT_WEBHOOK_URL` com a URL do webhook.
+- `GOOGLE_CHAT_WEBHOOK_URL`: URL completa do webhook do Google Chat.
+- `FIREBASE_APP_ID`: app id do Firebase App Distribution (formato `1:1234567890:android:abc...`).
+- `FIREBASE_TOKEN`: token de CLI do Firebase (`firebase login:ci`).
+- `FIREBASE_TESTER_GROUPS` (opcional): grupos de distribuicao, exemplo `qa,devs`.
 
-Arquivo da pipeline: `.gitlab-ci.yml`.
-Ele envia branch, autor, SHA curto, titulo do commit, corpo (se houver), lista de arquivos alterados e links do commit/pipeline.
+Observacoes:
+
+- Se `GOOGLE_CHAT_WEBHOOK_URL` nao estiver definido, o job de notificacao nao roda.
+- Se `FIREBASE_APP_ID` e `FIREBASE_TOKEN` nao estiverem definidos, jobs de deploy sao ignorados.
+- Evite marcar as variaveis como `Protected` se a branch `Dev` nao for protegida.
 
 ---
 
 ## Estrutura (resumo)
 
 - `app/`: aplicativo Android
-- `.github/workflows/android-ci.yml`: pipeline de CI
+- `.gitlab-ci.yml`: pipeline de CI/CD
 - `gradle/` e scripts `gradlew*`: build e automacao
 
 ---
