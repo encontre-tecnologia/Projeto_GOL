@@ -30,22 +30,26 @@ notify_google_chat:
 
       CHANGED_FILES="$(printf '%s\n' "${FILES}" | sed 's/^/- /')"
 
-      MESSAGE="$(cat <<EOF
-      Novo commit em ${CI_PROJECT_PATH}
-      Branch: ${CI_COMMIT_BRANCH}
-      Autor: ${GITLAB_USER_NAME}
-      Commit: ${SHORT_SHA}
-      Titulo: ${TITLE}
-      Resumo: ${BODY}
-
-      Arquivos alterados (ate 12):
-      ${CHANGED_FILES}
-      Commit: ${CI_PROJECT_URL}/-/commit/${CI_COMMIT_SHA}
-      Pipeline: ${CI_PIPELINE_URL}
-      EOF
-      )"
-
-      PAYLOAD="$(jq -n --arg text "${MESSAGE}" '{text: $text}')"
+      PAYLOAD="$(jq -n \
+        --arg project "${CI_PROJECT_PATH}" \
+        --arg branch "${CI_COMMIT_BRANCH}" \
+        --arg author "${GITLAB_USER_NAME}" \
+        --arg short_sha "${SHORT_SHA}" \
+        --arg title "${TITLE}" \
+        --arg body "${BODY}" \
+        --arg files "${CHANGED_FILES}" \
+        --arg commit_url "${CI_PROJECT_URL}/-/commit/${CI_COMMIT_SHA}" \
+        --arg pipeline_url "${CI_PIPELINE_URL}" \
+        '{text: ("Novo commit em " + $project + "\n"
+          + "Branch: " + $branch + "\n"
+          + "Autor: " + $author + "\n"
+          + "Commit: " + $short_sha + "\n"
+          + "Titulo: " + $title + "\n"
+          + "Resumo: " + $body + "\n\n"
+          + "Arquivos alterados (ate 12):\n"
+          + $files + "\n"
+          + "Commit: " + $commit_url + "\n"
+          + "Pipeline: " + $pipeline_url)}')"
 
       curl --fail --show-error --silent \
         -X POST \
