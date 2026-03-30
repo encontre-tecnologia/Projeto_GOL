@@ -9,6 +9,7 @@ object AppPreferences {
     private const val KEY_FIRST_RUN = "first_run"
     private const val KEY_DARK_THEME = "dark_theme"
     private const val KEY_THEME_MODE = "theme_mode"
+    private const val KEY_APP_LANGUAGE = "app_language"
     private const val KEY_FUEL_START_KM_PREFIX = "fuel_start_km_"
     private const val KEY_OCR_MONTH = "ocr_month"
     private const val KEY_OCR_COUNT = "ocr_count"
@@ -63,7 +64,20 @@ object AppPreferences {
         context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
             .edit()
             .putString(KEY_THEME_MODE, mode.name)
-            .putBoolean(KEY_DARK_THEME, mode != AppThemeMode.LIGHT)
+            .putBoolean(KEY_DARK_THEME, mode == AppThemeMode.DARK)
+            .apply()
+    }
+
+    fun getAppLanguage(context: Context): AppLanguage {
+        val stored = context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+            .getString(KEY_APP_LANGUAGE, AppLanguage.SYSTEM.name)
+        return AppLanguage.entries.firstOrNull { it.name == stored } ?: AppLanguage.SYSTEM
+    }
+
+    fun setAppLanguage(context: Context, language: AppLanguage) {
+        context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+            .edit()
+            .putString(KEY_APP_LANGUAGE, language.name)
             .apply()
     }
 
@@ -276,5 +290,12 @@ enum class ParkingPricingMode {
 enum class AppThemeMode {
     SYSTEM,
     LIGHT,
-    DARK
+    DARK,
+    ROSE
+}
+
+enum class AppLanguage(val tag: String) {
+    SYSTEM(""),
+    PORTUGUESE("pt-BR"),
+    ENGLISH("en-US")
 }
