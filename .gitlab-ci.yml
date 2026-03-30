@@ -81,36 +81,41 @@ build_release_aab:
     paths:
       - app/build/outputs/bundle/release/app-release.aab
 
-deploy_dev_firebase:
+deploy_release_play_console:
   stage: deploy
-  image: node:20-alpine
-  needs: ["build_debug_apk"]
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "push" && ($CI_COMMIT_BRANCH == "dev" || $CI_COMMIT_BRANCH == "Dev") && $FIREBASE_APP_ID && $FIREBASE_TOKEN'
-  script:
-    - npm i -g firebase-tools
-    - |
-      firebase appdistribution:distribute app/build/outputs/apk/debug/app-debug.apk \
-        --app "${FIREBASE_APP_ID}" \
-        --token "${FIREBASE_TOKEN}" \
-        --groups "${FIREBASE_TESTER_GROUPS:-qa}" \
-        --release-notes "Branch: ${CI_COMMIT_BRANCH} | Commit: ${CI_COMMIT_SHORT_SHA} | Autor: ${GITLAB_USER_NAME}"
-
-deploy_release_firebase_manual:
-  stage: deploy
-  image: node:20-alpine
+  image: ruby:3.3-alpine
   needs: ["build_release_aab"]
   rules:
-    - if: '$CI_COMMIT_TAG && $FIREBASE_APP_ID && $FIREBASE_TOKEN'
+    - if: '$CI_COMMIT_TAG && $GOOGLE_PLAY_SERVICE_ACCOUNT_JSON'
+    - if: '$CI_PIPELINE_SOURCE == "push" && ($CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "master") && $GOOGLE_PLAY_SERVICE_ACCOUNT_JSON'
       when: manual
+  before_script:
+    - apk add --no-cache bash curl git build-base ruby-dev
+    - gem install fastlane --no-document
   script:
-    - npm i -g firebase-tools
     - |
-      firebase appdistribution:distribute app/build/outputs/bundle/release/app-release.aab \
-        --app "${FIREBASE_APP_ID}" \
-        --token "${FIREBASE_TOKEN}" \
-        --groups "${FIREBASE_TESTER_GROUPS:-qa}" \
-        --release-notes "Tag: ${CI_COMMIT_TAG} | Commit: ${CI_COMMIT_SHORT_SHA} | Autor: ${GITLAB_USER_NAME}"
+      if [ -z "${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON}" ]; then
+        echo "ERRO: GOOGLE_PLAY_SERVICE_ACCOUNT_JSON nao definida."
+        exit 1
+      fi
+
+      if [ -f "${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON}" ]; then
+        PLAY_JSON_PATH="${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON}"
+      else
+        PLAY_JSON_PATH="/tmp/google-play-service-account.json"
+        printf '%s' "${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON}" > "${PLAY_JSON_PATH}"
+      fi
+
+      fastlane supply \
+        --aab "app/build/outputs/bundle/release/app-release.aab" \
+        --json_key "${PLAY_JSON_PATH}" \
+        --package_name "br.com.gui.carlembrete" \
+        --track "${PLAY_TRACK:-internal}" \
+        --release_status "${PLAY_RELEASE_STATUS:-draft}" \
+        --skip_upload_images true \
+        --skip_upload_screenshots true \
+        --skip_upload_metadata true \
+        --skip_upload_changelogs true
 
 notify_google_chat:
   stage: notify

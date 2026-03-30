@@ -104,8 +104,9 @@ O projeto usa `.gitlab-ci.yml` com este fluxo:
 - **Test**: `testDebugUnitTest`
 - **Build**: `assembleDebug` e `bundleRelease`
 - **Deploy**:
-  - `Dev`: distribuicao automatica para Firebase App Distribution (APK debug), quando variaveis estao configuradas.
-  - `Release`: distribuicao manual de AAB via job manual em pipeline de tag.
+  - `Release`: upload do AAB para Google Play Console (track configuravel, padrao `internal`).
+  - Em `tag`: deploy automatico.
+  - Em `main/master`: deploy manual.
 - **Notify**: mensagem no Google Chat a cada `push` na branch `dev`/`Dev`.
 
 ### Variaveis necessarias no GitLab
@@ -113,14 +114,14 @@ O projeto usa `.gitlab-ci.yml` com este fluxo:
 Configure em `Settings > CI/CD > Variables`:
 
 - `GOOGLE_CHAT_WEBHOOK_URL`: URL completa do webhook do Google Chat.
-- `FIREBASE_APP_ID`: app id do Firebase App Distribution (formato `1:1234567890:android:abc...`).
-- `FIREBASE_TOKEN`: token de CLI do Firebase (`firebase login:ci`).
-- `FIREBASE_TESTER_GROUPS` (opcional): grupos de distribuicao, exemplo `qa,devs`.
+- `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON`: credencial JSON da service account com permissao de release no Google Play Console.
+- `PLAY_TRACK` (opcional): faixa do release (`internal`, `alpha`, `beta`, `production`). Padrao: `internal`.
+- `PLAY_RELEASE_STATUS` (opcional): status no Play (`draft`, `completed`, `inProgress`, `halted`). Padrao: `draft`.
 
 Observacoes:
 
 - Se `GOOGLE_CHAT_WEBHOOK_URL` nao estiver definido, o job de notificacao nao roda.
-- Se `FIREBASE_APP_ID` e `FIREBASE_TOKEN` nao estiverem definidos, jobs de deploy sao ignorados.
+- Se `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` nao estiver definido, jobs de deploy para Play Console nao rodam.
 - Evite marcar as variaveis como `Protected` se a branch `Dev` nao for protegida.
 
 ---
