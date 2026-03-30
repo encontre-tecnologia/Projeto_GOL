@@ -30,6 +30,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
@@ -51,9 +52,9 @@ fun PerfilScreen(
     val context = LocalContext.current
     val colorScheme = MaterialTheme.colorScheme
 
-    // Recuperando as cores originais que vocÃª prefere
+    // Cores baseadas no tema
     val isDark = colorScheme.background.luminance() < 0.5f
-    val bg = if (isDark) Color(0xFF0F172A) else Color.White
+    val bg = if (isDark) Color(0xFF0F172A) else colorScheme.background
     val cardBg = if (isDark) Color(0xFF1E293B) else Color(0xFFF8FAFC)
     val border = if (isDark) Color.White.copy(alpha = 0.10f) else Color(0xFFE2E8F0)
 
@@ -158,7 +159,7 @@ fun PerfilScreen(
                 }
             }
 
-            // --- SEÃ‡ÃƒO: INFORMAÃ‡Ã•ES ---
+            // --- SEÇÃO: INFORMAÇÕES ---
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(24.dp),
@@ -168,7 +169,7 @@ fun PerfilScreen(
                 Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     InfoRow(icon = Icons.Rounded.Email, label = "Email", value = email)
                     HorizontalDivider(thickness = 0.5.dp, color = border)
-                    InfoRow(icon = Icons.Rounded.History, label = "Ultimo acesso", value = ultimoLoginTexto)
+                    InfoRow(icon = Icons.Rounded.History, label = "Último acesso", value = ultimoLoginTexto)
                     HorizontalDivider(thickness = 0.5.dp, color = border)
                     InfoRow(
                         icon = Icons.Rounded.VerifiedUser,
@@ -178,7 +179,7 @@ fun PerfilScreen(
                     HorizontalDivider(thickness = 0.5.dp, color = border)
                     InfoRow(
                         icon = Icons.Rounded.Person,
-                        label = "Veiculos cadastrados",
+                        label = "Veículos cadastrados",
                         value = totalVeiculos.toString()
                     )
                 }
@@ -186,7 +187,7 @@ fun PerfilScreen(
 
             Spacer(modifier = Modifier.weight(1f))
 
-            // --- BOTÃƒO DE PERIGO ---
+            // --- BOTÃO DE PERIGO ---
             OutlinedButton(
                 onClick = { showDeleteDialog = true },
                 modifier = Modifier.fillMaxWidth().height(56.dp),
@@ -218,9 +219,21 @@ private fun InfoRow(icon: ImageVector, label: String, value: String) {
             }
         }
         Spacer(Modifier.width(16.dp))
-        Column {
-            Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(value, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = value,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }
@@ -250,10 +263,10 @@ private fun DeleteAccountDialog(
                     modifier = Modifier.size(48.dp)
                 )
                 Spacer(Modifier.height(16.dp))
-                Text("Apagar permanentemente?", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                Text(tr("Apagar permanentemente?", "Delete permanently?"), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
                 Spacer(Modifier.height(12.dp))
                 Text(
-                    "Esta aÃ§Ã£o nÃ£o pode ser desfeita. Todos os seus dados serÃ£o perdidos.",
+                    tr("Esta ação não pode ser desfeita. Todos os seus dados serão perdidos.", "This action cannot be undone. All your data will be lost."),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center
@@ -261,7 +274,7 @@ private fun DeleteAccountDialog(
                 Spacer(Modifier.height(24.dp))
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     TextButton(onClick = onDismiss, modifier = Modifier.weight(1f)) {
-                        Text("Cancelar")
+                        Text(tr("Cancelar", "Cancel"))
                     }
                     Button(
                         onClick = onConfirm,
@@ -269,7 +282,7 @@ private fun DeleteAccountDialog(
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
                         shape = RoundedCornerShape(12.dp)
                     ) {
-                        Text("Apagar", fontWeight = FontWeight.Bold)
+                        Text(tr("Apagar", "Delete"), fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -278,11 +291,11 @@ private fun DeleteAccountDialog(
 }
 
 private fun formatarData(millis: Long): String {
-    if (millis <= 0L) return "NÃ£o disponÃ­vel"
+    if (millis <= 0L) return "Não disponível"
     return try {
         val data = Instant.ofEpochMilli(millis).atZone(ZoneId.systemDefault())
-        DateTimeFormatter.ofPattern("dd/MM/yyyy 'Ã s' HH:mm").format(data)
-    } catch (e: Exception) { "Formato invÃ¡lido" }
+        DateTimeFormatter.ofPattern("dd/MM/yyyy 'às' HH:mm").format(data)
+    } catch (e: Exception) { "Formato inválido" }
 }
 
 private fun formatarTempoDesdeLogin(lastSignInMillis: Long): String {
@@ -298,6 +311,7 @@ private fun formatarTempoDesdeLogin(lastSignInMillis: Long): String {
 }
 
 private fun apagarContaLocalRemota(context: Context) {
+    // Presumindo que os métodos salvarX existam no seu singleton BancoDeDados
     BancoDeDados.salvarCarros(context, emptyList())
     BancoDeDados.salvarLembretes(context, emptyList())
     BancoDeDados.salvarContatos(context, emptyList())
@@ -310,7 +324,7 @@ private fun apagarContaLocalRemota(context: Context) {
     val auth = FirebaseAuth.getInstance()
     auth.currentUser?.delete()?.addOnCompleteListener { task ->
         if (!task.isSuccessful) {
-            Toast.makeText(context, "Erro na exclusÃ£o remota.", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, "Erro na exclusão remota.", Toast.LENGTH_LONG).show()
         }
     }
     auth.signOut()

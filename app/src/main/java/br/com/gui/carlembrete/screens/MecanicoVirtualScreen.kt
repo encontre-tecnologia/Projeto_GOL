@@ -216,7 +216,7 @@ fun MecanicoVirtualScreen(
 
     val colorScheme = MaterialTheme.colorScheme
     val isDark = colorScheme.background.luminance() < 0.5f
-    val bg = if (isDark) colorScheme.background else Color.White
+    val bg = if (isDark) colorScheme.background else colorScheme.background
     val surface = colorScheme.surface
     val textPrimary = colorScheme.onSurface
     val textDim = colorScheme.onSurfaceVariant

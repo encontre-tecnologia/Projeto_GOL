@@ -66,9 +66,10 @@ fun PremiumHubScreen(
     val textDim = if (isDark) Color(0xFFCBD5E1) else Color(0xFF7A5A1F)
     val accentGold = Color(0xFFD4A017)
     val borderColor = if (isDark) Color(0xFF8B6B1F) else Color(0xFFE9C46A)
-    val cardSurface = if (isDark) Color(0xFF111827) else Color.White
-    val screenBg = cardSurface
+    val cardSurface = if (isDark) Color(0xFF111827) else colorScheme.surface
+    val screenBg = if (isDark) colorScheme.background else colorScheme.background
     val featureCardSurface = if (isDark) Color(0xFF0F172A) else Color(0xFFFFFEF8)
+    val isEnglish = isEnglishUi()
     val supportPhone = "5516994392545"
     val userName = FirebaseAuth.getInstance().currentUser?.displayName
         ?: FirebaseAuth.getInstance().currentUser?.email
@@ -101,7 +102,7 @@ fun PremiumHubScreen(
                 title = { Text("") },
                 navigationIcon = {
                     IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar", tint = textPrimary)
+                        Icon(Icons.Default.ArrowBackIosNew, contentDescription = tr("Voltar", "Back"), tint = textPrimary)
                     }
                 },
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = cardSurface)
@@ -147,15 +148,15 @@ fun PremiumHubScreen(
                                 modifier = Modifier.size(30.dp)
                             )
                         }
-                        Text("Zellu Premium", color = textPrimary, fontWeight = FontWeight.Bold, fontSize = 25.sp)
-                        Text("Veja seu novo recurso", color = textDim, fontSize = 14.sp)
+                        Text(tr("Zellu Premium", "Zellu Premium"), color = textPrimary, fontWeight = FontWeight.Bold, fontSize = 25.sp)
+                        Text(tr("Veja seu novo recurso", "See your new feature"), color = textDim, fontSize = 14.sp)
                     }
 
                     Spacer(modifier = Modifier.size(14.dp))
 
                     PremiumFeatureCard(
-                        title = "Viagens",
-                        subtitle = "Acessar modulo de viagens e despesas",
+                        title = tr("Viagens", "Trips"),
+                        subtitle = tr("Acessar modulo de viagens e despesas", "Open trips and expenses module"),
                         iconColor = Color(0xFFEA580C),
                         textPrimary = textPrimary,
                         textDim = textDim,
@@ -174,7 +175,11 @@ fun PremiumHubScreen(
                         abrirWhatsApp(
                             context = context,
                             telefone = supportPhone,
-                            mensagem = "Olá, sou $userName e preciso de ajuda com o Zellu Premium."
+                            mensagem = if (isEnglish) {
+                                "Hi, I'm $userName and I need help with Zellu Premium."
+                            } else {
+                                "Olá, sou $userName e preciso de ajuda com o Zellu Premium."
+                            }
                         )
                     },
                     colors = ButtonDefaults.buttonColors(
@@ -193,7 +198,7 @@ fun PremiumHubScreen(
                         modifier = Modifier.size(20.dp)
                     )
                     Spacer(Modifier.size(8.dp))
-                    Text("Suporte WhatsApp", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Text(tr("Suporte WhatsApp", "WhatsApp support"), fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 }
             }
         }
