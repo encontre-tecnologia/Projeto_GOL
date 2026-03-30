@@ -51,8 +51,10 @@ notify_google_chat:
           + "Commit: " + $commit_url + "\n"
           + "Pipeline: " + $pipeline_url)}')"
 
-      curl --fail --show-error --silent \
-        -X POST \
-        -H "Content-Type: application/json; charset=UTF-8" \
-        -d "${PAYLOAD}" \
-        "${GOOGLE_CHAT_WEBHOOK_URL}"
+      if [ -z "${GOOGLE_CHAT_WEBHOOK_URL}" ]; then
+        echo "ERRO: GOOGLE_CHAT_WEBHOOK_URL nao definida no GitLab CI/CD Variables."
+        echo "Se a variavel estiver como Protected, a branch Dev tambem precisa ser protected."
+        exit 1
+      fi
+
+      curl --fail --show-error --silent -X POST -H "Content-Type: application/json; charset=UTF-8" -d "${PAYLOAD}" "${GOOGLE_CHAT_WEBHOOK_URL}"
