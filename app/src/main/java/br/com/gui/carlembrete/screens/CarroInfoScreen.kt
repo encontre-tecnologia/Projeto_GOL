@@ -60,14 +60,15 @@ fun CarroInfoScreen(
     isPremium: Boolean,
     onDismiss: () -> Unit
 ) {
-    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
-    val pageLight = if (isDark) Color(0xFF0F172A) else Color(0xFFF8FAFC)
+    val scheme = MaterialTheme.colorScheme
+    val isDark = scheme.background.luminance() < 0.5f
+    val pageLight = if (isDark) Color(0xFF0F172A) else scheme.background
     val cardColor = if (isDark) Color(0xFF1E293B) else Color.White
     val textLight = if (isDark) Color(0xFFF1F5F9) else Color(0xFF0F172A)
     val textDim = if (isDark) Color(0xFF94A3B8) else Color(0xFF64748B)
     val accentColor = Color(0xFF38BDF8)
-    val cardBorder = if (isDark) Color.White.copy(alpha = 0.14f) else Color.Black.copy(alpha = 0.18f)
-    val dividerColor = if (isDark) Color.White.copy(alpha = 0.12f) else Color(0xFFE2E8F0)
+    val cardBorder = if (isDark) Color.White.copy(alpha = 0.14f) else Color(0xFFCBD5E1)
+    val dividerColor = if (isDark) Color.White.copy(alpha = 0.12f) else Color(0xFFCBD5E1)
     val pdfAccent = if (isDark) Color.White else Color.Black
     val pdfContainer = Color.Transparent
 
@@ -117,9 +118,23 @@ fun CarroInfoScreen(
     var carregandoPrecoFipe by remember(carro.id, carro.marca, carro.modelo, carro.tipoVeiculo) { mutableStateOf(false) }
 
     val corNome = corNomePorArgb(carro.corArgb)
-    val (tituloSaudeOriginal, descricaoSaude) = calcularReputacao(lembretes)
-    val saudeCritica = tituloSaudeOriginal.trim().lowercase(Locale("pt", "BR")).contains("crit")
-    val tituloSaude = if (saudeCritica) "Crítica" else "Em dia"
+    val (tituloSaudeOriginal, descricaoSaudeOriginal) = calcularReputacao(lembretesSemAbastecimento)
+    val hoje = LocalDate.now()
+    val avisosVencidos = lembretesAtivos.count { lembrete ->
+        val data = dataParaOrdenacao(lembrete)
+        data != LocalDate.MAX && data.isBefore(hoje)
+    }
+    val avisosPendentes = lembretesAtivos.count { lembrete ->
+        val data = dataParaOrdenacao(lembrete)
+        data != LocalDate.MAX && !data.isBefore(hoje)
+    }
+    val saudeCritica = avisosVencidos > 0
+    val tituloSaude = if (saudeCritica) tr("Crítica", "Critical") else tr("Em dia", "Healthy")
+    val descricaoSaude = when {
+        saudeCritica -> if (isEnglishUi()) "There are $avisosVencidos overdue reminder(s)." else "Existem $avisosVencidos aviso(s) vencido(s)."
+        avisosPendentes > 0 -> if (isEnglishUi()) "There are $avisosPendentes active reminder(s) in follow-up." else "Há $avisosPendentes aviso(s) ativo(s) em acompanhamento."
+        else -> descricaoSaudeOriginal
+    }
     val kmAtualResumo = if (carro.kmAtual > 0) {
         "${NumberFormat.getIntegerInstance(Locale("pt", "BR")).format(carro.kmAtual)} km"
     } else {
@@ -157,9 +172,9 @@ fun CarroInfoScreen(
         .take(10)
 
     val documentos = listOf(
-        TipoManutencao.IPVA to "IPVA",
-        TipoManutencao.LICENCIAMENTO to "Licenciamento",
-        TipoManutencao.SEGURO to "Seguro"
+        TipoManutencao.IPVA to tr("IPVA", "IPVA"),
+        TipoManutencao.LICENCIAMENTO to tr("Licenciamento", "Licensing"),
+        TipoManutencao.SEGURO to tr("Seguro", "Insurance")
     ).map { (tipo, label) ->
         val ultimaData = lembretesAtivos
             .filter { it.tipo == tipo }
@@ -168,24 +183,24 @@ fun CarroInfoScreen(
             .maxOrNull()
         val status = when {
             ultimaData == null -> "N/A"
-            !ultimaData.isBefore(LocalDate.now()) -> "Em dia"
-            else -> "Vencido"
+            !ultimaData.isBefore(LocalDate.now()) -> tr("Em dia", "Healthy")
+            else -> tr("Vencido", "Overdue")
         }
-        val corStatus = if(status == "Vencido") Color(0xFFEF4444) else if(status == "Em dia") Color(0xFF10B981) else textDim
+        val corStatus = if(status == tr("Vencido", "Overdue")) Color(0xFFEF4444) else if(status == tr("Em dia", "Healthy")) Color(0xFF10B981) else textDim
         Triple(label, status, corStatus)
     }
 
     val valorFipeNumerico = remember(precoTabelaFipe) {
         precoTabelaFipe?.let(::parseMoedaBrParaDouble)
     }
-    val fatorVendaSugerido = remember(tituloSaudeOriginal, lembretes.size, carro.vezesBatido, carro.tempoComVeiculo) {
+    val fatorVendaSugerido = remember(tituloSaudeOriginal, lembretesSemAbastecimento.size, carro.vezesBatido, carro.tempoComVeiculo) {
         val fatorSaude = when (tituloSaudeOriginal) {
             "Excelente" -> 0.98
             "Em atenção" -> 0.93
             "Crítica" -> 0.86
             else -> 0.94
         }
-        val descontoAvisos = (lembretes.size * 0.012).coerceAtMost(0.10)
+        val descontoAvisos = (lembretesSemAbastecimento.size * 0.012).coerceAtMost(0.10)
         val fatorBase = max(0.75, fatorSaude - descontoAvisos)
         val fatorBatidas = fatorPorBatidas(carro.vezesBatido)
         val fatorTempo = fatorPorTempoComVeiculo(carro.tempoComVeiculo)
@@ -226,7 +241,7 @@ fun CarroInfoScreen(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    "Relatório Técnico",
+                    tr("Relatório Técnico", "Technical Report"),
                     color = textLight,
                     fontWeight = FontWeight.Bold,
                     fontSize = 17.sp
@@ -240,7 +255,7 @@ fun CarroInfoScreen(
                 ) {
                     Icon(
                         Icons.Default.ArrowBackIosNew,
-                        contentDescription = "Voltar",
+                        contentDescription = tr("Voltar", "Back"),
                         tint = textLight,
                         modifier = Modifier.size(18.dp)
                     )
@@ -259,7 +274,7 @@ fun CarroInfoScreen(
                         if (uri != null) {
                             compartilharPdf(context, uri)
                         } else {
-                            Toast.makeText(context, "Erro ao gerar PDF", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, trNow("Erro ao gerar PDF", "Failed to generate PDF"), Toast.LENGTH_SHORT).show()
                         }
                     },
                     colors = ButtonDefaults.filledTonalButtonColors(
@@ -273,7 +288,7 @@ fun CarroInfoScreen(
                 ) {
                     Icon(Icons.Default.Print, contentDescription = null, modifier = Modifier.size(14.dp))
                     Spacer(Modifier.width(6.dp))
-                    Text("PDF", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    Text(tr("PDF", "PDF"), fontWeight = FontWeight.Bold, fontSize = 12.sp)
                 }
             }
 
@@ -311,7 +326,7 @@ fun CarroInfoScreen(
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Text(
-                            text = "Marca • Modelo • Ano",
+                            text = tr("Marca • Modelo • Ano", "Brand • Model • Year"),
                             color = textDim,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Medium
@@ -331,7 +346,7 @@ fun CarroInfoScreen(
 
                 if (carregandoPrecoFipe) {
                     Text(
-                        text = "Buscando FIPE...",
+                        text = tr("Buscando FIPE...", "Loading FIPE..."),
                         style = MaterialTheme.typography.bodySmall,
                         color = textDim,
                         modifier = Modifier.offset(y = (-54).dp)
@@ -353,10 +368,10 @@ fun CarroInfoScreen(
                                 .padding(14.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            InfoRowModern("Tabela FIPE", precoTabelaFipe.orEmpty(), textDim, Color(0xFF22C55E))
+                            InfoRowModern(tr("Tabela FIPE", "FIPE Table"), precoTabelaFipe.orEmpty(), textDim, Color(0xFF22C55E))
                             if (valorVendaSugerido != null) {
                                 Divider(color = dividerColor)
-                                InfoRowModern("Por quanto vender", formatarMoedaLocal(valorVendaSugerido), textDim, Color(0xFF22C55E))
+                                InfoRowModern(tr("Por quanto vender", "Suggested sale price"), formatarMoedaLocal(valorVendaSugerido), textDim, Color(0xFF22C55E))
                             }
                         }
                     }
@@ -369,8 +384,8 @@ fun CarroInfoScreen(
                 FilledTonalButton(
                     onClick = { showHistoricoConsumo = true },
                     colors = ButtonDefaults.filledTonalButtonColors(
-                        containerColor = Color(0xFF3B82F6),
-                        contentColor = Color.White
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
                     ),
                     contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
                     shape = RoundedCornerShape(12.dp),
@@ -381,7 +396,7 @@ fun CarroInfoScreen(
                 ) {
                     Icon(Icons.Default.LocalGasStation, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text("Ver consumo", fontWeight = FontWeight.SemiBold)
+                    Text(tr("Ver consumo", "View consumption"), fontWeight = FontWeight.SemiBold)
                 }
             }
 
@@ -393,18 +408,18 @@ fun CarroInfoScreen(
                     .offset(y = (-34).dp)
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp),
-                title = "Resumo",
+                title = tr("Resumo", "Summary"),
                 icon = Icons.Outlined.Info,
                 cardColor = cardColor,
                 titleColor = textLight,
                 borderColor = cardBorder
             ) {
-                InfoRowModern("Saúde", tituloSaude, textDim, corSaude)
+                InfoRowModern(tr("Saúde", "Health"), tituloSaude, textDim, corSaude)
                 Divider(color = dividerColor)
-                InfoRowModern("Total gasto", formatarMoedaLocal(totalGastos), textDim, textLight)
+                InfoRowModern(tr("Total gasto", "Total spent"), formatarMoedaLocal(totalGastos), textDim, textLight)
                 if (!isBikeType) {
                     Divider(color = dividerColor)
-                    InfoRowModern("KM atual", kmAtualResumo, textDim, accentColor)
+                    InfoRowModern(tr("KM atual", "Current mileage"), kmAtualResumo, textDim, accentColor)
                 }
             }
 
@@ -419,26 +434,26 @@ fun CarroInfoScreen(
             ) {
 
                 // Seção Técnica
-                ContentSection(title = "Ficha Técnica", icon = Icons.Outlined.Build, cardColor = cardColor, titleColor = textLight, borderColor = cardBorder) {
-                    InfoRowModern("Cor", corNome, textDim, textLight)
+                ContentSection(title = tr("Ficha Técnica", "Technical Sheet"), icon = Icons.Outlined.Build, cardColor = cardColor, titleColor = textLight, borderColor = cardBorder) {
+                    InfoRowModern(tr("Cor", "Color"), corNome, textDim, textLight)
                     Divider(color = dividerColor)
-                    InfoRowModern("Modelo", modeloSemAno, textDim, textLight)
+                    InfoRowModern(tr("Modelo", "Model"), modeloSemAno, textDim, textLight)
                     if (!isBikeType) {
                         Divider(color = dividerColor)
-                        InfoRowModern("Ano", anoVeiculo, textDim, textLight)
+                        InfoRowModern(tr("Ano", "Year"), anoVeiculo, textDim, textLight)
                     }
                     Divider(color = dividerColor)
-                    InfoRowModern("Código ID", codigoCurto(carro.id), textDim, textLight)
+                    InfoRowModern(tr("Código ID", "ID Code"), codigoCurto(carro.id), textDim, textLight)
                     Divider(color = dividerColor)
-                    InfoRowModern("Próx. Serviço", proximo, textDim, if(proximo == "--") textDim else accentColor)
+                    InfoRowModern(tr("Próx. Serviço", "Next service"), proximo, textDim, if(proximo == "--") textDim else accentColor)
                     Divider(color = dividerColor)
-                    InfoRowModern("Mantenedor", carro.proprietario.ifBlank { "--" }, textDim, textLight)
+                    InfoRowModern(tr("Mantenedor", "Maintainer"), carro.proprietario.ifBlank { "--" }, textDim, textLight)
                 }
 
                 // Seção Documentos (apenas para veículos com documentação)
                 if (carro.tipoVeiculo != TipoVeiculo.BICICLETA) {
                     ContentSection(
-                        title = "Situação Legal",
+                        title = tr("Situação Legal", "Legal Status"),
                         icon = Icons.Outlined.Description,
                         cardColor = cardColor,
                         titleColor = textLight,
@@ -470,14 +485,14 @@ fun CarroInfoScreen(
 
                 // Histórico Recente
                 ContentSection(
-                    title = "Manutencoes Realizadas",
+                    title = tr("Manutenções Realizadas", "Completed Maintenance"),
                     icon = Icons.Outlined.History,
                     cardColor = cardColor,
                     titleColor = textLight,
                     borderColor = cardBorder
                 ) {
                     if (historicoManutencoes.isEmpty()) {
-                        Text("Nenhum registro encontrado.", color = textDim, fontSize = 12.sp, modifier = Modifier.padding(vertical = 8.dp))
+                        Text(tr("Nenhum registro encontrado.", "No records found."), color = textDim, fontSize = 12.sp, modifier = Modifier.padding(vertical = 8.dp))
                     } else {
                         Surface(
                             modifier = Modifier.fillMaxWidth(),
@@ -494,9 +509,9 @@ fun CarroInfoScreen(
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text("Item", color = textLight, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                                    Text("Data", color = textLight, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(92.dp))
-                                    Text("Valor", color = textLight, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(82.dp), textAlign = TextAlign.End)
+                                    Text(tr("Item", "Item"), color = textLight, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                                    Text(tr("Data", "Date"), color = textLight, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(92.dp))
+                                    Text(tr("Valor", "Amount"), color = textLight, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(82.dp), textAlign = TextAlign.End)
                                 }
                                 historicoManutencoes.forEachIndexed { index, (data, lembrete) ->
                                     Row(
@@ -537,14 +552,14 @@ fun CarroInfoScreen(
                 }
 
                 ContentSection(
-                    title = "Manutencoes Futuras",
+                    title = tr("Manutenções Futuras", "Upcoming Maintenance"),
                     icon = Icons.Default.Event,
                     cardColor = cardColor,
                     titleColor = textLight,
                     borderColor = cardBorder
                 ) {
                     if (manutencoesFuturas.isEmpty()) {
-                        Text("Nenhum lembrete futuro.", color = textDim, fontSize = 12.sp)
+                        Text(tr("Nenhum lembrete futuro.", "No upcoming reminders."), color = textDim, fontSize = 12.sp)
                     } else {
                         val colData = 110.dp
                         val colKm = 90.dp
@@ -563,9 +578,9 @@ fun CarroInfoScreen(
                                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text("Item", color = textLight, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                                    Text("Data", color = textLight, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(colData), textAlign = TextAlign.Center)
-                                    Text("KM", color = textLight, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(colKm), textAlign = TextAlign.End)
+                                    Text(tr("Item", "Item"), color = textLight, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                                    Text(tr("Data", "Date"), color = textLight, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(colData), textAlign = TextAlign.Center)
+                                    Text(tr("KM", "Mileage"), color = textLight, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(colKm), textAlign = TextAlign.End)
                                 }
                                 manutencoesFuturas.forEachIndexed { index, (data, lembrete) ->
                                     Row(
@@ -774,25 +789,25 @@ private fun fatorPorTempoComVeiculo(tempoComVeiculo: String): Double {
 
 private fun corNomePorArgb(argb: Int): String {
     val cores = listOf(
-        "Branco" to Color(0xFFFFFFFF).toArgb(),
-        "Preto" to Color(0xFF0F172A).toArgb(),
-        "Prata" to Color(0xFFC0C0C0).toArgb(),
-        "Cinza" to Color(0xFF9CA3AF).toArgb(),
-        "Vermelho" to Color(0xFFDC2626).toArgb(),
-        "Azul" to Color(0xFF4F7DBE).toArgb(),
-        "Marrom" to Color(0xFF7C3F00).toArgb(),
-        "Bege" to Color(0xFFE7D7C1).toArgb(),
-        "Verde" to Color(0xFF16A34A).toArgb(),
-        "Amarelo" to Color(0xFFFACC15).toArgb(),
-        "Laranja" to Color(0xFFF97316).toArgb(),
-        "Roxo" to Color(0xFF6D5BD0).toArgb(),
-        "Rosa" to Color(0xFFEC4899).toArgb(),
-        "Dourado" to Color(0xFFC0841A).toArgb(),
-        "Bordô" to Color(0xFF7F1D1D).toArgb(),
-        "Turquesa" to Color(0xFF38BDF8).toArgb(),
-        "Creme" to Color(0xFFF5F5DC).toArgb()
+        trNow("Branco", "White") to Color(0xFFFFFFFF).toArgb(),
+        trNow("Preto", "Black") to Color(0xFF0F172A).toArgb(),
+        trNow("Prata", "Silver") to Color(0xFFC0C0C0).toArgb(),
+        trNow("Cinza", "Gray") to Color(0xFF9CA3AF).toArgb(),
+        trNow("Vermelho", "Red") to Color(0xFFDC2626).toArgb(),
+        trNow("Azul", "Blue") to Color(0xFF4F7DBE).toArgb(),
+        trNow("Marrom", "Brown") to Color(0xFF7C3F00).toArgb(),
+        trNow("Bege", "Beige") to Color(0xFFE7D7C1).toArgb(),
+        trNow("Verde", "Green") to Color(0xFF16A34A).toArgb(),
+        trNow("Amarelo", "Yellow") to Color(0xFFFACC15).toArgb(),
+        trNow("Laranja", "Orange") to Color(0xFFF97316).toArgb(),
+        trNow("Roxo", "Purple") to Color(0xFF6D5BD0).toArgb(),
+        trNow("Rosa", "Pink") to Color(0xFFEC4899).toArgb(),
+        trNow("Dourado", "Gold") to Color(0xFFC0841A).toArgb(),
+        trNow("Bordô", "Burgundy") to Color(0xFF7F1D1D).toArgb(),
+        trNow("Turquesa", "Turquoise") to Color(0xFF38BDF8).toArgb(),
+        trNow("Creme", "Cream") to Color(0xFFF5F5DC).toArgb()
     )
-    return cores.firstOrNull { it.second == argb }?.first ?: "Personalizada"
+    return cores.firstOrNull { it.second == argb }?.first ?: trNow("Personalizada", "Custom")
 }
 
 private fun codigoCurto(id: String): String {
@@ -975,3 +990,4 @@ private fun gerarCacheKeyRelatorio(vararg partes: String): String {
     val raw = partes.joinToString("|") { normalizarTextoRelatorio(it) }
     return raw.hashCode().toUInt().toString()
 }
+

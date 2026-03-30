@@ -1,4 +1,4 @@
-package br.com.gui.carlembrete
+﻿package br.com.gui.carlembrete
 
 import android.app.Activity
 import android.content.Intent
@@ -210,21 +210,21 @@ fun EditarCarroScreen(
             CenterAlignedTopAppBar(
                 title = {
                     Text(
-                        if (isBikeType) "Editar bike" else "Editar veiculo",
+                        if (isBikeType) trNow("Editar bike", "Edit bike") else trNow("Editar veiculo", "Edit vehicle"),
                         color = titleColor,
                         fontWeight = FontWeight.Bold
                     )
                 },
                 navigationIcon = {
                     IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar", tint = titleColor)
+                        Icon(Icons.Default.ArrowBackIosNew, contentDescription = trNow("Voltar", "Back"), tint = titleColor)
                     }
                 },
                 actions = {
                     IconButton(onClick = { showDeleteDialog = true }) {
                         Icon(
                             imageVector = Icons.Rounded.Delete,
-                            contentDescription = "Excluir veiculo",
+                            contentDescription = trNow("Excluir veiculo", "Delete vehicle"),
                             tint = MaterialTheme.colorScheme.error
                         )
                     }
@@ -414,7 +414,7 @@ fun EditarCarroScreen(
                         onExpandedChange = { batidasExpanded = !batidasExpanded }
                     ) {
                         OutlinedTextField(
-                            value = vezesBatido?.toString() ?: "Não informado",
+                            value = vezesBatido?.toString() ?: "NÃ£o informado",
                             onValueChange = {},
                             readOnly = true,
                             label = { Text("Vezes batido") },
@@ -427,7 +427,7 @@ fun EditarCarroScreen(
                         )
                         ExposedDropdownMenu(expanded = batidasExpanded, onDismissRequest = { batidasExpanded = false }) {
                             DropdownMenuItem(
-                                text = { Text("Não informado", color = titleColor) },
+                                text = { Text("NÃ£o informado", color = titleColor) },
                                 onClick = {
                                     vezesBatido = null
                                     batidasExpanded = false
@@ -450,7 +450,7 @@ fun EditarCarroScreen(
                         onExpandedChange = { tempoExpanded = !tempoExpanded }
                     ) {
                         OutlinedTextField(
-                            value = tempoComVeiculo.ifBlank { "Não informado" },
+                            value = tempoComVeiculo.ifBlank { "NÃ£o informado" },
                             onValueChange = {},
                             readOnly = true,
                             label = { Text("Tempo com veiculo") },
@@ -463,7 +463,7 @@ fun EditarCarroScreen(
                         )
                         ExposedDropdownMenu(expanded = tempoExpanded, onDismissRequest = { tempoExpanded = false }) {
                             DropdownMenuItem(
-                                text = { Text("Não informado", color = titleColor) },
+                                text = { Text("NÃ£o informado", color = titleColor) },
                                 onClick = {
                                     tempoComVeiculo = ""
                                     tempoExpanded = false
@@ -504,7 +504,7 @@ fun EditarCarroScreen(
                     colors = ButtonDefaults.buttonColors(containerColor = accentBlue),
                     shape = RoundedCornerShape(14.dp)
                 ) {
-                    Text("Salvar Alterações", color = Color.White, fontWeight = FontWeight.Bold)
+                    Text(trNow("Salvar Alterações", "Save changes"), color = Color.White, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -536,14 +536,14 @@ private fun DeleteVehicleDialog(
                 )
                 Spacer(Modifier.height(16.dp))
                 Text(
-                    text = "Excluir este veículo?",
+                    text = trNow("Excluir este veículo?", "Delete this vehicle?"),
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     textAlign = TextAlign.Center
                 )
                 Spacer(Modifier.height(12.dp))
                 Text(
-                    text = "Esta ação não pode ser desfeita e todos os dados do veículo serão removidos.",
+                    text = "Esta aÃ§Ã£o nÃ£o pode ser desfeita e todos os dados do veÃ­culo serÃ£o removidos.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = scheme.onSurfaceVariant,
                     textAlign = TextAlign.Center
@@ -554,7 +554,7 @@ private fun DeleteVehicleDialog(
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     TextButton(onClick = onDismiss, modifier = Modifier.weight(1f)) {
-                        Text("Cancelar")
+                        Text(trNow("Cancelar", "Cancel"))
                     }
                     Button(
                         onClick = onConfirm,
@@ -562,7 +562,7 @@ private fun DeleteVehicleDialog(
                         colors = ButtonDefaults.buttonColors(containerColor = scheme.error),
                         shape = RoundedCornerShape(12.dp)
                     ) {
-                        Text("Excluir", fontWeight = FontWeight.Bold)
+                        Text(trNow("Excluir", "Delete"), fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -738,7 +738,10 @@ private fun formatarKmLocal(valor: Int): String =
     NumberFormat.getIntegerInstance(Locale("pt", "BR")).format(valor)
 
 private fun formatarKmTextoEditar(texto: String): String {
-    val digits = texto.filter(Char::isDigit)
-    val value = digits.toLongOrNull() ?: 0L
+    val digits = texto.filter(Char::isDigit).take(10)
+    if (digits.isEmpty()) return ""
+    val value = (digits.toLongOrNull() ?: 0L).coerceAtMost(Int.MAX_VALUE.toLong())
     return NumberFormat.getIntegerInstance(Locale("pt", "BR")).format(value)
 }
+
+

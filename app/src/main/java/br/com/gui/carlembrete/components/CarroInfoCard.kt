@@ -1,4 +1,4 @@
-import android.util.Log
+﻿import android.util.Log
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -22,7 +22,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -45,9 +44,9 @@ import br.com.gui.carlembrete.CarroInfo
 import br.com.gui.carlembrete.TipoVeiculo
 import br.com.gui.carlembrete.VehicleIcon
 import br.com.gui.carlembrete.iconRes
+import br.com.gui.carlembrete.isEnglishUi
+import br.com.gui.carlembrete.tr
 import coil.compose.AsyncImage
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.net.URLEncoder
 import java.net.URL
@@ -103,7 +102,6 @@ fun CarroInfoCard(
     modifier: Modifier = Modifier
 ) {
     val palette = carCardPalette()
-    val heroTextColor = Color.White
     val cardBorderColor = if (palette.isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.35f)
     val nomeProprietarioExibido = carroAtual.proprietario
         .trim()
@@ -117,12 +115,14 @@ fun CarroInfoCard(
     val modeloAno = listOf(
         modeloSemAno.takeIf { it.isNotBlank() },
         anoVeiculo
-    ).filterNotNull().joinToString(" • ")
+    ).filterNotNull().joinToString(" - ")
     val marcaTexto = carroAtual.marca.uppercase().ifBlank { "N/A" }
-    // Cores DinÃ¢micas baseadas no carro (Apenas para o card interno do carro)
+    // Cores DinÃƒÂ¢micas baseadas no carro (Apenas para o card interno do carro)
     val baseColor = carroAtual.getCorUI()
-    val carDisplayGradientStart = lerp(Color(0xFF1E293B), baseColor, 0.55f)
-    val carDisplayGradientEnd = lerp(Color(0xFF0B1224), baseColor, 0.35f)
+    val isVeiculoBranco = isCorVeiculoBranca(baseColor)
+    val heroTextColor = if (isVeiculoBranco) Color(0xFF0F172A) else Color.White
+    val carDisplayGradientStart = if (isVeiculoBranco) Color(0xFFFFFFFF) else lerp(Color(0xFF1E293B), baseColor, 0.55f)
+    val carDisplayGradientEnd = if (isVeiculoBranco) Color(0xFFF3F4F6) else lerp(Color(0xFF0B1224), baseColor, 0.35f)
 
     Box(
         modifier = modifier
@@ -133,7 +133,7 @@ fun CarroInfoCard(
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(28.dp),
-            // AQUI ESTÃ A MUDANÃ‡A: Usamos uma cor sÃ³lida para o container
+            // AQUI ESTÃƒÂ A MUDANÃƒâ€¡A: Usamos uma cor sÃƒÂ³lida para o container
             colors = CardDefaults.cardColors(containerColor = palette.cardBackground),
             border = BorderStroke(1.dp, cardBorderColor),
             elevation = CardDefaults.cardElevation(0.dp)
@@ -153,7 +153,7 @@ fun CarroInfoCard(
                         .fillMaxWidth()
                         .height(248.dp)
                         .clip(RoundedCornerShape(22.dp))
-                        // O degradÃª fica SÃ“ aqui dentro, na imagem do carro
+                        // O degradÃƒÂª fica SÃƒâ€œ aqui dentro, na imagem do carro
                         .background(
                             Brush.linearGradient(
                                 colors = listOf(carDisplayGradientStart, carDisplayGradientEnd),
@@ -161,17 +161,21 @@ fun CarroInfoCard(
                                 end = Offset(0f, Float.POSITIVE_INFINITY)
                             )
                         )
-                        .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(22.dp))
+                        .border(
+                            1.dp,
+                            if (isVeiculoBranco) Color(0xFF0F172A).copy(alpha = 0.16f) else Color.White.copy(alpha = 0.2f),
+                            RoundedCornerShape(22.dp)
+                        )
                         .clickable { onOpenCarInfo() }
                 ) {
                     // --- WATERMARKS (Background decorativo) ---
                     DecoracoesDeFundo(baseColor)
 
-                    // --- CONTEÃšDO PRINCIPAL ---
+                    // --- CONTEÃƒÅ¡DO PRINCIPAL ---
                     Column(
                         modifier = Modifier.fillMaxSize()
                     ) {
-                        // CABEÇALHO (Nome)
+                        // CABEÃ‡ALHO (Nome)
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -213,7 +217,7 @@ fun CarroInfoCard(
                                 .fillMaxWidth(),
                             contentAlignment = Alignment.Center
                         ) {
-                            // Glow effect atrÃ¡s do logo
+                            // Glow effect atrÃƒÂ¡s do logo
                             Box(
                                 modifier = Modifier
                                     .size(100.dp)
@@ -226,13 +230,13 @@ fun CarroInfoCard(
 
                             VehicleIcon(
                                 tipoVeiculo = carroAtual.tipoVeiculo,
-                                tint = Color.White,
+                                tint = heroTextColor,
                                 size = 210.dp,
                                 modifier = Modifier.offset(y = vehicleIconOffsetY)
                             )
 
                             Text(
-                                text = "Veículo de: $nomeProprietarioExibido",
+                                text = if (isEnglishUi()) "Vehicle owner: $nomeProprietarioExibido" else "Veiculo de: $nomeProprietarioExibido",
                                 modifier = Modifier
                                     .align(Alignment.BottomCenter)
                                     .padding(bottom = 20.dp),
@@ -245,26 +249,26 @@ fun CarroInfoCard(
                     }
                 }
 
-                // 2. PAINEL DE AÃ‡Ã•ES
+                // 2. PAINEL DE AÃƒâ€¡Ãƒâ€¢ES
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     ActionGlassButton(
                         icon = Icons.Rounded.Edit,
-                        label = "Editar",
+                        label = tr("Editar", "Edit"),
                         modifier = Modifier.weight(1f),
                         onClick = onEditCar
                     )
                     ActionGlassButton(
                         icon = Icons.Rounded.Description,
-                        label = "Relatório",
+                        label = tr("Relatorio", "Report"),
                         modifier = Modifier.weight(1f),
                         onClick = onOpenRelatorio
                     )
                 }
 
-                // 3. BOTÃƒO PRINCIPAL (Wide)
+                // 3. BOTÃƒÆ’O PRINCIPAL (Wide)
                 Button(
                     onClick = onNovoLembrete,
                     modifier = Modifier
@@ -280,7 +284,7 @@ fun CarroInfoCard(
                     Icon(Icons.Rounded.Event, null)
                     Spacer(Modifier.width(8.dp))
                     Text(
-                        "Novo Lembrete",
+                        tr("Novo Lembrete", "New Reminder"),
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold
                     )
@@ -302,7 +306,11 @@ private fun removerAnoDoModelo(modelo: String): String {
         .trim()
 }
 
-// Sub-componente de decoraÃ§Ãµes
+private fun isCorVeiculoBranca(cor: Color): Boolean {
+    return cor.red >= 0.95f && cor.green >= 0.95f && cor.blue >= 0.95f
+}
+
+// Sub-componente de decoraÃƒÂ§ÃƒÂµes
 @Composable
 fun DecoracoesDeFundo(color: Color) {
     Box(Modifier.fillMaxSize())
@@ -321,7 +329,7 @@ fun ActionGlassButton(
         modifier = modifier.height(52.dp),
         shape = RoundedCornerShape(14.dp),
         colors = ButtonDefaults.buttonColors(
-            // Um tom ligeiramente diferente do fundo sÃ³lido para destacar o botÃ£o
+            // Um tom ligeiramente diferente do fundo sÃƒÂ³lido para destacar o botÃƒÂ£o
             containerColor = palette.actionBackground,
             contentColor = palette.textSecondary
         ),
@@ -352,6 +360,7 @@ fun ActionGlassButton(
         }
     }
 }
+
 
 private fun resolveVehicleImage(
     nome: String,
