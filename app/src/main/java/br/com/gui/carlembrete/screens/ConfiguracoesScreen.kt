@@ -37,6 +37,7 @@ import androidx.compose.material3.Divider
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
@@ -55,6 +56,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -110,6 +112,7 @@ fun ConfiguracoesScreen(
     }
     val driveBackupManager = remember { DriveBackupManager(context) }
     var pendingBackupAction by remember { mutableStateOf<BackupAction?>(null) }
+    var backupInProgressAction by remember { mutableStateOf<BackupAction?>(null) }
 
     LaunchedEffect(Unit) {
         lastBackupTime = getLastBackupTime(context)
@@ -123,18 +126,36 @@ fun ConfiguracoesScreen(
                 BancoDeDados.salvarCarros(context, carros)
                 BancoDeDados.salvarLembretes(context, lembretes)
                 BancoDeDados.salvarContatos(context, contatos)
-                val payload = BackupPayload(carros, lembretes, contatos)
+                val abastecimentos = BancoDeDados.carregarAbastecimentos(context)
+                val pedaladas = BancoDeDados.carregarPedaladas(context)
+                val travelTripsJson = loadTravelTripsBackupJson(context)
+                val payload = BackupPayload(
+                    carros = carros,
+                    lembretes = lembretes,
+                    contatos = contatos,
+                    abastecimentos = abastecimentos,
+                    pedaladas = pedaladas,
+                    travelTripsJson = travelTripsJson
+                )
                 driveBackupManager.uploadBackup(payload, account)
                 withContext(Dispatchers.Main) {
                     val now = System.currentTimeMillis()
                     setLastBackupTime(context, now)
                     lastBackupTime = now
-                    Toast.makeText(context, "Backup enviado com sucesso!", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, context.getString(R.string.cfg_backup_sent_success), Toast.LENGTH_SHORT).show()
                 }
             } catch (err: Exception) {
                 Log.e("Backup", "Falha ao enviar backup", err)
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(context, "Falha ao enviar: ${err.message}", Toast.LENGTH_LONG).show()
+                    Toast.makeText(
+                        context,
+                        context.getString(R.string.cfg_backup_send_failed, err.message ?: "-"),
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            } finally {
+                withContext(Dispatchers.Main) {
+                    backupInProgressAction = null
                 }
             }
         }
@@ -146,22 +167,33 @@ fun ConfiguracoesScreen(
                 val payload = driveBackupManager.downloadBackup(account)
                 if (payload == null) {
                     withContext(Dispatchers.Main) {
-                        Toast.makeText(context, "Nenhum backup encontrado no Drive.", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, context.getString(R.string.cfg_backup_not_found), Toast.LENGTH_SHORT).show()
                     }
                     return@launch
                 }
                 BancoDeDados.salvarCarros(context, payload.carros)
                 BancoDeDados.salvarLembretes(context, payload.lembretes)
                 BancoDeDados.salvarContatos(context, payload.contatos)
+                BancoDeDados.salvarAbastecimentos(context, payload.abastecimentos)
+                BancoDeDados.salvarPedaladas(context, payload.pedaladas)
+                saveTravelTripsBackupJson(context, payload.travelTripsJson)
                 NotificacaoHelper.reagendarExistentes(context.applicationContext, payload.lembretes)
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(context, "Dados restaurados com sucesso!", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, context.getString(R.string.cfg_backup_restore_success), Toast.LENGTH_SHORT).show()
                     showRestoreRestartDialog = true
                 }
             } catch (err: Exception) {
                 Log.e("Backup", "Falha ao obter backup", err)
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(context, "Erro ao restaurar: ${err.message}", Toast.LENGTH_LONG).show()
+                    Toast.makeText(
+                        context,
+                        context.getString(R.string.cfg_backup_restore_failed, err.message ?: "-"),
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            } finally {
+                withContext(Dispatchers.Main) {
+                    backupInProgressAction = null
                 }
             }
         }
@@ -174,8 +206,9 @@ fun ConfiguracoesScreen(
         try {
             val account = task.getResult(ApiException::class.java)
             if (account == null || !GoogleSignIn.hasPermissions(account, driveScope)) {
-                Toast.makeText(context, "Permissao do Drive nao concedida.", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, context.getString(R.string.cfg_drive_permission_denied), Toast.LENGTH_SHORT).show()
                 pendingBackupAction = null
+                backupInProgressAction = null
                 return@rememberLauncherForActivityResult
             }
             when (pendingBackupAction) {
@@ -184,7 +217,8 @@ fun ConfiguracoesScreen(
                 null -> {}
             }
         } catch (_: ApiException) {
-            Toast.makeText(context, "Falha ao autenticar com Google.", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, context.getString(R.string.cfg_google_auth_failed), Toast.LENGTH_SHORT).show()
+            backupInProgressAction = null
     } finally {
         pendingBackupAction = null
     }
@@ -192,6 +226,8 @@ fun ConfiguracoesScreen(
 
 
     fun executarBackup(action: BackupAction) {
+        if (backupInProgressAction != null) return
+        backupInProgressAction = action
         val account = GoogleSignIn.getLastSignedInAccount(context)
         if (account != null && GoogleSignIn.hasPermissions(account, driveScope)) {
             when (action) {
@@ -209,13 +245,13 @@ fun ConfiguracoesScreen(
                 showAdminDialog = false
                 adminPassword = ""
             },
-            title = { Text("Admin", color = Color.White, fontWeight = FontWeight.Bold) },
+            title = { Text(stringResource(R.string.cfg_admin_title), color = Color.White, fontWeight = FontWeight.Bold) },
             text = {
                 TextField(
                     value = adminPassword,
                     onValueChange = { adminPassword = it },
                     singleLine = true,
-                    placeholder = { Text("Senha", color = Color(0xFF94A3B8)) },
+                    placeholder = { Text(stringResource(R.string.cfg_admin_password_placeholder), color = Color(0xFF94A3B8)) },
                     visualTransformation = PasswordVisualTransformation(),
                     colors = TextFieldDefaults.colors(
                         focusedContainerColor = Color(0xFF111827),
@@ -237,7 +273,7 @@ fun ConfiguracoesScreen(
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB))
                 ) {
-                    Text("OK", color = Color.White, fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.common_ok), color = Color.White, fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
@@ -248,7 +284,7 @@ fun ConfiguracoesScreen(
                     },
                     border = BorderStroke(1.dp, Color(0xFF334155))
                 ) {
-                    Text("Cancelar", color = Color.White)
+                    Text(stringResource(R.string.common_cancel), color = Color.White)
                 }
             },
             containerColor = Color(0xFF0F172A)
@@ -257,16 +293,16 @@ fun ConfiguracoesScreen(
     if (showRestoreRestartDialog) {
         AlertDialog(
             onDismissRequest = { showRestoreRestartDialog = false },
-            title = { Text("Restauração concluída", fontWeight = FontWeight.Bold) },
+            title = { Text(stringResource(R.string.cfg_restore_done_title), fontWeight = FontWeight.Bold) },
             text = {
-                Text("Para carregar todos os dados restaurados, saia do app e entre novamente.")
+                Text(stringResource(R.string.cfg_restore_done_message))
             },
             confirmButton = {
                 Button(
                     onClick = { showRestoreRestartDialog = false },
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB))
                 ) {
-                    Text("OK", color = Color.White, fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.common_ok), color = Color.White, fontWeight = FontWeight.Bold)
                 }
             },
             containerColor = colorScheme.surface
@@ -294,7 +330,7 @@ fun ConfiguracoesScreen(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    "Versão 1.0.0",
+                    stringResource(R.string.cfg_version_label),
                     color = colorScheme.onSurfaceVariant,
                     fontSize = 12.sp
                 )
@@ -314,7 +350,7 @@ fun ConfiguracoesScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(onClick = onDismiss) {
-                    Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar", tint = colorScheme.onSurface)
+                    Icon(Icons.Default.ArrowBackIosNew, contentDescription = stringResource(R.string.common_back), tint = colorScheme.onSurface)
                 }
             }
             Column(
@@ -340,7 +376,7 @@ fun ConfiguracoesScreen(
                     )
                 }
                 Text(
-                    "Configurações",
+                    stringResource(R.string.cfg_title),
                     color = colorScheme.onSurface,
                     fontWeight = FontWeight.Bold,
                     fontSize = 24.sp
@@ -349,10 +385,10 @@ fun ConfiguracoesScreen(
 
             Spacer(Modifier.height(20.dp))
 
-            SectionHeader(title = "APARÊNCIA")
+            SectionHeader(title = stringResource(R.string.cfg_section_appearance))
             Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)) {
                 Text(
-                    "Tema do aplicativo",
+                    stringResource(R.string.cfg_theme_label),
                     color = colorScheme.onSurface,
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 12.sp
@@ -360,7 +396,7 @@ fun ConfiguracoesScreen(
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                     ThemeModeOptionButton(
-                        label = "Sistema",
+                        label = stringResource(R.string.cfg_theme_system),
                         selected = themeMode == AppThemeMode.SYSTEM,
                         onClick = {
                             themeMode = AppThemeMode.SYSTEM
@@ -370,7 +406,7 @@ fun ConfiguracoesScreen(
                         modifier = Modifier.weight(1f)
                     )
                     ThemeModeOptionButton(
-                        label = "Claro",
+                        label = stringResource(R.string.cfg_theme_light),
                         selected = themeMode == AppThemeMode.LIGHT,
                         onClick = {
                             themeMode = AppThemeMode.LIGHT
@@ -380,7 +416,7 @@ fun ConfiguracoesScreen(
                         modifier = Modifier.weight(1f)
                     )
                     ThemeModeOptionButton(
-                        label = "Escuro",
+                        label = stringResource(R.string.cfg_theme_dark),
                         selected = themeMode == AppThemeMode.DARK,
                         onClick = {
                             themeMode = AppThemeMode.DARK
@@ -392,22 +428,39 @@ fun ConfiguracoesScreen(
                 }
             }
 
-            SectionHeader(title = "BAKUP")
+            SectionHeader(title = stringResource(R.string.cfg_section_backup))
 
             Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)) {
+                val backupBusy = backupInProgressAction != null
+                if (backupBusy) {
+                    Text(
+                        text = when (backupInProgressAction) {
+                            BackupAction.BACKUP -> stringResource(R.string.cfg_backup_sending)
+                            BackupAction.RESTORE -> stringResource(R.string.cfg_backup_restoring)
+                            null -> ""
+                        },
+                        color = colorScheme.onSurface,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    Spacer(Modifier.height(12.dp))
+                }
 
                 Spacer(Modifier.height(12.dp))
                 Button(
                     onClick = {
                         executarBackup(BackupAction.BACKUP)
                     },
+                    enabled = !backupBusy,
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB))
                 ) {
                     Icon(Icons.Default.CloudUpload, null, tint = Color.White, modifier = Modifier.size(20.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text("Salvar backup desta conta", fontWeight = FontWeight.Bold, color = Color.White)
+                    Text(stringResource(R.string.cfg_backup_save), fontWeight = FontWeight.Bold, color = Color.White)
                 }
 
                 Spacer(Modifier.height(12.dp))
@@ -416,6 +469,7 @@ fun ConfiguracoesScreen(
                     onClick = {
                         executarBackup(BackupAction.RESTORE)
                     },
+                    enabled = !backupBusy,
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
                     border = BorderStroke(1.dp, Color(0xFF475569)),
@@ -425,17 +479,17 @@ fun ConfiguracoesScreen(
                 ) {
                     Icon(Icons.Default.CloudDownload, null, modifier = Modifier.size(20.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text("Restaurar backup neste aparelho", fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.cfg_backup_restore), fontWeight = FontWeight.Bold)
                 }
 
                 Spacer(Modifier.height(12.dp))
                 val lastBackupLabel = if (lastBackupTime > 0L) {
                     SimpleDateFormat("dd/MM/yyyy HH:mm", Locale("pt", "BR")).format(lastBackupTime)
                 } else {
-                    "Nenhum backup ainda"
+                    stringResource(R.string.cfg_backup_none)
                 }
                 Text(
-                    "Último backup desta conta: $lastBackupLabel",
+                    stringResource(R.string.cfg_backup_last, lastBackupLabel),
                     color = Color(0xFF94A3B8),
                     fontSize = 12.sp
                 )
@@ -548,6 +602,3 @@ private fun ThemeModeOptionButton(
         Text(label, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
     }
 }
-
-
-
