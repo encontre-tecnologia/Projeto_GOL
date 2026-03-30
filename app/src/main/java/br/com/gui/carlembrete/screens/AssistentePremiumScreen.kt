@@ -129,6 +129,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
+import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -160,6 +161,10 @@ private data class TravelTrip(
     val name: String,
     val location: String = "",
     val responsible: String = "",
+    val pickupKm: String = "",
+    val returnKm: String = "",
+    val pickedBy: String = "",
+    val returnedBy: String = "",
     val participantEmails: List<String> = emptyList(),
     val isFinished: Boolean = false,
     val expenses: List<TravelExpense>
@@ -173,21 +178,30 @@ fun AssistentePremiumScreen(
     val context = LocalContext.current
     val scheme = MaterialTheme.colorScheme
     val isDark = scheme.background.luminance() < 0.5f
-    val bg = if (isDark) scheme.background else Color.White
+    val bg = if (isDark) scheme.background else scheme.background
     val textPrimary = if (isDark) Color.White else Color.Black
     val textDim = if (isDark) Color(0xFF94A3B8) else Color(0xFF475569)
     val cardBorder = if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.12f)
     val accentBlue = Color(0xFF3B82F6)
-    val categories = listOf("Combustivel", "Pedagio", "Alimentacao", "Hospedagem", "Compras", "Outros")
+    val englishUi = isEnglishUi()
+    val categories = if (englishUi) {
+        listOf("Fuel", "Toll", "Food", "Lodging", "Shopping", "Others")
+    } else {
+        listOf("Combustivel", "Pedagio", "Alimentacao", "Hospedagem", "Compras", "Outros")
+    }
     val trips = remember(context) {
         mutableStateListOf<TravelTrip>().apply { addAll(loadTravelTrips(context)) }
     }
     val defaultTrip = remember {
         TravelTrip(
             id = UUID.randomUUID().toString(),
-            name = "Minha viagem",
+            name = trNow("Minha viagem", "My trip"),
             location = "",
             responsible = "",
+            pickupKm = "",
+            returnKm = "",
+            pickedBy = "",
+            returnedBy = "",
             expenses = emptyList()
         )
     }
@@ -201,6 +215,8 @@ fun AssistentePremiumScreen(
     var showExpensesScreen by remember { mutableStateOf(false) }
     var showTripsScreen by remember { mutableStateOf(true) }
     var showCreateTripScreen by remember { mutableStateOf(false) }
+    var showEditTripScreen by remember { mutableStateOf(false) }
+    var tripBeingEdited by remember { mutableStateOf<TravelTrip?>(null) }
     var showShareTripDialog by remember { mutableStateOf(false) }
     var pendingShareTrip by remember { mutableStateOf<TravelTrip?>(null) }
 
@@ -211,11 +227,11 @@ fun AssistentePremiumScreen(
     }
     var expenseLabel by remember { mutableStateOf("") }
     var expenseAmount by remember { mutableStateOf("") }
-    var category by remember { mutableStateOf("Combustivel") }
+    var category by remember { mutableStateOf(if (englishUi) "Fuel" else "Combustivel") }
     val registeredVehicles = remember(context) {
         BancoDeDados.carregarCarros(context).orEmpty().map { it.nome }.filter { it.isNotBlank() }
     }
-    val otherVehicleLabel = "Outro (fora do app)"
+    val otherVehicleLabel = trNow("Outro (fora do app)", "Other (outside app)")
     val vehicleOptions = remember(registeredVehicles) { registeredVehicles + otherVehicleLabel }
     var selectedVehicleName by remember(registeredVehicles) { mutableStateOf(registeredVehicles.firstOrNull().orEmpty()) }
     var customVehicleName by remember { mutableStateOf("") }
@@ -254,9 +270,13 @@ fun AssistentePremiumScreen(
         val existingTrip = trips.firstOrNull { it.id == activeTripId }
         val tripToSave = TravelTrip(
             id = activeTripId,
-            name = tripName.ifBlank { "Minha viagem" },
+            name = tripName.ifBlank { trNow("Minha viagem", "My trip") },
             location = tripLocation.trim(),
             responsible = existingTrip?.responsible.orEmpty(),
+            pickupKm = existingTrip?.pickupKm.orEmpty(),
+            returnKm = existingTrip?.returnKm.orEmpty(),
+            pickedBy = existingTrip?.pickedBy.orEmpty(),
+            returnedBy = existingTrip?.returnedBy.orEmpty(),
             participantEmails = existingTrip?.participantEmails.orEmpty(),
             isFinished = existingTrip?.isFinished ?: false,
             expenses = expenses.toList()
@@ -340,13 +360,17 @@ fun AssistentePremiumScreen(
             cardBorder = cardBorder,
             accentBlue = accentBlue,
             onBack = { showCreateTripScreen = false },
-            onCreate = { newName, location, responsible, participantEmails ->
+            onCreate = { newName, location, responsible, participantEmails, pickupKm, pickedBy, returnedBy ->
                 persistCurrentTrip()
                 val newTrip = TravelTrip(
                     id = UUID.randomUUID().toString(),
-                    name = newName.ifBlank { "Nova viagem" },
+                    name = newName.ifBlank { trNow("Nova viagem", "New trip") },
                     location = location,
                     responsible = responsible,
+                    pickupKm = pickupKm,
+                    returnKm = "",
+                    pickedBy = pickedBy,
+                    returnedBy = returnedBy,
                     participantEmails = participantEmails,
                     expenses = emptyList()
                 )
@@ -358,6 +382,35 @@ fun AssistentePremiumScreen(
                 showCreateTripScreen = false
                 showTripsScreen = false
                 showExpensesScreen = true
+            }
+        )
+    } else if (showEditTripScreen && tripBeingEdited != null) {
+        EditTripScreen(
+            initialTrip = tripBeingEdited ?: return@AssistentePremiumScreen,
+            isDark = isDark,
+            bg = bg,
+            textPrimary = textPrimary,
+            textDim = textDim,
+            cardBorder = cardBorder,
+            accentBlue = accentBlue,
+            onBack = {
+                showEditTripScreen = false
+                tripBeingEdited = null
+                showTripsScreen = true
+            },
+            onSave = { updatedTrip ->
+                val idx = trips.indexOfFirst { it.id == updatedTrip.id }
+                if (idx >= 0) {
+                    trips[idx] = updatedTrip
+                    if (updatedTrip.id == activeTripId) {
+                        tripName = updatedTrip.name
+                        tripLocation = updatedTrip.location
+                    }
+                    saveTravelTrips(context, trips)
+                }
+                showEditTripScreen = false
+                tripBeingEdited = null
+                showTripsScreen = true
             }
         )
     } else if (showAddExpenseScreen) {
@@ -479,10 +532,17 @@ fun AssistentePremiumScreen(
                     openAddExpenseForm()
                 }
             },
-            onFinishTrip = {
+            currentTripReturnKm = activeTrip?.returnKm.orEmpty(),
+            currentReturnedBy = activeTrip?.returnedBy.orEmpty(),
+            onFinishTrip = { kmFinal, deliveredBy ->
                 val idx = trips.indexOfFirst { it.id == activeTripId }
                 if (idx >= 0) {
-                    trips[idx] = trips[idx].copy(isFinished = true, expenses = expenses.toList())
+                    trips[idx] = trips[idx].copy(
+                        isFinished = true,
+                        returnKm = kmFinal,
+                        returnedBy = deliveredBy,
+                        expenses = expenses.toList()
+                    )
                     saveTravelTrips(context, trips)
                 }
             },
@@ -494,39 +554,103 @@ fun AssistentePremiumScreen(
                 }
             },
             onExportPdf = {
+                if (expenses.isEmpty()) {
+                    Toast.makeText(context, trNow("Adicione ao menos um gasto nesta viagem para exportar.", "Add at least one expense in this trip to export."), Toast.LENGTH_SHORT).show()
+                    return@TravelExpensesScreen
+                }
                 val pdf = generateTripReportPdf(
                     context = context,
                     tripName = tripName,
                     location = activeTrip?.location.orEmpty(),
                     responsible = activeTrip?.responsible.orEmpty(),
+                    pickupKm = activeTrip?.pickupKm.orEmpty(),
+                    returnKm = activeTrip?.returnKm.orEmpty(),
+                    pickedBy = activeTrip?.pickedBy.orEmpty(),
+                    returnedBy = activeTrip?.returnedBy.orEmpty(),
                     expenses = expenses
                 )
                 if (pdf == null) {
-                    Toast.makeText(context, "Nao foi possivel gerar o PDF.", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, trNow("Nao foi possivel gerar o PDF.", "Could not generate the PDF."), Toast.LENGTH_SHORT).show()
                 } else {
                     sharePdf(context, pdf)
                 }
             },
             onPrintPdf = {
+                if (expenses.isEmpty()) {
+                    Toast.makeText(context, trNow("Adicione ao menos um gasto nesta viagem para exportar.", "Add at least one expense in this trip to export."), Toast.LENGTH_SHORT).show()
+                    return@TravelExpensesScreen
+                }
                 val activeTrip = trips.firstOrNull { it.id == activeTripId }
                 val pdf = generateTripReportPdf(
                     context = context,
                     tripName = tripName,
                     location = activeTrip?.location.orEmpty(),
                     responsible = activeTrip?.responsible.orEmpty(),
+                    pickupKm = activeTrip?.pickupKm.orEmpty(),
+                    returnKm = activeTrip?.returnKm.orEmpty(),
+                    pickedBy = activeTrip?.pickedBy.orEmpty(),
+                    returnedBy = activeTrip?.returnedBy.orEmpty(),
                     expenses = expenses
                 )
                 if (pdf == null) {
-                    Toast.makeText(context, "Nao foi possivel gerar o PDF.", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, trNow("Nao foi possivel gerar o PDF.", "Could not generate the PDF."), Toast.LENGTH_SHORT).show()
                 } else {
-                    printPdf(context, pdf, "Relatorio Viagem")
+                    printPdf(context, pdf, trNow("Relatorio Viagem", "Trip Report"))
                 }
             },
             onExportSpreadsheetWithPhotos = {
-                val spreadsheet = generateTripReportSpreadsheet(context, tripName, activeTrip?.location.orEmpty(), expenses)
+                if (expenses.isEmpty()) {
+                    Toast.makeText(context, trNow("Adicione ao menos um gasto nesta viagem para exportar.", "Add at least one expense in this trip to export."), Toast.LENGTH_SHORT).show()
+                    return@TravelExpensesScreen
+                }
+                val spreadsheet = generateTripReportSpreadsheet(
+                    context,
+                    tripName,
+                    activeTrip?.location.orEmpty(),
+                    activeTrip?.pickupKm.orEmpty(),
+                    activeTrip?.returnKm.orEmpty(),
+                    activeTrip?.pickedBy.orEmpty(),
+                    activeTrip?.returnedBy.orEmpty(),
+                    expenses
+                )
                 val zipPackage = generateTripReportPackage(context, tripName, expenses)
                 if (spreadsheet == null || zipPackage == null) {
-                    Toast.makeText(context, "Nao foi possivel gerar os arquivos de exportacao.", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, trNow("Nao foi possivel gerar os arquivos de exportacao.", "Could not generate export files."), Toast.LENGTH_SHORT).show()
+                } else {
+                    shareSpreadsheetAndPhotos(context, spreadsheet, zipPackage)
+                }
+            },
+            onExportAllTripsPdf = {
+                scope.launch {
+                    persistCurrentTrip()
+                    val snapshot = trips.toList()
+                    val hasAnyExpense = snapshot.any { it.expenses.isNotEmpty() }
+                    if (!hasAnyExpense) {
+                        Toast.makeText(context, trNow("Ainda nao ha viagens com gastos para exportar.", "There are no trips with expenses to export yet."), Toast.LENGTH_SHORT).show()
+                        return@launch
+                    }
+                    val pdf = withContext(Dispatchers.Default) {
+                        generateAllTripsReportPdf(context, snapshot)
+                    }
+                    if (pdf == null) {
+                        Toast.makeText(context, trNow("Nao foi possivel gerar o PDF geral.", "Could not generate the overall PDF."), Toast.LENGTH_SHORT).show()
+                    } else {
+                        sharePdf(context, pdf)
+                    }
+                }
+            },
+            onExportAllTripsSpreadsheet = {
+                persistCurrentTrip()
+                val snapshot = trips.toList()
+                val hasAnyExpense = snapshot.any { it.expenses.isNotEmpty() }
+                if (!hasAnyExpense) {
+                    Toast.makeText(context, trNow("Ainda nao ha viagens com gastos para exportar.", "There are no trips with expenses to export yet."), Toast.LENGTH_SHORT).show()
+                    return@TravelExpensesScreen
+                }
+                val spreadsheet = generateAllTripsSpreadsheet(context, snapshot)
+                val zipPackage = generateAllTripsNotesPackage(context, snapshot)
+                if (spreadsheet == null || zipPackage == null) {
+                    Toast.makeText(context, trNow("Nao foi possivel gerar os arquivos da exportacao geral.", "Could not generate overall export files."), Toast.LENGTH_SHORT).show()
                 } else {
                     shareSpreadsheetAndPhotos(context, spreadsheet, zipPackage)
                 }
@@ -549,13 +673,20 @@ fun AssistentePremiumScreen(
                     generalReportMode = "pdf"
                     isGeneratingGeneralReport = true
                     val snapshot = trips.toList()
+                    val hasAnyExpense = snapshot.any { it.expenses.isNotEmpty() }
+                    if (!hasAnyExpense) {
+                        isGeneratingGeneralReport = false
+                        generalReportMode = null
+                        Toast.makeText(context, trNow("Ainda nao ha viagens com gastos para exportar.", "There are no trips with expenses to export yet."), Toast.LENGTH_SHORT).show()
+                        return@launch
+                    }
                     val pdf = withContext(Dispatchers.Default) {
                         generateAllTripsReportPdf(context, snapshot)
                     }
                     isGeneratingGeneralReport = false
                     generalReportMode = null
                     if (pdf == null) {
-                        Toast.makeText(context, "Nao foi possivel gerar o PDF geral.", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, trNow("Nao foi possivel gerar o PDF geral.", "Could not generate the overall PDF."), Toast.LENGTH_SHORT).show()
                     } else {
                         sharePdf(context, pdf)
                     }
@@ -573,19 +704,24 @@ fun AssistentePremiumScreen(
                     isGeneratingGeneralReport = false
                     generalReportMode = null
                     if (pdf == null) {
-                        Toast.makeText(context, "Nao foi possivel gerar o relatorio geral.", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, trNow("Nao foi possivel gerar o relatorio geral.", "Could not generate the overall report."), Toast.LENGTH_SHORT).show()
                     } else {
-                        printPdf(context, pdf, "Relatorio Geral Viagens")
+                        printPdf(context, pdf, trNow("Relatorio Geral Viagens", "Overall Trips Report"))
                     }
                 }
             },
             onExportAllTripsSpreadsheet = {
                 persistCurrentTrip()
                 val snapshot = trips.toList()
+                val hasAnyExpense = snapshot.any { it.expenses.isNotEmpty() }
+                if (!hasAnyExpense) {
+                    Toast.makeText(context, trNow("Ainda nao ha viagens com gastos para exportar.", "There are no trips with expenses to export yet."), Toast.LENGTH_SHORT).show()
+                    return@TripsByTravelScreen
+                }
                 val spreadsheet = generateAllTripsSpreadsheet(context, snapshot)
                 val zipPackage = generateAllTripsNotesPackage(context, snapshot)
                 if (spreadsheet == null || zipPackage == null) {
-                    Toast.makeText(context, "Nao foi possivel gerar os arquivos da exportacao geral.", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, trNow("Nao foi possivel gerar os arquivos da exportacao geral.", "Could not generate overall export files."), Toast.LENGTH_SHORT).show()
                 } else {
                     shareSpreadsheetAndPhotos(context, spreadsheet, zipPackage)
                 }
@@ -597,22 +733,9 @@ fun AssistentePremiumScreen(
             onCreateTrip = {
                 showCreateTripScreen = true
             },
-            onRenameTrip = { tripId, newName, newLocation, newResponsible, newParticipants ->
-                val idx = trips.indexOfFirst { it.id == tripId }
-                if (idx >= 0) {
-                    val updated = trips[idx].copy(
-                        name = newName.ifBlank { "Minha viagem" },
-                        location = newLocation.trim(),
-                        responsible = newResponsible.trim(),
-                        participantEmails = newParticipants
-                    )
-                    trips[idx] = updated
-                    if (tripId == activeTripId) {
-                        tripName = updated.name
-                        tripLocation = updated.location
-                    }
-                    saveTravelTrips(context, trips)
-                }
+            onEditTrip = { trip ->
+                tripBeingEdited = trip
+                showEditTripScreen = true
             },
             onDeleteTrip = { tripId ->
                 if (trips.size <= 1) {
@@ -646,9 +769,23 @@ fun AssistentePremiumScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(onClick = onDismiss) {
-                    Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar", tint = textPrimary)
+                    Icon(Icons.Default.ArrowBackIosNew, contentDescription = tr("Voltar", "Back"), tint = textPrimary)
                 }
-                Text("Viagem", color = textPrimary, fontWeight = FontWeight.Bold, fontSize = 22.sp)
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(end = 48.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Icon(
+                        Icons.Default.CalendarMonth,
+                        contentDescription = null,
+                        tint = accentBlue,
+                        modifier = Modifier.size(22.dp)
+                    )
+                    Text(tr("Viagem", "Trip"), color = textPrimary, fontWeight = FontWeight.Bold, fontSize = 22.sp)
+                }
             }
 
             Card(
@@ -664,7 +801,7 @@ fun AssistentePremiumScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
-                        "Centralize aqui suas viagens e gastos",
+                        tr("Centralize aqui suas viagens e gastos", "Centralize your trips and expenses here"),
                         color = textPrimary,
                         fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.fillMaxWidth(),
@@ -687,7 +824,7 @@ fun AssistentePremiumScreen(
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(Modifier.width(8.dp))
-                        Text("Abrir controle de viagens", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                        Text(tr("Abrir controle de viagens", "Open trip management"), fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
                     }
                 }
             }
@@ -714,8 +851,8 @@ fun AssistentePremiumScreen(
                             tint = accentBlue,
                             modifier = Modifier.size(30.dp)
                         )
-                        Text("Adicionar gasto", color = textPrimary, fontWeight = FontWeight.Bold)
-                        Text("Lance despesas com NFC-e de compra com QR", color = textDim, fontSize = 12.sp)
+                        Text(tr("Adicionar gasto", "Add expense"), color = textPrimary, fontWeight = FontWeight.Bold)
+                        Text(tr("Lance despesas com NFC-e de compra com QR", "Add expenses using purchase NFC-e QR"), color = textDim, fontSize = 12.sp)
                     }
 
                     HorizontalDivider(color = cardBorder)
@@ -727,7 +864,7 @@ fun AssistentePremiumScreen(
                     ) {
                         Icon(Icons.Default.ReceiptLong, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text("Adicionar Gasto", fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
+                        Text(tr("Adicionar Gasto", "Add Expense"), fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
                     }
                 }
             }
@@ -755,7 +892,7 @@ fun AssistentePremiumScreen(
                         modifier = Modifier.size(36.dp)
                     )
                     Text(
-                        "Viagem criada com sucesso!",
+                        tr("Viagem criada com sucesso!", "Trip created successfully!"),
                         color = textPrimary,
                         fontWeight = FontWeight.Bold,
                         fontSize = 20.sp,
@@ -763,14 +900,18 @@ fun AssistentePremiumScreen(
                     )
                     pendingShareTrip?.let { trip ->
                         Text(
-                            "A viagem ${trip.name} foi criada. Deseja adicionar um evento na agenda do celular ou Google Agenda?",
+                            if (isEnglishUi()) {
+                                "Trip ${trip.name} was created. Do you want to add an event to your phone calendar or Google Calendar?"
+                            } else {
+                                "A viagem ${trip.name} foi criada. Deseja adicionar um evento na agenda do celular ou Google Agenda?"
+                            },
                             color = textDim,
                             fontSize = 13.sp,
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center
                         )
                     }
                     Text(
-                        "Se houver acompanhantes, os e-mails informados vao junto no evento.",
+                        tr("Se houver acompanhantes, os e-mails informados vao junto no evento.", "If there are companions, informed emails will be added to the event."),
                         color = textDim,
                         fontSize = 13.sp,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center
@@ -789,7 +930,7 @@ fun AssistentePremiumScreen(
                             modifier = Modifier.fillMaxWidth().height(48.dp),
                             shape = RoundedCornerShape(12.dp)
                         ) {
-                            Text("Agora nao")
+                            Text(tr("Agora nao", "Not now"))
                         }
                         Button(
                             onClick = {
@@ -891,7 +1032,7 @@ fun AssistentePremiumScreen(
                         .height(52.dp),
                     shape = RoundedCornerShape(12.dp)
                 ) {
-                    Text("Escanear QR code da nota")
+                    Text(tr("Escanear QR code da nota", "Scan invoice QR code"))
                 }
             }
         }
@@ -966,21 +1107,21 @@ fun AssistentePremiumScreen(
                         tint = accentBlue,
                         modifier = Modifier.size(34.dp)
                     )
-                    Text("Registrar nota", color = textPrimary, fontWeight = FontWeight.Bold)
+                    Text(tr("Registrar nota", "Register receipt"), color = textPrimary, fontWeight = FontWeight.Bold)
                     Text(
                         buildAnnotatedString {
-                            append("Para cada nota, o processo acontece em ")
+                            append(tr("Para cada nota, o processo acontece em ", "For each receipt, the process happens in "))
                             withStyle(SpanStyle(fontWeight = FontWeight.Bold)) {
-                                append("2 etapas")
+                                append(tr("2 etapas", "2 steps"))
                             }
                             append(":\n")
-                            append("1) Uma foto da nota para registro.\n")
-                            append("2) Uma leitura do ")
+                            append(tr("1) Uma foto da nota para registro.\n", "1) A receipt photo for registration.\n"))
+                            append(tr("2) Uma leitura do ", "2) A scan of the "))
                             withStyle(SpanStyle(fontWeight = FontWeight.Bold)) {
                                 append("QR code")
                             }
-                            append(" para preencher os dados automaticamente.\n\n")
-                            append("A segunda etapa nao e outra foto completa da nota, e apenas a leitura do QR.")
+                            append(tr(" para preencher os dados automaticamente.\n\n", " to fill the data automatically.\n\n"))
+                            append(tr("A segunda etapa nao e outra foto completa da nota, e apenas a leitura do QR.", "The second step is not another full receipt photo, it's only the QR scan."))
                         },
                         color = textDim,
                         fontSize = 13.sp
@@ -997,7 +1138,7 @@ fun AssistentePremiumScreen(
                                 saveSkipPhotoWarning(context, it)
                             }
                         )
-                        Text("Nao mostrar mais esse aviso", color = textDim, fontSize = 12.sp)
+                        Text(tr("Nao mostrar mais esse aviso", "Don't show this warning again"), color = textDim, fontSize = 12.sp)
                     }
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -1009,7 +1150,7 @@ fun AssistentePremiumScreen(
                             modifier = Modifier.width(150.dp).height(46.dp),
                             border = BorderStroke(1.dp, cardBorder)
                         ) {
-                            Text("Cancelar")
+                            Text(tr("Cancelar", "Cancel"))
                         }
                         Button(
                             onClick = {
@@ -1019,7 +1160,7 @@ fun AssistentePremiumScreen(
                             colors = ButtonDefaults.buttonColors(containerColor = accentBlue, contentColor = Color.White),
                             modifier = Modifier.width(150.dp).height(46.dp)
                         ) {
-                            Text("Continuar")
+                            Text(tr("Continuar", "Continue"))
                         }
                     }
                 }
@@ -1030,7 +1171,7 @@ fun AssistentePremiumScreen(
     if (isQrLoading) {
         androidx.compose.material3.AlertDialog(
             onDismissRequest = {},
-            title = { Text("Lendo nota", color = textPrimary, fontWeight = FontWeight.Bold) },
+            title = { Text(tr("Lendo nota", "Reading receipt"), color = textPrimary, fontWeight = FontWeight.Bold) },
             text = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     CircularProgressIndicator(
@@ -1308,6 +1449,10 @@ private fun saveTravelTrips(context: Context, trips: List<TravelTrip>) {
                 .put("name", trip.name)
                 .put("location", trip.location)
                 .put("responsible", trip.responsible)
+                .put("pickupKm", trip.pickupKm)
+                .put("returnKm", trip.returnKm)
+                .put("pickedBy", trip.pickedBy)
+                .put("returnedBy", trip.returnedBy)
                 .put("participantEmails", JSONArray().apply { trip.participantEmails.forEach { put(it) } })
                 .put("isFinished", trip.isFinished)
                 .put("expenses", expensesArray)
@@ -1350,6 +1495,10 @@ private fun loadTravelTrips(context: Context): List<TravelTrip> {
                             name = tripObj.optString("name").ifBlank { "Minha viagem" },
                             location = tripObj.optString("location"),
                             responsible = tripObj.optString("responsible"),
+                            pickupKm = tripObj.optString("pickupKm"),
+                            returnKm = tripObj.optString("returnKm"),
+                            pickedBy = tripObj.optString("pickedBy"),
+                            returnedBy = tripObj.optString("returnedBy"),
                             participantEmails = buildList {
                                 val participants = tripObj.optJSONArray("participantEmails") ?: JSONArray()
                                 for (k in 0 until participants.length()) {
@@ -1375,6 +1524,10 @@ private fun loadTravelTrips(context: Context): List<TravelTrip> {
                 name = legacyName.ifBlank { "Minha viagem" },
                 location = "",
                 responsible = "",
+                pickupKm = "",
+                returnKm = "",
+                pickedBy = "",
+                returnedBy = "",
                 participantEmails = emptyList(),
                 isFinished = false,
                 expenses = legacyExpenses
@@ -1408,16 +1561,12 @@ private fun TripsByTravelScreen(
     onExportAllTripsSpreadsheet: () -> Unit,
     onOpenTrip: (TravelTrip) -> Unit,
     onCreateTrip: () -> Unit,
-    onRenameTrip: (tripId: String, newName: String, newLocation: String, newResponsible: String, newParticipants: List<String>) -> Unit,
+    onEditTrip: (TravelTrip) -> Unit,
     onDeleteTrip: (tripId: String) -> Unit
 ) {
     val context = LocalContext.current
+    val englishUi = isEnglishUi()
     val backIconTint = if (isDark) Color(0xFFE2E8F0) else Color.Black
-    var editingTripId by remember { mutableStateOf<String?>(null) }
-    var editingTripName by remember { mutableStateOf("") }
-    var editingTripLocation by remember { mutableStateOf("") }
-    var editingTripResponsible by remember { mutableStateOf("") }
-    var editingTripParticipants by remember { mutableStateOf("") }
     var pendingDeleteTrip by remember { mutableStateOf<TravelTrip?>(null) }
     val shouldAutoStartTutorial = remember(context) { shouldAutoStartTripsTutorial(context) }
     var showTutorial by remember { mutableStateOf(false) }
@@ -1427,13 +1576,22 @@ private fun TripsByTravelScreen(
     var addButtonRect by remember { mutableStateOf<Rect?>(null) }
     var firstTripRect by remember { mutableStateOf<Rect?>(null) }
     var showExportScreen by remember { mutableStateOf(false) }
-    val tutorialSteps = remember {
-        listOf(
-            "Exportar: toque aqui para abrir as opcoes de PDF, impressao e planilha geral das viagens." to "pdf",
-            "Imprimir geral: use no menu Exportar para abrir a impressÃ£o do relatÃ³rio completo de viagens." to "print",
-            "Novo gasto: toque no botÃ£o + para abrir o formulÃ¡rio e cadastrar uma despesa na viagem escolhida." to "add",
-            "Detalhes da viagem: toque em uma viagem para ver os gastos, editar informaÃ§Ãµes e excluir o que precisar." to "trip"
-        )
+    val tutorialSteps = remember(englishUi) {
+        if (englishUi) {
+            listOf(
+                "Export: tap here to open PDF, print, and overall trips spreadsheet options." to "pdf",
+                "Print overall: use Export menu to print the full trips report." to "print",
+                "New expense: tap + button to open form and add an expense to the selected trip." to "add",
+                "Trip details: tap a trip to see expenses, edit information, and delete what you need." to "trip"
+            )
+        } else {
+            listOf(
+                "Exportar: toque aqui para abrir as opcoes de PDF, impressao e planilha geral das viagens." to "pdf",
+                "Imprimir geral: use no menu Exportar para abrir a impressÃ£o do relatÃ³rio completo de viagens." to "print",
+                "Novo gasto: toque no botÃ£o + para abrir o formulÃ¡rio e cadastrar uma despesa na viagem escolhida." to "add",
+                "Detalhes da viagem: toque em uma viagem para ver os gastos, editar informaÃ§Ãµes e excluir o que precisar." to "trip"
+            )
+        }
     }
     LaunchedEffect(shouldAutoStartTutorial) {
         if (shouldAutoStartTutorial) {
@@ -1449,10 +1607,10 @@ private fun TripsByTravelScreen(
             textDim = textDim,
             cardBorder = cardBorder,
             accentBlue = accentBlue,
-            subtitle = "Use os arquivos abaixo para compartilhar o controle centralizado.",
+            subtitle = tr("Use os arquivos abaixo para compartilhar o controle centralizado.", "Use the files below to share centralized control."),
             actions = listOf(
                 ExportOptionAction(
-                    label = "Imprimir",
+                    label = tr("Imprimir", "Print"),
                     icon = Icons.Default.Print,
                     onClick = {
                         showExportScreen = false
@@ -1460,7 +1618,7 @@ private fun TripsByTravelScreen(
                     }
                 ),
                 ExportOptionAction(
-                    label = "Exportar PDF",
+                    label = tr("Exportar PDF", "Export PDF"),
                     icon = Icons.Default.PictureAsPdf,
                     onClick = {
                         showExportScreen = false
@@ -1468,7 +1626,7 @@ private fun TripsByTravelScreen(
                     }
                 ),
                 ExportOptionAction(
-                    label = "Exportar planilha + fotos",
+                    label = tr("Exportar planilha + fotos", "Export spreadsheet + photos"),
                     icon = Icons.Default.ReceiptLong,
                     onClick = {
                         showExportScreen = false
@@ -1498,7 +1656,7 @@ private fun TripsByTravelScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(onClick = onBack) {
-                    Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar", tint = backIconTint)
+                    Icon(Icons.Default.ArrowBackIosNew, contentDescription = tr("Voltar", "Back"), tint = backIconTint)
                 }
                 ExportActionButton(
                     isDark = isDark,
@@ -1518,28 +1676,26 @@ private fun TripsByTravelScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                if (isDark) {
-                    Box(
+                Box(
+                    modifier = Modifier
+                        .size(54.dp)
+                        .background(
+                            color = accentBlue.copy(alpha = if (isDark) 0.22f else 0.14f),
+                            shape = RoundedCornerShape(18.dp)
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Default.CalendarMonth,
+                        contentDescription = null,
+                        tint = accentBlue,
                         modifier = Modifier
-                            .size(54.dp)
-                            .background(
-                                color = accentBlue.copy(alpha = 0.22f),
-                                shape = RoundedCornerShape(18.dp)
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            Icons.Default.CalendarMonth,
-                            contentDescription = null,
-                            tint = accentBlue,
-                            modifier = Modifier
-                                .size(28.dp)
-                                .offset(y = (-4).dp)
-                        )
-                    }
+                            .size(28.dp)
+                            .offset(y = (-4).dp)
+                    )
                 }
                 Text(
-                    "Viagem",
+                    tr("Viagem", "Trip"),
                     color = textPrimary,
                     fontWeight = FontWeight.Bold,
                     fontSize = 24.sp,
@@ -1560,8 +1716,10 @@ private fun TripsByTravelScreen(
             ) {
                 Icon(Icons.Default.CalendarMonth, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
-                Text("Criar viagem", fontWeight = FontWeight.SemiBold)
+                Text(tr("Criar viagem", "Create trip"), fontWeight = FontWeight.SemiBold)
             }
+
+            Spacer(Modifier.height(8.dp))
 
             if (trips.isEmpty()) {
                 Card(
@@ -1575,7 +1733,7 @@ private fun TripsByTravelScreen(
                     ) {
                         Icon(Icons.Default.Wallet, contentDescription = null, tint = textDim, modifier = Modifier.size(24.dp))
                         Spacer(Modifier.height(8.dp))
-                        Text("Nenhuma viagem criada.", color = textDim, fontSize = 12.sp)
+                        Text(tr("Nenhuma viagem criada.", "No trip created."), color = textDim, fontSize = 12.sp)
                     }
                 }
             } else {
@@ -1650,7 +1808,7 @@ private fun TripsByTravelScreen(
                             ) {
                                 if (trip.isFinished) {
                                     Text(
-                                        "Finalizada",
+                                        tr("Finalizada", "Finished"),
                                         color = Color(0xFF16A34A),
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.SemiBold,
@@ -1663,7 +1821,7 @@ private fun TripsByTravelScreen(
                                     )
                                 } else {
                                     Text(
-                                        "Em andamento",
+                                        tr("Em andamento", "In progress"),
                                         color = accentBlue,
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.SemiBold,
@@ -1751,16 +1909,18 @@ private fun TripsByTravelScreen(
                             }
                             HorizontalDivider(color = infoCardBorderColor)
 
-                            OutlinedButton(
+                            Button(
                                 onClick = { onOpenTrip(trip) },
-                                border = BorderStroke(1.dp, cardBorder.copy(alpha = if (isDark) 0.34f else 0.28f)),
-                                colors = ButtonDefaults.outlinedButtonColors(contentColor = textPrimary),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = accentBlue,
+                                    contentColor = Color.White
+                                ),
                                 shape = RoundedCornerShape(10.dp),
                                 modifier = Modifier.fillMaxWidth().height(44.dp)
                             ) {
-                                Icon(Icons.Default.ReceiptLong, contentDescription = null, tint = textPrimary, modifier = Modifier.size(18.dp))
+                                Icon(Icons.Default.ReceiptLong, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
                                 Spacer(Modifier.width(6.dp))
-                                Text("Ver gastos", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                                Text("Ver gastos", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                             }
 
                             Row(
@@ -1769,13 +1929,7 @@ private fun TripsByTravelScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 OutlinedButton(
-                                    onClick = {
-                                        editingTripId = trip.id
-                                        editingTripName = trip.name
-                                        editingTripLocation = trip.location
-                                        editingTripResponsible = trip.responsible
-                                        editingTripParticipants = trip.participantEmails.joinToString(", ")
-                                    },
+                                    onClick = { onEditTrip(trip) },
                                     border = BorderStroke(1.dp, cardBorder.copy(alpha = if (isDark) 0.34f else 0.28f)),
                                     colors = ButtonDefaults.outlinedButtonColors(contentColor = textPrimary),
                                     shape = RoundedCornerShape(10.dp),
@@ -1794,73 +1948,9 @@ private fun TripsByTravelScreen(
                                 ) {
                                     Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
                                     Spacer(Modifier.width(6.dp))
-                                    Text("Excluir", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                                    Text(tr("Excluir", "Delete"), fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
                                 }
                             }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    if (editingTripId != null) {
-        Dialog(onDismissRequest = { editingTripId = null }) {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = bg),
-                border = BorderStroke(1.dp, cardBorder),
-                shape = RoundedCornerShape(14.dp)
-            ) {
-                Column(
-                    modifier = Modifier.padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Text("Editar viagem", color = textPrimary, fontWeight = FontWeight.SemiBold)
-                    OutlinedTextField(
-                        value = editingTripName,
-                        onValueChange = { editingTripName = it },
-                        label = { Text("Nome da viagem") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    OutlinedTextField(
-                        value = editingTripLocation,
-                        onValueChange = { editingTripLocation = it },
-                        label = { Text("Local") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    OutlinedTextField(
-                        value = editingTripResponsible,
-                        onValueChange = { editingTripResponsible = it },
-                        label = { Text("Responsavel") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    OutlinedTextField(
-                        value = editingTripParticipants,
-                        onValueChange = { editingTripParticipants = it },
-                        label = { Text("E-mails dos participantes") },
-                        placeholder = { Text("email1@exemplo.com, email2@exemplo.com") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                        OutlinedButton(onClick = { editingTripId = null }) { Text("Cancelar") }
-                        Spacer(Modifier.width(8.dp))
-                        Button(
-                            onClick = {
-                                val tripId = editingTripId
-                                if (tripId != null) {
-                                    onRenameTrip(
-                                        tripId,
-                                        editingTripName.trim(),
-                                        editingTripLocation,
-                                        editingTripResponsible,
-                                        parseParticipantEmails(editingTripParticipants)
-                                    )
-                                }
-                                editingTripId = null
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = accentBlue, contentColor = Color.White)
-                        ) {
-                            Text("Salvar")
                         }
                     }
                 }
@@ -1881,18 +1971,22 @@ private fun TripsByTravelScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Text(
-                        "Excluir viagem",
+                        tr("Excluir viagem", "Delete trip"),
                         color = textPrimary,
                         fontWeight = FontWeight.Bold,
                         fontSize = 18.sp
                     )
                     Text(
-                        "Tem certeza que deseja apagar a viagem ${tripToDelete?.name?.let { "\"$it\"" } ?: ""}?",
+                        if (isEnglishUi()) {
+                            "Are you sure you want to delete trip ${tripToDelete?.name?.let { "\"$it\"" } ?: ""}?"
+                        } else {
+                            "Tem certeza que deseja apagar a viagem ${tripToDelete?.name?.let { "\"$it\"" } ?: ""}?"
+                        },
                         color = textDim,
                         fontSize = 14.sp
                     )
                     Text(
-                        "Essa acao remove os gastos vinculados a ela.",
+                        tr("Essa acao remove os gastos vinculados a ela.", "This action removes all linked expenses."),
                         color = textDim,
                         fontSize = 13.sp
                     )
@@ -1905,7 +1999,7 @@ private fun TripsByTravelScreen(
                             border = BorderStroke(1.dp, cardBorder),
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = textPrimary)
                         ) {
-                            Text("Cancelar")
+                            Text(tr("Cancelar", "Cancel"))
                         }
                         Spacer(Modifier.width(8.dp))
                         Button(
@@ -1921,7 +2015,7 @@ private fun TripsByTravelScreen(
                                 contentColor = Color.White
                             )
                         ) {
-                            Text("Apagar")
+                            Text(tr("Apagar", "Delete"))
                         }
                     }
                 }
@@ -2116,15 +2210,36 @@ private fun CreateTripScreen(
     cardBorder: Color,
     accentBlue: Color,
     onBack: () -> Unit,
-    onCreate: (tripName: String, location: String, responsible: String, participantEmails: List<String>) -> Unit
+    onCreate: (
+        tripName: String,
+        location: String,
+        responsible: String,
+        participantEmails: List<String>,
+        pickupKm: String,
+        pickedBy: String,
+        returnedBy: String
+    ) -> Unit
 ) {
     var tripName by remember { mutableStateOf("") }
     var location by remember { mutableStateOf("") }
-    var responsible by remember { mutableStateOf("") }
     var participantEmailsRaw by remember { mutableStateOf("") }
+    var pickupKm by remember { mutableStateOf("") }
+    var pickedBy by remember { mutableStateOf("") }
+    var useAccountNameForPickedBy by remember { mutableStateOf(false) }
+    var returnedBy by remember { mutableStateOf("") }
     var travelingAlone by remember { mutableStateOf(false) }
+    var createStep by remember { mutableStateOf(1) }
+    val accountDisplayName = remember {
+        val user = FirebaseAuth.getInstance().currentUser
+        user?.displayName?.trim()
+            ?.takeIf { it.isNotBlank() }
+            ?: user?.email?.substringBefore("@")?.trim()?.takeIf { it.isNotBlank() }
+            ?: "Eu mesmo"
+    }
     val backIconTint = if (isDark) Color(0xFFE2E8F0) else Color.Black
     val keyboardController = LocalSoftwareKeyboardController.current
+    val canAdvanceStepOne = tripName.isNotBlank() && location.isNotBlank() && pickedBy.isNotBlank()
+    val canCreateTrip = tripName.isNotBlank() && pickupKm.isNotBlank() && pickedBy.isNotBlank()
     Scaffold(
         containerColor = bg
     ) { innerPadding ->
@@ -2142,7 +2257,7 @@ private fun CreateTripScreen(
                 horizontalArrangement = Arrangement.Start
             ) {
                 IconButton(onClick = onBack) {
-                    Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar", tint = backIconTint)
+                    Icon(Icons.Default.ArrowBackIosNew, contentDescription = tr("Voltar", "Back"), tint = backIconTint)
                 }
             }
 
@@ -2151,102 +2266,371 @@ private fun CreateTripScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                if (isDark) {
-                    Box(
-                        modifier = Modifier
-                            .size(54.dp)
-                            .background(
-                                color = accentBlue.copy(alpha = 0.22f),
-                                shape = RoundedCornerShape(18.dp)
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            Icons.Default.CalendarMonth,
-                            contentDescription = null,
-                            tint = accentBlue,
-                            modifier = Modifier.size(28.dp)
-                        )
-                    }
+                Box(
+                    modifier = Modifier
+                        .size(54.dp)
+                        .background(
+                            color = accentBlue.copy(alpha = if (isDark) 0.22f else 0.14f),
+                            shape = RoundedCornerShape(18.dp)
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Default.CalendarMonth,
+                        contentDescription = null,
+                        tint = accentBlue,
+                        modifier = Modifier.size(28.dp)
+                    )
                 }
                 Text(
-                    "Nova viagem",
+                    tr("Nova viagem", "New trip"),
                     color = textPrimary,
                     fontWeight = FontWeight.Bold,
                     fontSize = 24.sp
                 )
+                Text(
+                    if (isEnglishUi()) "Step $createStep of 2" else "Etapa $createStep de 2",
+                    color = textDim,
+                    fontSize = 12.sp
+                )
             }
+
+            if (createStep == 1) {
+                OutlinedTextField(
+                    value = tripName,
+                    onValueChange = { tripName = it },
+                    label = { Text(tr("Nome da viagem", "Trip name")) },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = outlinedFieldColors(bg, textPrimary, textDim, isDark),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { keyboardController?.hide() })
+                )
+                OutlinedTextField(
+                    value = pickedBy,
+                    onValueChange = { pickedBy = it },
+                    label = { Text(tr("Responsável", "Responsible")) },
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { keyboardController?.hide() }),
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = outlinedFieldColors(bg, textPrimary, textDim, isDark),
+                    enabled = !useAccountNameForPickedBy
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Checkbox(
+                        checked = useAccountNameForPickedBy,
+                        onCheckedChange = { checked ->
+                            useAccountNameForPickedBy = checked
+                            if (checked) {
+                                pickedBy = accountDisplayName
+                                keyboardController?.hide()
+                            }
+                        }
+                    )
+                    Text(tr("Eu mesmo", "Myself"), color = textDim, fontSize = 13.sp)
+                }
+                OutlinedTextField(
+                    value = location,
+                    onValueChange = { location = it },
+                    label = { Text(tr("Local", "Location")) },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = outlinedFieldColors(bg, textPrimary, textDim, isDark),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { keyboardController?.hide() })
+                )
+                Button(
+                    onClick = { createStep = 2 },
+                    enabled = canAdvanceStepOne,
+                    colors = ButtonDefaults.buttonColors(containerColor = accentBlue, contentColor = Color.White),
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.fillMaxWidth().height(50.dp)
+                ) {
+                    Text(tr("Continuar", "Continue"), fontWeight = FontWeight.SemiBold)
+                }
+            } else {
+                OutlinedTextField(
+                    value = participantEmailsRaw,
+                    onValueChange = { participantEmailsRaw = it },
+                    label = { Text(tr("E-mails dos acompanhantes", "Companion emails")) },
+                    placeholder = { Text(if (isEnglishUi()) "email1@example.com, email2@example.com" else "email1@exemplo.com, email2@exemplo.com") },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = outlinedFieldColors(bg, textPrimary, textDim, isDark),
+                    enabled = !travelingAlone,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { keyboardController?.hide() })
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Checkbox(
+                        checked = travelingAlone,
+                        onCheckedChange = {
+                            travelingAlone = it
+                            if (it) {
+                                participantEmailsRaw = ""
+                                keyboardController?.hide()
+                            }
+                        }
+                    )
+                    Text(tr("Estou viajando sozinho", "I'm traveling alone"), color = textDim, fontSize = 13.sp)
+                }
+                OutlinedTextField(
+                    value = pickupKm,
+                    onValueChange = { if (it.all(Char::isDigit)) pickupKm = it },
+                    label = { Text(tr("KM retirada do veículo", "Pickup mileage")) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { keyboardController?.hide() }),
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = outlinedFieldColors(bg, textPrimary, textDim, isDark)
+                )
+                OutlinedTextField(
+                    value = returnedBy,
+                    onValueChange = { returnedBy = it },
+                    label = { Text(tr("Quem vai entregar (opcional)", "Who will deliver (optional)")) },
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { keyboardController?.hide() }),
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = outlinedFieldColors(bg, textPrimary, textDim, isDark)
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = { createStep = 1 },
+                        border = BorderStroke(1.dp, cardBorder),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = textPrimary),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(50.dp),
+                        shape = RoundedCornerShape(14.dp)
+                    ) {
+                        Text(tr("Voltar", "Back"))
+                    }
+                    Button(
+                        onClick = {
+                            onCreate(
+                                tripName.trim().ifBlank { trNow("Nova viagem", "New trip") },
+                                location.trim(),
+                                pickedBy.trim(),
+                                if (travelingAlone) emptyList() else parseParticipantEmails(participantEmailsRaw),
+                                pickupKm.trim(),
+                                pickedBy.trim(),
+                                returnedBy.trim()
+                            )
+                        },
+                        enabled = canCreateTrip,
+                        colors = ButtonDefaults.buttonColors(containerColor = accentBlue, contentColor = Color.White),
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(50.dp)
+                    ) {
+                        Icon(Icons.Default.CalendarMonth, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(tr("Criar viagem", "Create trip"), fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            }
+        }
+    }
+
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun EditTripScreen(
+    initialTrip: TravelTrip,
+    isDark: Boolean,
+    bg: Color,
+    textPrimary: Color,
+    textDim: Color,
+    cardBorder: Color,
+    accentBlue: Color,
+    onBack: () -> Unit,
+    onSave: (TravelTrip) -> Unit
+) {
+    var tripName by remember(initialTrip.id) { mutableStateOf(initialTrip.name) }
+    var location by remember(initialTrip.id) { mutableStateOf(initialTrip.location) }
+    var responsible by remember(initialTrip.id) { mutableStateOf(initialTrip.responsible) }
+    var participantEmailsRaw by remember(initialTrip.id) { mutableStateOf(initialTrip.participantEmails.joinToString(", ")) }
+    var pickupKm by remember(initialTrip.id) { mutableStateOf(initialTrip.pickupKm) }
+    var returnKm by remember(initialTrip.id) { mutableStateOf(initialTrip.returnKm) }
+    var pickedBy by remember(initialTrip.id) { mutableStateOf(initialTrip.pickedBy) }
+    var returnedBy by remember(initialTrip.id) { mutableStateOf(initialTrip.returnedBy) }
+    val keyboardController = LocalSoftwareKeyboardController.current
+
+    Scaffold(containerColor = bg) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Start
+            ) {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.Default.ArrowBackIosNew, contentDescription = tr("Voltar", "Back"), tint = textPrimary)
+                }
+            }
+
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(54.dp)
+                        .background(
+                            color = accentBlue.copy(alpha = if (isDark) 0.22f else 0.14f),
+                            shape = RoundedCornerShape(18.dp)
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Default.Edit,
+                        contentDescription = null,
+                        tint = accentBlue,
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
+                Text(tr("Editar viagem", "Edit trip"), color = textPrimary, fontWeight = FontWeight.Bold, fontSize = 24.sp)
+            }
+
             OutlinedTextField(
                 value = tripName,
                 onValueChange = { tripName = it },
-                label = { Text("Nome da viagem") },
+                label = { Text(tr("Nome da viagem", "Trip name")) },
                 modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = outlinedFieldColors(bg, textPrimary, textDim, isDark),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = { keyboardController?.hide() })
             )
             OutlinedTextField(
                 value = responsible,
                 onValueChange = { responsible = it },
-                label = { Text("Responsável") },
+                label = { Text(tr("Responsavel", "Responsible")) },
                 modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = outlinedFieldColors(bg, textPrimary, textDim, isDark),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = { keyboardController?.hide() })
             )
             OutlinedTextField(
                 value = location,
                 onValueChange = { location = it },
-                label = { Text("Local") },
+                label = { Text(tr("Local", "Location")) },
                 modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = outlinedFieldColors(bg, textPrimary, textDim, isDark),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = { keyboardController?.hide() })
             )
             OutlinedTextField(
                 value = participantEmailsRaw,
                 onValueChange = { participantEmailsRaw = it },
-                label = { Text("E-mails dos acompanhantes") },
-                placeholder = { Text("email1@exemplo.com, email2@exemplo.com") },
+                label = { Text(tr("E-mails dos participantes", "Participant emails")) },
+                placeholder = { Text(if (isEnglishUi()) "email1@example.com, email2@example.com" else "email1@exemplo.com, email2@exemplo.com") },
                 modifier = Modifier.fillMaxWidth(),
-                enabled = !travelingAlone,
+                shape = RoundedCornerShape(12.dp),
+                colors = outlinedFieldColors(bg, textPrimary, textDim, isDark),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = { keyboardController?.hide() })
             )
+            OutlinedTextField(
+                value = pickupKm,
+                onValueChange = { if (it.all(Char::isDigit)) pickupKm = it },
+                label = { Text(tr("KM retirada", "Pickup mileage")) },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { keyboardController?.hide() }),
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = outlinedFieldColors(bg, textPrimary, textDim, isDark)
+            )
+            OutlinedTextField(
+                value = returnKm,
+                onValueChange = { if (it.all(Char::isDigit)) returnKm = it },
+                label = { Text(tr("KM entrega", "Return mileage")) },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { keyboardController?.hide() }),
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = outlinedFieldColors(bg, textPrimary, textDim, isDark)
+            )
+            OutlinedTextField(
+                value = pickedBy,
+                onValueChange = { pickedBy = it },
+                label = { Text(tr("Quem retirou", "Picked up by")) },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = outlinedFieldColors(bg, textPrimary, textDim, isDark),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { keyboardController?.hide() })
+            )
+            OutlinedTextField(
+                value = returnedBy,
+                onValueChange = { returnedBy = it },
+                label = { Text(tr("Quem entregou", "Returned by")) },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = outlinedFieldColors(bg, textPrimary, textDim, isDark),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { keyboardController?.hide() })
+            )
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Checkbox(
-                    checked = travelingAlone,
-                    onCheckedChange = {
-                        travelingAlone = it
-                        if (it) {
-                            participantEmailsRaw = ""
-                            keyboardController?.hide()
-                        }
-                    }
-                )
-                Text("Estou viajando sozinho", color = textDim, fontSize = 13.sp)
-            }
-            Button(
-                onClick = {
-                    onCreate(
-                        tripName.trim().ifBlank { "Nova viagem" },
-                        location.trim(),
-                        responsible.trim(),
-                        if (travelingAlone) emptyList() else parseParticipantEmails(participantEmailsRaw)
-                    )
-                },
-                enabled = tripName.isNotBlank(),
-                colors = ButtonDefaults.buttonColors(containerColor = accentBlue, contentColor = Color.White),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth().height(48.dp)
-            ) {
-                Icon(Icons.Default.CalendarMonth, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("Criar viagem", fontWeight = FontWeight.SemiBold)
+                OutlinedButton(
+                    onClick = onBack,
+                    border = BorderStroke(1.dp, cardBorder),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = textPrimary),
+                    modifier = Modifier.weight(1f).height(50.dp),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    Text(tr("Cancelar", "Cancel"))
+                }
+                Button(
+                    onClick = {
+                        onSave(
+                            initialTrip.copy(
+                                name = tripName.trim().ifBlank { trNow("Minha viagem", "My trip") },
+                                location = location.trim(),
+                                responsible = responsible.trim(),
+                                participantEmails = parseParticipantEmails(participantEmailsRaw),
+                                pickupKm = pickupKm.trim(),
+                                returnKm = returnKm.trim(),
+                                pickedBy = pickedBy.trim(),
+                                returnedBy = returnedBy.trim()
+                            )
+                        )
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = accentBlue, contentColor = Color.White),
+                    enabled = tripName.isNotBlank(),
+                    modifier = Modifier.weight(1f).height(50.dp),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    Text(tr("Salvar", "Save"), fontWeight = FontWeight.SemiBold)
+                }
             }
         }
     }
-
 }
 
 private fun parseParticipantEmails(raw: String): List<String> {
@@ -2332,7 +2716,7 @@ private fun AddTravelExpenseScreen(
                 horizontalArrangement = Arrangement.Start
             ) {
                 IconButton(onClick = onBack) {
-                    Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar", tint = textPrimary)
+                    Icon(Icons.Default.ArrowBackIosNew, contentDescription = tr("Voltar", "Back"), tint = textPrimary)
                 }
             }
 
@@ -2341,26 +2725,24 @@ private fun AddTravelExpenseScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                if (isDark) {
-                    Box(
-                        modifier = Modifier
-                            .size(54.dp)
-                            .background(
-                                color = accentBlue.copy(alpha = 0.22f),
-                                shape = RoundedCornerShape(18.dp)
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            Icons.Default.CalendarMonth,
-                            contentDescription = null,
-                            tint = accentBlue,
-                            modifier = Modifier.size(28.dp)
-                        )
-                    }
+                Box(
+                    modifier = Modifier
+                        .size(54.dp)
+                        .background(
+                            color = accentBlue.copy(alpha = if (isDark) 0.22f else 0.14f),
+                            shape = RoundedCornerShape(18.dp)
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Default.CalendarMonth,
+                        contentDescription = null,
+                        tint = accentBlue,
+                        modifier = Modifier.size(28.dp)
+                    )
                 }
                 Text(
-                    "Adicionar gasto",
+                    tr("Adicionar gasto", "Add expense"),
                     color = textPrimary,
                     fontWeight = FontWeight.Bold,
                     fontSize = 24.sp
@@ -2377,13 +2759,13 @@ private fun AddTravelExpenseScreen(
             ) {
                 Icon(Icons.Default.CameraAlt, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
-                Text("Escanear QR code da nota", fontWeight = FontWeight.SemiBold)
+                Text(tr("Escanear QR code da nota", "Scan invoice QR code"), fontWeight = FontWeight.SemiBold)
             }
 
             OutlinedTextField(
                 value = expenseLabel,
                 onValueChange = onExpenseLabelChange,
-                label = { Text("Itens") },
+                label = { Text(tr("Itens", "Items")) },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp),
                 colors = outlinedFieldColors(bg, textPrimary, textDim, isDark),
@@ -2394,7 +2776,7 @@ private fun AddTravelExpenseScreen(
             OutlinedTextField(
                 value = expenseAmount,
                 onValueChange = onExpenseAmountChange,
-                label = { Text("Valor total") },
+                label = { Text(tr("Valor total", "Total amount")) },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = { keyboardController?.hide() }),
                 modifier = Modifier.fillMaxWidth(),
@@ -2403,7 +2785,7 @@ private fun AddTravelExpenseScreen(
             )
 
             SelectorCard(
-                label = "Categoria",
+                label = tr("Categoria", "Category"),
                 value = category,
                 icon = null,
                 textPrimary = textPrimary,
@@ -2415,8 +2797,8 @@ private fun AddTravelExpenseScreen(
             )
 
             SelectorCard(
-                label = "Veiculo",
-                value = selectedVehicleName.ifBlank { "Selecionar veiculo" },
+                label = tr("Veiculo", "Vehicle"),
+                value = selectedVehicleName.ifBlank { tr("Selecionar veiculo", "Select vehicle") },
                 icon = null,
                 textPrimary = textPrimary,
                 textDim = textDim,
@@ -2430,7 +2812,7 @@ private fun AddTravelExpenseScreen(
                 OutlinedTextField(
                     value = customVehicleName,
                     onValueChange = onCustomVehicleNameChange,
-                    label = { Text("Nome do veiculo externo") },
+                    label = { Text(tr("Nome do veiculo externo", "External vehicle name")) },
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
                     colors = outlinedFieldColors(bg, textPrimary, textDim, isDark),
@@ -2440,7 +2822,7 @@ private fun AddTravelExpenseScreen(
             }
 
             if (photoCount > 0) {
-                Text("Fotos adicionadas: $photoCount", color = textDim, fontSize = 12.sp)
+                Text(if (isEnglishUi()) "Added photos: $photoCount" else "Fotos adicionadas: $photoCount", color = textDim, fontSize = 12.sp)
             }
 
             Button(
@@ -2450,14 +2832,14 @@ private fun AddTravelExpenseScreen(
                 modifier = Modifier.fillMaxWidth().height(50.dp),
                 shape = RoundedCornerShape(14.dp)
             ) {
-                Text("Salvar", fontWeight = FontWeight.SemiBold)
+                Text(tr("Salvar", "Save"), fontWeight = FontWeight.SemiBold)
             }
         }
     }
 
     if (showCategoryDialog) {
         SelectionDialog(
-            title = "Categoria",
+            title = tr("Categoria", "Category"),
             bg = bg,
             cardBorder = cardBorder,
             textPrimary = textPrimary,
@@ -2483,7 +2865,7 @@ private fun AddTravelExpenseScreen(
 
     if (showVehicleSelectorDialog) {
         SelectionDialog(
-            title = "Selecionar veiculo",
+            title = tr("Selecionar veiculo", "Select vehicle"),
             bg = bg,
             cardBorder = cardBorder,
             textPrimary = textPrimary,
@@ -2528,7 +2910,7 @@ private fun ExportActionButton(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        Icon(Icons.Default.Upload, contentDescription = "Exportar", tint = content, modifier = Modifier.size(18.dp))
+        Icon(Icons.Default.Upload, contentDescription = tr("Exportar", "Export"), tint = content, modifier = Modifier.size(18.dp))
     }
 }
 
@@ -2562,38 +2944,37 @@ private fun ExportOptionsScreen(
                 onClick = onBack,
                 modifier = Modifier.align(Alignment.TopStart)
             ) {
-                Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar", tint = textPrimary)
+                Icon(Icons.Default.ArrowBackIosNew, contentDescription = tr("Voltar", "Back"), tint = textPrimary)
             }
 
             Column(
                 modifier = Modifier
-                    .align(Alignment.Center)
+                    .align(Alignment.TopCenter)
                     .fillMaxWidth()
-                    .padding(horizontal = 8.dp),
+                    .padding(horizontal = 8.dp)
+                    .padding(top = 36.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                if (isDark) {
-                    Box(
-                        modifier = Modifier
-                            .size(54.dp)
-                            .background(
-                                color = accentBlue.copy(alpha = 0.16f),
-                                shape = RoundedCornerShape(18.dp)
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            Icons.Default.Upload,
-                            contentDescription = null,
-                            tint = accentBlue,
-                            modifier = Modifier.size(28.dp)
-                        )
-                    }
+                Box(
+                    modifier = Modifier
+                        .size(54.dp)
+                        .background(
+                            color = accentBlue.copy(alpha = if (isDark) 0.16f else 0.12f),
+                            shape = RoundedCornerShape(18.dp)
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Default.Upload,
+                        contentDescription = null,
+                        tint = accentBlue,
+                        modifier = Modifier.size(28.dp)
+                    )
                 }
 
                 Text(
-                    "Exportar",
+                    tr("Exportar", "Export"),
                     color = textPrimary,
                     fontWeight = FontWeight.Bold,
                     fontSize = 24.sp,
@@ -2744,11 +3125,15 @@ private fun TravelExpensesScreen(
     categories: List<String>,
     onBack: () -> Unit,
     onAddExpense: () -> Unit,
-    onFinishTrip: () -> Unit,
+    currentTripReturnKm: String,
+    currentReturnedBy: String,
+    onFinishTrip: (kmFinal: String, deliveredBy: String) -> Unit,
     onReopenTrip: () -> Unit,
     onExportPdf: () -> Unit,
     onPrintPdf: () -> Unit,
-    onExportSpreadsheetWithPhotos: () -> Unit
+    onExportSpreadsheetWithPhotos: () -> Unit,
+    onExportAllTripsPdf: () -> Unit,
+    onExportAllTripsSpreadsheet: () -> Unit
 ) {
     val context = LocalContext.current
     val backIconTint = if (isDark) Color(0xFFE2E8F0) else Color.Black
@@ -2760,6 +3145,8 @@ private fun TravelExpensesScreen(
     var showExportScreen by remember { mutableStateOf(false) }
     var showFinishDialog by remember { mutableStateOf(false) }
     var showReopenDialog by remember { mutableStateOf(false) }
+    var finishKm by remember(currentTripReturnKm) { mutableStateOf(currentTripReturnKm) }
+    var finishDeliveredBy by remember(currentReturnedBy) { mutableStateOf(currentReturnedBy) }
 
     if (showExportScreen) {
         ExportOptionsScreen(
@@ -2768,10 +3155,10 @@ private fun TravelExpensesScreen(
             textDim = textDim,
             cardBorder = cardBorder,
             accentBlue = accentBlue,
-            subtitle = "Exporte para compartilhar os registros desta viagem.",
+            subtitle = tr("Exporte para compartilhar os registros desta viagem.", "Export to share this trip records."),
             actions = listOf(
                 ExportOptionAction(
-                    label = "Exportar PDF",
+                    label = tr("Exportar PDF desta viagem", "Export this trip PDF"),
                     icon = Icons.Default.PictureAsPdf,
                     onClick = {
                         showExportScreen = false
@@ -2779,11 +3166,27 @@ private fun TravelExpensesScreen(
                     }
                 ),
                 ExportOptionAction(
-                    label = "Exportar planilha + fotos",
+                    label = tr("Exportar planilha desta viagem", "Export this trip spreadsheet"),
                     icon = Icons.Default.ReceiptLong,
                     onClick = {
                         showExportScreen = false
                         onExportSpreadsheetWithPhotos()
+                    }
+                ),
+                ExportOptionAction(
+                    label = tr("Exportar PDF de todas as viagens", "Export all trips PDF"),
+                    icon = Icons.Default.PictureAsPdf,
+                    onClick = {
+                        showExportScreen = false
+                        onExportAllTripsPdf()
+                    }
+                ),
+                ExportOptionAction(
+                    label = tr("Exportar planilha de todas", "Export all trips spreadsheet"),
+                    icon = Icons.Default.ReceiptLong,
+                    onClick = {
+                        showExportScreen = false
+                        onExportAllTripsSpreadsheet()
                     }
                 )
             ),
@@ -2809,7 +3212,7 @@ private fun TravelExpensesScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(onClick = onBack) {
-                    Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar", tint = textPrimary)
+                    Icon(Icons.Default.ArrowBackIosNew, contentDescription = tr("Voltar", "Back"), tint = textPrimary)
                 }
                 ExportActionButton(
                     isDark = isDark,
@@ -2824,29 +3227,29 @@ private fun TravelExpensesScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                if (isDark) {
-                    Box(
-                        modifier = Modifier
-                            .size(54.dp)
-                            .background(
-                                color = accentBlue.copy(alpha = 0.22f),
-                                shape = RoundedCornerShape(18.dp)
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            Icons.Default.ReceiptLong,
-                            contentDescription = null,
-                            tint = accentBlue,
-                            modifier = Modifier.size(28.dp)
-                        )
-                    }
+                Box(
+                    modifier = Modifier
+                        .size(54.dp)
+                        .background(
+                            color = accentBlue.copy(alpha = if (isDark) 0.22f else 0.14f),
+                            shape = RoundedCornerShape(18.dp)
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Default.DirectionsCar,
+                        contentDescription = null,
+                        tint = accentBlue,
+                        modifier = Modifier.size(28.dp)
+                    )
                 }
                 Text(
-                    "Adicionar gasto",
+                    tripName.ifBlank { trNow("Minha viagem", "My trip") },
                     color = textPrimary,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 24.sp
+                    fontSize = 24.sp,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                 )
             }
 
@@ -2861,9 +3264,9 @@ private fun TravelExpensesScreen(
                         modifier = Modifier.fillMaxWidth().padding(14.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Text("Viagem finalizada", color = textPrimary, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        Text(tr("Viagem finalizada", "Trip finished"), color = textPrimary, fontWeight = FontWeight.Bold, fontSize = 15.sp)
                         Text(
-                            "Esta viagem foi encerrada. Os gastos ficam bloqueados ate voce reabrir.",
+                            tr("Esta viagem foi encerrada. Os gastos ficam bloqueados ate voce reabrir.", "This trip was closed. Expenses stay locked until you reopen it."),
                             color = textDim,
                             fontSize = 12.sp
                         )
@@ -2874,7 +3277,7 @@ private fun TravelExpensesScreen(
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.fillMaxWidth().height(46.dp)
                         ) {
-                            Text("Reabrir viagem", fontWeight = FontWeight.SemiBold)
+                            Text(tr("Reabrir viagem", "Reopen trip"), fontWeight = FontWeight.SemiBold)
                         }
                     }
                 }
@@ -2887,16 +3290,20 @@ private fun TravelExpensesScreen(
                 ) {
                     Icon(Icons.Default.ReceiptLong, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text("Adicionar gasto", fontWeight = FontWeight.SemiBold)
+                    Text(tr("Adicionar gasto", "Add expense"), fontWeight = FontWeight.SemiBold)
                 }
                 OutlinedButton(
-                    onClick = { showFinishDialog = true },
+                    onClick = {
+                        finishKm = currentTripReturnKm
+                        finishDeliveredBy = currentReturnedBy
+                        showFinishDialog = true
+                    },
                     border = BorderStroke(1.dp, if (isDark) Color.White.copy(alpha = 0.14f) else Color.Black),
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = textPrimary),
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.fillMaxWidth().height(46.dp)
                 ) {
-                    Text("Finalizar viagem", fontWeight = FontWeight.SemiBold)
+                    Text(tr("Finalizar viagem", "Finish trip"), fontWeight = FontWeight.SemiBold)
                 }
             }
 
@@ -2912,7 +3319,7 @@ private fun TravelExpensesScreen(
                     ) {
                         Icon(Icons.Default.Wallet, contentDescription = null, tint = textDim, modifier = Modifier.size(24.dp))
                         Spacer(Modifier.height(8.dp))
-                        Text("Nenhum gasto adicionado.", color = textDim, fontSize = 12.sp)
+                        Text(tr("Nenhum gasto adicionado.", "No expense added."), color = textDim, fontSize = 12.sp)
                     }
                 }
             } else {
@@ -2950,7 +3357,7 @@ private fun TravelExpensesScreen(
 
                             HorizontalDivider(color = cardBorder)
                             if (expense.vehicleName.isNotBlank()) {
-                                Text("Veiculo: ${expense.vehicleName}", color = textDim, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                Text("${tr("Veiculo", "Vehicle")}: ${expense.vehicleName}", color = textDim, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                             }
                             Text(
                                 if (showAllItems) expense.label else productsPreview.preview,
@@ -2960,7 +3367,7 @@ private fun TravelExpensesScreen(
                             )
                             if (productsPreview.hiddenCount > 0) {
                                 Text(
-                                    if (showAllItems) "Ocultar itens" else "+${productsPreview.hiddenCount} itens",
+                                    if (showAllItems) tr("Ocultar itens", "Hide items") else if (isEnglishUi()) "+${productsPreview.hiddenCount} items" else "+${productsPreview.hiddenCount} itens",
                                     color = accentBlue,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.SemiBold,
@@ -2988,9 +3395,9 @@ private fun TravelExpensesScreen(
                                         shape = RoundedCornerShape(8.dp),
                                         modifier = Modifier.height(42.dp)
                                     ) {
-                                        Icon(Icons.Default.Image, contentDescription = "Ver foto da nota", tint = textDim, modifier = Modifier.size(18.dp))
+                                        Icon(Icons.Default.Image, contentDescription = tr("Ver foto da nota", "View receipt photo"), tint = textDim, modifier = Modifier.size(18.dp))
                                         Spacer(Modifier.width(6.dp))
-                                        Text("Ver foto da nota", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                        Text(tr("Ver foto da nota", "View receipt photo"), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                                     }
                                 }
                                 if (!isTripFinished) {
@@ -3003,7 +3410,7 @@ private fun TravelExpensesScreen(
                                                 editExpenseCategory = expense.category
                                             }
                                         ) {
-                                            Icon(Icons.Default.Edit, contentDescription = "Editar gasto", tint = accentBlue)
+                                            Icon(Icons.Default.Edit, contentDescription = tr("Editar gasto", "Edit expense"), tint = accentBlue)
                                         }
                                         IconButton(
                                             onClick = {
@@ -3011,7 +3418,7 @@ private fun TravelExpensesScreen(
                                                 onPersistExpenses()
                                             }
                                         ) {
-                                            Icon(Icons.Default.Delete, contentDescription = "Apagar gasto", tint = Color(0xFFDC2626))
+                                            Icon(Icons.Default.Delete, contentDescription = tr("Apagar gasto", "Delete expense"), tint = Color(0xFFDC2626))
                                         }
                                     }
                                 }
@@ -3034,22 +3441,39 @@ private fun TravelExpensesScreen(
                     modifier = Modifier.fillMaxWidth().padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Text("Finalizar viagem", color = textPrimary, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                    Text("Deseja encerrar esta viagem e bloquear novos gastos?", color = textDim, fontSize = 14.sp)
+                    Text(tr("Finalizar viagem", "Finish trip"), color = textPrimary, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    Text(tr("Informe o KM final e quem entregou o veículo.", "Enter the final mileage and who delivered the vehicle."), color = textDim, fontSize = 14.sp)
+                    OutlinedTextField(
+                        value = finishKm,
+                        onValueChange = { if (it.all(Char::isDigit)) finishKm = it },
+                        label = { Text(tr("KM final da viagem", "Final trip mileage")) },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = finishDeliveredBy,
+                        onValueChange = { finishDeliveredBy = it },
+                        label = { Text(tr("Quem entregou o veículo", "Who delivered the vehicle")) },
+                        modifier = Modifier.fillMaxWidth()
+                    )
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                         OutlinedButton(
                             onClick = { showFinishDialog = false },
                             border = BorderStroke(1.dp, cardBorder),
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = textPrimary)
-                        ) { Text("Cancelar") }
+                        ) { Text(tr("Cancelar", "Cancel")) }
                         Spacer(Modifier.width(8.dp))
                         Button(
                             onClick = {
+                                if (finishKm.isBlank()) {
+                                    Toast.makeText(context, trNow("Informe o KM final.", "Enter the final mileage."), Toast.LENGTH_SHORT).show()
+                                    return@Button
+                                }
                                 showFinishDialog = false
-                                onFinishTrip()
+                                onFinishTrip(finishKm.trim(), finishDeliveredBy.trim())
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = accentBlue, contentColor = Color.White)
-                        ) { Text("Finalizar") }
+                        ) { Text(tr("Finalizar", "Finish")) }
                     }
                 }
             }
@@ -3067,14 +3491,14 @@ private fun TravelExpensesScreen(
                     modifier = Modifier.fillMaxWidth().padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Text("Reabrir viagem", color = textPrimary, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                    Text("Deseja reabrir esta viagem para voltar a adicionar gastos?", color = textDim, fontSize = 14.sp)
+                    Text(tr("Reabrir viagem", "Reopen trip"), color = textPrimary, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    Text(tr("Deseja reabrir esta viagem para voltar a adicionar gastos?", "Do you want to reopen this trip to add expenses again?"), color = textDim, fontSize = 14.sp)
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                         OutlinedButton(
                             onClick = { showReopenDialog = false },
                             border = BorderStroke(1.dp, cardBorder),
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = textPrimary)
-                        ) { Text("Cancelar") }
+                        ) { Text(tr("Cancelar", "Cancel")) }
                         Spacer(Modifier.width(8.dp))
                         Button(
                             onClick = {
@@ -3082,7 +3506,7 @@ private fun TravelExpensesScreen(
                                 onReopenTrip()
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = accentBlue, contentColor = Color.White)
-                        ) { Text("Reabrir") }
+                        ) { Text(tr("Reabrir", "Reopen")) }
                     }
                 }
             }
@@ -3104,19 +3528,19 @@ private fun TravelExpensesScreen(
                     }
                 }
                 Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Foto da nota", color = textPrimary, fontWeight = FontWeight.SemiBold)
+                    Text(tr("Foto da nota", "Receipt photo"), color = textPrimary, fontWeight = FontWeight.SemiBold)
                     if (bitmap != null) {
                         Image(
                             bitmap = bitmap.asImageBitmap(),
-                            contentDescription = "Foto da nota",
+                            contentDescription = tr("Foto da nota", "Receipt photo"),
                             contentScale = ContentScale.Fit,
                             modifier = Modifier.fillMaxWidth().height(430.dp)
                         )
                     } else {
-                        Text("Nao foi possivel carregar a foto.", color = textDim, fontSize = 12.sp)
+                        Text(tr("Nao foi possivel carregar a foto.", "Could not load the photo."), color = textDim, fontSize = 12.sp)
                     }
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                        OutlinedButton(onClick = { selectedPhotoUri = null }) { Text("Fechar") }
+                        OutlinedButton(onClick = { selectedPhotoUri = null }) { Text(tr("Fechar", "Close")) }
                     }
                 }
             }
@@ -3127,24 +3551,24 @@ private fun TravelExpensesScreen(
         Dialog(onDismissRequest = { editingExpenseId = null }) {
             Card(colors = CardDefaults.cardColors(containerColor = bg), border = BorderStroke(1.dp, cardBorder), shape = RoundedCornerShape(14.dp)) {
                 Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Editar gasto", color = textPrimary, fontWeight = FontWeight.SemiBold)
-                    OutlinedTextField(value = editExpenseLabel, onValueChange = { editExpenseLabel = it }, label = { Text("Itens") }, modifier = Modifier.fillMaxWidth())
+                    Text(tr("Editar gasto", "Edit expense"), color = textPrimary, fontWeight = FontWeight.SemiBold)
+                    OutlinedTextField(value = editExpenseLabel, onValueChange = { editExpenseLabel = it }, label = { Text(tr("Itens", "Items")) }, modifier = Modifier.fillMaxWidth())
                     OutlinedTextField(
                         value = editExpenseAmount,
                         onValueChange = { editExpenseAmount = it },
-                        label = { Text("Valor Total") },
+                        label = { Text(tr("Valor Total", "Total Amount")) },
                         keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         modifier = Modifier.fillMaxWidth()
                     )
                     var showEditCategoryDialog by remember { mutableStateOf(false) }
                     Box(modifier = Modifier.fillMaxWidth().clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { showEditCategoryDialog = true }) {
-                        OutlinedTextField(value = editExpenseCategory, onValueChange = {}, readOnly = true, enabled = false, label = { Text("Categoria") }, modifier = Modifier.fillMaxWidth())
+                        OutlinedTextField(value = editExpenseCategory, onValueChange = {}, readOnly = true, enabled = false, label = { Text(tr("Categoria", "Category")) }, modifier = Modifier.fillMaxWidth())
                     }
                     if (showEditCategoryDialog) {
                         Dialog(onDismissRequest = { showEditCategoryDialog = false }) {
                             Card(colors = CardDefaults.cardColors(containerColor = bg), border = BorderStroke(1.dp, cardBorder), shape = RoundedCornerShape(14.dp)) {
                                 Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Text("Categoria", color = textPrimary, fontWeight = FontWeight.SemiBold)
+                                    Text(tr("Categoria", "Category"), color = textPrimary, fontWeight = FontWeight.SemiBold)
                                     categories.forEach { item ->
                                         OutlinedButton(onClick = { editExpenseCategory = item; showEditCategoryDialog = false }, modifier = Modifier.fillMaxWidth()) {
                                             Text(item)
@@ -3155,13 +3579,13 @@ private fun TravelExpensesScreen(
                         }
                     }
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                        OutlinedButton(onClick = { editingExpenseId = null }) { Text("Cancelar") }
+                        OutlinedButton(onClick = { editingExpenseId = null }) { Text(tr("Cancelar", "Cancel")) }
                         Spacer(Modifier.width(8.dp))
                         Button(
                             onClick = {
                                 val amount = parseValorMonetario(editExpenseAmount)
                                 if (amount == null || amount <= 0.0) {
-                                    Toast.makeText(context, "Informe um valor valido.", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, trNow("Informe um valor valido.", "Enter a valid amount."), Toast.LENGTH_SHORT).show()
                                     return@Button
                                 }
                                 val idx = expenses.indexOfFirst { it.id == editingExpenseId }
@@ -3176,7 +3600,7 @@ private fun TravelExpensesScreen(
                                 editingExpenseId = null
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = accentBlue, contentColor = Color.White)
-                        ) { Text("Salvar") }
+                        ) { Text(tr("Salvar", "Save")) }
                     }
                 }
             }
@@ -3189,6 +3613,10 @@ private fun generateTripReportPdf(
     tripName: String,
     location: String,
     responsible: String,
+    pickupKm: String,
+    returnKm: String,
+    pickedBy: String,
+    returnedBy: String,
     expenses: List<TravelExpense>
 ): File? {
     return runCatching {
@@ -3261,6 +3689,10 @@ private fun generateTripReportPdf(
         val totalGastos = expenses.sumOf { it.amount }
         val locationText = location.ifBlank { "-" }
         val responsibleText = responsible.ifBlank { "-" }
+        val pickupKmText = pickupKm.ifBlank { "-" }
+        val returnKmText = returnKm.ifBlank { "-" }
+        val pickedByText = pickedBy.ifBlank { "-" }
+        val returnedByText = returnedBy.ifBlank { "-" }
 
         fun ensureSpace(extra: Float) {
             if (y + extra > 802f) {
@@ -3287,7 +3719,7 @@ private fun generateTripReportPdf(
         canvas.drawLine(margin, 84f, pageWidth - margin, 84f, dividerPaint)
         y = 108f
 
-        val resumoRect = RectF(margin, y, margin + contentWidth, y + 154f)
+        val resumoRect = RectF(margin, y, margin + contentWidth, y + 184f)
         canvas.drawRoundRect(resumoRect, 12f, 12f, cardBgPaint)
         canvas.drawRoundRect(resumoRect, 12f, 12f, cardStrokePaint)
         canvas.drawText("VIAGEM", margin + 14f, y + 22f, labelPaint)
@@ -3296,11 +3728,19 @@ private fun generateTripReportPdf(
         canvas.drawText(currency.format(totalGastos), margin + 14f, y + 80f, valuePaint)
         canvas.drawText("LOCAL", margin + 14f, y + 102f, valueBoldPaint)
         canvas.drawText(locationText.take(44), margin + 14f, y + 120f, valuePaint)
+        canvas.drawText("KM RETIRADA", margin + 14f, y + 142f, labelPaint)
+        canvas.drawText(pickupKmText.take(18), margin + 14f, y + 160f, valueBoldPaint)
         canvas.drawText("LANCAMENTOS", margin + contentWidth / 2f + 10f, y + 22f, labelPaint)
         canvas.drawText(expenses.size.toString(), margin + contentWidth / 2f + 10f, y + 40f, valueBoldPaint)
         canvas.drawText("RESPONSAVEL", margin + contentWidth / 2f + 10f, y + 62f, labelPaint)
         canvas.drawText(responsibleText.take(24), margin + contentWidth / 2f + 10f, y + 80f, valueBoldPaint)
-        y += 182f
+        canvas.drawText("KM ENTREGA", margin + contentWidth / 2f + 10f, y + 102f, labelPaint)
+        canvas.drawText(returnKmText.take(18), margin + contentWidth / 2f + 10f, y + 120f, valueBoldPaint)
+        canvas.drawText("RETIRADO POR", margin + contentWidth / 2f + 10f, y + 142f, labelPaint)
+        canvas.drawText(pickedByText.take(24), margin + contentWidth / 2f + 10f, y + 160f, valueBoldPaint)
+        canvas.drawText("ENTREGUE POR", margin + 14f, y + 174f, labelPaint)
+        canvas.drawText(returnedByText.take(28), margin + 96f, y + 174f, valuePaint)
+        y += 212f
 
         canvas.drawText("GASTOS DETALHADOS", margin, y, sectionPaint)
         y += 8f
@@ -3524,7 +3964,7 @@ private fun generateAllTripsReportPdf(context: Context, trips: List<TravelTrip>)
 
         reportTrips.forEachIndexed { index, trip ->
             val tripTotal = trip.expenses.sumOf { it.amount }
-                val sectionHeight = (108f + (trip.expenses.size * 32f)).coerceAtMost(400f)
+                val sectionHeight = (136f + (trip.expenses.size * 32f)).coerceAtMost(420f)
             ensureSpace(sectionHeight + 18f)
 
             val tripRect = RectF(margin, y, margin + contentWidth, y + sectionHeight)
@@ -3545,6 +3985,18 @@ private fun generateAllTripsReportPdf(context: Context, trips: List<TravelTrip>)
             textY += 12f
             canvas.drawText("Local:", margin + 12f, textY, boldLabelPaint)
             canvas.drawText(trip.location.ifBlank { "-" }.take(64), margin + 50f, textY, smallPaint)
+            textY += 12f
+            canvas.drawText("KM retirada:", margin + 12f, textY, boldLabelPaint)
+            canvas.drawText(trip.pickupKm.ifBlank { "-" }.take(18), margin + 84f, textY, smallPaint)
+            textY += 12f
+            canvas.drawText("KM entrega:", margin + 12f, textY, boldLabelPaint)
+            canvas.drawText(trip.returnKm.ifBlank { "-" }.take(18), margin + 80f, textY, smallPaint)
+            textY += 12f
+            canvas.drawText("Retirado por:", margin + 12f, textY, boldLabelPaint)
+            canvas.drawText(trip.pickedBy.ifBlank { "-" }.take(42), margin + 86f, textY, smallPaint)
+            textY += 12f
+            canvas.drawText("Entregue por:", margin + 12f, textY, boldLabelPaint)
+            canvas.drawText(trip.returnedBy.ifBlank { "-" }.take(42), margin + 86f, textY, smallPaint)
             textY += 12f
             canvas.drawText("${trip.expenses.size} gastos", margin + 12f, textY, smallPaint)
             textY += 12f
@@ -3709,6 +4161,34 @@ private fun generateAllTripsSpreadsheet(context: Context, trips: List<TravelTrip
 
         appendLine("""</Table>""")
         appendLine("""</Worksheet>""")
+        appendLine("""<Worksheet ss:Name="Controle KM">""")
+        appendLine("""<Table>""")
+        appendLine("""<Column ss:Width="180"/>""")
+        appendLine("""<Column ss:Width="120"/>""")
+        appendLine("""<Column ss:Width="120"/>""")
+        appendLine("""<Column ss:Width="200"/>""")
+        appendLine("""<Column ss:Width="200"/>""")
+        appendLine("""<Row ss:Height="26"><Cell ss:MergeAcross="4" ss:StyleID="Title"><Data ss:Type="String">CONTROLE KM - TODAS AS VIAGENS</Data></Cell></Row>""")
+        appendLine("""<Row ss:Height="22"><Cell ss:StyleID="Header"><Data ss:Type="String">Viagem</Data></Cell><Cell ss:StyleID="Header"><Data ss:Type="String">KM retirada</Data></Cell><Cell ss:StyleID="Header"><Data ss:Type="String">KM entrega</Data></Cell><Cell ss:StyleID="Header"><Data ss:Type="String">Quem retirou</Data></Cell><Cell ss:StyleID="Header"><Data ss:Type="String">Quem entregou</Data></Cell></Row>""")
+        if (reportTrips.isEmpty()) {
+            appendLine("""<Row><Cell ss:MergeAcross="4" ss:StyleID="TextCell"><Data ss:Type="String">Nenhuma viagem cadastrada.</Data></Cell></Row>""")
+        } else {
+            reportTrips.forEach { trip ->
+                appendLine(
+                    """
+                    <Row ss:AutoFitHeight="1">
+                    <Cell ss:StyleID="TextCell"><Data ss:Type="String">${trip.name.ifBlank { "Sem nome" }.spreadsheetXmlSafe()}</Data></Cell>
+                    <Cell ss:StyleID="CenterCell"><Data ss:Type="String">${trip.pickupKm.ifBlank { "-" }.spreadsheetXmlSafe()}</Data></Cell>
+                    <Cell ss:StyleID="CenterCell"><Data ss:Type="String">${trip.returnKm.ifBlank { "-" }.spreadsheetXmlSafe()}</Data></Cell>
+                    <Cell ss:StyleID="TextCell"><Data ss:Type="String">${trip.pickedBy.ifBlank { "-" }.spreadsheetXmlSafe()}</Data></Cell>
+                    <Cell ss:StyleID="TextCell"><Data ss:Type="String">${trip.returnedBy.ifBlank { "-" }.spreadsheetXmlSafe()}</Data></Cell>
+                    </Row>
+                    """.trimIndent()
+                )
+            }
+        }
+        appendLine("""</Table>""")
+        appendLine("""</Worksheet>""")
         appendLine("""</Workbook>""")
     }
     spreadsheetFile.writeText(spreadsheetContent, Charsets.UTF_8)
@@ -3825,7 +4305,16 @@ private fun printPdf(context: Context, pdfFile: File, jobName: String) {
     printManager.print(jobName, adapter, PrintAttributes.Builder().build())
 }
 
-private fun generateTripReportSpreadsheet(context: Context, tripName: String, tripLocation: String, expenses: List<TravelExpense>): File? = runCatching {
+private fun generateTripReportSpreadsheet(
+    context: Context,
+    tripName: String,
+    tripLocation: String,
+    pickupKm: String,
+    returnKm: String,
+    pickedBy: String,
+    returnedBy: String,
+    expenses: List<TravelExpense>
+): File? = runCatching {
     val sanitizedTripName = tripName.tripFileSlug()
     val spreadsheetFile = File(context.cacheDir, "relatorio_${sanitizedTripName}.xls")
     val generatedAt = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale("pt", "BR")).format(Date())
@@ -3861,6 +4350,10 @@ private fun generateTripReportSpreadsheet(context: Context, tripName: String, tr
         appendLine("""<Row ss:Height="26"><Cell ss:MergeAcross="4" ss:StyleID="Title"><Data ss:Type="String">RELATORIO DE GASTOS DA VIAGEM</Data></Cell></Row>""")
         appendLine("""<Row><Cell ss:StyleID="SummaryLabel"><Data ss:Type="String">Viagem</Data></Cell><Cell ss:MergeAcross="3" ss:StyleID="SummaryValue"><Data ss:Type="String">${tripName.spreadsheetXmlSafe()}</Data></Cell></Row>""")
         appendLine("""<Row><Cell ss:StyleID="SummaryLabel"><Data ss:Type="String">Local</Data></Cell><Cell ss:MergeAcross="4" ss:StyleID="SummaryValue"><Data ss:Type="String">${tripLocation.ifBlank { "-" }.spreadsheetXmlSafe()}</Data></Cell></Row>""")
+        appendLine("""<Row><Cell ss:StyleID="SummaryLabel"><Data ss:Type="String">KM retirada</Data></Cell><Cell ss:MergeAcross="4" ss:StyleID="SummaryValue"><Data ss:Type="String">${pickupKm.ifBlank { "-" }.spreadsheetXmlSafe()}</Data></Cell></Row>""")
+        appendLine("""<Row><Cell ss:StyleID="SummaryLabel"><Data ss:Type="String">KM entrega</Data></Cell><Cell ss:MergeAcross="4" ss:StyleID="SummaryValue"><Data ss:Type="String">${returnKm.ifBlank { "-" }.spreadsheetXmlSafe()}</Data></Cell></Row>""")
+        appendLine("""<Row><Cell ss:StyleID="SummaryLabel"><Data ss:Type="String">Quem retirou</Data></Cell><Cell ss:MergeAcross="4" ss:StyleID="SummaryValue"><Data ss:Type="String">${pickedBy.ifBlank { "-" }.spreadsheetXmlSafe()}</Data></Cell></Row>""")
+        appendLine("""<Row><Cell ss:StyleID="SummaryLabel"><Data ss:Type="String">Quem entregou</Data></Cell><Cell ss:MergeAcross="4" ss:StyleID="SummaryValue"><Data ss:Type="String">${returnedBy.ifBlank { "-" }.spreadsheetXmlSafe()}</Data></Cell></Row>""")
         appendLine("""<Row><Cell ss:StyleID="SummaryLabel"><Data ss:Type="String">Gerado em</Data></Cell><Cell ss:MergeAcross="4" ss:StyleID="SummaryValue"><Data ss:Type="String">${generatedAt.spreadsheetXmlSafe()}</Data></Cell></Row>""")
         appendLine("""<Row ss:Height="10"/>""")
         appendLine("""<Row ss:Height="22"><Cell ss:StyleID="Header"><Data ss:Type="String">#</Data></Cell><Cell ss:StyleID="Header"><Data ss:Type="String">Categoria</Data></Cell><Cell ss:StyleID="Header"><Data ss:Type="String">Descricao</Data></Cell><Cell ss:StyleID="Header"><Data ss:Type="String">Valor</Data></Cell><Cell ss:StyleID="Header"><Data ss:Type="String">Veiculo</Data></Cell></Row>""")
@@ -3881,6 +4374,19 @@ private fun generateTripReportSpreadsheet(context: Context, tripName: String, tr
         appendLine("""<Row><Cell ss:MergeAcross="2" ss:StyleID="TotalLabel"><Data ss:Type="String">TOTAL GERAL</Data></Cell><Cell ss:StyleID="TotalValue"><Data ss:Type="Number">${totalAmount.toSpreadsheetNumber()}</Data></Cell><Cell ss:StyleID="TotalLabel"><Data ss:Type="String">${expenses.size} lancamentos</Data></Cell></Row>""")
         appendLine("""</Table>""")
         appendLine("""</Worksheet>""")
+        appendLine("""<Worksheet ss:Name="Controle KM">""")
+        appendLine("""<Table>""")
+        appendLine("""<Column ss:Width="200"/>""")
+        appendLine("""<Column ss:Width="320"/>""")
+        appendLine("""<Row ss:Height="26"><Cell ss:MergeAcross="1" ss:StyleID="Title"><Data ss:Type="String">CONTROLE DE RETIRADA E ENTREGA</Data></Cell></Row>""")
+        appendLine("""<Row><Cell ss:StyleID="SummaryLabel"><Data ss:Type="String">Viagem</Data></Cell><Cell ss:StyleID="SummaryValue"><Data ss:Type="String">${tripName.spreadsheetXmlSafe()}</Data></Cell></Row>""")
+        appendLine("""<Row><Cell ss:StyleID="SummaryLabel"><Data ss:Type="String">KM retirada</Data></Cell><Cell ss:StyleID="SummaryValue"><Data ss:Type="String">${pickupKm.ifBlank { "-" }.spreadsheetXmlSafe()}</Data></Cell></Row>""")
+        appendLine("""<Row><Cell ss:StyleID="SummaryLabel"><Data ss:Type="String">KM entrega</Data></Cell><Cell ss:StyleID="SummaryValue"><Data ss:Type="String">${returnKm.ifBlank { "-" }.spreadsheetXmlSafe()}</Data></Cell></Row>""")
+        appendLine("""<Row><Cell ss:StyleID="SummaryLabel"><Data ss:Type="String">Quem retirou</Data></Cell><Cell ss:StyleID="SummaryValue"><Data ss:Type="String">${pickedBy.ifBlank { "-" }.spreadsheetXmlSafe()}</Data></Cell></Row>""")
+        appendLine("""<Row><Cell ss:StyleID="SummaryLabel"><Data ss:Type="String">Quem entregou</Data></Cell><Cell ss:StyleID="SummaryValue"><Data ss:Type="String">${returnedBy.ifBlank { "-" }.spreadsheetXmlSafe()}</Data></Cell></Row>""")
+        appendLine("""</Table>""")
+        appendLine("""</Worksheet>""")
+
         appendLine("""</Workbook>""")
     }
     spreadsheetFile.writeText(spreadsheetContent, Charsets.UTF_8)
@@ -3930,7 +4436,7 @@ private fun shareSpreadsheet(context: Context, spreadsheetFile: File) {
         putExtra(Intent.EXTRA_STREAM, uri)
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
-    context.startActivity(Intent.createChooser(intent, "Exportar planilha"))
+    context.startActivity(Intent.createChooser(intent, trNow("Exportar planilha", "Export spreadsheet")))
 }
 
 private fun shareSpreadsheetAndPhotos(context: Context, spreadsheetFile: File, zipFile: File) {
@@ -3941,7 +4447,7 @@ private fun shareSpreadsheetAndPhotos(context: Context, spreadsheetFile: File, z
         putParcelableArrayListExtra(Intent.EXTRA_STREAM, arrayListOf(spreadsheetUri, zipUri))
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
-    context.startActivity(Intent.createChooser(intent, "Exportar arquivos"))
+    context.startActivity(Intent.createChooser(intent, trNow("Exportar arquivos", "Export files")))
 }
 
 private fun buildOrderedTripExpenses(expenses: List<TravelExpense>): List<TravelExpense> =
@@ -4028,4 +4534,5 @@ private class PdfFilePrintAdapter(
         }
     }
 }
+
 
