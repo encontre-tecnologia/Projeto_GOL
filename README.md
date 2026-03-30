@@ -100,6 +100,19 @@ Gerar relatorio Allure:
 
 A pipeline do GitHub Actions executa os testes unitarios em pushes e pull requests para `main` e `master`.
 
+### Notificacao de commits no Google Chat
+
+O projeto tambem possui pipeline para avisar no Google Chat a cada `push` na branch `dev`.
+
+Para ativar:
+
+1. No Google Chat, crie um **Incoming Webhook** no espaco desejado.
+2. No GitLab, acesse `Settings > CI/CD > Variables`.
+3. Crie a variavel `GOOGLE_CHAT_WEBHOOK_URL` com a URL do webhook.
+
+Arquivo da pipeline: `.gitlab-ci.yml`.
+Ele envia branch, autor, SHA curto, titulo do commit, corpo (se houver), lista de arquivos alterados e links do commit/pipeline.
+
 ---
 
 ## Estrutura (resumo)
