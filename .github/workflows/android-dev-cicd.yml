@@ -117,6 +117,25 @@ jobs:
             echo "ERRO: segredo GOOGLE_PLAY_SERVICE_ACCOUNT_JSON nao configurado no GitHub."
             exit 1
           fi
+          if [ -z "${{ secrets.RELEASE_STORE_FILE_BASE64 }}" ] || [ -z "${{ secrets.RELEASE_STORE_PASSWORD }}" ] || [ -z "${{ secrets.RELEASE_KEY_ALIAS }}" ] || [ -z "${{ secrets.RELEASE_KEY_PASSWORD }}" ]; then
+            echo "ERRO: faltam secrets de assinatura RELEASE_* no GitHub."
+            exit 1
+          fi
+
+      - name: Configure signing keystore
+        env:
+          RELEASE_STORE_FILE_BASE64: ${{ secrets.RELEASE_STORE_FILE_BASE64 }}
+          RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: |
+          mkdir -p keystore
+          printf '%s' "${RELEASE_STORE_FILE_BASE64}" | base64 --decode > keystore/upload.jks
+
+          echo "RELEASE_STORE_FILE=${GITHUB_WORKSPACE}/keystore/upload.jks" >> "$GITHUB_ENV"
+          echo "RELEASE_STORE_PASSWORD=${RELEASE_STORE_PASSWORD}" >> "$GITHUB_ENV"
+          echo "RELEASE_KEY_ALIAS=${RELEASE_KEY_ALIAS}" >> "$GITHUB_ENV"
+          echo "RELEASE_KEY_PASSWORD=${RELEASE_KEY_PASSWORD}" >> "$GITHUB_ENV"
 
       - name: Upload to Google Play (internal)
         env:
