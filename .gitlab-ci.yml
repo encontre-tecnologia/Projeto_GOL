@@ -163,6 +163,9 @@ notify_google_chat:
         esac
       }
 
+      CHANGED_PATHS_FILE="$(mktemp)"
+      printf '%s\n' "${CHANGED_PATHS}" > "${CHANGED_PATHS_FILE}"
+
       while IFS= read -r path; do
         case "${path}" in
           *nav*|*menu*|*route*|*Navigation*|*navigation*)
@@ -178,9 +181,8 @@ notify_google_chat:
             add_test_item "Executar cenarios de regressao cobertos pelos testes alterados."
             ;;
         esac
-      done <<EOF
-      ${CHANGED_PATHS}
-EOF
+      done < "${CHANGED_PATHS_FILE}"
+      rm -f "${CHANGED_PATHS_FILE}"
 
       if [ -z "${TEST_ITEMS}" ]; then
         TEST_ITEMS="- Fluxo principal da feature alterada.\n- Regressao basica: abrir, usar e retornar para a home.\n- Validar logs/erros em cenarios de borda."
