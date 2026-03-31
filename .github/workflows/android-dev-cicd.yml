@@ -100,9 +100,6 @@ jobs:
       - name: Grant execute permission to Gradle
         run: chmod +x gradlew
 
-      - name: Build release AAB
-        run: ./gradlew --no-daemon :app:bundleRelease
-
       - name: Setup Ruby
         uses: ruby/setup-ruby@v1
         with:
@@ -136,6 +133,13 @@ jobs:
           echo "RELEASE_STORE_PASSWORD=${RELEASE_STORE_PASSWORD}" >> "$GITHUB_ENV"
           echo "RELEASE_KEY_ALIAS=${RELEASE_KEY_ALIAS}" >> "$GITHUB_ENV"
           echo "RELEASE_KEY_PASSWORD=${RELEASE_KEY_PASSWORD}" >> "$GITHUB_ENV"
+
+      - name: Build signed release AAB
+        run: ./gradlew --no-daemon :app:bundleRelease
+
+      - name: Verify AAB signature
+        run: |
+          jarsigner -verify app/build/outputs/bundle/release/app-release.aab
 
       - name: Upload to Google Play (internal)
         env:
