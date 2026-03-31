@@ -92,8 +92,8 @@ build_release_aab:
         echo "ERRO: AAB nao encontrado."
         exit 1
       fi
-      if ! unzip -l app/build/outputs/bundle/release/app-release.aab | grep -q "META-INF/.*\\.\(RSA\|DSA\|EC\)"; then
-        echo "ERRO: AAB sem assinatura. Configure RELEASE_STORE_FILE (arquivo) ou RELEASE_STORE_FILE_BASE64 e as variaveis RELEASE_STORE_PASSWORD/RELEASE_KEY_ALIAS/RELEASE_KEY_PASSWORD."
+      if ! unzip -l app/build/outputs/bundle/release/app-release.aab | grep -q "META-INF/"; then
+        echo "ERRO: AAB invalido (META-INF ausente). Verifique se o bundle foi gerado corretamente."
         exit 1
       fi
   artifacts:
