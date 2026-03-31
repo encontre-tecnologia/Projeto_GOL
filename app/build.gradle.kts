@@ -21,8 +21,8 @@ val fipeBaseUrl = (localProps.getProperty("FIPE_BASE_URL") ?: "https://parallelu
     .ifEmpty { "https://parallelum.com.br/fipe/" }
 
 fun propOrEnv(key: String): String? {
-    return localProps.getProperty(key)?.takeIf { it.isNotBlank() }
-        ?: System.getenv(key)?.takeIf { it.isNotBlank() }
+    return System.getenv(key)?.takeIf { it.isNotBlank() }
+        ?: localProps.getProperty(key)?.takeIf { it.isNotBlank() }
 }
 
 val releaseStoreFile = propOrEnv("RELEASE_STORE_FILE")
