@@ -109,19 +109,6 @@ notify_google_chat:
         -d "${PAYLOAD}" \
         "${GOOGLE_CHAT_WEBHOOK_URL}"
 
-deploy_preview_internal:
-  stage: deploy
-  image: alpine:3.20
-  needs: ["build_release_aab"]
-  dependencies:
-    - build_release_aab
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "push" && ($CI_COMMIT_BRANCH == "dev" || $CI_COMMIT_BRANCH == "Dev")'
-      when: manual
-  script:
-    - echo "CD Preview OK - AAB pronto para upload manual no Google Play Internal."
-    - echo "Arquivo -> app/build/outputs/bundle/release/app-release.aab"
-
 deploy_release_play_console:
   stage: deploy
   image: ruby:3.3-alpine
