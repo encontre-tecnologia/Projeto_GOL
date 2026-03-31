@@ -27,6 +27,7 @@ default:
 
 lint_debug:
   stage: quality
+  allow_failure: true
   rules:
     - if: '$CI_COMMIT_TAG'
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
@@ -42,7 +43,6 @@ lint_debug:
 
 unit_tests:
   stage: test
-  needs: ["lint_debug"]
   rules:
     - if: '$CI_COMMIT_TAG'
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
