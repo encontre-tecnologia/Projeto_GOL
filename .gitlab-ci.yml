@@ -13,6 +13,7 @@ stages:
 variables:
   GRADLE_USER_HOME: "$CI_PROJECT_DIR/.gradle-local"
   GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.jvmargs='-Xmx2g'"
+  PLAY_PACKAGE_NAME: "br.com.gui.carlembrete"
   PLAY_TRACK: "internal"
   PLAY_RELEASE_STATUS: "completed"
   PLAY_CHANGES_NOT_SENT_FOR_REVIEW: "true"
@@ -61,7 +62,7 @@ notify_google_chat:
   needs: ["deploy_release_play_console"]
   dependencies: []
   rules:
-    - if: '$GOOGLE_CHAT_WEBHOOK_URL && $GOOGLE_PLAY_SERVICE_ACCOUNT_JSON && $PLAY_PACKAGE_NAME && $CI_PIPELINE_SOURCE == "push" && ($CI_COMMIT_BRANCH == "dev" || $CI_COMMIT_BRANCH == "Dev")'
+    - if: '$GOOGLE_CHAT_WEBHOOK_URL && $GOOGLE_PLAY_SERVICE_ACCOUNT_JSON && $CI_PIPELINE_SOURCE == "push" && ($CI_COMMIT_BRANCH == "dev" || $CI_COMMIT_BRANCH == "Dev")'
   script:
     - apk add --no-cache git curl jq
     - |
@@ -117,18 +118,13 @@ deploy_release_play_console:
   dependencies:
     - build_release_aab
   rules:
-    - if: '$GOOGLE_PLAY_SERVICE_ACCOUNT_JSON && $PLAY_PACKAGE_NAME && $CI_PIPELINE_SOURCE == "push" && ($CI_COMMIT_BRANCH == "dev" || $CI_COMMIT_BRANCH == "Dev")'
-    - if: '$GOOGLE_PLAY_SERVICE_ACCOUNT_JSON && $PLAY_PACKAGE_NAME && $CI_COMMIT_TAG'
+    - if: '$GOOGLE_PLAY_SERVICE_ACCOUNT_JSON && $CI_PIPELINE_SOURCE == "push" && ($CI_COMMIT_BRANCH == "dev" || $CI_COMMIT_BRANCH == "Dev")'
+    - if: '$GOOGLE_PLAY_SERVICE_ACCOUNT_JSON && $CI_COMMIT_TAG'
   before_script:
     - apk add --no-cache bash curl git build-base ruby-dev
     - gem install fastlane --no-document
   script:
     - |
-      if [ -z "${PLAY_PACKAGE_NAME}" ]; then
-        echo "ERRO: PLAY_PACKAGE_NAME nao definido. Ex.: com.suaempresa.seuapp"
-        exit 1
-      fi
-
       if [ ! -f "app/build/outputs/bundle/release/app-release.aab" ]; then
         echo "ERRO: AAB nao encontrado em app/build/outputs/bundle/release/app-release.aab"
         exit 1
