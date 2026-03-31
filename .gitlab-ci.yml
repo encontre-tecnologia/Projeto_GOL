@@ -80,6 +80,12 @@ build_release_aab:
     - if: '$CI_PIPELINE_SOURCE == "push" && ($CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "master")'
       when: manual
   script:
+    - |
+      if [ -n "${RELEASE_STORE_FILE_BASE64}" ]; then
+        mkdir -p keystore
+        printf '%s' "${RELEASE_STORE_FILE_BASE64}" | tr -d '\r\n' | base64 -d > keystore/ci-upload.jks
+        export RELEASE_STORE_FILE="keystore/ci-upload.jks"
+      fi
     - ./gradlew --no-daemon :app:bundleRelease
     - |
       if [ ! -f "app/build/outputs/bundle/release/app-release.aab" ]; then
@@ -87,7 +93,7 @@ build_release_aab:
         exit 1
       fi
       if ! unzip -l app/build/outputs/bundle/release/app-release.aab | grep -q "META-INF/.*\\.\(RSA\|DSA\|EC\)"; then
-        echo "ERRO: AAB sem assinatura. Configure RELEASE_STORE_FILE/RELEASE_STORE_PASSWORD/RELEASE_KEY_ALIAS/RELEASE_KEY_PASSWORD."
+        echo "ERRO: AAB sem assinatura. Configure RELEASE_STORE_FILE (arquivo) ou RELEASE_STORE_FILE_BASE64 e as variaveis RELEASE_STORE_PASSWORD/RELEASE_KEY_ALIAS/RELEASE_KEY_PASSWORD."
         exit 1
       fi
   artifacts:

@@ -120,6 +120,7 @@ Configure em `Settings > CI/CD > Variables`:
 - `PLAY_RELEASE_STATUS` (opcional): status no Play (`draft`, `completed`, `inProgress`, `halted`). Padrao: `draft`.
 - `PLAY_CHANGES_NOT_SENT_FOR_REVIEW` (opcional): envia alteracoes sem submit imediato de review via API (`true`/`false`). Padrao: `true`.
 - `RELEASE_STORE_FILE`: caminho do keystore de upload (ex.: `keystore/zellu-upload.jks`).
+- `RELEASE_STORE_FILE_BASE64` (alternativa): conteudo Base64 do `.jks` em linha unica (use quando nao conseguir usar variavel do tipo `File`).
 - `RELEASE_STORE_PASSWORD`: senha do keystore.
 - `RELEASE_KEY_ALIAS`: alias da chave (ex.: `upload`).
 - `RELEASE_KEY_PASSWORD`: senha da chave.
@@ -129,6 +130,12 @@ Observacoes:
 - Se `GOOGLE_CHAT_WEBHOOK_URL` nao estiver definido, o job de notificacao nao roda.
 - Se `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` nao estiver definido, jobs de deploy para Play Console nao rodam.
 - Se as variaveis `RELEASE_*` nao estiverem configuradas, o AAB pode ser gerado sem assinatura e o deploy falha.
+- Para `RELEASE_STORE_FILE_BASE64`, gere no PowerShell:
+
+```powershell
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("C:\caminho\zellu-upload.jks"))
+```
+
 - Evite marcar as variaveis como `Protected` se a branch `Dev` nao for protegida.
 
 ---
