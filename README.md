@@ -115,6 +115,7 @@ Configure em `Settings > CI/CD > Variables`:
 
 - `GOOGLE_CHAT_WEBHOOK_URL`: URL completa do webhook do Google Chat.
 - `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON`: credencial JSON da service account com permissao de release no Google Play Console.
+- `PLAY_PACKAGE_NAME` (opcional): pacote do app no Play Console. Padrao: `br.com.gui.carlembrete`.
 - `PLAY_TRACK` (opcional): faixa do release (`internal`, `alpha`, `beta`, `production`). Padrao: `internal`.
 - `PLAY_RELEASE_STATUS` (opcional): status no Play (`draft`, `completed`, `inProgress`, `halted`). Padrao: `draft`.
 

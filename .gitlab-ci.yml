@@ -115,7 +115,7 @@ deploy_release_play_console:
       fastlane supply \
         --aab "app/build/outputs/bundle/release/app-release.aab" \
         --json_key "${PLAY_JSON_PATH}" \
-        --package_name "br.com.gui.carlembrete" \
+        --package_name "${PLAY_PACKAGE_NAME:-br.com.gui.carlembrete}" \
         --track "${PLAY_TRACK:-internal}" \
         --release_status "${PLAY_RELEASE_STATUS:-draft}" \
         --skip_upload_images true \
