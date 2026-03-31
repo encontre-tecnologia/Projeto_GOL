@@ -42,48 +42,10 @@ jobs:
             app/build/test-results/testDebugUnitTest/**
           if-no-files-found: warn
 
-  notify_chat:
-    name: Notify Google Chat
-    runs-on: ubuntu-latest
-    needs: [test]
-
-    steps:
-      - name: Validate webhook secret
-        run: |
-          if [ -z "${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}" ]; then
-            echo "ERRO: segredo GOOGLE_CHAT_WEBHOOK_URL nao configurado no GitHub."
-            exit 1
-          fi
-
-      - name: Send message to Google Chat
-        env:
-          GOOGLE_CHAT_WEBHOOK_URL: ${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}
-        run: |
-          SHORT_SHA="${GITHUB_SHA::8}"
-          PAYLOAD=$(jq -n \
-            --arg repo "${GITHUB_REPOSITORY}" \
-            --arg branch "${GITHUB_REF_NAME}" \
-            --arg sha "${SHORT_SHA}" \
-            --arg actor "${GITHUB_ACTOR}" \
-            --arg run_url "https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
-            '{text:("[DEV] Testes concluidos com sucesso\n"
-              + "Projeto: " + $repo + "\n"
-              + "Branch: " + $branch + "\n"
-              + "Commit: " + $sha + "\n"
-              + "Autor: " + $actor + "\n"
-              + "Run: " + $run_url + "\n\n"
-              + "Proximo passo: iniciando deploy no Google Play Internal.")}')
-
-          curl --fail --show-error --silent \
-            -X POST \
-            -H "Content-Type: application/json; charset=UTF-8" \
-            -d "${PAYLOAD}" \
-            "${GOOGLE_CHAT_WEBHOOK_URL}"
-
   deploy_play:
     name: Deploy Google Play Internal
     runs-on: ubuntu-latest
-    needs: [notify_chat]
+    needs: [test]
     timeout-minutes: 45
 
     steps:
@@ -162,3 +124,94 @@ jobs:
             --skip_upload_screenshots true \
             --skip_upload_metadata true \
             --skip_upload_changelogs true
+
+  notify_chat:
+    name: Notify Google Chat
+    runs-on: ubuntu-latest
+    needs: [deploy_play]
+
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate webhook secret
+        run: |
+          if [ -z "${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}" ]; then
+            echo "ERRO: segredo GOOGLE_CHAT_WEBHOOK_URL nao configurado no GitHub."
+            exit 1
+          fi
+
+      - name: Send rich message to Google Chat
+        env:
+          GOOGLE_CHAT_WEBHOOK_URL: ${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}
+          PLAY_CONSOLE_INTERNAL_URL: ${{ secrets.PLAY_CONSOLE_INTERNAL_URL }}
+        run: |
+          SHORT_SHA="${GITHUB_SHA::8}"
+          RUN_URL="https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          COMPARE_URL="https://github.com/${GITHUB_REPOSITORY}/compare/main...${GITHUB_REF_NAME}"
+          PLAY_URL="${PLAY_CONSOLE_INTERNAL_URL:-https://play.google.com/console}"
+
+          git fetch origin main --quiet || true
+
+          FEATURES="$(git log --pretty='- %s (@%an)' origin/main..HEAD | head -n 12)"
+          if [ -z "${FEATURES}" ]; then
+            FEATURES="- Sem commits novos em relacao a main."
+          fi
+
+          CHANGED_FILES="$(git diff --name-only origin/main...HEAD | head -n 200)"
+          TEST_ITEMS=""
+          add_test_item() {
+            item="$1"
+            case "${TEST_ITEMS}" in
+              *"$item"*) ;;
+              *) TEST_ITEMS="${TEST_ITEMS}- ${item}\n" ;;
+            esac
+          }
+
+          while IFS= read -r path; do
+            case "${path}" in
+              *nav*|*menu*|*route*|*Navigation*|*navigation*)
+                add_test_item "Navegacao entre telas e fluxo de foco."
+                ;;
+              *ui/*|*screen*|*compose*|*layout*|*theme*|*res/*)
+                add_test_item "Layout, estados visuais e componentes alterados."
+                ;;
+              *data/*|*repository*|*network*|*service*|*firebase*)
+                add_test_item "Persistencia e sincronizacao de dados."
+                ;;
+            esac
+          done <<EOF
+          ${CHANGED_FILES}
+EOF
+
+          if [ -z "${TEST_ITEMS}" ]; then
+            TEST_ITEMS="- Fluxo principal da feature alterada.\n- Regressao basica de navegação e dados."
+          fi
+
+          PAYLOAD="$(jq -n \
+            --arg repo "${GITHUB_REPOSITORY}" \
+            --arg branch "${GITHUB_REF_NAME}" \
+            --arg sha "${SHORT_SHA}" \
+            --arg actor "${GITHUB_ACTOR}" \
+            --arg features "${FEATURES}" \
+            --arg tests "${TEST_ITEMS}" \
+            --arg play_url "${PLAY_URL}" \
+            --arg compare_url "${COMPARE_URL}" \
+            --arg run_url "${RUN_URL}" \
+            '{text: ("🚀 [DEV] Nova versão publicada no Google Play (Interno)\n"
+              + "📦 Projeto: " + $repo + "\n"
+              + "🌿 Branch: " + $branch + "\n"
+              + "🔖 Commit: " + $sha + " (@"+$actor+")\n\n"
+              + "✅ O que foi implementado (desde a main):\n" + $features + "\n\n"
+              + "🧪 O que validar agora:\n" + $tests + "\n\n"
+              + "🔗 Play Console: " + $play_url + "\n"
+              + "🔍 Compare: " + $compare_url + "\n"
+              + "⚙️ Pipeline: " + $run_url + "\n")}')"
+
+          curl --fail --show-error --silent \
+            -X POST \
+            -H "Content-Type: application/json; charset=UTF-8" \
+            -d "${PAYLOAD}" \
+            "${GOOGLE_CHAT_WEBHOOK_URL}"
