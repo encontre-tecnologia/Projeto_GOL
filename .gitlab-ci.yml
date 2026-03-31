@@ -184,7 +184,10 @@ notify_google_chat:
         COMMITS_DESDE_MAIN="- Nenhum commit novo."
       fi
 
-      CHANGED_PATHS="$(git diff --name-only "${MAIN_REF}...${DEV_REF}" | head -n 200)"
+      CHANGED_PATHS="$(git diff --name-only "${MAIN_REF}...${DEV_REF}" 2>/dev/null | head -n 200)"
+      if [ -z "${CHANGED_PATHS}" ]; then
+        CHANGED_PATHS="$(git diff --name-only "${MAIN_REF}..${DEV_REF}" 2>/dev/null | head -n 200)"
+      fi
       TEST_ITEMS=""
       add_test_item() {
         item="$1"
