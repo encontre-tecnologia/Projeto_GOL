@@ -14,7 +14,8 @@ variables:
   GRADLE_USER_HOME: "$CI_PROJECT_DIR/.gradle-local"
   GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.jvmargs='-Xmx2g'"
   PLAY_TRACK: "internal"
-  PLAY_RELEASE_STATUS: "draft"
+  PLAY_RELEASE_STATUS: "completed"
+  PLAY_CHANGES_NOT_SENT_FOR_REVIEW: "true"
 
 default:
   image: ghcr.io/cirruslabs/android-sdk:35
@@ -123,6 +124,16 @@ deploy_release_play_console:
     - gem install fastlane --no-document
   script:
     - |
+      if [ -z "${PLAY_PACKAGE_NAME}" ]; then
+        echo "ERRO: PLAY_PACKAGE_NAME nao definido. Ex.: com.suaempresa.seuapp"
+        exit 1
+      fi
+
+      if [ ! -f "app/build/outputs/bundle/release/app-release.aab" ]; then
+        echo "ERRO: AAB nao encontrado em app/build/outputs/bundle/release/app-release.aab"
+        exit 1
+      fi
+
       if [ -f "${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON}" ]; then
         PLAY_JSON_PATH="${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON}"
       else
@@ -135,7 +146,8 @@ deploy_release_play_console:
         --json_key "${PLAY_JSON_PATH}" \
         --package_name "${PLAY_PACKAGE_NAME:-br.com.gui.carlembrete}" \
         --track "${PLAY_TRACK:-internal}" \
-        --release_status "${PLAY_RELEASE_STATUS:-draft}" \
+        --release_status "${PLAY_RELEASE_STATUS:-completed}" \
+        --changes_not_sent_for_review "${PLAY_CHANGES_NOT_SENT_FOR_REVIEW:-true}" \
         --skip_upload_images true \
         --skip_upload_screenshots true \
         --skip_upload_metadata true \
