@@ -1,0 +1,137 @@
+name: Android Dev CI/CD
+
+on:
+  push:
+    branches: ["dev", "Dev"]
+  workflow_dispatch:
+
+concurrency:
+  group: android-dev-cd-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test App
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Grant execute permission to Gradle
+        run: chmod +x gradlew
+
+      - name: Run unit tests
+        run: ./gradlew --no-daemon testDebugUnitTest
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-report
+          path: |
+            app/build/reports/tests/testDebugUnitTest/**
+            app/build/test-results/testDebugUnitTest/**
+          if-no-files-found: warn
+
+  notify_chat:
+    name: Notify Google Chat
+    runs-on: ubuntu-latest
+    needs: [test]
+
+    steps:
+      - name: Validate webhook secret
+        run: |
+          if [ -z "${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}" ]; then
+            echo "ERRO: segredo GOOGLE_CHAT_WEBHOOK_URL nao configurado no GitHub."
+            exit 1
+          fi
+
+      - name: Send message to Google Chat
+        env:
+          GOOGLE_CHAT_WEBHOOK_URL: ${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}
+        run: |
+          SHORT_SHA="${GITHUB_SHA::8}"
+          PAYLOAD=$(jq -n \
+            --arg repo "${GITHUB_REPOSITORY}" \
+            --arg branch "${GITHUB_REF_NAME}" \
+            --arg sha "${SHORT_SHA}" \
+            --arg actor "${GITHUB_ACTOR}" \
+            --arg run_url "https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            '{text:("[DEV] Testes concluidos com sucesso\n"
+              + "Projeto: " + $repo + "\n"
+              + "Branch: " + $branch + "\n"
+              + "Commit: " + $sha + "\n"
+              + "Autor: " + $actor + "\n"
+              + "Run: " + $run_url + "\n\n"
+              + "Proximo passo: iniciando deploy no Google Play Internal.")}')
+
+          curl --fail --show-error --silent \
+            -X POST \
+            -H "Content-Type: application/json; charset=UTF-8" \
+            -d "${PAYLOAD}" \
+            "${GOOGLE_CHAT_WEBHOOK_URL}"
+
+  deploy_play:
+    name: Deploy Google Play Internal
+    runs-on: ubuntu-latest
+    needs: [notify_chat]
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Grant execute permission to Gradle
+        run: chmod +x gradlew
+
+      - name: Build release AAB
+        run: ./gradlew --no-daemon :app:bundleRelease
+
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+
+      - name: Install Fastlane
+        run: gem install fastlane --no-document
+
+      - name: Validate Play secret
+        run: |
+          if [ -z "${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}" ]; then
+            echo "ERRO: segredo GOOGLE_PLAY_SERVICE_ACCOUNT_JSON nao configurado no GitHub."
+            exit 1
+          fi
+
+      - name: Upload to Google Play (internal)
+        env:
+          GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          printf '%s' "${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON}" > /tmp/google-play-service-account.json
+
+          fastlane supply \
+            --aab "app/build/outputs/bundle/release/app-release.aab" \
+            --json_key "/tmp/google-play-service-account.json" \
+            --package_name "br.com.gui.carlembrete" \
+            --track "internal" \
+            --release_status "completed" \
+            --changes_not_sent_for_review true \
+            --skip_upload_images true \
+            --skip_upload_screenshots true \
+            --skip_upload_metadata true \
+            --skip_upload_changelogs true
