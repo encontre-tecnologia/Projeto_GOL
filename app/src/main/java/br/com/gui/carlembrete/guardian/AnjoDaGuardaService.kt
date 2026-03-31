@@ -973,9 +973,9 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
         } catch (se: SecurityException) {
             val granted = ContextCompat.checkSelfPermission(
                 this,
-                "android.permission.FOREGROUND_SERVICE_DATA_SYNC"
+                android.Manifest.permission.FOREGROUND_SERVICE
             ) == PackageManager.PERMISSION_GRANTED
-            Log.e(TAG, "FGS start failed type=dataSync permGranted=$granted sdk=${Build.VERSION.SDK_INT}", se)
+            Log.e(TAG, "FGS start failed permGranted=$granted sdk=${Build.VERSION.SDK_INT}", se)
             showAlertNotification("Falha ao iniciar monitoramento: permissão de serviço em primeiro plano.")
             false
         }

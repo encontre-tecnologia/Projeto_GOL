@@ -15,6 +15,8 @@ variables:
   GRADLE_USER_HOME: "$CI_PROJECT_DIR/.gradle-local"
   GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.jvmargs='-Xmx2g'"
   PLAY_DEPLOY_ENABLED: "false"
+  PLAY_TRACK: "alpha"
+  PLAY_RELEASE_STATUS: "draft"
 
 default:
   image: ghcr.io/cirruslabs/android-sdk:35
@@ -79,6 +81,15 @@ build_release_aab:
       when: manual
   script:
     - ./gradlew --no-daemon :app:bundleRelease
+    - |
+      if [ ! -f "app/build/outputs/bundle/release/app-release.aab" ]; then
+        echo "ERRO: AAB nao encontrado."
+        exit 1
+      fi
+      if ! unzip -l app/build/outputs/bundle/release/app-release.aab | grep -q "META-INF/.*\\.\(RSA\|DSA\|EC\)"; then
+        echo "ERRO: AAB sem assinatura. Configure RELEASE_STORE_FILE/RELEASE_STORE_PASSWORD/RELEASE_KEY_ALIAS/RELEASE_KEY_PASSWORD."
+        exit 1
+      fi
   artifacts:
     expire_in: 14 days
     paths:
@@ -95,8 +106,9 @@ deploy_release_play_console:
     - if: '$PLAY_DEPLOY_ENABLED == "true" && $CI_PIPELINE_SOURCE == "push" && ($CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "master") && $GOOGLE_PLAY_SERVICE_ACCOUNT_JSON'
       when: manual
   variables:
-    PLAY_TRACK: "${PLAY_TRACK:-internal}"
+    PLAY_TRACK: "${PLAY_TRACK:-alpha}"
     PLAY_RELEASE_STATUS: "${PLAY_RELEASE_STATUS:-draft}"
+    PLAY_CHANGES_NOT_SENT_FOR_REVIEW: "${PLAY_CHANGES_NOT_SENT_FOR_REVIEW:-true}"
   before_script:
     - apk add --no-cache bash curl git build-base ruby-dev
     - gem install fastlane --no-document
@@ -118,8 +130,9 @@ deploy_release_play_console:
         --aab "app/build/outputs/bundle/release/app-release.aab" \
         --json_key "${PLAY_JSON_PATH}" \
         --package_name "${PLAY_PACKAGE_NAME:-br.com.gui.carlembrete}" \
-        --track "${PLAY_TRACK:-internal}" \
+        --track "${PLAY_TRACK:-alpha}" \
         --release_status "${PLAY_RELEASE_STATUS:-draft}" \
+        --changes_not_sent_for_review "${PLAY_CHANGES_NOT_SENT_FOR_REVIEW:-true}" \
         --skip_upload_images true \
         --skip_upload_screenshots true \
         --skip_upload_metadata true \

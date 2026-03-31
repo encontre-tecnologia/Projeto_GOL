@@ -20,6 +20,20 @@ val fipeBaseUrl = (localProps.getProperty("FIPE_BASE_URL") ?: "https://parallelu
     .trim()
     .ifEmpty { "https://parallelum.com.br/fipe/" }
 
+fun propOrEnv(key: String): String? {
+    return localProps.getProperty(key)?.takeIf { it.isNotBlank() }
+        ?: System.getenv(key)?.takeIf { it.isNotBlank() }
+}
+
+val releaseStoreFile = propOrEnv("RELEASE_STORE_FILE")
+val releaseStorePassword = propOrEnv("RELEASE_STORE_PASSWORD")
+val releaseKeyAlias = propOrEnv("RELEASE_KEY_ALIAS")
+val releaseKeyPassword = propOrEnv("RELEASE_KEY_PASSWORD") ?: releaseStorePassword
+val isReleaseSigningReady = !releaseStoreFile.isNullOrBlank() &&
+    !releaseStorePassword.isNullOrBlank() &&
+    !releaseKeyAlias.isNullOrBlank() &&
+    !releaseKeyPassword.isNullOrBlank()
+
 android {
     namespace = "br.com.gui.carlembrete"
     compileSdk = 35
@@ -28,17 +42,33 @@ android {
         applicationId = "br.com.gui.carlembrete"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.0.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "FIPE_BASE_URL", "\"$fipeBaseUrl\"")
+    }
+
+    signingConfigs {
+        create("release") {
+            if (isReleaseSigningReady) {
+                storeFile = rootProject.file(requireNotNull(releaseStoreFile))
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
+            if (isReleaseSigningReady) {
+                signingConfig = signingConfigs.getByName("release")
+            } else {
+                println("Release signing is not configured; generating unsigned release artifacts.")
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
