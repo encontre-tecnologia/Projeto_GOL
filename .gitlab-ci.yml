@@ -145,9 +145,10 @@ deploy_preview_internal:
   rules:
     - if: '$CI_PIPELINE_SOURCE == "push" && ($CI_COMMIT_BRANCH == "dev" || $CI_COMMIT_BRANCH == "Dev")'
   script:
-    - echo "CD Preview OK - AAB gerado e pronto para publicacao no Google Play Internal."
-    - echo "Arquivo: app/build/outputs/bundle/release/app-release.aab"
-    - echo "Quando o Play estiver pronto, defina PLAY_DEPLOY_ENABLED=true para ativar upload automatico."
+    - |
+      echo "CD Preview OK - AAB gerado e pronto para publicacao no Google Play Internal."
+      echo "Arquivo -> app/build/outputs/bundle/release/app-release.aab"
+      echo "Quando o Play estiver pronto, defina PLAY_DEPLOY_ENABLED=true para ativar upload automatico."
 
 notify_google_chat:
   stage: notify
