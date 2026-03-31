@@ -70,7 +70,7 @@ jobs:
       - name: Install Fastlane
         run: gem install fastlane --no-document
 
-      - name: Validate Play secret
+      - name: Validate secrets
         run: |
           if [ -z "${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}" ]; then
             echo "ERRO: segredo GOOGLE_PLAY_SERVICE_ACCOUNT_JSON nao configurado no GitHub."
@@ -104,8 +104,7 @@ jobs:
           ./gradlew --no-daemon :app:bundleRelease
 
       - name: Verify AAB signature
-        run: |
-          jarsigner -verify app/build/outputs/bundle/release/app-release.aab
+        run: jarsigner -verify app/build/outputs/bundle/release/app-release.aab
 
       - name: Upload to Google Play (internal)
         env:
@@ -161,6 +160,9 @@ jobs:
           fi
 
           CHANGED_FILES="$(git diff --name-only origin/main...HEAD | head -n 200)"
+          CHANGED_FILES_FILE="$(mktemp)"
+          printf '%s\n' "${CHANGED_FILES}" > "${CHANGED_FILES_FILE}"
+
           TEST_ITEMS=""
           add_test_item() {
             item="$1"
@@ -182,12 +184,11 @@ jobs:
                 add_test_item "Persistencia e sincronizacao de dados."
                 ;;
             esac
-          done <<EOF
-          ${CHANGED_FILES}
-EOF
+          done < "${CHANGED_FILES_FILE}"
+          rm -f "${CHANGED_FILES_FILE}"
 
           if [ -z "${TEST_ITEMS}" ]; then
-            TEST_ITEMS="- Fluxo principal da feature alterada.\n- Regressao basica de navegação e dados."
+            TEST_ITEMS="- Fluxo principal da feature alterada.\n- Regressao basica de navegacao e dados."
           fi
 
           PAYLOAD="$(jq -n \
@@ -200,15 +201,15 @@ EOF
             --arg play_url "${PLAY_URL}" \
             --arg compare_url "${COMPARE_URL}" \
             --arg run_url "${RUN_URL}" \
-            '{text: ("🚀 [DEV] Nova versão publicada no Google Play (Interno)\n"
-              + "📦 Projeto: " + $repo + "\n"
-              + "🌿 Branch: " + $branch + "\n"
-              + "🔖 Commit: " + $sha + " (@"+$actor+")\n\n"
-              + "✅ O que foi implementado (desde a main):\n" + $features + "\n\n"
-              + "🧪 O que validar agora:\n" + $tests + "\n\n"
-              + "🔗 Play Console: " + $play_url + "\n"
-              + "🔍 Compare: " + $compare_url + "\n"
-              + "⚙️ Pipeline: " + $run_url + "\n")}')"
+            '{text: ("[DEV] Nova versao publicada no Google Play (Interno)\n"
+              + "Projeto: " + $repo + "\n"
+              + "Branch: " + $branch + "\n"
+              + "Commit: " + $sha + " (@"+$actor+")\n\n"
+              + "O que foi implementado (desde a main):\n" + $features + "\n\n"
+              + "O que validar agora:\n" + $tests + "\n\n"
+              + "Play Console: " + $play_url + "\n"
+              + "Compare: " + $compare_url + "\n"
+              + "Pipeline: " + $run_url + "\n")}')"
 
           curl --fail --show-error --silent \
             -X POST \
