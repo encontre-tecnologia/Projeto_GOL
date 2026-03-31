@@ -156,6 +156,7 @@ deploy_preview_internal:
 notify_google_chat:
   stage: notify
   image: alpine:3.20
+  allow_failure: true
   rules:
     - if: '$CI_PIPELINE_SOURCE == "push" && ($CI_COMMIT_BRANCH == "dev" || $CI_COMMIT_BRANCH == "Dev") && $GOOGLE_CHAT_WEBHOOK_URL'
   script:
