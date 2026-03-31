@@ -131,74 +131,98 @@ notify_google_chat:
     - apk add --no-cache git curl jq
     - |
       SHORT_SHA="$(printf '%s' "${CI_COMMIT_SHA}" | cut -c1-8)"
-      TITLE="${CI_COMMIT_TITLE}"
-      BODY="$(printf '%s' "${CI_COMMIT_MESSAGE}" | tail -n +2 | sed '/^[[:space:]]*$/d')"
-      BEFORE_SHORT="$(printf '%s' "${CI_COMMIT_BEFORE_SHA}" | cut -c1-8)"
-      PUSH_TIME_UTC="$(date -u +'%Y-%m-%d %H:%M UTC')"
+      git fetch --quiet --prune origin '+refs/heads/*:refs/remotes/origin/*'
 
-      if [ -z "${BODY}" ]; then
-        BODY="sem descricao no corpo do commit."
-      fi
-
-      if [ "${CI_COMMIT_BEFORE_SHA}" = "0000000000000000000000000000000000000000" ]; then
-        COMMIT_COUNT="1"
-        FILES="$(git show --pretty='' --name-only "${CI_COMMIT_SHA}" | head -n 20)"
-        STATS_LINE="$(git show --shortstat --format='' "${CI_COMMIT_SHA}" | tail -n 1 | tr -s ' ')"
-        COMMITS_LIST="$(git log -1 --pretty='- %h %s (%an)' "${CI_COMMIT_SHA}")"
-        RANGE_LABEL="push inicial"
-        COMPARE_URL="${CI_PROJECT_URL}/-/commit/${CI_COMMIT_SHA}"
+      if git show-ref --verify --quiet refs/remotes/origin/main; then
+        MAIN_REF="origin/main"
       else
-        COMMIT_COUNT="$(git rev-list --count "${CI_COMMIT_BEFORE_SHA}..${CI_COMMIT_SHA}")"
-        FILES="$(git diff --name-only "${CI_COMMIT_BEFORE_SHA}" "${CI_COMMIT_SHA}" | head -n 20)"
-        STATS_LINE="$(git diff --shortstat "${CI_COMMIT_BEFORE_SHA}" "${CI_COMMIT_SHA}" | tr -s ' ')"
-        COMMITS_LIST="$(git log --pretty='- %h %s (%an)' "${CI_COMMIT_BEFORE_SHA}..${CI_COMMIT_SHA}" | head -n 8)"
-        RANGE_LABEL="${BEFORE_SHORT}..${SHORT_SHA}"
-        COMPARE_URL="${CI_PROJECT_URL}/-/compare/${CI_COMMIT_BEFORE_SHA}...${CI_COMMIT_SHA}"
+        MAIN_REF="origin/master"
+      fi
+      DEV_REF="origin/${CI_COMMIT_BRANCH}"
+
+      RANGE="${MAIN_REF}..${DEV_REF}"
+      COMPARE_URL="${CI_PROJECT_URL}/-/compare/${MAIN_REF#origin/}...${CI_COMMIT_BRANCH}"
+
+      LIBERADO="$(git log --pretty='- %s (@%an)' "${RANGE}" | head -n 8)"
+      if [ -z "${LIBERADO}" ]; then
+        LIBERADO="- Sem novidades em relacao a ${MAIN_REF#origin/}."
       fi
 
-      if [ -z "${FILES}" ]; then
-        FILES="(sem diff detectado no pipeline)"
-      fi
-      if [ -z "${STATS_LINE}" ]; then
-        STATS_LINE="sem estatisticas de diff"
-      fi
-      if [ -z "${COMMITS_LIST}" ]; then
-        COMMITS_LIST="- ${SHORT_SHA} ${TITLE} (${GITLAB_USER_NAME})"
+      COMMITS_DESDE_MAIN="$(git log --pretty='- %h %s (@%an)' "${RANGE}" | head -n 20)"
+      if [ -z "${COMMITS_DESDE_MAIN}" ]; then
+        COMMITS_DESDE_MAIN="- Nenhum commit novo."
       fi
 
-      CHANGED_FILES="$(printf '%s\n' "${FILES}" | sed 's/^/- /')"
+      CHANGED_PATHS="$(git diff --name-only "${MAIN_REF}...${DEV_REF}" | head -n 200)"
+      TEST_ITEMS=""
+      add_test_item() {
+        item="$1"
+        case "${TEST_ITEMS}" in
+          *"$item"*) ;;
+          *) TEST_ITEMS="${TEST_ITEMS}- ${item}\n" ;;
+        esac
+      }
+
+      while IFS= read -r path; do
+        case "${path}" in
+          *nav*|*menu*|*route*|*Navigation*|*navigation*)
+            add_test_item "Navegacao entre telas/menus (fluxo e foco)."
+            ;;
+          *ui/*|*screen*|*compose*|*layout*|*theme*|*res/*)
+            add_test_item "Estados visuais e comportamento de foco/selecao na interface."
+            ;;
+          *repository*|*data/*|*network*|*retrofit*|*firebase*|*service*)
+            add_test_item "Fluxo de dados e persistencia (carregar/salvar/sincronizar)."
+            ;;
+          *test/*|*Test.kt|*spec*)
+            add_test_item "Executar cenarios de regressao cobertos pelos testes alterados."
+            ;;
+        esac
+      done <<EOF
+      ${CHANGED_PATHS}
+EOF
+
+      if [ -z "${TEST_ITEMS}" ]; then
+        TEST_ITEMS="- Fluxo principal da feature alterada.\n- Regressao basica: abrir, usar e retornar para a home.\n- Validar logs/erros em cenarios de borda."
+      fi
+
+      BRANCHES_ATRASADAS=""
+      for ref in $(git for-each-ref --format='%(refname:short)' refs/remotes/origin); do
+        branch="${ref#origin/}"
+        case "${branch}" in
+          HEAD|main|master|dev|Dev) continue ;;
+        esac
+
+        behind="$(git rev-list --count "${ref}..${DEV_REF}" 2>/dev/null || echo 0)"
+        if [ "${behind}" -gt 0 ]; then
+          owner="$(git log -1 --pretty='%an' "${ref}" 2>/dev/null || echo 'desconhecido')"
+          BRANCHES_ATRASADAS="${BRANCHES_ATRASADAS}- ${branch} (behind: ${behind}) - responsavel: @${owner}\n"
+        fi
+      done
+      if [ -z "${BRANCHES_ATRASADAS}" ]; then
+        BRANCHES_ATRASADAS="- Nenhuma branch atrasada em relacao a ${CI_COMMIT_BRANCH}."
+      fi
 
       PAYLOAD="$(jq -n \
-        --arg project "${CI_PROJECT_PATH}" \
+        --arg project "${CI_PROJECT_NAME}" \
         --arg branch "${CI_COMMIT_BRANCH}" \
-        --arg author "${GITLAB_USER_NAME}" \
         --arg short_sha "${SHORT_SHA}" \
-        --arg title "${TITLE}" \
-        --arg body "${BODY}" \
-        --arg commit_count "${COMMIT_COUNT}" \
-        --arg range_label "${RANGE_LABEL}" \
-        --arg stats_line "${STATS_LINE}" \
-        --arg commits_list "${COMMITS_LIST}" \
-        --arg push_time_utc "${PUSH_TIME_UTC}" \
-        --arg files "${CHANGED_FILES}" \
-        --arg commit_url "${CI_PROJECT_URL}/-/commit/${CI_COMMIT_SHA}" \
+        --arg liberado "${LIBERADO}" \
+        --arg testar "${TEST_ITEMS}" \
+        --arg commits "${COMMITS_DESDE_MAIN}" \
+        --arg outdated "${BRANCHES_ATRASADAS}" \
         --arg compare_url "${COMPARE_URL}" \
         --arg pipeline_url "${CI_PIPELINE_URL}" \
-        '{text: ("Novo push em " + $project + "\n"
+        '{text: ("[DEV] Nova atualizacao disponivel\n"
+          + "Projeto: " + $project + "\n"
           + "Branch: " + $branch + "\n"
-          + "Autor: " + $author + "\n"
-          + "Horario (UTC): " + $push_time_utc + "\n"
-          + "Range: " + $range_label + "\n"
-          + "Commits no push: " + $commit_count + "\n"
-          + "Diff: " + $stats_line + "\n\n"
-          + "Ultimo commit (" + $short_sha + "): " + $title + "\n"
-          + "Resumo do ultimo commit: " + $body + "\n\n"
-          + "Commits incluidos (ate 8):\n"
-          + $commits_list + "\n\n"
-          + "Arquivos alterados (ate 20):\n"
-          + $files + "\n"
-          + "Commit: " + $commit_url + "\n"
+          + "Commit: " + $short_sha + "\n\n"
+          + "Liberado:\n" + $liberado + "\n\n"
+          + "O que testar:\n" + $testar + "\n\n"
+          + "Commits desde ultimo merge com main:\n" + $commits + "\n\n"
+          + "Branches desatualizadas:\n" + $outdated + "\n"
           + "Comparacao: " + $compare_url + "\n"
-          + "Pipeline: " + $pipeline_url)}')"
+          + "Pipeline: " + $pipeline_url + "\n\n"
+          + "Liberada nova versao da Dev.")}')"
 
       curl --fail --show-error --silent -X POST -H "Content-Type: application/json; charset=UTF-8" -d "${PAYLOAD}" "${GOOGLE_CHAT_WEBHOOK_URL}"
