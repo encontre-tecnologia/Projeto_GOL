@@ -153,6 +153,7 @@ jobs:
           PLAY_URL="${PLAY_CONSOLE_INTERNAL_URL:-https://play.google.com/console}"
 
           git fetch origin main --quiet || true
+          git fetch origin '+refs/heads/*:refs/remotes/origin/*' --quiet || true
 
           FEATURES="$(git log --pretty='- %s (@%an)' origin/main..HEAD | head -n 12)"
           if [ -z "${FEATURES}" ]; then
@@ -191,6 +192,28 @@ jobs:
             TEST_ITEMS="- Fluxo principal da feature alterada.\n- Regressao basica de navegacao e dados."
           fi
 
+          DEV_REMOTE="origin/${GITHUB_REF_NAME}"
+          BRANCHES_ATRASADAS=""
+          for ref in $(git for-each-ref --format='%(refname:short)' refs/remotes/origin); do
+            branch="${ref#origin/}"
+            case "${branch}" in
+              HEAD|main|master|dev|Dev) continue ;;
+            esac
+
+            behind="$(git rev-list --count "${ref}..${DEV_REMOTE}" 2>/dev/null || echo 0)"
+            if [ "${behind}" -gt 0 ]; then
+              owner="$(git log --reverse --pretty='%an' "${ref}" 2>/dev/null | head -n 1)"
+              if [ -z "${owner}" ]; then
+                owner="desconhecido"
+              fi
+              BRANCHES_ATRASADAS="${BRANCHES_ATRASADAS}- ${branch} (behind: ${behind}) - criador: ${owner}\n"
+            fi
+          done
+
+          if [ -z "${BRANCHES_ATRASADAS}" ]; then
+            BRANCHES_ATRASADAS="- Nenhuma branch desatualizada em relacao a ${GITHUB_REF_NAME}."
+          fi
+
           PAYLOAD="$(jq -n \
             --arg repo "${GITHUB_REPOSITORY}" \
             --arg branch "${GITHUB_REF_NAME}" \
@@ -198,6 +221,7 @@ jobs:
             --arg actor "${GITHUB_ACTOR}" \
             --arg features "${FEATURES}" \
             --arg tests "${TEST_ITEMS}" \
+            --arg outdated "${BRANCHES_ATRASADAS}" \
             --arg play_url "${PLAY_URL}" \
             --arg compare_url "${COMPARE_URL}" \
             --arg run_url "${RUN_URL}" \
@@ -207,6 +231,8 @@ jobs:
               + "Commit: " + $sha + " (@"+$actor+")\n\n"
               + "O que foi implementado (desde a main):\n" + $features + "\n\n"
               + "O que validar agora:\n" + $tests + "\n\n"
+              + "Branches desatualizadas em relacao a Dev:\n" + $outdated + "\n"
+              + "Para realizar as validacoes, por favor realize o merge das branches com a Dev.\n\n"
               + "Play Console: " + $play_url + "\n"
               + "Compare: " + $compare_url + "\n"
               + "Pipeline: " + $run_url + "\n")}')"
