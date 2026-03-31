@@ -29,6 +29,7 @@ val releaseStoreFile = propOrEnv("RELEASE_STORE_FILE")
 val releaseStorePassword = propOrEnv("RELEASE_STORE_PASSWORD")
 val releaseKeyAlias = propOrEnv("RELEASE_KEY_ALIAS")
 val releaseKeyPassword = propOrEnv("RELEASE_KEY_PASSWORD") ?: releaseStorePassword
+val ciVersionCode = System.getenv("CI_VERSION_CODE")?.toIntOrNull()
 val isReleaseSigningReady = !releaseStoreFile.isNullOrBlank() &&
     !releaseStorePassword.isNullOrBlank() &&
     !releaseKeyAlias.isNullOrBlank() &&
@@ -42,7 +43,7 @@ android {
         applicationId = "br.com.gui.carlembrete"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
+        versionCode = ciVersionCode ?: 3
         versionName = "1.0.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

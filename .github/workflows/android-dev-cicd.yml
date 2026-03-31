@@ -135,7 +135,11 @@ jobs:
           echo "RELEASE_KEY_PASSWORD=${RELEASE_KEY_PASSWORD}" >> "$GITHUB_ENV"
 
       - name: Build signed release AAB
-        run: ./gradlew --no-daemon :app:bundleRelease
+        env:
+          CI_VERSION_CODE: ${{ github.run_number }}
+        run: |
+          echo "Using CI_VERSION_CODE=${CI_VERSION_CODE}"
+          ./gradlew --no-daemon :app:bundleRelease
 
       - name: Verify AAB signature
         run: |
