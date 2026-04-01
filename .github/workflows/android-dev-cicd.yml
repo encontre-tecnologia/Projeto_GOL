@@ -151,6 +151,7 @@ jobs:
           RUN_URL="https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
           COMPARE_URL="https://github.com/${GITHUB_REPOSITORY}/compare/main...${GITHUB_REF_NAME}"
           PLAY_URL="${PLAY_CONSOLE_INTERNAL_URL:-https://play.google.com/console}"
+          INTERNAL_TEST_URL="https://play.google.com/apps/internaltest/4701271977749957174"
 
           git fetch origin main --quiet || true
           git fetch origin '+refs/heads/*:refs/remotes/origin/*' --quiet || true
@@ -222,6 +223,7 @@ jobs:
             --arg features "${FEATURES}" \
             --arg tests "${TEST_ITEMS}" \
             --arg outdated "${BRANCHES_ATRASADAS}" \
+            --arg internal_test_url "${INTERNAL_TEST_URL}" \
             --arg play_url "${PLAY_URL}" \
             --arg compare_url "${COMPARE_URL}" \
             --arg run_url "${RUN_URL}" \
@@ -233,6 +235,7 @@ jobs:
               + "O que validar agora:\n" + $tests + "\n\n"
               + "Branches desatualizadas em relacao a Dev:\n" + $outdated + "\n"
               + "Para realizar as validacoes, por favor realize o merge das branches com a Dev.\n\n"
+              + "Link para testar em teste interno: " + $internal_test_url + "\n"
               + "Play Console: " + $play_url + "\n"
               + "Compare: " + $compare_url + "\n"
               + "Pipeline: " + $run_url + "\n")}')"
