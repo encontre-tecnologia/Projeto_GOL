@@ -87,7 +87,7 @@ fun TipoAvisoScreen(
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Start,
+                        horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         IconButton(onClick = onDismiss) {
@@ -97,11 +97,30 @@ fun TipoAvisoScreen(
                                 tint = textDim
                             )
                         }
+                        val playButtonColor = Color(0xFF2563EB)
+                        IconButton(
+                            onClick = onOpenVehicleGuide,
+                            modifier = Modifier
+                                .size(40.dp)
+                                .background(playButtonColor.copy(alpha = 0.12f), RoundedCornerShape(10.dp))
+                                .border(
+                                    width = 1.dp,
+                                    color = playButtonColor.copy(alpha = 0.28f),
+                                    shape = RoundedCornerShape(10.dp)
+                                )
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.PlayArrow,
+                                contentDescription = tr("Abrir dicas de mecânica", "Open mechanic tips"),
+                                tint = playButtonColor,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
                     }
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 0.dp, bottom = 2.dp),
+                            .padding(top = 10.dp, bottom = 2.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
@@ -147,7 +166,7 @@ fun TipoAvisoScreen(
                                 shape = RoundedCornerShape(14.dp),
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(58.dp)
+                                    .height(54.dp)
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
@@ -206,7 +225,7 @@ fun TipoAvisoScreen(
                                         shape = RoundedCornerShape(14.dp),
                                         modifier = Modifier
                                             .weight(1f)
-                                            .height(66.dp)
+                                            .height(60.dp)
                                     ) {
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
@@ -271,50 +290,6 @@ fun TipoAvisoScreen(
                             }
                         }
 
-                        OutlinedButton(
-                            onClick = onOpenVehicleGuide,
-                            border = BorderStroke(
-                                1.dp,
-                                if (surfaceDark.luminance() < 0.5f) Color(0xFF334155) else Color.Black.copy(alpha = 0.12f)
-                            ),
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                containerColor = if (surfaceDark.luminance() < 0.5f) {
-                                    Color(0xFF0F172A).copy(alpha = 0.45f)
-                                } else {
-                                    surfaceDark.copy(alpha = 0.90f)
-                                },
-                                contentColor = textLight
-                            ),
-                            shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(66.dp)
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                val playButtonColor = Color(0xFF2563EB)
-                                Box(
-                                    modifier = Modifier
-                                        .size(30.dp)
-                                        .background(playButtonColor.copy(alpha = 0.14f), CircleShape),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.PlayArrow,
-                                        contentDescription = tr("Abrir dicas de mecânica", "Open mechanic tips"),
-                                        tint = playButtonColor,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                                Text(
-                                    text = tr("Dicas de Mecânica", "Mechanic Tips"),
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
                     }
                 }
             }

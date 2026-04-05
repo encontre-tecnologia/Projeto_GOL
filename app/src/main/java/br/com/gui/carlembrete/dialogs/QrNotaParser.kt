@@ -131,7 +131,22 @@ data class NotaQrInfo(
     val dataCompra: String?,
     val descricaoItens: String? = null,
     val nomeEstabelecimento: String? = null,
-    val enderecoEstabelecimento: String? = null
+    val enderecoEstabelecimento: String? = null,
+    val valorBruto: Double? = null,
+    val valorDesconto: Double? = null,
+    val valorFinalComDesconto: Double? = null,
+    val quantidadeTotalItens: Int? = null,
+    val formaPagamento: String? = null,
+    val troco: Double? = null
+)
+
+private data class ResumoNotaFinanceiro(
+    val valorTotal: Double?,
+    val valorDesconto: Double?,
+    val valorFinal: Double?,
+    val quantidadeTotalItens: Int?,
+    val formaPagamento: String?,
+    val troco: Double?
 )
 
 const val QR_PARSER_TAG = "ZelluQrParser"
@@ -220,6 +235,7 @@ suspend fun consultarNotaPorQrCode(url: String, cookieHeader: String? = null): N
         Log.d(QR_PARSER_TAG, "Layout não resolveu. Aplicando fallback por regex.")
 
         val valorTotalPelaUrl = extrairValorVnfDaUrl(urlNormalizada)
+        val resumo = extrairResumoFinanceiroNota(doc)
         val texto = doc.text()
 
         // Tentativa 1: seletores comuns da página da NFC-e/SEFAZ.
@@ -245,8 +261,10 @@ suspend fun consultarNotaPorQrCode(url: String, cookieHeader: String? = null): N
             ?.replace(",", ".")
             ?.toDoubleOrNull()
         val valorTotalFinal = when {
+            resumo.valorFinal != null -> resumo.valorFinal
             valorTotalPelaUrl != null && valorTotal != null -> maxOf(valorTotalPelaUrl, valorTotal)
             valorTotalPelaUrl != null -> valorTotalPelaUrl
+            resumo.valorTotal != null -> resumo.valorTotal
             else -> valorTotal
         }
         val dataCompra = candidatosData.firstNotNullOfOrNull { bloco ->
@@ -257,7 +275,7 @@ suspend fun consultarNotaPorQrCode(url: String, cookieHeader: String? = null): N
         val estabelecimento = extrairDadosEstabelecimento(doc)
         Log.d(
             QR_PARSER_TAG,
-            "Resultado fallback: valor=$valorTotalFinal valorUrl=$valorTotalPelaUrl data=$dataCompra itens=$descricaoItens estabelecimento=${estabelecimento.first} endereco=${estabelecimento.second}"
+            "Resultado fallback: valor=$valorTotalFinal bruto=${resumo.valorTotal} desconto=${resumo.valorDesconto} final=${resumo.valorFinal} qtdTotal=${resumo.quantidadeTotalItens} valorUrl=$valorTotalPelaUrl data=$dataCompra itens=$descricaoItens estabelecimento=${estabelecimento.first} endereco=${estabelecimento.second}"
         )
         if (valorTotalFinal == null && dataCompra == null && descricaoItens.isNullOrBlank()) {
             val bloqueioSp = detectarBloqueioConsultaSp(doc)
@@ -279,7 +297,13 @@ suspend fun consultarNotaPorQrCode(url: String, cookieHeader: String? = null): N
                 dataCompra = dataCompra,
                 descricaoItens = descricaoItens,
                 nomeEstabelecimento = estabelecimento.first,
-                enderecoEstabelecimento = estabelecimento.second
+                enderecoEstabelecimento = estabelecimento.second,
+                valorBruto = resumo.valorTotal ?: valorTotal,
+                valorDesconto = resumo.valorDesconto,
+                valorFinalComDesconto = resumo.valorFinal ?: valorTotalFinal,
+                quantidadeTotalItens = resumo.quantidadeTotalItens,
+                formaPagamento = resumo.formaPagamento,
+                troco = resumo.troco
             )
         }
     }.onFailure {
@@ -388,6 +412,7 @@ internal fun parseNotaHtmlForTest(html: String, url: String = "https://www.fazen
     }
 
     val valorTotalPelaUrl = extrairValorVnfDaUrl(url)
+    val resumo = extrairResumoFinanceiroNota(doc)
     val texto = doc.text()
     val candidatosValor = listOf(
         "#totalNota", ".totalNumb", ".txtMax", ".txtCenter"
@@ -411,8 +436,10 @@ internal fun parseNotaHtmlForTest(html: String, url: String = "https://www.fazen
         ?.replace(",", ".")
         ?.toDoubleOrNull()
     val valorTotalFinal = when {
+        resumo.valorFinal != null -> resumo.valorFinal
         valorTotalPelaUrl != null && valorTotal != null -> maxOf(valorTotalPelaUrl, valorTotal)
         valorTotalPelaUrl != null -> valorTotalPelaUrl
+        resumo.valorTotal != null -> resumo.valorTotal
         else -> valorTotal
     }
     val dataCompra = candidatosData.firstNotNullOfOrNull { bloco ->
@@ -439,7 +466,13 @@ internal fun parseNotaHtmlForTest(html: String, url: String = "https://www.fazen
         dataCompra = dataCompra,
         descricaoItens = descricaoItens,
         nomeEstabelecimento = estabelecimento.first,
-        enderecoEstabelecimento = estabelecimento.second
+        enderecoEstabelecimento = estabelecimento.second,
+        valorBruto = resumo.valorTotal ?: valorTotal,
+        valorDesconto = resumo.valorDesconto,
+        valorFinalComDesconto = resumo.valorFinal ?: valorTotalFinal,
+        quantidadeTotalItens = resumo.quantidadeTotalItens,
+        formaPagamento = resumo.formaPagamento,
+        troco = resumo.troco
     )
 }
 
@@ -510,7 +543,7 @@ private fun extrairNotaPorLayout(doc: Document): NotaQrInfo? {
 }
 
 private fun extrairNotaLayoutSp(doc: Document): NotaQrInfo? {
-    val valor = sequenceOf(
+    val valorLegacy = sequenceOf(
         doc.select("#totalNota").text(),
         doc.select(".totalNumb").text(),
         doc.select("#linhaTotal").text(),
@@ -518,6 +551,8 @@ private fun extrairNotaLayoutSp(doc: Document): NotaQrInfo? {
         doc.select("td:matchesOwn((?i)valor total|total da nota)").text()
     ).map { extrairPrimeiroValorMonetario(it) }.firstOrNull { it != null }
         ?: encontrarValorProximoAoRotulo(doc, Regex("(?i)valor\\s*total|total\\s*da\\s*nota"))
+    val resumo = extrairResumoFinanceiroNota(doc)
+    val valorFinalPreferencial = resumo.valorFinal ?: valorLegacy ?: resumo.valorTotal
 
     val data = sequenceOf(
         doc.select("#dataEmissao").text(),
@@ -532,19 +567,25 @@ private fun extrairNotaLayoutSp(doc: Document): NotaQrInfo? {
     val estabelecimento = extrairDadosEstabelecimento(doc)
     Log.d(
         QR_PARSER_TAG,
-        "SP parser => valor=$valor data=$data itens=$descricaoItens estabelecimento=${estabelecimento.first} endereco=${estabelecimento.second}"
+        "SP parser => valor=$valorFinalPreferencial bruto=${resumo.valorTotal} desconto=${resumo.valorDesconto} final=${resumo.valorFinal} qtdTotal=${resumo.quantidadeTotalItens} data=$data itens=$descricaoItens estabelecimento=${estabelecimento.first} endereco=${estabelecimento.second}"
     )
-    return if (valor == null && data == null && descricaoItens.isNullOrBlank()) null else NotaQrInfo(
-        valorTotal = valor,
+    return if (valorFinalPreferencial == null && data == null && descricaoItens.isNullOrBlank()) null else NotaQrInfo(
+        valorTotal = valorFinalPreferencial,
         dataCompra = data,
         descricaoItens = descricaoItens,
         nomeEstabelecimento = estabelecimento.first,
-        enderecoEstabelecimento = estabelecimento.second
+        enderecoEstabelecimento = estabelecimento.second,
+        valorBruto = resumo.valorTotal ?: valorLegacy,
+        valorDesconto = resumo.valorDesconto,
+        valorFinalComDesconto = resumo.valorFinal ?: valorFinalPreferencial,
+        quantidadeTotalItens = resumo.quantidadeTotalItens,
+        formaPagamento = resumo.formaPagamento,
+        troco = resumo.troco
     )
 }
 
 private fun extrairNotaLayoutMg(doc: Document): NotaQrInfo? {
-    val valor = sequenceOf(
+    val valorLegacy = sequenceOf(
         doc.select("#valorTotal").text(),
         doc.select(".valorTotal").text(),
         doc.select(".dadosNf").text(),
@@ -552,6 +593,8 @@ private fun extrairNotaLayoutMg(doc: Document): NotaQrInfo? {
         doc.select("td:matchesOwn((?i)valor total|valor a pagar|total)").text()
     ).map { extrairPrimeiroValorMonetario(it) }.firstOrNull { it != null }
         ?: encontrarValorProximoAoRotulo(doc, Regex("(?i)valor\\s*total|valor\\s*a\\s*pagar|total"))
+    val resumo = extrairResumoFinanceiroNota(doc)
+    val valorFinalPreferencial = resumo.valorFinal ?: valorLegacy ?: resumo.valorTotal
 
     val data = sequenceOf(
         doc.select(".dadosNf").text(),
@@ -565,19 +608,25 @@ private fun extrairNotaLayoutMg(doc: Document): NotaQrInfo? {
     val estabelecimento = extrairDadosEstabelecimento(doc)
     Log.d(
         QR_PARSER_TAG,
-        "MG parser => valor=$valor data=$data itens=$descricaoItens estabelecimento=${estabelecimento.first} endereco=${estabelecimento.second}"
+        "MG parser => valor=$valorFinalPreferencial bruto=${resumo.valorTotal} desconto=${resumo.valorDesconto} final=${resumo.valorFinal} qtdTotal=${resumo.quantidadeTotalItens} data=$data itens=$descricaoItens estabelecimento=${estabelecimento.first} endereco=${estabelecimento.second}"
     )
-    return if (valor == null && data == null && descricaoItens.isNullOrBlank()) null else NotaQrInfo(
-        valorTotal = valor,
+    return if (valorFinalPreferencial == null && data == null && descricaoItens.isNullOrBlank()) null else NotaQrInfo(
+        valorTotal = valorFinalPreferencial,
         dataCompra = data,
         descricaoItens = descricaoItens,
         nomeEstabelecimento = estabelecimento.first,
-        enderecoEstabelecimento = estabelecimento.second
+        enderecoEstabelecimento = estabelecimento.second,
+        valorBruto = resumo.valorTotal ?: valorLegacy,
+        valorDesconto = resumo.valorDesconto,
+        valorFinalComDesconto = resumo.valorFinal ?: valorFinalPreferencial,
+        quantidadeTotalItens = resumo.quantidadeTotalItens,
+        formaPagamento = resumo.formaPagamento,
+        troco = resumo.troco
     )
 }
 
 private fun extrairNotaLayoutNacional(doc: Document): NotaQrInfo? {
-    val valor = sequenceOf(
+    val valorLegacy = sequenceOf(
         doc.select("#totalNota").text(),
         doc.select("#valorTotal").text(),
         doc.select(".totalNumb").text(),
@@ -590,6 +639,8 @@ private fun extrairNotaLayoutNacional(doc: Document): NotaQrInfo? {
             doc,
             Regex("(?i)valor\\s*a\\s*pagar|valor\\s*total|total\\s*da\\s*nota|v\\.?\\s*nf|total")
         )
+    val resumo = extrairResumoFinanceiroNota(doc)
+    val valorFinalPreferencial = resumo.valorFinal ?: valorLegacy ?: resumo.valorTotal
 
     val data = sequenceOf(
         doc.select("#dataEmissao").text(),
@@ -605,14 +656,20 @@ private fun extrairNotaLayoutNacional(doc: Document): NotaQrInfo? {
     val estabelecimento = extrairDadosEstabelecimento(doc)
     Log.d(
         QR_PARSER_TAG,
-        "Nacional parser => valor=$valor data=$data itens=$descricaoItens estabelecimento=${estabelecimento.first} endereco=${estabelecimento.second}"
+        "Nacional parser => valor=$valorFinalPreferencial bruto=${resumo.valorTotal} desconto=${resumo.valorDesconto} final=${resumo.valorFinal} qtdTotal=${resumo.quantidadeTotalItens} data=$data itens=$descricaoItens estabelecimento=${estabelecimento.first} endereco=${estabelecimento.second}"
     )
-    return if (valor == null && data == null && descricaoItens.isNullOrBlank()) null else NotaQrInfo(
-        valorTotal = valor,
+    return if (valorFinalPreferencial == null && data == null && descricaoItens.isNullOrBlank()) null else NotaQrInfo(
+        valorTotal = valorFinalPreferencial,
         dataCompra = data,
         descricaoItens = descricaoItens,
         nomeEstabelecimento = estabelecimento.first,
-        enderecoEstabelecimento = estabelecimento.second
+        enderecoEstabelecimento = estabelecimento.second,
+        valorBruto = resumo.valorTotal ?: valorLegacy,
+        valorDesconto = resumo.valorDesconto,
+        valorFinalComDesconto = resumo.valorFinal ?: valorFinalPreferencial,
+        quantidadeTotalItens = resumo.quantidadeTotalItens,
+        formaPagamento = resumo.formaPagamento,
+        troco = resumo.troco
     )
 }
 
@@ -676,9 +733,9 @@ private fun extrairItensSp(doc: Document): String? {
 }
 
 private fun extrairItensSpPorTitulosEValores(doc: Document): String? {
-    val nomes = doc.select("#tabResult .txtTit, .txtTit")
+    val nomeElements = doc.select("#tabResult .txtTit, .txtTit")
+    val nomes = nomeElements
         .mapNotNull { limparNomeProduto(it.text()) }
-        .distinct()
     if (nomes.isEmpty()) return null
 
     val valores = doc.select("#tabResult .valor, #tabResult .valorItem, .valor")
@@ -686,10 +743,19 @@ private fun extrairItensSpPorTitulosEValores(doc: Document): String? {
         .toList()
     if (valores.isEmpty()) return nomes.take(4).joinToString(" + ")
 
-    val limite = minOf(nomes.size, valores.size, 8)
+    val quantidades = nomeElements.map { el ->
+        extrairQuantidadeItemNoTexto(el.parent()?.text().orEmpty())
+            ?: extrairQuantidadeItemNoTexto(el.nextElementSibling()?.text().orEmpty())
+            ?: extrairQuantidadeItemNoTexto(el.parent()?.nextElementSibling()?.text().orEmpty())
+            ?: 1
+    }
+
+    val limite = minOf(nomes.size, valores.size, quantidades.size, 8)
     if (limite == 0) return null
     val itens = (0 until limite).map { i ->
-        "${nomes[i].take(60)} (${String.format(Locale.US, "%.2f", valores[i])})"
+        val qtd = quantidades.getOrNull(i)?.coerceAtLeast(1) ?: 1
+        val sufixoQtd = if (qtd > 1) " x$qtd" else ""
+        "${nomes[i].take(60)}$sufixoQtd (${String.format(Locale.US, "%.2f", valores[i])})"
     }
     return normalizarItensDescricao(itens)
 }
@@ -810,17 +876,35 @@ private fun normalizarItensDescricao(itens: List<String>): String? {
 }
 
 private fun extrairDadosEstabelecimento(doc: Document): Pair<String?, String?> {
+    val nomeAntesCnpj = doc.select("*")
+        .firstOrNull { it.text().contains("CNPJ", ignoreCase = true) }
+        ?.previousElementSibling()
+        ?.text()
+        ?.let { limparNomeEstabelecimentoExtraido(it) }
+
+    val nomeAzul = doc.select("[style*=color], .txtTit, .txtCenter")
+        .mapNotNull { limparNomeEstabelecimentoExtraido(it.text()) }
+        .firstOrNull { texto ->
+            texto.length > 6 &&
+                !texto.contains("CNPJ", ignoreCase = true) &&
+                !texto.contains("DOCUMENTO AUXILIAR", ignoreCase = true) &&
+                !texto.contains("DANFE", ignoreCase = true)
+        }
+
     val nome = sequenceOf(
+        nomeAntesCnpj,
+        nomeAzul,
         doc.select(".txtTopo").firstOrNull()?.text(),
         doc.select(".txtTit").firstOrNull()?.text(),
         doc.select("h1").firstOrNull()?.text(),
         doc.select("h2").firstOrNull()?.text()
-    ).mapNotNull { it?.let { t -> Parser.unescapeEntities(t, false) }?.replace(Regex("\\s+"), " ")?.trim() }
+    ).mapNotNull { it?.let { t -> limparNomeEstabelecimentoExtraido(t) } }
         .firstOrNull { texto ->
             texto.length > 3 &&
                 !texto.contains("nfc-e", ignoreCase = true) &&
                 !texto.contains("danfe", ignoreCase = true) &&
-                !texto.contains("consulta", ignoreCase = true)
+                !texto.contains("consulta", ignoreCase = true) &&
+                !texto.contains("cnpj", ignoreCase = true)
         }
 
     val endereco = sequenceOf(
@@ -854,6 +938,163 @@ private fun extrairEnderecoPorRegex(doc: Document): String? {
     return encontrado.take(120)
 }
 
+private fun limparNomeEstabelecimentoExtraido(textoOriginal: String?): String? {
+    val texto = textoOriginal
+        ?.let { Parser.unescapeEntities(it, false) }
+        ?.replace(Regex("\\s+"), " ")
+        ?.replace(Regex("(?i)\\bcnpj\\b.*$"), "")
+        ?.trim()
+        .orEmpty()
+    if (texto.isBlank()) return null
+    if (texto.length < 4) return null
+    return texto
+}
+
+private fun extrairResumoFinanceiroNota(doc: Document): ResumoNotaFinanceiro {
+    val valorTotal = sequenceOf(
+        encontrarValorProximoAoRotulo(doc, Regex("(?i)valor\\s*total|total\\s*da\\s*nota|v\\.?\\s*nf")),
+        encontrarValorProximoAoRotulo(doc, Regex("(?i)vl\\.?\\s*total"))
+    ).firstOrNull { it != null }
+
+    val valorDesconto = sequenceOf(
+        encontrarValorProximoAoRotulo(doc, Regex("(?i)desconto|descontos")),
+        encontrarValorProximoAoRotulo(doc, Regex("(?i)desc\\.?"))
+    ).firstOrNull { it != null }
+
+    val valorFinal = sequenceOf(
+        encontrarValorProximoAoRotulo(doc, Regex("(?i)valor\\s*a\\s*pagar|valor\\s*liquido|valor\\s*l[ií]quido")),
+        encontrarValorProximoAoRotulo(doc, Regex("(?i)valor\\s*final|total\\s*a\\s*pagar"))
+    ).firstOrNull { it != null }
+
+    val quantidadeTotalItens = extrairQuantidadeTotalItens(doc)
+    val formaPagamento = extrairFormaPagamentoNota(doc)
+    val troco = sequenceOf(
+        extrairTrocoPorTabela(doc),
+        extrairTrocoPorTexto(doc)
+    ).firstOrNull { it != null }?.takeIf { it.isFinite() }
+
+    return ResumoNotaFinanceiro(
+        valorTotal = valorTotal,
+        valorDesconto = valorDesconto,
+        valorFinal = valorFinal,
+        quantidadeTotalItens = quantidadeTotalItens,
+        formaPagamento = formaPagamento,
+        troco = troco
+    )
+}
+
+private fun extrairFormaPagamentoNota(doc: Document): String? {
+    val linhasTabela = doc.select("tr")
+    linhasTabela.forEach { tr ->
+        val cols = tr.select("td, th")
+        if (cols.size < 2) return@forEach
+        val primeira = Parser.unescapeEntities(cols[0].text(), false).replace(Regex("\\s+"), " ").trim()
+        val segunda = Parser.unescapeEntities(cols[1].text(), false).replace(Regex("\\s+"), " ").trim()
+        val segundaTemValor = extrairPrimeiroValorMonetario(segunda) != null
+        val metodoTabela = normalizarFormaPagamento(primeira)
+        if (segundaTemValor && ehFormaPagamentoValida(metodoTabela)) return metodoTabela
+    }
+
+    val textoNormalizado = Parser.unescapeEntities(doc.text(), false).replace(Regex("\\s+"), " ").trim()
+    val regexLinha = Regex("(?i)forma\\s*de\\s*pagamento\\s*:?\\s*([A-Za-z0-9\\u00C0-\\u017F\\s/.-]{3,60})")
+    val porLinha = normalizarFormaPagamento(regexLinha.find(textoNormalizado)?.groupValues?.getOrNull(1)?.trim())
+    if (ehFormaPagamentoValida(porLinha)) return porLinha
+
+    val celulas = doc.select("td, th, span, div").take(1200)
+    celulas.forEachIndexed { idx, el ->
+        val atual = Parser.unescapeEntities(el.text(), false).replace(Regex("\\s+"), " ").trim()
+        if (!atual.contains("forma de pagamento", ignoreCase = true)) return@forEachIndexed
+        val prox = listOfNotNull(
+            celulas.getOrNull(idx + 1)?.text(),
+            el.nextElementSibling()?.text(),
+            el.parent()?.children()?.getOrNull(1)?.text()
+        ).map { Parser.unescapeEntities(it, false).replace(Regex("\\s+"), " ").trim() }
+            .mapNotNull { candidato -> normalizarFormaPagamento(candidato) }
+            .firstOrNull { candidato -> ehFormaPagamentoValida(candidato) }
+        if (!prox.isNullOrBlank()) return prox
+    }
+    return null
+}
+
+private fun normalizarFormaPagamento(texto: String?): String? {
+    val bruto = texto?.trim().orEmpty()
+    if (bruto.isBlank()) return null
+    val semRotulos = bruto
+        .replace(Regex("(?i)^forma\\s*de\\s*pagamento\\s*:?\\s*"), "")
+        .replace(Regex("(?i)^valor\\s*pago\\s*r\\$\\s*"), "")
+        .replace(Regex("(?i)\\btroco\\b.*$"), "")
+        .replace(Regex("\\d+[\\.,]\\d{2}"), "")
+        .replace(Regex("\\s+"), " ")
+        .trim(' ', '-', ':', ';')
+    return semRotulos.takeIf { it.isNotBlank() }
+}
+
+private fun ehFormaPagamentoValida(texto: String?): Boolean {
+    val valor = texto?.trim().orEmpty()
+    if (valor.isBlank()) return false
+    val lower = valor.lowercase(Locale.ROOT)
+    if (lower.contains("forma de pagamento")) return false
+    if (lower.contains("valor pago")) return false
+    if (lower.contains("troco")) return false
+    if (lower == "r$" || lower == "valor pago r$") return false
+    if (valor.length > 40) return false
+    return Regex("(?i)\\b(cart[a�]o|cr[e�]dito|d[e�]bito|pix|dinheiro|boleto|transfer[e�]ncia|cheque|vale|tef|cr[e�]dito\\s*loja)\\b")
+        .containsMatchIn(valor)
+}
+private fun extrairTrocoPorTabela(doc: Document): Double? {
+    val celulas = doc.select("td, th, span, div").take(1200)
+    celulas.forEachIndexed { idx, el ->
+        val atual = Parser.unescapeEntities(el.text(), false).replace(Regex("\\s+"), " ").trim()
+        if (!atual.contains("troco", ignoreCase = true)) return@forEachIndexed
+        if (atual.contains("nan", ignoreCase = true)) return 0.0
+        val candidatos = listOfNotNull(
+            celulas.getOrNull(idx + 1)?.text(),
+            el.nextElementSibling()?.text(),
+            el.parent()?.children()?.lastOrNull()?.text()
+        )
+        candidatos.forEach { bloco ->
+            if (bloco.contains("nan", ignoreCase = true)) return 0.0
+            val valor = extrairPrimeiroValorMonetario(bloco)
+            if (valor != null) return valor
+        }
+    }
+    return null
+}
+
+private fun extrairTrocoPorTexto(doc: Document): Double? {
+    val texto = Parser.unescapeEntities(doc.text(), false).replace(Regex("\\s+"), " ").trim()
+    if (texto.isBlank()) return null
+    val padraoTroco = Regex(
+        "(?i)\\btroco\\b\\D{0,24}(nan|\\d{1,3}(?:\\.\\d{3})*,\\d{2}|\\d+[\\.,]\\d{2})"
+    )
+    val encontrado = padraoTroco.find(texto)?.groupValues?.getOrNull(1)?.trim() ?: return null
+    if (encontrado.equals("nan", ignoreCase = true)) return 0.0
+    return encontrado.replace(".", "").replace(",", ".").toDoubleOrNull()
+}
+
+private fun extrairQuantidadeTotalItens(doc: Document): Int? {
+    val regexQtd = Regex("(?i)qtd\\.?\\s*total\\s*de\\s*itens\\D{0,20}(\\d+)")
+    val candidatos = doc.select("*").take(800).map { it.text() } + doc.text()
+    candidatos.forEach { bloco ->
+        val valor = regexQtd.find(bloco)?.groupValues?.getOrNull(1)?.toIntOrNull()
+        if (valor != null && valor > 0) return valor
+    }
+    return null
+}
+
+private fun extrairQuantidadeItemNoTexto(texto: String): Int? {
+    if (texto.isBlank()) return null
+    val matchQtd = Regex("(?i)(?:qtd|qtde)\\.?\\s*:?\\s*(\\d+)").find(texto)
+    val porQtd = matchQtd?.groupValues?.getOrNull(1)?.toIntOrNull()
+    if (porQtd != null && porQtd > 0) return porQtd
+
+    val matchMultiplicacao = Regex("(?i)\\b(\\d+)\\s*(?:x|un|und)\\b").find(texto)
+    val porMultiplicacao = matchMultiplicacao?.groupValues?.getOrNull(1)?.toIntOrNull()
+    if (porMultiplicacao != null && porMultiplicacao > 0) return porMultiplicacao
+
+    return null
+}
+
 private fun extrairPrimeiroValorMonetario(texto: String): Double? {
     val valor = Regex("\\d{1,3}(?:\\.\\d{3})*,\\d{2}|\\d+[\\.,]\\d{2}")
         .find(texto)
@@ -869,7 +1110,13 @@ fun montarLocalNota(estabelecimento: String, endereco: String): String {
     return partes.joinToString(" - ")
 }
 
-fun montarDescricaoItensNota(total: Double?, itens: String?): String {
+fun montarDescricaoItensNota(
+    total: Double?,
+    itens: String?,
+    desconto: Double? = null,
+    valorFinal: Double? = null,
+    quantidadeTotalItens: Int? = null
+): String {
     val linhas = mutableListOf<String>()
     if (!itens.isNullOrBlank()) {
         val itensFormatados = itens
@@ -881,6 +1128,15 @@ fun montarDescricaoItensNota(total: Double?, itens: String?): String {
     }
     if (total != null) {
         linhas += "Total: R$ ${String.format(Locale.US, "%.2f", total)}"
+    }
+    if (desconto != null && desconto > 0.0) {
+        linhas += "Desconto: R$ ${String.format(Locale.US, "%.2f", desconto)}"
+    }
+    if (valorFinal != null && valorFinal > 0.0) {
+        linhas += "Valor final: R$ ${String.format(Locale.US, "%.2f", valorFinal)}"
+    }
+    if (quantidadeTotalItens != null && quantidadeTotalItens > 0) {
+        linhas += "Quantidade total de itens: $quantidadeTotalItens"
     }
     if (linhas.isNotEmpty()) {
         return linhas.joinToString("\n")
@@ -897,18 +1153,19 @@ fun extrairItensDaDescricaoQr(descricao: String?): List<ItemDetectado> {
     val blocoItens = descricao.substringAfter("Itens:", descricao).trim()
     if (blocoItens.isBlank()) return emptyList()
     val partes = blocoItens.split("+").map { it.trim() }.filter { it.isNotBlank() }
-    val regexItem = Regex("(.+?)\\s*\\((\\d+[\\.,]\\d{2})\\)")
+    val regexItem = Regex("(.+?)\\s*(?:x\\s*(\\d+))?\\s*\\((\\d+[\\.,]\\d{2})\\)")
     return partes.mapNotNull { parte ->
         val match = regexItem.find(parte) ?: return@mapNotNull null
         val nome = match.groupValues[1].trim()
-        val valor = match.groupValues[2].replace(",", ".").toDoubleOrNull() ?: 0.0
+        val quantidade = match.groupValues.getOrNull(2)?.toIntOrNull()?.coerceAtLeast(1) ?: 1
+        val valor = match.groupValues[3].replace(",", ".").toDoubleOrNull() ?: 0.0
         if (nome.isBlank()) return@mapNotNull null
         ItemDetectado(
             id = UUID.randomUUID().toString(),
             nome = nome,
             tipo = detectarTipoPeloTexto(nome),
             valor = valor,
-            quantidade = 1
+            quantidade = quantidade
         )
     }
 }

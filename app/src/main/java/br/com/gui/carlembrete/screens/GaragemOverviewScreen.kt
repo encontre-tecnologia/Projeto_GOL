@@ -33,12 +33,14 @@ import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -60,6 +62,8 @@ import androidx.compose.ui.unit.sp
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -67,7 +71,10 @@ import java.util.Locale
 fun GaragemOverviewScreen(
     carros: List<CarroInfo>,
     onSelecionar: (CarroInfo) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    title: String = tr("Meus veículos", "My vehicles"),
+    showVehicleHealthSection: Boolean = true,
+    onOpenReminderDetails: (Lembrete) -> Unit = {}
 ) {
     val context = LocalContext.current
     val scheme = MaterialTheme.colorScheme
@@ -102,6 +109,7 @@ fun GaragemOverviewScreen(
     var busca by remember { mutableStateOf("") }
     var todosLembretes by remember { mutableStateOf<List<Lembrete>>(emptyList()) }
     var filtroSaude by remember { mutableStateOf(allFilterLabel) }
+    var lembretesVencidosDialogCarro by remember { mutableStateOf<CarroInfo?>(null) }
     val garageHeaderImage = remember(context) {
         runCatching {
             context.assets.open("GarageZellu.png").use { input ->
@@ -147,8 +155,24 @@ fun GaragemOverviewScreen(
             carro.id to Triple(tituloSaude, corSaude, descricaoReputacao)
         }
     }
-    val carrosFiltrados = remember(carrosComBusca, saudePorCarro, filtroSaude) {
-        if (filtroSaude == allFilterLabel) {
+    val formatter = remember { DateTimeFormatter.ofPattern("dd/MM/yyyy") }
+    val hoje = remember { LocalDate.now() }
+    val vencidosPorCarro = remember(todosLembretes, formatter, hoje) {
+        todosLembretes
+            .filterNot(::isLembreteRealizado)
+            .filter { it.tipo != TipoManutencao.ABASTECIMENTO }
+            .mapNotNull { lembrete ->
+                val data = runCatching { LocalDate.parse(lembrete.dataLimite, formatter) }.getOrNull()
+                    ?: return@mapNotNull null
+                if (data.isBefore(hoje)) lembrete to data else null
+            }
+            .groupBy(
+                keySelector = { it.first.carroId },
+                valueTransform = { it.first }
+            )
+    }
+    val carrosFiltrados = remember(carrosComBusca, saudePorCarro, filtroSaude, showVehicleHealthSection) {
+        if (!showVehicleHealthSection || filtroSaude == allFilterLabel) {
             carrosComBusca
         } else {
             carrosComBusca.filter { carro ->
@@ -215,7 +239,7 @@ fun GaragemOverviewScreen(
                                 )
                             }
                             Text(
-                                tr("Meus veículos", "My vehicles"),
+                                title,
                                 color = textPrimary,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 26.sp
@@ -242,50 +266,52 @@ fun GaragemOverviewScreen(
                         )
                     }
 
-                    item {
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = CardDefaults.cardColors(containerColor = cardBg),
-                            border = BorderStroke(1.dp, cardBorder),
-                            shape = RoundedCornerShape(16.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .horizontalScroll(rememberScrollState())
-                                    .padding(horizontal = 10.dp, vertical = 10.dp),
-                                horizontalArrangement = Arrangement.spacedBy(14.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                    if (showVehicleHealthSection) {
+                        item {
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(containerColor = cardBg),
+                                border = BorderStroke(1.dp, cardBorder),
+                                shape = RoundedCornerShape(16.dp)
                             ) {
-                                val filtros = listOf(
-                                    allFilterLabel,
-                                    healthyLabel,
-                                    attentionLabel,
-                                    criticalLabel,
-                                    noHistoryLabel
-                                )
-                                filtros.forEach { itemFiltro ->
-                                    val selecionado = filtroSaude == itemFiltro
-                                    val corFiltro = when (itemFiltro) {
-                                        healthyLabel -> Color(0xFF10B981)
-                                        attentionLabel -> Color(0xFFEAB308)
-                                        criticalLabel -> Color(0xFFEF4444)
-                                        noHistoryLabel -> textDim
-                                        else -> accentBlue
-                                    }
-                                    Surface(
-                                        shape = RoundedCornerShape(999.dp),
-                                        color = if (selecionado) corFiltro.copy(alpha = if (isDark) 0.24f else 0.14f) else Color.Transparent,
-                                        border = BorderStroke(1.dp, corFiltro.copy(alpha = if (selecionado) 0.9f else 0.45f)),
-                                        modifier = Modifier.clickable { filtroSaude = itemFiltro }
-                                    ) {
-                                        Text(
-                                            text = itemFiltro,
-                                            color = if (selecionado) corFiltro else textPrimary,
-                                            fontWeight = if (selecionado) FontWeight.Bold else FontWeight.SemiBold,
-                                            fontSize = 12.sp,
-                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
-                                        )
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .horizontalScroll(rememberScrollState())
+                                        .padding(horizontal = 10.dp, vertical = 10.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    val filtros = listOf(
+                                        allFilterLabel,
+                                        healthyLabel,
+                                        attentionLabel,
+                                        criticalLabel,
+                                        noHistoryLabel
+                                    )
+                                    filtros.forEach { itemFiltro ->
+                                        val selecionado = filtroSaude == itemFiltro
+                                        val corFiltro = when (itemFiltro) {
+                                            healthyLabel -> Color(0xFF10B981)
+                                            attentionLabel -> Color(0xFFEAB308)
+                                            criticalLabel -> Color(0xFFEF4444)
+                                            noHistoryLabel -> textDim
+                                            else -> accentBlue
+                                        }
+                                        Surface(
+                                            shape = RoundedCornerShape(999.dp),
+                                            color = if (selecionado) corFiltro.copy(alpha = if (isDark) 0.24f else 0.14f) else Color.Transparent,
+                                            border = BorderStroke(1.dp, corFiltro.copy(alpha = if (selecionado) 0.9f else 0.45f)),
+                                            modifier = Modifier.clickable { filtroSaude = itemFiltro }
+                                        ) {
+                                            Text(
+                                                text = itemFiltro,
+                                                color = if (selecionado) corFiltro else textPrimary,
+                                                fontWeight = if (selecionado) FontWeight.Bold else FontWeight.SemiBold,
+                                                fontSize = 12.sp,
+                                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -294,7 +320,7 @@ fun GaragemOverviewScreen(
 
                     if (carrosFiltrados.isEmpty()) {
                         item {
-                            val mensagemSemResultados = if (filtroSaude != allFilterLabel) {
+                            val mensagemSemResultados = if (showVehicleHealthSection && filtroSaude != allFilterLabel) {
                                 if (isEnglish) {
                                     "There is no vehicle for category \"$filtroSaude\"."
                                 } else {
@@ -406,43 +432,54 @@ fun GaragemOverviewScreen(
                                         }
                                     }
 
-                                    val saudeInfo = saudePorCarro[carro.id]
-                                    val saudeTitulo = saudeInfo?.first ?: tr("Sem histórico", "No history")
-                                    val saudeCor = saudeInfo?.second ?: textDim
-                                    val saudeDescricao = saudeInfo?.third ?: tr("Cadastre serviços para avaliar.", "Register services to evaluate.")
+                                    if (showVehicleHealthSection) {
+                                        val saudeInfo = saudePorCarro[carro.id]
+                                        val saudeTitulo = saudeInfo?.first ?: tr("Sem histórico", "No history")
+                                        val saudeCor = saudeInfo?.second ?: textDim
+                                        val saudeDescricao = saudeInfo?.third ?: tr("Cadastre serviços para avaliar.", "Register services to evaluate.")
+                                        val podeAbrirVencidosDialog = saudeTitulo == attentionLabel || saudeTitulo == criticalLabel
 
-                                    Surface(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        shape = RoundedCornerShape(12.dp),
-                                        color = if (isDark) Color(0xFF111827) else Color(0xFFF8FAFC),
-                                        border = BorderStroke(1.dp, saudeCor.copy(alpha = 0.35f))
-                                    ) {
-                                        Column(
+                                        Surface(
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .padding(horizontal = 12.dp, vertical = 11.dp),
-                                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                                                .then(
+                                                    if (podeAbrirVencidosDialog) {
+                                                        Modifier.clickable { lembretesVencidosDialogCarro = carro }
+                                                    } else {
+                                                        Modifier
+                                                    }
+                                                ),
+                                            shape = RoundedCornerShape(12.dp),
+                                            color = if (isDark) Color(0xFF111827) else Color(0xFFF8FAFC),
+                                            border = BorderStroke(1.dp, saudeCor.copy(alpha = 0.35f))
                                         ) {
-                                            Text(
-                                                tr("Saúde do veículo", "Vehicle health"),
-                                                color = textDim,
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.SemiBold
-                                            )
-                                            Text(
-                                                saudeTitulo,
-                                                color = saudeCor,
-                                                fontSize = 14.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                            Text(
-                                                saudeDescricao,
-                                                color = textDim,
-                                                fontSize = 12.sp,
-                                                lineHeight = 15.sp,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
+                                            Column(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(horizontal = 12.dp, vertical = 11.dp),
+                                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                Text(
+                                                    tr("Saúde do veículo", "Vehicle health"),
+                                                    color = textDim,
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.SemiBold
+                                                )
+                                                Text(
+                                                    saudeTitulo,
+                                                    color = saudeCor,
+                                                    fontSize = 14.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                                Text(
+                                                    saudeDescricao,
+                                                    color = textDim,
+                                                    fontSize = 12.sp,
+                                                    lineHeight = 15.sp,
+                                                    maxLines = 2,
+                                                    overflow = TextOverflow.Clip
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -453,6 +490,93 @@ fun GaragemOverviewScreen(
             }
         }
     }
+
+    lembretesVencidosDialogCarro?.let { carroSelecionado ->
+        val vencidosDoCarro = vencidosPorCarro[carroSelecionado.id].orEmpty()
+            .sortedBy { lembrete -> runCatching { LocalDate.parse(lembrete.dataLimite, formatter) }.getOrNull() }
+        AlertDialog(
+            onDismissRequest = { lembretesVencidosDialogCarro = null },
+            title = {
+                Text(
+                    text = tr("Avisos vencidos", "Overdue reminders"),
+                    fontWeight = FontWeight.Bold,
+                    color = textPrimary
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = carroSelecionado.nome.ifBlank { tr("Veículo sem nome", "Unnamed vehicle") },
+                        color = textDim,
+                        fontSize = 12.sp
+                    )
+                    if (vencidosDoCarro.isEmpty()) {
+                        Text(
+                            text = tr("Nenhum aviso vencido para este veículo.", "No overdue reminders for this vehicle."),
+                            color = textDim
+                        )
+                    } else {
+                        vencidosDoCarro.forEach { lembrete ->
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        lembretesVencidosDialogCarro = null
+                                        onOpenReminderDetails(lembrete)
+                                    },
+                                shape = RoundedCornerShape(10.dp),
+                                color = if (isDark) Color(0xFF111827) else Color(0xFFF8FAFC),
+                                border = BorderStroke(1.dp, cardBorder)
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 10.dp, vertical = 9.dp),
+                                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                                ) {
+                                    Text(
+                                        text = lembrete.titulo.ifBlank { tr("Aviso sem título", "Untitled reminder") },
+                                        color = textPrimary,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Text(
+                                        text = "${tr("Data", "Date")}: ${lembrete.dataLimite}",
+                                        color = Color(0xFFEF4444),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { lembretesVencidosDialogCarro = null }) {
+                    Text(tr("Fechar", "Close"))
+                }
+            },
+            containerColor = cardBg
+        )
+    }
+}
+
+@Composable
+fun VisaoGeralFrotaScreen(
+    carros: List<CarroInfo>,
+    onSelecionar: (CarroInfo) -> Unit,
+    onDismiss: () -> Unit,
+    onOpenReminderDetails: (Lembrete) -> Unit = {}
+) {
+    GaragemOverviewScreen(
+        carros = carros,
+        onSelecionar = onSelecionar,
+        onDismiss = onDismiss,
+        title = tr("Visão geral frota", "Fleet overview"),
+        showVehicleHealthSection = true,
+        onOpenReminderDetails = onOpenReminderDetails
+    )
 }
 
 private fun extrairAnoDoModeloNoCard(modelo: String): String {

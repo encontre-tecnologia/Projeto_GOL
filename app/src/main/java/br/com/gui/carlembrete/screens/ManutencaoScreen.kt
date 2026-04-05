@@ -4,6 +4,8 @@ import AvisosCategoriasCard
 import CarroInfoCard
 import HistoricoAbastecimentoScreen
 import android.app.Activity
+import android.app.DatePickerDialog
+import android.app.TimePickerDialog
 import android.graphics.Paint
 import android.content.Intent
 import android.content.Context
@@ -63,8 +65,11 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -249,6 +254,8 @@ fun ManutencaoScreen(
     var showShareVehicleScreen by remember { mutableStateOf(false) }
     var showAondePareiScreen by remember { mutableStateOf(openAondePareiOnStart) }
     var showAiAssistantScreen by remember { mutableStateOf(false) }
+    var showFleetOverviewScreen by remember { mutableStateOf(false) }
+    var showFleetStockScreen by remember { mutableStateOf(false) }
     var showFaqScreen by remember { mutableStateOf(false) }
     var showVehicleGuideScreen by remember { mutableStateOf(false) }
     
@@ -572,10 +579,46 @@ fun ManutencaoScreen(
                 showPremiumHubScreen = false
                 showAiAssistantScreen = true
             },
+            onOpenFleetOverview = {
+                showPremiumHubScreen = false
+                showFleetOverviewScreen = true
+            },
+            onOpenFleetStock = {
+                showPremiumHubScreen = false
+                showFleetStockScreen = true
+            },
             onOpenSubscribe = {
                 showPremiumHubScreen = false
                 activity?.let { subscriptionManager.launchPurchaseFlow(it) }
             }
+        )
+        return
+    }
+    BackHandler(enabled = showFleetOverviewScreen) { showFleetOverviewScreen = false }
+    if (showFleetOverviewScreen) {
+        VisaoGeralFrotaScreen(
+            carros = listaCarros,
+            onSelecionar = { selecionado ->
+                val novoIndice = listaCarros.indexOfFirst { it.id == selecionado.id }
+                if (novoIndice >= 0) {
+                    indiceCarroAtual = novoIndice
+                }
+                showFleetOverviewScreen = false
+            },
+            onDismiss = { showFleetOverviewScreen = false },
+            onOpenReminderDetails = { lembrete ->
+                showFleetOverviewScreen = false
+                lembreteSelecionado = lembrete
+                contatoDetalheSelecionado = listaContatos.find { it.id == lembrete.contatoId }
+                showLembreteDetalhesScreen = true
+            }
+        )
+        return
+    }
+    BackHandler(enabled = showFleetStockScreen) { showFleetStockScreen = false }
+    if (showFleetStockScreen) {
+        PremiumFleetStockScreen(
+            onDismiss = { showFleetStockScreen = false }
         )
         return
     }
@@ -594,14 +637,74 @@ fun ManutencaoScreen(
                 showLembreteDetalhesScreen = false
             },
             onMarkAsDone = { selecionado ->
-                NotificacaoHelper.cancelarNotificacao(context.applicationContext, selecionado.id)
+                val appContext = context.applicationContext
+                val recorrenciaAtual = NotificacaoHelper.obterRecorrencia(appContext, selecionado.id)
+                Log.i(
+                    "ReminderRepeat",
+                    "acao=mark_done id=${selecionado.id} recorrenciaAtiva=${recorrenciaAtual != null} dataAtual=${selecionado.dataLimite}"
+                )
+                if (recorrenciaAtual != null) {
+                    val formatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
+                    val intervalo = recorrenciaAtual.interval.coerceAtLeast(1)
+                    val hoje = LocalDate.now()
+                    var proximaData = runCatching {
+                        LocalDate.parse(selecionado.dataLimite, formatter)
+                    }.getOrElse { hoje }
+                    while (!proximaData.isAfter(hoje)) {
+                        proximaData = when (recorrenciaAtual.unit) {
+                            NotificacaoHelper.REC_UNIT_DAY -> proximaData.plusDays(intervalo.toLong())
+                            NotificacaoHelper.REC_UNIT_WEEK -> proximaData.plusWeeks(intervalo.toLong())
+                            NotificacaoHelper.REC_UNIT_MONTH -> proximaData.plusMonths(intervalo.toLong())
+                            NotificacaoHelper.REC_UNIT_YEAR -> proximaData.plusYears(intervalo.toLong())
+                            else -> proximaData.plusDays(intervalo.toLong())
+                        }
+                    }
+                    val atualizado = selecionado.copy(
+                        dataLimite = proximaData.format(formatter),
+                        horaAviso = selecionado.horaAviso.ifBlank { "09:00" },
+                        estabelecimentoEndereco = if (isLembreteRealizado(selecionado)) "" else selecionado.estabelecimentoEndereco
+                    )
+                    Log.i(
+                        "ReminderRepeat",
+                        "acao=mark_done_reagendar id=${selecionado.id} unit=${recorrenciaAtual.unit} interval=${intervalo} proximaData=${atualizado.dataLimite} hora=${atualizado.horaAviso}"
+                    )
+                    todosLembretes = todosLembretes.map {
+                        if (it.id == selecionado.id) atualizado else it
+                    }
+                    NotificacaoHelper.agendarNotificacao(appContext, atualizado, atualizado.horaAviso)
+                    Toast.makeText(
+                        context,
+                        trNow("Ciclo concluído. Próximo aviso reagendado.", "Cycle completed. Next reminder rescheduled."),
+                        Toast.LENGTH_SHORT
+                    ).show()
+                } else {
+                    Log.i("ReminderRepeat", "acao=mark_done_sem_recorrencia id=${selecionado.id} -> encerrando")
+                    NotificacaoHelper.cancelarNotificacao(appContext, selecionado.id)
+                    todosLembretes = todosLembretes.map {
+                        if (it.id == selecionado.id) marcarLembreteComoRealizado(it) else it
+                    }
+                    Toast.makeText(context, trNow("Aviso marcado como feito.", "Reminder marked as done."), Toast.LENGTH_SHORT).show()
+                }
+                lembreteSelecionado = null
+                contatoDetalheSelecionado = null
+                showLembreteDetalhesScreen = false
+            },
+            onFinalizeAndClose = { selecionado ->
+                val appContext = context.applicationContext
+                Log.i("ReminderRepeat", "acao=finalizar_encerrar id=${selecionado.id}")
+                NotificacaoHelper.cancelarNotificacao(appContext, selecionado.id)
+                NotificacaoHelper.removerRecorrencia(appContext, selecionado.id)
                 todosLembretes = todosLembretes.map {
                     if (it.id == selecionado.id) marcarLembreteComoRealizado(it) else it
                 }
                 lembreteSelecionado = null
                 contatoDetalheSelecionado = null
                 showLembreteDetalhesScreen = false
-                Toast.makeText(context, trNow("Aviso marcado como feito.", "Reminder marked as done."), Toast.LENGTH_SHORT).show()
+                Toast.makeText(
+                    context,
+                    trNow("Aviso finalizado e encerrado.", "Reminder finalized and closed."),
+                    Toast.LENGTH_SHORT
+                ).show()
             },
             onSalvar = { atualizado ->
                 todosLembretes = todosLembretes.map { if (it.id == atualizado.id) atualizado else it }
@@ -614,7 +717,6 @@ fun ManutencaoScreen(
             onAddPrestador = { lembrete ->
                 lembreteParaVincularContato = lembrete.id
                 showSelecionarPrestadorScreen = true
-                showLembreteDetalhesScreen = false
             }
         )
         return
@@ -813,7 +915,14 @@ fun ManutencaoScreen(
                 }
                 showGaragemScreen = false
             },
-            onDismiss = { showGaragemScreen = false }
+            onDismiss = { showGaragemScreen = false },
+            showVehicleHealthSection = false,
+            onOpenReminderDetails = { lembrete ->
+                showGaragemScreen = false
+                lembreteSelecionado = lembrete
+                contatoDetalheSelecionado = listaContatos.find { it.id == lembrete.contatoId }
+                showLembreteDetalhesScreen = true
+            }
         )
         return
     }
@@ -1938,22 +2047,10 @@ fun LembreteCardLocal(
                 if (contato != null && contato.telefone.isNotBlank()) {
                     Button(
                         onClick = {
-                            val dataFormatada = try {
-                                dataParaOrdenacao(lembrete).format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))
-                            } catch (e: Exception) {
-                                lembrete.dataLimite.ifBlank { "--/--/----" }
-                            }
-                            val saudacao = when (LocalTime.now().hour) {
-                                in 5..11 -> "Bom dia"
-                                in 12..17 -> "Boa tarde"
-                                else -> "Boa noite"
-                            }
-                            val servico = lembrete.titulo.ifBlank { "servico" }
-                            val itemTrocado = lembrete.peca.ifBlank { lembrete.titulo }.ifBlank { "item do servico" }
                             abrirWhatsApp(
                                 context,
                                 contato.telefone,
-                                "$saudacao, ${contato.nome}! Tudo bem?\n\nFiz a *$servico* com voce, do item *$itemTrocado*, no dia *$dataFormatada*.\nGostaria de perguntar se o valor ainda e *${formatarMoedaLocal(lembrete.valor)}* e quando voce teria uma data para realizar esse servico novamente."
+                                "Olá tudo bem?"
                             )
                         },
                         modifier = Modifier
@@ -1965,13 +2062,13 @@ fun LembreteCardLocal(
                         Icon(
                             imageVector = Icons.Rounded.CalendarMonth,
                             contentDescription = null,
-                            tint = Color.White,
+                            tint = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) Color.White else Color.Black,
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(Modifier.width(8.dp))
                         Text(
                             text = "Chamar no Whatszap",
-                            color = Color.White,
+                            color = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) Color.White else Color.Black,
                             fontSize = 13.sp,
                             fontWeight = FontWeight.SemiBold,
                             maxLines = 1,
@@ -2113,6 +2210,7 @@ private fun LembreteDetalhesScreen(
     onDismiss: () -> Unit,
     onDelete: (Lembrete) -> Unit,
     onMarkAsDone: (Lembrete) -> Unit,
+    onFinalizeAndClose: (Lembrete) -> Unit,
     onSalvar: (Lembrete) -> Unit,
     onAddPrestador: (Lembrete) -> Unit
 ) {
@@ -2126,20 +2224,115 @@ private fun LembreteDetalhesScreen(
     val textPrimary = colorScheme.onSurface
     val textSecondary = colorScheme.onSurfaceVariant
     val englishUi = isEnglishUi()
+    fun extrairValorNumericoLinhaResumo(texto: String, matcher: (String) -> Boolean): String? {
+        val linhaResumo = texto
+            .lines()
+            .map { it.trim() }
+            .firstOrNull {
+                matcher(it.lowercase(Locale.getDefault()))
+            } ?: return null
+        val bruto = linhaResumo.substringAfter(':', "").trim().ifBlank { linhaResumo }
+        val numero = Regex("""\d{1,3}(?:\.\d{3})*(?:,\d{1,2})|\d+(?:[.,]\d{1,2})?""")
+            .find(bruto)
+            ?.value
+            ?: return null
+        return numero.replace(".", "").replace(",", ".")
+    }
+    fun atualizarDescricaoComResumoFinanceiro(
+        descricaoAtual: String,
+        totalBruto: Double?,
+        valorFinal: Double?
+    ): String {
+        val linhasBase = descricaoAtual
+            .lines()
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .filterNot {
+                val n = it.lowercase(Locale.getDefault())
+                n.startsWith("total") ||
+                    n.startsWith("valor total") ||
+                    n.contains("desconto") ||
+                    n.contains("valor final") ||
+                    n.contains("valor a pagar")
+            }
+            .toMutableList()
+        val totalNormalizado = totalBruto?.takeIf { it >= 0.0 }
+        val finalNormalizado = valorFinal?.takeIf { it >= 0.0 } ?: totalNormalizado
+        if (totalNormalizado != null) {
+            linhasBase += "Valor total: R$ ${String.format(Locale.US, "%.2f", totalNormalizado)}"
+        }
+        if (totalNormalizado != null || finalNormalizado != null) {
+            val descontoCalculado = ((totalNormalizado ?: 0.0) - (finalNormalizado ?: 0.0)).coerceAtLeast(0.0)
+            linhasBase += "Desconto: R$ ${String.format(Locale.US, "%.2f", descontoCalculado)}"
+        }
+        if (finalNormalizado != null) {
+            linhasBase += "Valor final: R$ ${String.format(Locale.US, "%.2f", finalNormalizado)}"
+        }
+        return linhasBase.joinToString("\n")
+    }
 
     var editando by remember(lembrete.id) { mutableStateOf(false) }
     var titulo by remember(lembrete.id) { mutableStateOf(lembrete.titulo) }
+    var descricaoEdicao by remember(lembrete.id) { mutableStateOf(lembrete.peca) }
+    var totalBrutoTexto by remember(lembrete.id) {
+        mutableStateOf(
+            extrairValorNumericoLinhaResumo(lembrete.peca) { n ->
+                n.startsWith("total") || n.startsWith("valor total")
+            }
+                ?: lembrete.valor.takeIf { it > 0.0 }?.let { String.format(Locale.US, "%.2f", it) }
+                ?: ""
+        )
+    }
+    var totalComDescontoTexto by remember(lembrete.id) {
+        mutableStateOf(
+            extrairValorNumericoLinhaResumo(lembrete.peca) { n ->
+                n.contains("valor final") || n.contains("valor a pagar")
+            }
+                ?: lembrete.valor.takeIf { it > 0.0 }?.let { String.format(Locale.US, "%.2f", it) }
+                ?: ""
+        )
+    }
     var dataAviso by remember(lembrete.id) { mutableStateOf(lembrete.dataLimite) }
     var horaAviso by remember(lembrete.id) { mutableStateOf(lembrete.horaAviso) }
     var kmLimite by remember(lembrete.id) { mutableStateOf(lembrete.kmLimite) }
-    var valorTexto by remember(lembrete.id) { mutableStateOf(if (lembrete.valor > 0) lembrete.valor.toString() else "") }
     var contatoSelecionadoId by remember(lembrete.id) { mutableStateOf(lembrete.contatoId) }
     var repetirAviso by remember(lembrete.id) { mutableStateOf(false) }
     var recorrenciaUnit by remember(lembrete.id) { mutableStateOf(NotificacaoHelper.REC_UNIT_DAY) }
     var recorrenciaIntervaloTexto by remember(lembrete.id) { mutableStateOf("1") }
     var menuRecorrenciaExpanded by remember(lembrete.id) { mutableStateOf(false) }
     var showConfirmarFeitoDialog by remember(lembrete.id) { mutableStateOf(false) }
+    var showFinalizarEncerrarDialog by remember(lembrete.id) { mutableStateOf(false) }
     var showConfirmarExclusaoDialog by remember(lembrete.id) { mutableStateOf(false) }
+    fun abrirSeletorDataAviso() {
+        val formatadorData = DateTimeFormatter.ofPattern("dd/MM/yyyy")
+        val dataAtual = runCatching { LocalDate.parse(dataAviso, formatadorData) }.getOrElse { LocalDate.now() }
+        DatePickerDialog(
+            context,
+            { _, ano, mes, dia ->
+                dataAviso = String.format(Locale.US, "%02d/%02d/%04d", dia, mes + 1, ano)
+            },
+            dataAtual.year,
+            dataAtual.monthValue - 1,
+            dataAtual.dayOfMonth
+        ).show()
+    }
+    fun abrirSeletorHoraAviso() {
+        val formatadorHora = DateTimeFormatter.ofPattern("HH:mm")
+        val horaAtual = runCatching { LocalTime.parse(horaAviso, formatadorHora) }.getOrElse { LocalTime.of(9, 0) }
+        TimePickerDialog(
+            context,
+            { _, hora, minuto ->
+                horaAviso = String.format(Locale.US, "%02d:%02d", hora, minuto)
+            },
+            horaAtual.hour,
+            horaAtual.minute,
+            true
+        ).show()
+    }
+    val tipoPermiteRepeticaoEdicao = lembrete.tipo != TipoManutencao.LICENCIAMENTO &&
+        lembrete.tipo != TipoManutencao.SEGURO &&
+        lembrete.tipo != TipoManutencao.IPVA &&
+        lembrete.tipo != TipoManutencao.ABASTECIMENTO
     val tipoPermiteRepeticao = lembrete.tipo != TipoManutencao.LICENCIAMENTO &&
         lembrete.tipo != TipoManutencao.SEGURO &&
         lembrete.tipo != TipoManutencao.IPVA &&
@@ -2170,6 +2363,67 @@ private fun LembreteDetalhesScreen(
     } else {
         (if (englishUi) "Yes" else "Sim") + " (${textoRecorrencia(recorrenciaUnit, recorrenciaIntervaloTexto.toIntOrNull() ?: 1)})"
     }
+    val detalhesDateFormatter = remember { DateTimeFormatter.ofPattern("dd/MM/yyyy") }
+    val dataBaseLembrete = remember(lembrete.dataLimite) {
+        runCatching { LocalDate.parse(lembrete.dataLimite, detalhesDateFormatter) }.getOrNull()
+    }
+    val statusDetalhe = remember(lembrete.id, lembrete.dataLimite, lembrete.estabelecimentoEndereco) {
+        when {
+            isLembreteRealizado(lembrete) -> if (englishUi) "Completed" else "Concluído"
+            dataBaseLembrete == null -> if (englishUi) "Active" else "Ativo"
+            dataBaseLembrete.isBefore(LocalDate.now()) -> if (englishUi) "Overdue" else "Vencido"
+            dataBaseLembrete.isEqual(LocalDate.now()) -> if (englishUi) "Due today" else "Vence hoje"
+            else -> if (englishUi) "Active" else "Ativo"
+        }
+    }
+    val statusVencido = remember(lembrete.id, lembrete.dataLimite, lembrete.estabelecimentoEndereco) {
+        !isLembreteRealizado(lembrete) && dataBaseLembrete?.isBefore(LocalDate.now()) == true
+    }
+    val proximoLembreteTexto = run {
+        if (isLembreteRealizado(lembrete)) {
+            tr("Concluído", "Completed")
+        } else {
+            val base = dataBaseLembrete
+            if (base == null) {
+                tr("Não definido", "Not set")
+            } else if (tipoPermiteRepeticao && repetirAviso) {
+                val intervalo = (recorrenciaIntervaloTexto.toIntOrNull() ?: 1).coerceAtLeast(1)
+                val proximaData = when (recorrenciaUnit) {
+                    NotificacaoHelper.REC_UNIT_DAY -> base.plusDays(intervalo.toLong())
+                    NotificacaoHelper.REC_UNIT_MONTH -> base.plusMonths(intervalo.toLong())
+                    NotificacaoHelper.REC_UNIT_YEAR -> base.plusYears(intervalo.toLong())
+                    else -> base
+                }
+                proximaData.format(detalhesDateFormatter)
+            } else {
+                base.format(detalhesDateFormatter)
+            }
+        }
+    }
+    val proximaDataDoFluxoAtual = remember(
+        lembrete.id,
+        lembrete.dataLimite,
+        repetirAviso,
+        recorrenciaUnit,
+        recorrenciaIntervaloTexto
+    ) {
+        if (!repetirAviso || isLembreteRealizado(lembrete)) return@remember null
+        val intervalo = (recorrenciaIntervaloTexto.toIntOrNull() ?: 1).coerceAtLeast(1)
+        val base = runCatching { LocalDate.parse(lembrete.dataLimite, detalhesDateFormatter) }.getOrNull()
+            ?: return@remember null
+        val hoje = LocalDate.now()
+        var proxima = base
+        while (!proxima.isAfter(hoje)) {
+            proxima = when (recorrenciaUnit) {
+                NotificacaoHelper.REC_UNIT_DAY -> proxima.plusDays(intervalo.toLong())
+                NotificacaoHelper.REC_UNIT_WEEK -> proxima.plusWeeks(intervalo.toLong())
+                NotificacaoHelper.REC_UNIT_MONTH -> proxima.plusMonths(intervalo.toLong())
+                NotificacaoHelper.REC_UNIT_YEAR -> proxima.plusYears(intervalo.toLong())
+                else -> proxima.plusDays(intervalo.toLong())
+            }
+        }
+        proxima.format(detalhesDateFormatter)
+    }
 
     LaunchedEffect(lembrete.id) {
         val recorrenciaAtual = NotificacaoHelper.obterRecorrencia(context.applicationContext, lembrete.id)
@@ -2180,10 +2434,20 @@ private fun LembreteDetalhesScreen(
 
     val resetarEdicao = {
         titulo = lembrete.titulo
+        descricaoEdicao = lembrete.peca
+        totalBrutoTexto = extrairValorNumericoLinhaResumo(lembrete.peca) { n ->
+            n.startsWith("total") || n.startsWith("valor total")
+        }
+            ?: lembrete.valor.takeIf { it > 0.0 }?.let { String.format(Locale.US, "%.2f", it) }
+            ?: ""
+        totalComDescontoTexto = extrairValorNumericoLinhaResumo(lembrete.peca) { n ->
+            n.contains("valor final") || n.contains("valor a pagar")
+        }
+            ?: lembrete.valor.takeIf { it > 0.0 }?.let { String.format(Locale.US, "%.2f", it) }
+            ?: ""
         dataAviso = lembrete.dataLimite
         horaAviso = lembrete.horaAviso
         kmLimite = lembrete.kmLimite
-        valorTexto = if (lembrete.valor > 0) lembrete.valor.toString() else ""
         contatoSelecionadoId = lembrete.contatoId
         val recorrenciaAtual = NotificacaoHelper.obterRecorrencia(context.applicationContext, lembrete.id)
         repetirAviso = recorrenciaAtual != null && tipoPermiteRepeticao
@@ -2191,69 +2455,27 @@ private fun LembreteDetalhesScreen(
         recorrenciaIntervaloTexto = (recorrenciaAtual?.interval ?: 1).coerceAtLeast(1).toString()
         menuRecorrenciaExpanded = false
     }
-    val categoriaColor = remember(lembrete.tipo) {
-        when (lembrete.tipo) {
-            TipoManutencao.OLEO -> Color(0xFF2563EB)
-            TipoManutencao.ABASTECIMENTO -> Color(0xFF0EA5E9)
-            TipoManutencao.LAVAGEM -> Color(0xFF06B6D4)
-            TipoManutencao.FREIO -> Color(0xFFDC2626)
-            TipoManutencao.PNEU -> Color(0xFFF59E0B)
-            TipoManutencao.BATERIA -> Color(0xFF0EA5E9)
-            TipoManutencao.VIDROS -> Color(0xFF38BDF8)
-            TipoManutencao.FUNILARIA -> Color(0xFFF97316)
-            TipoManutencao.SEGURO, TipoManutencao.LICENCIAMENTO, TipoManutencao.IPVA -> Color(0xFF16A34A)
-            else -> Color(0xFF6366F1)
+    val categoriaColor = remember(lembrete.tipo, statusVencido) {
+        if (statusVencido) {
+            Color(0xFFDC2626)
+        } else {
+            when (lembrete.tipo) {
+                TipoManutencao.OLEO -> Color(0xFF2563EB)
+                TipoManutencao.ABASTECIMENTO -> Color(0xFF0EA5E9)
+                TipoManutencao.LAVAGEM -> Color(0xFF06B6D4)
+                TipoManutencao.FREIO -> Color(0xFFDC2626)
+                TipoManutencao.PNEU -> Color(0xFFF59E0B)
+                TipoManutencao.BATERIA -> Color(0xFF0EA5E9)
+                TipoManutencao.VIDROS -> Color(0xFF38BDF8)
+                TipoManutencao.FUNILARIA -> Color(0xFFF97316)
+                TipoManutencao.SEGURO, TipoManutencao.LICENCIAMENTO, TipoManutencao.IPVA -> Color(0xFF16A34A)
+                else -> Color(0xFF6366F1)
+            }
         }
     }
 
     Scaffold(
-        containerColor = screenBg,
-        topBar = {
-            CenterAlignedTopAppBar(
-                title = {},
-                navigationIcon = {
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.ArrowBackIosNew, contentDescription = tr("Voltar", "Back"), tint = textPrimary)
-                    }
-                },
-                actions = {
-                    if (!editando) {
-                        IconButton(onClick = { showConfirmarExclusaoDialog = true }) {
-                            Icon(
-                                imageVector = Icons.Default.Delete,
-                                contentDescription = tr("Apagar aviso", "Delete reminder"),
-                                tint = Color(0xFFDC2626)
-                            )
-                        }
-                    }
-                    IconButton(
-                        onClick = {
-                            if (editando) {
-                                resetarEdicao()
-                                editando = false
-                            } else {
-                                editando = true
-                            }
-                        }
-                    ) {
-                        Icon(
-                            imageVector = if (editando) Icons.Default.Close else Icons.Default.Edit,
-                            contentDescription = if (editando) tr("Cancelar edição", "Cancel editing") else tr("Editar", "Edit"),
-                            tint = if (editando) {
-                                Color(0xFFEF4444)
-                            } else if (isDark) {
-                                Color.White
-                            } else {
-                                Color(0xFF2563EB)
-                            }
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                    containerColor = appBarBg
-                )
-            )
-        }
+        containerColor = screenBg
     ) { innerPadding ->
         Box(
             modifier = Modifier
@@ -2264,14 +2486,69 @@ private fun LembreteDetalhesScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp, vertical = 20.dp)
-                    .padding(bottom = if (!editando) 96.dp else 12.dp),
+                    .padding(horizontal = 16.dp, vertical = 2.dp)
+                    .padding(bottom = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    IconButton(onClick = onDismiss) {
+                        Icon(
+                            Icons.Default.ArrowBackIosNew,
+                            contentDescription = tr("Voltar", "Back"),
+                            tint = textPrimary
+                        )
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(
+                            onClick = {
+                                if (editando) {
+                                    resetarEdicao()
+                                    editando = false
+                                } else {
+                                    editando = true
+                                }
+                            }
+                        ) {
+                            Icon(
+                                imageVector = if (editando) Icons.Default.Close else Icons.Default.Edit,
+                                contentDescription = if (editando) tr("Cancelar edição", "Cancel editing") else tr("Editar", "Edit"),
+                                tint = if (editando) {
+                                    Color(0xFFEF4444)
+                                } else if (isDark) {
+                                    Color.White
+                                } else {
+                                    Color(0xFF2563EB)
+                                }
+                            )
+                        }
+                        if (!editando) {
+                            IconButton(onClick = { onAddPrestador(lembrete) }) {
+                                Icon(
+                                    imageVector = Icons.Default.PersonAdd,
+                                    contentDescription = tr("Adicionar prestador", "Add provider"),
+                                    tint = if (isDark) Color.White else Color(0xFF2563EB)
+                                )
+                            }
+                            IconButton(onClick = { showConfirmarExclusaoDialog = true }) {
+                                Icon(
+                                    imageVector = Icons.Default.Delete,
+                                    contentDescription = tr("Apagar aviso", "Delete reminder"),
+                                    tint = Color(0xFFDC2626)
+                                )
+                            }
+                        }
+                    }
+                }
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 16.dp),
+                        .padding(vertical = 2.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                         Row(
@@ -2293,18 +2570,34 @@ private fun LembreteDetalhesScreen(
                                     contentAlignment = Alignment.Center
                                 ) {
                                     TipoIcon(tipo = lembrete.tipo, tint = categoriaColor, size = 22.dp)
+                                    if (statusVencido) {
+                                        Text(
+                                            text = "!",
+                                            color = Color(0xFFDC2626),
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Black,
+                                            modifier = Modifier
+                                                .align(Alignment.TopEnd)
+                                                .offset(x = 4.dp, y = (-3).dp)
+                                        )
+                                    }
+                                }
+                                if (statusVencido) {
+                                    Text(
+                                        text = tr("Vencido", "Overdue"),
+                                        color = Color(0xFFDC2626),
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp,
+                                        textAlign = TextAlign.Center
+                                    )
                                 }
                                 Text(
-                                    text = abreviarTituloAvisoDetalhes(lembrete.peca.ifBlank { titulo.ifBlank { lembrete.titulo } }),
+                                    text = abreviarTituloAvisoDetalhes(titulo.ifBlank { lembrete.titulo }),
                                     color = textPrimary,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 17.sp,
-                                    textAlign = TextAlign.Center
-                                )
-                                Text(
-                            text = tr("Dados do aviso", "Reminder details"),
-                                    color = textSecondary,
-                                    fontSize = 12.sp
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.padding(top = if (statusVencido) 0.dp else 4.dp)
                                 )
                             }
                         }
@@ -2319,18 +2612,50 @@ private fun LembreteDetalhesScreen(
                                 modifier = Modifier.fillMaxWidth()
                             )
                             OutlinedTextField(
+                                value = descricaoEdicao,
+                                onValueChange = { descricaoEdicao = it },
+                                label = { Text(tr("Descrição do aviso", "Reminder description")) },
+                                modifier = Modifier.fillMaxWidth(),
+                                minLines = 3,
+                                maxLines = 8
+                            )
+                            OutlinedTextField(
                                 value = dataAviso,
-                                onValueChange = { dataAviso = it },
+                                onValueChange = {},
                                 label = { Text(tr("Data do aviso (dd/MM/yyyy)", "Reminder date (dd/MM/yyyy)")) },
+                                trailingIcon = {
+                                    IconButton(onClick = { abrirSeletorDataAviso() }) {
+                                        Icon(
+                                            imageVector = Icons.Default.Event,
+                                            contentDescription = tr("Selecionar data", "Select date"),
+                                            tint = textSecondary
+                                        )
+                                    }
+                                },
+                                readOnly = true,
                                 singleLine = true,
-                                modifier = Modifier.fillMaxWidth()
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { abrirSeletorDataAviso() }
                             )
                             OutlinedTextField(
                                 value = horaAviso,
-                                onValueChange = { horaAviso = it },
+                                onValueChange = {},
                                 label = { Text(tr("Hora do aviso (HH:mm)", "Reminder time (HH:mm)")) },
+                                trailingIcon = {
+                                    IconButton(onClick = { abrirSeletorHoraAviso() }) {
+                                        Icon(
+                                            imageVector = Icons.Default.Schedule,
+                                            contentDescription = tr("Selecionar hora", "Select time"),
+                                            tint = textSecondary
+                                        )
+                                    }
+                                },
+                                readOnly = true,
                                 singleLine = true,
-                                modifier = Modifier.fillMaxWidth()
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { abrirSeletorHoraAviso() }
                             )
                             OutlinedTextField(
                                 value = kmLimite,
@@ -2341,14 +2666,37 @@ private fun LembreteDetalhesScreen(
                                 modifier = Modifier.fillMaxWidth()
                             )
                             OutlinedTextField(
-                                value = valorTexto,
-                                onValueChange = { if (it.all { c -> c.isDigit() || c == '.' || c == ',' }) valorTexto = it.replace(',', '.') },
-                                label = { Text(tr("Valor (R$)", "Amount (R$)")) },
+                                value = totalComDescontoTexto,
+                                onValueChange = {},
+                                readOnly = true,
+                                enabled = false,
+                                trailingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Default.Lock,
+                                        contentDescription = tr("Valor final bloqueado", "Final value locked"),
+                                        tint = textSecondary
+                                    )
+                                },
+                                label = { Text(tr("Total com desconto (R$)", "Discounted total (R$)")) },
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                                 singleLine = true,
                                 modifier = Modifier.fillMaxWidth()
                             )
-                            if (tipoPermiteRepeticao) {
+                            OutlinedTextField(
+                                value = totalBrutoTexto,
+                                onValueChange = {
+                                    if (it.all { c -> c.isDigit() || c == '.' || c == ',' }) {
+                                        val brutoNormalizado = it.replace(',', '.')
+                                        totalBrutoTexto = brutoNormalizado
+                                        totalComDescontoTexto = brutoNormalizado
+                                    }
+                                },
+                                label = { Text(tr("Total bruto (R$)", "Gross total (R$)")) },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            if (tipoPermiteRepeticaoEdicao) {
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -2426,18 +2774,76 @@ private fun LembreteDetalhesScreen(
                                 }
                             }
                         } else {
+                            val descricaoAviso = lembrete.peca.ifBlank { tr("Sem descrição informada.", "No description provided.") }
+                            val linhasDescricao = descricaoAviso
+                                .lines()
+                                .map { it.trim() }
+                                .filter { it.isNotBlank() }
+                            fun isLinhaResumoFinanceiro(linha: String): Boolean {
+                                val normalized = linha.lowercase(Locale.getDefault())
+                                return normalized.contains("valor total") ||
+                                    normalized.startsWith("total") ||
+                                    normalized.contains("desconto") ||
+                                    normalized.contains("valor final") ||
+                                    normalized.contains("valor a pagar")
+                            }
+                            fun valorAposDoisPontos(linha: String?): String? {
+                                if (linha.isNullOrBlank()) return null
+                                val extraido = linha.substringAfter(':', "").trim()
+                                return extraido.takeIf { it.isNotBlank() }
+                            }
+                            fun parseMoeda(valor: String?): Double? {
+                                if (valor.isNullOrBlank()) return null
+                                val semSimbolo = valor
+                                    .replace("R$", "", ignoreCase = true)
+                                    .replace(" ", "")
+                                val normalizado = if (semSimbolo.contains(',')) {
+                                    semSimbolo.replace(".", "").replace(',', '.')
+                                } else {
+                                    semSimbolo
+                                }
+                                return normalizado.toDoubleOrNull()
+                            }
+                            fun extrairMoedaDaLinha(linha: String?): Double? {
+                                if (linha.isNullOrBlank()) return null
+                                val regexMoeda = Regex("""-?\s*R?\$?\s*\d{1,3}(?:\.\d{3})*(?:,\d{1,2})|-?\s*R?\$?\s*\d+(?:[.,]\d{1,2})?""")
+                                val match = regexMoeda.find(linha) ?: return null
+                                return parseMoeda(match.value)
+                            }
+                            val itensDoAviso = linhasDescricao.filterNot(::isLinhaResumoFinanceiro)
+                            val linhaTotal = linhasDescricao.firstOrNull {
+                                val normalized = it.lowercase(Locale.getDefault())
+                                normalized.contains("valor total") || normalized.startsWith("total")
+                            }
+                            val linhaDesconto = linhasDescricao.firstOrNull {
+                                it.lowercase(Locale.getDefault()).contains("desconto")
+                            }
+                            val linhaValorFinal = linhasDescricao.firstOrNull {
+                                val normalized = it.lowercase(Locale.getDefault())
+                                normalized.contains("valor final") || normalized.contains("valor a pagar")
+                            }
+                            val totalExtraido = valorAposDoisPontos(linhaTotal)
+                            val descontoExtraido = valorAposDoisPontos(linhaDesconto)
+                            val valorFinalExtraido = valorAposDoisPontos(linhaValorFinal)
+                            val totalValor = parseMoeda(totalExtraido)
+                                ?: extrairMoedaDaLinha(linhaTotal)
+                                ?: lembrete.valor.takeIf { it > 0.0 }
+                            val descontoValor = parseMoeda(descontoExtraido)
+                                ?: extrairMoedaDaLinha(linhaDesconto)
+                            val finalValor = parseMoeda(valorFinalExtraido)
+                                ?: extrairMoedaDaLinha(linhaValorFinal)
+                                ?: if (totalValor != null && descontoValor != null) {
+                                    (totalValor - descontoValor).coerceAtLeast(0.0)
+                                } else {
+                                    totalValor
+                                }
+                            val mostrarResumoFinanceiro = totalValor != null || finalValor != null || descontoValor != null
                             val tabelaDados = buildList<Pair<String, String>> {
-                                if (lembrete.estabelecimentoEndereco.isNotBlank()) {
-                                    add(tr("Endereço", "Address") to lembrete.estabelecimentoEndereco)
-                                }
+                                add(tr("Próximo lembrete", "Next reminder") to proximoLembreteTexto)
+                                add(tr("Status", "Status") to statusDetalhe)
                                 add(tr("Veículo", "Vehicle") to carro.nome)
-                                add(tr("Data", "Date") to lembrete.dataLimite.ifBlank { tr("Sem data", "No date") })
                                 add(tr("Hora", "Time") to lembrete.horaAviso.ifBlank { tr("Não definida", "Not set") })
-                                add(tr("KM limite", "Mileage limit") to lembrete.kmLimite.ifBlank { tr("Não definido", "Not set") })
                                 add(tr("Repetição", "Repeat") to descricaoRecorrenciaAtual)
-                                if (lembrete.valor > 0) {
-                                    add(tr("Valor", "Amount") to formatarMoedaLocal(lembrete.valor))
-                                }
                                 add(
                                     tr("Prestador", "Provider") to (
                                         contato?.let { "${it.nome} (${it.tipoServico})" }
@@ -2451,7 +2857,125 @@ private fun LembreteDetalhesScreen(
                                 colors = CardDefaults.cardColors(containerColor = cardBg),
                                 border = BorderStroke(1.dp, cardBorder)
                             ) {
+                                Column(
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(topStart = 11.dp, topEnd = 11.dp))
+                                            .background(
+                                                if (isDark) Color(0xFF1E293B) else Color(0xFFE2E8F0)
+                                            )
+                                            .padding(vertical = 7.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = tr("Descrição do aviso", "Reminder description"),
+                                            color = textSecondary,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            textAlign = TextAlign.Center
+                                        )
+                                    }
+                                    HorizontalDivider(color = cardBorder.copy(alpha = 0.55f))
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        if (itensDoAviso.isEmpty()) {
+                                            Text(
+                                                text = descricaoAviso,
+                                                color = textPrimary,
+                                                fontSize = 14.sp,
+                                                lineHeight = 19.sp
+                                            )
+                                        } else {
+                                            itensDoAviso.forEach { item ->
+                                                Text(
+                                                    text = item,
+                                                    color = textPrimary,
+                                                    fontSize = 14.sp,
+                                                    lineHeight = 19.sp
+                                                )
+                                            }
+                                        }
+                                        if (mostrarResumoFinanceiro) {
+                                            Spacer(Modifier.height(6.dp))
+                                            HorizontalDivider(color = cardBorder.copy(alpha = 0.65f))
+                                            Spacer(Modifier.height(6.dp))
+                                            totalValor?.let {
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Text(tr("Valor total", "Total amount"), color = textSecondary, fontSize = 12.sp)
+                                                    Text(formatarMoedaLocal(it), color = textPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                                }
+                                            }
+                                            val descontoExibicao = descontoValor ?: 0.0
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text(tr("Desconto", "Discount"), color = textSecondary, fontSize = 12.sp)
+                                                val descontoTexto = if (descontoExibicao > 0.0) {
+                                                    "- ${formatarMoedaLocal(descontoExibicao)}"
+                                                } else {
+                                                    formatarMoedaLocal(0.0)
+                                                }
+                                                val descontoColor = if (descontoExibicao > 0.0) Color(0xFFDC2626) else textPrimary
+                                                Text(
+                                                    descontoTexto,
+                                                    color = descontoColor,
+                                                    fontSize = 13.sp,
+                                                    fontWeight = FontWeight.SemiBold
+                                                )
+                                            }
+                                            finalValor?.let {
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Text(tr("Valor final", "Final amount"), color = textPrimary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                                    Text(formatarMoedaLocal(it), color = Color(0xFF16A34A), fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(containerColor = cardBg),
+                                border = BorderStroke(1.dp, cardBorder)
+                            ) {
                                 Column(modifier = Modifier.fillMaxWidth()) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(topStart = 11.dp, topEnd = 11.dp))
+                                            .background(
+                                                if (isDark) Color(0xFF1E293B) else Color(0xFFE2E8F0)
+                                            )
+                                            .padding(vertical = 7.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = tr("Resumo do aviso", "Reminder summary"),
+                                            color = textSecondary,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            textAlign = TextAlign.Center
+                                        )
+                                    }
+                                    HorizontalDivider(color = cardBorder.copy(alpha = 0.55f))
                                     tabelaDados.forEachIndexed { index, (label, value) ->
                                         InfoTableRow(
                                             label = label,
@@ -2471,16 +2995,28 @@ private fun LembreteDetalhesScreen(
                 if (editando) {
                     Button(
                         onClick = {
+                            val totalBrutoEditado = totalBrutoTexto.toDoubleOrNull()
+                            val totalFinalEditado = totalComDescontoTexto.toDoubleOrNull()
+                            val descricaoComResumoFinanceiro = atualizarDescricaoComResumoFinanceiro(
+                                descricaoAtual = descricaoEdicao,
+                                totalBruto = totalBrutoEditado,
+                                valorFinal = totalFinalEditado
+                            )
                             val atualizado = lembrete.copy(
                                 titulo = titulo.ifBlank { lembrete.titulo },
+                                peca = descricaoComResumoFinanceiro.ifBlank { lembrete.peca },
                                 dataLimite = dataAviso.ifBlank { lembrete.dataLimite },
                                 horaAviso = horaAviso.ifBlank { lembrete.horaAviso },
                                 kmLimite = kmLimite,
                                 contatoId = contatoSelecionadoId,
-                                valor = valorTexto.toDoubleOrNull() ?: 0.0
+                                valor = totalFinalEditado ?: totalBrutoEditado ?: lembrete.valor
                             )
                             val intervaloRecorrencia = (recorrenciaIntervaloTexto.toIntOrNull() ?: 1).coerceAtLeast(1)
-                            if (tipoPermiteRepeticao && repetirAviso) {
+                            val atualizadoPermiteRepeticao = atualizado.tipo != TipoManutencao.LICENCIAMENTO &&
+                                atualizado.tipo != TipoManutencao.SEGURO &&
+                                atualizado.tipo != TipoManutencao.IPVA &&
+                                atualizado.tipo != TipoManutencao.ABASTECIMENTO
+                            if (atualizadoPermiteRepeticao && repetirAviso) {
                                 NotificacaoHelper.salvarRecorrencia(
                                     context = context.applicationContext,
                                     lembreteId = atualizado.id,
@@ -2493,61 +3029,63 @@ private fun LembreteDetalhesScreen(
                             onSalvar(atualizado)
                             editando = false
                         },
-                        modifier = Modifier.fillMaxWidth().height(50.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(50.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB), contentColor = Color.White),
                         shape = RoundedCornerShape(12.dp)
                     ) {
                         Text(tr("Salvar edição", "Save edit"), fontWeight = FontWeight.Bold)
                     }
-                }
-            }
-
-            if (!editando) {
-                Column(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .fillMaxWidth()
-                        .navigationBarsPadding()
-                        .padding(horizontal = 16.dp, vertical = 14.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    OutlinedButton(
-                        onClick = { onAddPrestador(lembrete) },
+                } else {
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(50.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            containerColor = Color.Transparent,
-                            contentColor = Color(0xFF3B82F6)
-                        ),
-                        border = BorderStroke(1.dp, Color(0xFF3B82F6).copy(alpha = 0.5f)),
-                        shape = RoundedCornerShape(12.dp)
+                            .navigationBarsPadding()
+                            .padding(vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.PersonAdd,
-                            contentDescription = null
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(tr("Adicionar prestador", "Add provider"), fontWeight = FontWeight.SemiBold)
-                    }
-                    Button(
-                        onClick = { showConfirmarFeitoDialog = true },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(50.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF3B82F6),
-                            contentColor = Color.White
-                        ),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.CheckCircle,
-                            contentDescription = null,
-                            tint = Color.White
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(tr("Marcar como feito", "Mark as done"), color = Color.White, fontWeight = FontWeight.Bold)
+                        Button(
+                            onClick = { showConfirmarFeitoDialog = true },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(50.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF3B82F6),
+                                contentColor = Color.White
+                            ),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CheckCircle,
+                                contentDescription = null,
+                                tint = Color.White
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(tr("Marcar como realizado", "Mark as completed"), color = Color.White, fontWeight = FontWeight.Bold)
+                        }
+                        OutlinedButton(
+                            onClick = { showFinalizarEncerrarDialog = true },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(50.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = Color.Transparent,
+                                contentColor = Color(0xFFDC2626)
+                            ),
+                            border = BorderStroke(1.dp, Color(0xFFDC2626).copy(alpha = 0.55f)),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.StopCircle,
+                                contentDescription = null
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                tr("Finalizar e encerrar aviso", "Finalize and close reminder"),
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
                     }
                 }
             }
@@ -2586,10 +3124,27 @@ private fun LembreteDetalhesScreen(
                 }
             },
             text = {
-                Text(
-                    text = tr("Você confirma que este aviso já foi resolvido?", "Do you confirm this reminder has been completed?"),
-                    color = textSecondary
-                )
+                if (proximaDataDoFluxoAtual != null) {
+                    Text(
+                        text = buildAnnotatedString {
+                            append(
+                                tr(
+                                    "Isso conclui apenas este ciclo. A próxima data de aviso desse lembrete vai ser: ",
+                                    "This only completes the current cycle. The next reminder date for this item will be: "
+                                )
+                            )
+                            withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = textPrimary)) {
+                                append(proximaDataDoFluxoAtual)
+                            }
+                        },
+                        color = textSecondary
+                    )
+                } else {
+                    Text(
+                        text = tr("Você confirma que este aviso já foi resolvido?", "Do you confirm this reminder has been completed?"),
+                        color = textSecondary
+                    )
+                }
             },
             confirmButton = {
                 Button(
@@ -2612,6 +3167,89 @@ private fun LembreteDetalhesScreen(
                     Text(tr("Voltar", "Back"))
                 }
             },
+            containerColor = cardBg
+        )
+    }
+    if (showFinalizarEncerrarDialog) {
+        AlertDialog(
+            onDismissRequest = { showFinalizarEncerrarDialog = false },
+            title = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(52.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFFEF4444).copy(alpha = if (isDark) 0.24f else 0.14f))
+                            .border(1.dp, Color(0xFFEF4444).copy(alpha = 0.35f), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.StopCircle,
+                            contentDescription = null,
+                            tint = Color(0xFFDC2626),
+                            modifier = Modifier.size(26.dp)
+                        )
+                    }
+                    Text(
+                        text = tr("Finalizar e encerrar aviso?", "Finalize and close this reminder?"),
+                        color = textPrimary,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            },
+            text = {
+                Text(
+                    text = tr(
+                        "Se você continuar, este aviso será encerrado de vez, mesmo que tenha repetição ativa. Você poderá criar outro depois, se quiser.",
+                        "If you continue, this reminder will be permanently closed even if recurrence is active. You can create another one later if needed."
+                    ),
+                    color = textSecondary
+                )
+            },
+            confirmButton = {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = { showFinalizarEncerrarDialog = false },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(46.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, cardBorder)
+                    ) {
+                        Text(tr("Cancelar", "Cancel"))
+                    }
+                    Button(
+                        onClick = {
+                            showFinalizarEncerrarDialog = false
+                            onFinalizeAndClose(lembrete)
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(46.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626), contentColor = Color.White)
+                    ) {
+                        Text(
+                            text = tr("Sim, Finalizar", "Yes, Finalize"),
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 12.sp,
+                            textAlign = TextAlign.Center,
+                            maxLines = 1,
+                            softWrap = false,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+            },
+            dismissButton = {},
             containerColor = cardBg
         )
     }
@@ -2839,20 +3477,27 @@ private fun InfoTableRow(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.Top
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text(
             text = label,
             color = textSecondary,
             fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.width(104.dp)
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(0.44f)
         )
         Text(
             text = value,
             color = textPrimary,
             fontSize = 12.sp,
-            modifier = Modifier.weight(1f)
+            fontWeight = FontWeight.Medium,
+            textAlign = TextAlign.End,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(0.56f)
         )
     }
 }

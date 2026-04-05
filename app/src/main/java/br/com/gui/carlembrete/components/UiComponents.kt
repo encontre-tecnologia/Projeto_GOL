@@ -1,4 +1,4 @@
-package br.com.gui.carlembrete
+﻿package br.com.gui.carlembrete
 
 import android.Manifest
 import android.app.Activity
@@ -371,7 +371,7 @@ fun LembreteCard(
                     HorizontalDivider(color = Color(0xFF1F2A44))
                     Spacer(Modifier.height(12.dp))
                     Button(
-                        onClick = { abrirWhatsApp(context, contato.telefone, "Olá ${contato.nome}, preciso de *${lembrete.titulo}* para o *$modeloCarro*.") },
+                        onClick = { abrirWhatsApp(context, contato.telefone, "Olá tudo bem?") },
                         modifier = Modifier.fillMaxWidth().height(44.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF16A34A)),
                         contentPadding = PaddingValues(horizontal = 12.dp),
@@ -403,4 +403,5 @@ fun LembreteCard(
         }
     }
 }
+
 

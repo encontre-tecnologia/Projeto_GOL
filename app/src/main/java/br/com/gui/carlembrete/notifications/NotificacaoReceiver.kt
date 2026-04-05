@@ -74,6 +74,10 @@ class NotificacaoReceiver : BroadcastReceiver() {
         NotificacaoHelper.registrarNotificacaoDisparada(context, lembreteId, titulo, descricao, carroId)
 
         val isRollingStep = intent.getBooleanExtra(EXTRA_IS_ROLLING_STEP, false)
+        Log.i(
+            TAG_REPEAT,
+            "onReceive id=$lembreteId rollingStep=$isRollingStep titulo='${titulo.take(40)}'"
+        )
         if (isRollingStep) {
             val baseReminderId = intent.getStringExtra(EXTRA_BASE_REMINDER_ID).orEmpty()
             val dueDateText = intent.getStringExtra(EXTRA_DUE_DATE).orEmpty()
@@ -107,17 +111,26 @@ class NotificacaoReceiver : BroadcastReceiver() {
     }
 
     private fun processarRecorrenciaSeNecessario(context: Context, lembreteId: String) {
-        if (lembreteId.startsWith("INSTANT_")) return
-        val config = NotificacaoHelper.obterRecorrencia(context, lembreteId) ?: return
+        if (lembreteId.startsWith("INSTANT_")) {
+            Log.d(TAG_REPEAT, "recorrencia ignorada: id instantaneo=$lembreteId")
+            return
+        }
+        val config = NotificacaoHelper.obterRecorrencia(context, lembreteId)
+        if (config == null) {
+            Log.d(TAG_REPEAT, "recorrencia ausente para id=$lembreteId")
+            return
+        }
         val formatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
         val lembretes = BancoDeDados.carregarLembretes(context).toMutableList()
         val idx = lembretes.indexOfFirst { it.id == lembreteId }
         if (idx < 0) {
+            Log.w(TAG_REPEAT, "lembrete nao encontrado para recorrencia id=$lembreteId; limpando config")
             NotificacaoHelper.removerRecorrencia(context, lembreteId)
             return
         }
         val lembreteAtual = lembretes[idx]
         if (isLembreteRealizado(lembreteAtual)) {
+            Log.i(TAG_REPEAT, "lembrete realizado; removendo recorrencia id=$lembreteId")
             NotificacaoHelper.removerRecorrencia(context, lembreteId)
             return
         }
@@ -131,14 +144,29 @@ class NotificacaoReceiver : BroadcastReceiver() {
             NotificacaoHelper.REC_UNIT_YEAR -> dataBase.plusYears(config.interval.toLong())
             else -> null
         } ?: return
-        if (!proximaData.isAfter(dataBase)) return
+        if (!proximaData.isAfter(dataBase)) {
+            Log.w(
+                TAG_REPEAT,
+                "proxima data invalida id=$lembreteId dataBase=$dataBase proxima=$proximaData unit=${config.unit} intervalo=${config.interval}"
+            )
+            return
+        }
+        Log.i(
+            TAG_REPEAT,
+            "recorrencia processada id=$lembreteId unit=${config.unit} intervalo=${config.interval} de=${dataBase.format(formatter)} para=${proximaData.format(formatter)}"
+        )
         val atualizado = lembreteAtual.copy(dataLimite = proximaData.format(formatter))
         lembretes[idx] = atualizado
         BancoDeDados.salvarLembretes(context, lembretes)
         NotificacaoHelper.agendarNotificacao(context, atualizado, atualizado.horaAviso)
+        Log.i(
+            TAG_REPEAT,
+            "recorrencia reagendada id=$lembreteId novaData=${atualizado.dataLimite} hora=${atualizado.horaAviso}"
+        )
     }
 
     companion object {
+        const val TAG_REPEAT = "ReminderRepeat"
         const val CHANNEL_ID = "lembretes_channel"
         const val EXTRA_ID = "extra_id"
         const val EXTRA_TITULO = "extra_titulo"
@@ -255,6 +283,10 @@ object NotificacaoHelper {
     fun agendarNotificacao(context: Context, lembrete: Lembrete, hora: String) {
         cancelarNotificacoesEmEtapas(context, lembrete.id)
         val tituloCompleto = tituloComVeiculo(context, lembrete)
+        Log.i(
+            NotificacaoReceiver.TAG_REPEAT,
+            "agendarNotificacao id=${lembrete.id} tipo=${lembrete.tipo.name} data=${lembrete.dataLimite} hora=$hora"
+        )
 
         if (lembrete.tipo in tiposAvisoEtapas) {
             val dataVencimento = runCatching {
@@ -299,6 +331,10 @@ object NotificacaoHelper {
             .putString("$REC_PREFIX_UNIT$lembreteId", unit)
             .putInt("$REC_PREFIX_INTERVAL$lembreteId", interval)
             .apply()
+        Log.i(
+            NotificacaoReceiver.TAG_REPEAT,
+            "recorrencia salva id=$lembreteId unit=$unit interval=$interval"
+        )
     }
 
     fun obterRecorrencia(context: Context, lembreteId: String): RecorrenciaConfig? {
@@ -307,6 +343,10 @@ object NotificacaoHelper {
         val unit = prefs.getString("$REC_PREFIX_UNIT$lembreteId", null)?.trim().orEmpty()
         val interval = prefs.getInt("$REC_PREFIX_INTERVAL$lembreteId", 0)
         if (unit.isBlank() || interval <= 0) return null
+        Log.d(
+            NotificacaoReceiver.TAG_REPEAT,
+            "recorrencia carregada id=$lembreteId unit=$unit interval=$interval"
+        )
         return RecorrenciaConfig(unit = unit, interval = interval)
     }
 
@@ -317,6 +357,7 @@ object NotificacaoHelper {
             .remove("$REC_PREFIX_UNIT$lembreteId")
             .remove("$REC_PREFIX_INTERVAL$lembreteId")
             .apply()
+        Log.i(NotificacaoReceiver.TAG_REPEAT, "recorrencia removida id=$lembreteId")
     }
 
     fun reagendarExistentes(context: Context, lembretes: List<Lembrete>) {

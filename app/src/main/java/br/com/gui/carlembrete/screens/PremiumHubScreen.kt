@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.ArrowBackIosNew
 import androidx.compose.material.icons.filled.ArrowForwardIos
 import androidx.compose.material.icons.filled.Diamond
 import androidx.compose.material.icons.filled.DirectionsCar
+import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.SupportAgent
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -56,6 +57,8 @@ fun PremiumHubScreen(
     onDismiss: () -> Unit,
     onOpenGuardian: () -> Unit,
     onOpenAiAssistant: () -> Unit,
+    onOpenFleetOverview: () -> Unit,
+    onOpenFleetStock: () -> Unit,
     onOpenSubscribe: () -> Unit
 ) {
     val view = LocalView.current
@@ -165,6 +168,36 @@ fun PremiumHubScreen(
                         onClick = onOpenAiAssistant
                     ) {
                         Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = Color(0xFFEA580C))
+                    }
+
+                    Spacer(modifier = Modifier.size(10.dp))
+
+                    PremiumFeatureCard(
+                        title = tr("Visão geral frota", "Fleet overview"),
+                        subtitle = tr("Veja os veículos da garagem sem status de saúde", "See garage vehicles without health status"),
+                        iconColor = Color(0xFF0284C7),
+                        textPrimary = textPrimary,
+                        textDim = textDim,
+                        borderColor = borderColor,
+                        cardSurface = featureCardSurface,
+                        onClick = onOpenFleetOverview
+                    ) {
+                        Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = Color(0xFF0284C7))
+                    }
+
+                    Spacer(modifier = Modifier.size(10.dp))
+
+                    PremiumFeatureCard(
+                        title = tr("Estoque da Frota", "Fleet Stock"),
+                        subtitle = tr("Gerencie itens, código de barras e reposição", "Manage items, barcode and replenishment"),
+                        iconColor = Color(0xFF2563EB),
+                        textPrimary = textPrimary,
+                        textDim = textDim,
+                        borderColor = borderColor,
+                        cardSurface = featureCardSurface,
+                        onClick = onOpenFleetStock
+                    ) {
+                        Icon(Icons.Default.Inventory2, contentDescription = null, tint = Color(0xFF2563EB))
                     }
                 }
 

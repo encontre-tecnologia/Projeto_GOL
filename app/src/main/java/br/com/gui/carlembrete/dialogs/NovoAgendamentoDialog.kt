@@ -88,9 +88,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.animation.animateContentSize
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.FocusManager
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -199,7 +197,6 @@ fun NovoAgendamentoDialog(
     val textPrimary = if (isDark) Color.White else Color.Black
     val textSecondary = if (isDark) Color(0xFF94A3B8) else Color(0xFF475569)
     val iconColor = if (isDark) Color.White else Color.Black
-    val cameraIconColor = Color.White
     val modalContainer = if (isDark) Color(0xFF1E293B) else scheme.surface
     val modalTextSecondary = if (isDark) Color(0xFF94A3B8) else Color(0xFF475569)
     val modalOptionContainer = if (isDark) Color(0xFF111827) else scheme.surface
@@ -211,6 +208,7 @@ fun NovoAgendamentoDialog(
     val neutralButtonContent = textPrimary
     val neutralButtonBorder = if (isDark) Color(0xFF334155) else scheme.outlineVariant
     val categoriasDisponiveis = tiposAvisoCadastroPorVeiculo(carroAtual.tipoVeiculo)
+    var tituloAviso by remember { mutableStateOf("") }
     var descricao by remember { mutableStateOf("") }
     var localServicoInput by remember { mutableStateOf("") }
     var data by remember { mutableStateOf(LocalDate.now().format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))) }
@@ -225,6 +223,7 @@ fun NovoAgendamentoDialog(
         )
     }
     var valorInput by remember { mutableStateOf("") }
+    var quantidadeManualInput by remember { mutableStateOf("1") }
     var tipoSelecionado by remember { mutableStateOf(initialTipo) }
     val anoAtual = remember { LocalDate.now().year }
     var contatosLista by remember { mutableStateOf(contatosDisponiveis) }
@@ -244,7 +243,6 @@ fun NovoAgendamentoDialog(
     var showKmSugeridoDialog by remember { mutableStateOf(false) }
     var kmSugeridoParaConfirmar by remember { mutableStateOf<Int?>(null) }
     var textoKmSugeridoDetalhe by remember { mutableStateOf("") }
-    var menuExpanded by remember { mutableStateOf(false) }
     var tipoMenuItemId by remember { mutableStateOf<String?>(null) }
     var showCamera by remember { mutableStateOf(false) }
     var fotoCaminho by remember { mutableStateOf<String?>(null) }
@@ -254,19 +252,16 @@ fun NovoAgendamentoDialog(
     var repetirAteDesativar by remember { mutableStateOf(false) }
     var intervaloDiasPersonalizado by remember { mutableStateOf("1") }
     var intervaloMesesPersonalizado by remember { mutableStateOf("3") }
-    var intervaloAnosPersonalizado by remember { mutableStateOf("2") }
+    var intervaloAnosPersonalizado by remember { mutableStateOf("1") }
     var menuFrequenciaExpanded by remember { mutableStateOf(false) }
     val isInitialPosto = initialTipo == TipoManutencao.ABASTECIMENTO
     var avisoPersonalizado by remember { mutableStateOf(false) }
-    var etapaAtual by remember { mutableStateOf(if (isInitialPosto) 1 else 0) }
+    var etapaAtual by remember { mutableStateOf(1) }
     var fluxoCadastro by remember {
-        mutableStateOf<FluxoCadastroAviso?>(
-            if (isInitialPosto) FluxoCadastroAviso.REGISTRAR_SERVICO else null
-        )
+        mutableStateOf<FluxoCadastroAviso?>(FluxoCadastroAviso.CRIAR_LEMBRETE)
     }
     val isFluxoPosto = tipoSelecionado == TipoManutencao.ABASTECIMENTO
-    val isRegistroServico = fluxoCadastro == FluxoCadastroAviso.REGISTRAR_SERVICO || isFluxoPosto
-    val descricaoFocusRequester = remember { FocusRequester() }
+    val isRegistroServico = fluxoCadastro == FluxoCadastroAviso.REGISTRAR_SERVICO
     var textosDetectados by remember { mutableStateOf<List<String>>(emptyList()) }
     var showTextosDialog by remember { mutableStateOf(false) }
     var textoSelecionadoDialog by remember { mutableStateOf<String?>(null) }
@@ -275,13 +270,19 @@ fun NovoAgendamentoDialog(
     var marcaSelecionadaDialog by remember { mutableStateOf<String?>(null) }
     var qrNomeEstabelecimento by remember { mutableStateOf("") }
     var qrEnderecoEstabelecimento by remember { mutableStateOf("") }
+    var qrQuantidadeTotalItens by remember { mutableStateOf<Int?>(null) }
+    var qrValorTotalBruto by remember { mutableStateOf<Double?>(null) }
+    var qrValorDesconto by remember { mutableStateOf<Double?>(null) }
+    var qrValorFinalComDesconto by remember { mutableStateOf<Double?>(null) }
+    var qrFormaPagamento by remember { mutableStateOf<String?>(null) }
+    var qrTroco by remember { mutableStateOf<Double?>(null) }
+    var usarCadastroManualPosScan by remember { mutableStateOf(false) }
     var qrUrlValidacaoSpPendente by remember { mutableStateOf<String?>(null) }
     var resultadoQrPendente by remember { mutableStateOf<ResultadoCaptura?>(null) }
     var reprocessandoQrSp by remember { mutableStateOf(false) }
     var showValidacaoSpWebView by remember { mutableStateOf(false) }
     var webViewSpCarregando by remember { mutableStateOf(false) }
     var showTutorialDialog by remember { mutableStateOf(false) }
-    var showCadastroHelpDialog by remember { mutableStateOf(false) }
     var tutorialVideoPath by remember { mutableStateOf<String?>(null) }
     var descricaoAntesDialog by remember { mutableStateOf("") }
     var tipoAntesDialog by remember { mutableStateOf(TipoManutencao.OLEO) }
@@ -350,8 +351,9 @@ fun NovoAgendamentoDialog(
     }
 
     LaunchedEffect(tipoSelecionado) {
-        if (tipoSelecionado == TipoManutencao.ABASTECIMENTO) {
-            fluxoCadastro = FluxoCadastroAviso.REGISTRAR_SERVICO
+        if (fluxoCadastro == null) fluxoCadastro = FluxoCadastroAviso.CRIAR_LEMBRETE
+        if (tituloAviso.isBlank()) {
+            tituloAviso = tipoSelecionado.label
         }
         val sugestaoDescricao = descricaoPadraoPorCategoria(tipoSelecionado, anoAtual) ?: return@LaunchedEffect
         if (descricao.isBlank() || isDescricaoPadraoCategoria(descricao)) {
@@ -370,13 +372,36 @@ fun NovoAgendamentoDialog(
             }
         }
     }
+    fun limparDadosFinanceirosNotaScan() {
+        qrQuantidadeTotalItens = null
+        qrValorTotalBruto = null
+        qrValorDesconto = null
+        qrValorFinalComDesconto = null
+        qrFormaPagamento = null
+        qrTroco = null
+    }
+    fun aplicarDadosFinanceirosNotaScan(notaInfo: NotaQrInfo) {
+        qrQuantidadeTotalItens = notaInfo.quantidadeTotalItens
+        qrValorTotalBruto = notaInfo.valorBruto
+        qrValorDesconto = notaInfo.valorDesconto
+        qrValorFinalComDesconto = notaInfo.valorFinalComDesconto
+        qrFormaPagamento = notaInfo.formaPagamento
+        qrTroco = notaInfo.troco?.takeIf { it.isFinite() } ?: 0.0
+        val valorPreferencial = notaInfo.valorFinalComDesconto ?: notaInfo.valorTotal ?: notaInfo.valorBruto
+        if (valorPreferencial != null) {
+            valorInput = String.format(Locale.US, "%.2f", valorPreferencial)
+        }
+    }
+    fun aplicarTituloPeloScan(nomeEstabelecimento: String) {
+        val nomeLimpo = nomeEstabelecimento.trim()
+        if (nomeLimpo.isBlank()) return
+        tituloAviso = nomeLimpo
+    }
     fun aplicarNotaReprocessadaNoFormulario(notaReconsultada: NotaQrInfo, resultadoPendente: ResultadoCaptura) {
-        val valorExtraido = notaReconsultada.valorTotal
+        val valorExtraido = notaReconsultada.valorFinalComDesconto ?: notaReconsultada.valorTotal ?: notaReconsultada.valorBruto
         val dataExtraida = notaReconsultada.dataCompra
 
-        if (valorExtraido != null) {
-            valorInput = String.format(Locale.US, "%.2f", valorExtraido)
-        }
+        aplicarDadosFinanceirosNotaScan(notaReconsultada)
         if (!dataExtraida.isNullOrBlank()) {
             data = dataExtraida
             dataAviso = dataExtraida
@@ -384,6 +409,7 @@ fun NovoAgendamentoDialog(
         }
         qrNomeEstabelecimento = notaReconsultada.nomeEstabelecimento.orEmpty()
         qrEnderecoEstabelecimento = notaReconsultada.enderecoEstabelecimento.orEmpty()
+        aplicarTituloPeloScan(qrNomeEstabelecimento)
         val descricaoExtraida = notaReconsultada.descricaoItens?.trim()
         val descricaoExtraidaSemTotal = descricaoExtraida?.let { limparTextoProdutosRemovendoTotal(it) }
         val itensQr = extrairItensDaDescricaoQr(descricaoExtraida)
@@ -400,13 +426,7 @@ fun NovoAgendamentoDialog(
             itemDataAvisoOverrides = emptyMap()
             itemHoraAvisoOverrides = emptyMap()
             itemValorOverrides = emptyMap()
-            itemTipoOverrides = itensQr.associate { item ->
-                item.id to detectarTipoInicialDoLembrete(
-                    nomeItem = item.nome,
-                    tipoBase = item.tipo,
-                    categoriasDisponiveis = categoriasDisponiveis
-                )
-            }
+            itemTipoOverrides = itensQr.associate { item -> item.id to tipoSelecionado }
         } else {
             itemDataAvisoOverrides = emptyMap()
             itemHoraAvisoOverrides = emptyMap()
@@ -419,8 +439,11 @@ fun NovoAgendamentoDialog(
             endereco = qrEnderecoEstabelecimento
         )
         descricaoQrConsolidada = montarDescricaoItensNota(
-            total = null,
-            itens = descricaoExtraidaSemTotal
+            total = notaReconsultada.valorBruto ?: notaReconsultada.valorTotal,
+            itens = descricaoExtraidaSemTotal,
+            desconto = notaReconsultada.valorDesconto,
+            valorFinal = notaReconsultada.valorFinalComDesconto ?: notaReconsultada.valorTotal,
+            quantidadeTotalItens = notaReconsultada.quantidadeTotalItens
         )
         val sugestaoOcr = resultadoPendente.sugestoesProduto
             .map { it.trim() }
@@ -493,12 +516,6 @@ fun NovoAgendamentoDialog(
         if (autoAbrirCamera) {
             tentarAbrirCamera(exibirGuia = false)
             onAutoCameraConsumida()
-        }
-    }
-
-    LaunchedEffect(isModoLista, etapaAtual) {
-        if (!isModoLista && etapaAtual == 1) {
-            descricaoFocusRequester.requestFocus()
         }
     }
 
@@ -575,37 +592,74 @@ fun NovoAgendamentoDialog(
         }
     }
 
+    fun limitesIntervaloPorFrequencia(): IntRange = when (frequenciaLembreteKey) {
+        "DAY" -> 1..31
+        "MONTH" -> 1..12
+        "YEAR" -> 1..10
+        else -> 1..31
+    }
+
+    fun intervaloAtualTexto(): String = when (frequenciaLembreteKey) {
+        "DAY" -> intervaloDiasPersonalizado
+        "MONTH" -> intervaloMesesPersonalizado
+        "YEAR" -> intervaloAnosPersonalizado
+        else -> ""
+    }
+
+    fun atualizarIntervaloAtual(valor: String) {
+        val digitsOnly = valor.filter(Char::isDigit).take(2)
+        if (digitsOnly.isBlank()) {
+            when (frequenciaLembreteKey) {
+                "DAY" -> intervaloDiasPersonalizado = ""
+                "MONTH" -> intervaloMesesPersonalizado = ""
+                "YEAR" -> intervaloAnosPersonalizado = ""
+            }
+            return
+        }
+        val limites = limitesIntervaloPorFrequencia()
+        val ajustado = digitsOnly.toIntOrNull()?.coerceIn(limites.first, limites.last)?.toString().orEmpty()
+        when (frequenciaLembreteKey) {
+            "DAY" -> intervaloDiasPersonalizado = ajustado
+            "MONTH" -> intervaloMesesPersonalizado = ajustado
+            "YEAR" -> intervaloAnosPersonalizado = ajustado
+        }
+    }
+
     fun descricaoFrequenciaSelecionada(): String = when (frequenciaLembreteKey) {
-        "DAY_CUSTOM" -> if (englishUi) "Every X days" else "A cada X dias"
-        "WEEK_1" -> if (englishUi) "Every ${diaSemanaDaDataAviso()}" else "Toda ${diaSemanaDaDataAviso()}"
-        "MONTH_1" -> if (englishUi) "Every month" else "Todo mês"
-        "MONTH_6" -> if (englishUi) "Every 6 months" else "A cada 6 meses"
-        "MONTH_CUSTOM" -> if (englishUi) "Every X months" else "A cada X meses"
-        "YEAR_1" -> if (englishUi) "Every year" else "Todo ano"
-        "YEAR_CUSTOM" -> if (englishUi) "Every X years" else "A cada X anos"
+        "DAY" -> if (englishUi) "Days" else "Dias"
+        "MONTH" -> if (englishUi) "Months" else "Meses"
+        "YEAR" -> if (englishUi) "Years" else "Anos"
         else -> if (englishUi) "Do not repeat" else "Não repetir"
     }
 
     fun recorrenciaSelecionadaConfig(): Pair<String, Int>? {
         if (!repetirAteDesativar) return null
         return when (frequenciaLembreteKey) {
-            "DAY_CUSTOM" -> {
+            "DAY" -> {
                 val dias = intervaloDiasPersonalizado.filter(Char::isDigit).toIntOrNull() ?: 0
-                if (dias > 0) NotificacaoHelper.REC_UNIT_DAY to dias else null
+                if (dias > 0) NotificacaoHelper.REC_UNIT_DAY to dias.coerceIn(1, 31) else null
             }
-            "WEEK_1" -> NotificacaoHelper.REC_UNIT_WEEK to 1
-            "MONTH_1" -> NotificacaoHelper.REC_UNIT_MONTH to 1
-            "MONTH_6" -> NotificacaoHelper.REC_UNIT_MONTH to 6
-            "MONTH_CUSTOM" -> {
+            "MONTH" -> {
                 val meses = intervaloMesesPersonalizado.filter(Char::isDigit).toIntOrNull() ?: 0
-                if (meses > 0) NotificacaoHelper.REC_UNIT_MONTH to meses else null
+                if (meses > 0) NotificacaoHelper.REC_UNIT_MONTH to meses.coerceIn(1, 12) else null
             }
-            "YEAR_1" -> NotificacaoHelper.REC_UNIT_YEAR to 1
-            "YEAR_CUSTOM" -> {
+            "YEAR" -> {
                 val anos = intervaloAnosPersonalizado.filter(Char::isDigit).toIntOrNull() ?: 0
-                if (anos > 0) NotificacaoHelper.REC_UNIT_YEAR to anos else null
+                if (anos > 0) NotificacaoHelper.REC_UNIT_YEAR to anos.coerceIn(1, 10) else null
             }
             else -> null
+        }
+    }
+
+    fun dataHojeFormatada(): String = LocalDate.now().format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))
+
+    fun aplicarPrimeiroAvisoAgoraSeRecorrente() {
+        if (!repetirAteDesativar) return
+        if (frequenciaLembreteKey != "DAY" && frequenciaLembreteKey != "MONTH" && frequenciaLembreteKey != "YEAR") return
+        val hoje = dataHojeFormatada()
+        dataAviso = hoje
+        if (itemDataAvisoOverrides.isNotEmpty()) {
+            itemDataAvisoOverrides = itemDataAvisoOverrides.mapValues { hoje }
         }
     }
 
@@ -613,12 +667,13 @@ fun NovoAgendamentoDialog(
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
-            putExtra(RecognizerIntent.EXTRA_PROMPT, "Descreva o serviÃ§o realizado")
+
+            putExtra(RecognizerIntent.EXTRA_PROMPT, "Descreva o serviço realizado")
         }
         try {
             speechLauncher.launch(intent)
         } catch (_: ActivityNotFoundException) {
-            Toast.makeText(context, "Recursos de voz indisponÃ­veis", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Recursos de voz indisponíveis", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -709,14 +764,13 @@ fun NovoAgendamentoDialog(
             Toast.makeText(context, "Informe o telefone para enviar no WhatsApp", Toast.LENGTH_SHORT).show()
             return
         }
-        val kmInfo = kmBase.ifBlank { "nÃ£o informado" }
-        val mensagem = "OlÃ¡ ${contato.nome}, a Ãºltima manutenÃ§Ã£o foi registrada em $data com $kmInfo km. Podemos agendar a prÃ³xima?"
+        val mensagem = "Olá tudo bem?"
         val uri = Uri.parse("https://wa.me/$telefone?text=${URLEncoder.encode(mensagem, "UTF-8")}")
         val intent = Intent(Intent.ACTION_VIEW, uri)
         try {
             context.startActivity(intent)
         } catch (_: Exception) {
-            Toast.makeText(context, "NÃ£o foi possÃ­vel abrir o WhatsApp", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Não foi possível abrir o WhatsApp", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -772,7 +826,7 @@ fun NovoAgendamentoDialog(
         try {
             context.startActivity(Intent(Intent.ACTION_VIEW, uri))
         } catch (_: Exception) {
-            Toast.makeText(context, "NÃƒÂ£o foi possÃƒÂ­vel abrir o Google", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Não foi possível abrir o Google", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -780,7 +834,7 @@ fun NovoAgendamentoDialog(
         val kmAtualBase = kmBase.toIntOrNull() ?: carroAtual.kmAtual
         val valoresAbastecimento = if (isModoLista) {
             listaItensDetectados.mapNotNull { item ->
-                val tipoItem = itemTipoOverrides[item.id] ?: item.tipo
+                val tipoItem = itemTipoOverrides[item.id] ?: tipoSelecionado
                 if (tipoItem != TipoManutencao.ABASTECIMENTO) return@mapNotNull null
                 itemValorOverrides[item.id]?.replace(",", ".")?.toDoubleOrNull() ?: item.valor
             }.filter { it > 0.0 }
@@ -852,18 +906,34 @@ fun NovoAgendamentoDialog(
 
         val kmAtualBase = kmAtualBaseForcado ?: (kmBase.toIntOrNull() ?: 0)
         if (kmAtualBase > carroAtual.kmAtual) onUpdateKmCarro(kmAtualBase)
-        val dataAvisoStr = dataAviso
         val recorrenciaConfig = recorrenciaSelecionadaConfig()
+        val dataAvisoStr = if (!isRegistroServico && recorrenciaConfig != null) {
+            dataHojeFormatada()
+        } else {
+            dataAviso
+        }
+        if (dataAviso != dataAvisoStr) {
+            dataAviso = dataAvisoStr
+        }
+        Log.i(
+            "ReminderRepeat",
+            "acao=salvar_aviso_listaModo=$isModoLista registroServico=$isRegistroServico recorrencia=$recorrenciaConfig frequenciaKey=$frequenciaLembreteKey repetir=$repetirAteDesativar"
+        )
         if (isModoLista) {
             val novosLembretes = listaItensDetectados.flatMap { item ->
-                val tipoItem = itemTipoOverrides[item.id] ?: item.tipo
-                val rep = maxOf(1, item.quantidade)
+                val tipoItem = itemTipoOverrides[item.id] ?: tipoSelecionado
+                val rep = if (qrModoSeparado) 1 else maxOf(1, item.quantidade)
                 val kmFuturo = kmOuEstadoPorTipo(tipoItem, kmAtualBase)
-                val dataItem = itemDataAvisoOverrides[item.id] ?: dataAvisoStr
+                val dataItem = if (!isRegistroServico && recorrenciaConfig != null) {
+                    dataAvisoStr
+                } else {
+                    itemDataAvisoOverrides[item.id] ?: dataAvisoStr
+                }
                 val horaItem = itemHoraAvisoOverrides[item.id] ?: horaNotificacao
                 val valorItem = itemValorOverrides[item.id]?.toDoubleOrNull() ?: item.valor
                 (1..rep).map { indice ->
-                    val tituloFormatado = if (rep > 1) "${item.nome} (${indice}/$rep)" else item.nome
+                    val tituloBase = if (tituloAviso.isBlank()) item.nome else "${tituloAviso.trim()} - ${item.nome}"
+                    val tituloFormatado = if (rep > 1) "$tituloBase (${indice}/$rep)" else tituloBase
                     Lembrete(
                         titulo = tituloFormatado,
                         peca = item.nome,
@@ -889,6 +959,10 @@ fun NovoAgendamentoDialog(
                     NotificacaoHelper.agendarNotificacao(appContext, lembrete, lembrete.horaAviso)
                     if (tipoPermiteFrequencia(lembrete.tipo)) {
                         if (recorrenciaConfig != null) {
+                            Log.i(
+                                "ReminderRepeat",
+                                "acao=salvar_lista_com_recorrencia id=${lembrete.id} unit=${recorrenciaConfig.first} interval=${recorrenciaConfig.second}"
+                            )
                             NotificacaoHelper.salvarRecorrencia(
                                 context = appContext,
                                 lembreteId = lembrete.id,
@@ -896,9 +970,11 @@ fun NovoAgendamentoDialog(
                                 interval = recorrenciaConfig.second
                             )
                         } else {
+                            Log.i("ReminderRepeat", "acao=salvar_lista_sem_recorrencia id=${lembrete.id}")
                             NotificacaoHelper.removerRecorrencia(appContext, lembrete.id)
                         }
                     } else {
+                        Log.i("ReminderRepeat", "acao=salvar_lista_tipo_sem_suporte id=${lembrete.id} tipo=${lembrete.tipo.name}")
                         NotificacaoHelper.removerRecorrencia(appContext, lembrete.id)
                     }
                 }
@@ -914,11 +990,17 @@ fun NovoAgendamentoDialog(
             } else if (valoresAbastecimento.any { it > 0.0 }) {
                 Toast.makeText(context, "Registro salvo no historico de abastecimento.", Toast.LENGTH_SHORT).show()
             }
-        } else if (descricao.isNotBlank()) {
+        } else if (tituloAviso.isNotBlank() && descricao.isNotBlank()) {
             val tituloLembrete = localServicoInput.ifBlank { qrNomeEstabelecimento.ifBlank { descricao } }
+            val quantidadeManual = quantidadeManualInput.toIntOrNull()?.coerceAtLeast(1) ?: 1
+            val descricaoComQuantidade = if (qrQuantidadeTotalItens == null && quantidadeManual > 1) {
+                "${descricao.trim()} (Qtd: $quantidadeManual)"
+            } else {
+                descricao.trim()
+            }
             val novoLembrete = Lembrete(
-                titulo = tituloLembrete,
-                peca = descricao.trim(),
+                titulo = tituloAviso.trim().ifBlank { tituloLembrete },
+                peca = descricaoComQuantidade,
                 dataLimite = dataAvisoStr,
                 kmLimite = kmOuEstadoPorTipo(tipoSelecionado, kmAtualBase),
                 tipo = tipoSelecionado,
@@ -940,6 +1022,10 @@ fun NovoAgendamentoDialog(
                 NotificacaoHelper.agendarNotificacao(appContext, novoLembrete, horaNotificacao)
                 if (tipoPermiteFrequencia(novoLembrete.tipo)) {
                     if (recorrenciaConfig != null) {
+                        Log.i(
+                            "ReminderRepeat",
+                            "acao=salvar_unico_com_recorrencia id=${novoLembrete.id} unit=${recorrenciaConfig.first} interval=${recorrenciaConfig.second}"
+                        )
                         NotificacaoHelper.salvarRecorrencia(
                             context = appContext,
                             lembreteId = novoLembrete.id,
@@ -947,9 +1033,11 @@ fun NovoAgendamentoDialog(
                             interval = recorrenciaConfig.second
                         )
                     } else {
+                        Log.i("ReminderRepeat", "acao=salvar_unico_sem_recorrencia id=${novoLembrete.id}")
                         NotificacaoHelper.removerRecorrencia(appContext, novoLembrete.id)
                     }
                 } else {
+                    Log.i("ReminderRepeat", "acao=salvar_unico_tipo_sem_suporte id=${novoLembrete.id} tipo=${novoLembrete.tipo.name}")
                     NotificacaoHelper.removerRecorrencia(appContext, novoLembrete.id)
                 }
                 onConfirm(novoLembrete)
@@ -1060,6 +1148,7 @@ fun NovoAgendamentoDialog(
                 AppPreferences.incrementOcrCount(context)
             }
             fotoCaminho = resultado.arquivoFoto.absolutePath
+            usarCadastroManualPosScan = false
             val qrUrl = resultado.qrCodeUrl?.trim()
             Log.i(QR_PARSER_TAG, "Camera retorno => qrUrl=$qrUrl foto=${resultado.arquivoFoto.name}")
             if (!qrUrl.isNullOrBlank()) {
@@ -1069,6 +1158,7 @@ fun NovoAgendamentoDialog(
                     if (!urlValidacao.isNullOrBlank()) {
                         qrNomeEstabelecimento = notaInfo.nomeEstabelecimento.orEmpty()
                         qrEnderecoEstabelecimento = notaInfo.enderecoEstabelecimento.orEmpty()
+                        aplicarTituloPeloScan(qrNomeEstabelecimento)
                         localServicoInput = montarLocalNota(
                             estabelecimento = qrNomeEstabelecimento,
                             endereco = qrEnderecoEstabelecimento
@@ -1101,6 +1191,7 @@ fun NovoAgendamentoDialog(
                         .map { it.trim() }
                         .firstOrNull { it.isNotBlank() }
                     val sugestaoOcrLimpa = sugestaoOcr?.let { limparTextoProdutosRemovendoTotal(it) }?.takeIf { it.isNotBlank() }
+                    limparDadosFinanceirosNotaScan()
                     qrNomeEstabelecimento = ""
                     qrEnderecoEstabelecimento = ""
                     localServicoInput = ""
@@ -1121,12 +1212,10 @@ fun NovoAgendamentoDialog(
                         "Bind UI QR => notaInfo=null sugestaoOcr=${!sugestaoOcr.isNullOrBlank()} descricaoFinal=$descricao"
                     )
                 } else {
-                    val valorExtraido = notaInfo.valorTotal
+                    val valorExtraido = notaInfo.valorFinalComDesconto ?: notaInfo.valorTotal ?: notaInfo.valorBruto
                     val dataExtraida = notaInfo.dataCompra
 
-                    if (valorExtraido != null) {
-                        valorInput = String.format(Locale.US, "%.2f", valorExtraido)
-                    }
+                    aplicarDadosFinanceirosNotaScan(notaInfo)
                     if (!dataExtraida.isNullOrBlank()) {
                         data = dataExtraida
                         dataAviso = dataExtraida
@@ -1134,6 +1223,7 @@ fun NovoAgendamentoDialog(
                     }
                     qrNomeEstabelecimento = notaInfo.nomeEstabelecimento.orEmpty()
                     qrEnderecoEstabelecimento = notaInfo.enderecoEstabelecimento.orEmpty()
+                    aplicarTituloPeloScan(qrNomeEstabelecimento)
                     val descricaoExtraida = notaInfo.descricaoItens?.trim()
                     val descricaoExtraidaSemTotal = descricaoExtraida?.let { limparTextoProdutosRemovendoTotal(it) }
                     val itensQr = extrairItensDaDescricaoQr(descricaoExtraida)
@@ -1150,13 +1240,7 @@ fun NovoAgendamentoDialog(
                         itemDataAvisoOverrides = emptyMap()
                         itemHoraAvisoOverrides = emptyMap()
                         itemValorOverrides = emptyMap()
-                        itemTipoOverrides = itensQr.associate { item ->
-                            item.id to detectarTipoInicialDoLembrete(
-                                nomeItem = item.nome,
-                                tipoBase = item.tipo,
-                                categoriasDisponiveis = categoriasDisponiveis
-                            )
-                        }
+                        itemTipoOverrides = itensQr.associate { item -> item.id to tipoSelecionado }
                     } else {
                         itemDataAvisoOverrides = emptyMap()
                         itemHoraAvisoOverrides = emptyMap()
@@ -1169,8 +1253,11 @@ fun NovoAgendamentoDialog(
                         endereco = qrEnderecoEstabelecimento
                     )
                     descricaoQrConsolidada = montarDescricaoItensNota(
-                        total = null,
-                        itens = descricaoExtraidaSemTotal
+                        total = notaInfo.valorBruto ?: notaInfo.valorTotal,
+                        itens = descricaoExtraidaSemTotal,
+                        desconto = notaInfo.valorDesconto,
+                        valorFinal = notaInfo.valorFinalComDesconto ?: notaInfo.valorTotal,
+                        quantidadeTotalItens = notaInfo.quantidadeTotalItens
                     )
                     val sugestaoOcr = resultado.sugestoesProduto
                         .map { it.trim() }
@@ -1190,6 +1277,7 @@ fun NovoAgendamentoDialog(
                 return@CameraCapturaDialog
             }
             Log.w(QR_PARSER_TAG, "QR nao detectado na captura. Seguindo fluxo de fallback da foto.")
+            limparDadosFinanceirosNotaScan()
             qrNomeEstabelecimento = ""
             qrEnderecoEstabelecimento = ""
             localServicoInput = ""
@@ -1341,8 +1429,8 @@ fun NovoAgendamentoDialog(
                                             if (possuiDados && !reprocessandoQrSp) {
                                                 reprocessarNotaSpAposValidacao(url, origem = "auto-webview")
                                             }
-                                        }
                                     }
+                                }
                                 }
                                 loadUrl(qrUrlValidacaoSpPendente!!)
                             }
@@ -1474,7 +1562,7 @@ fun NovoAgendamentoDialog(
             title = { Text("Atualizar KM?", color = textPrimary) },
             text = {
                 Text(
-                    "Detectamos ${kmDetectadoParaConfirmar} km na captura.\nAtualizar o odÃ´metro do carro?",
+                    "Detectamos ${kmDetectadoParaConfirmar} km na captura.\nAtualizar o odômetro do carro?",
                     color = modalTextSecondary
                 )
             },
@@ -1489,7 +1577,7 @@ fun NovoAgendamentoDialog(
                 ) { Text("Sim") }
             },
             dismissButton = {
-                TextButton(onClick = { showKmConfirmDialog = false }) { Text("NÃ£o") }
+                TextButton(onClick = { showKmConfirmDialog = false }) { Text("Não") }
             }
         )
     }
@@ -1723,10 +1811,11 @@ fun NovoAgendamentoDialog(
 
     val valorTotalManual = valorInput.replace(",", ".").toDoubleOrNull()
     val valorTotalValido = valorTotalManual != null && valorTotalManual > 0.0
+    val quantidadeManualValida = quantidadeManualInput.toIntOrNull()?.let { it > 0 } == true
     val podeAvancarEtapa1 = if (isModoLista && listaItensDetectados.isNotEmpty()) {
         true
     } else {
-        descricao.isNotBlank() && valorTotalValido
+        tituloAviso.isNotBlank() && descricao.isNotBlank() && valorTotalValido && quantidadeManualValida
     }
 
     if (showKmSugeridoDialog) {
@@ -1862,21 +1951,13 @@ fun NovoAgendamentoDialog(
         )
     }
     val accentBlue = scheme.primary
-    val labelCategoriaSelecionada = if (isFluxoPosto) tr("Posto", "Fuel") else tipoManutencaoLabel(tipoSelecionado)
     val quantidadeLembretesConfigurados = if (qrModoSeparado && listaItensDetectados.isNotEmpty()) {
         listaItensDetectados.size
     } else {
         1
     }
-    val textoBotaoEtapa1 = if (qrModoSeparado && listaItensDetectados.isNotEmpty()) {
-        if (isRegistroServico) {
-            tr("Avançar com $quantidadeLembretesConfigurados registros", "Continue with $quantidadeLembretesConfigurados records")
-        } else {
-            tr("Avançar com $quantidadeLembretesConfigurados lembretes", "Continue with $quantidadeLembretesConfigurados reminders")
-        }
-    } else {
-        tr("Avançar", "Continue")
-    }
+    val deveExibirEtapaModoCriacao = qrPossuiItensSeparaveis && listaItensDetectados.isNotEmpty()
+    val textoBotaoEtapa1 = tr("Avançar", "Continue")
     val textoBotaoSalvar = if (isFluxoPosto) {
         tr("Cadastrar abastecimento", "Register fuel")
     } else if (isRegistroServico) {
@@ -1891,11 +1972,11 @@ fun NovoAgendamentoDialog(
         tr("Cadastrar lembrete", "Create reminder")
     }
     fun etapaAnteriorAtual(etapa: Int): Int = when {
-        etapa == 1 -> 0
-        isFluxoPosto && etapa == 3 -> 1
-        isRegistroServico && etapa == 3 -> 1
+        !deveExibirEtapaModoCriacao && etapa == 4 -> 2
+        isFluxoPosto && etapa == 4 -> 1
+        isRegistroServico && etapa == 4 -> 1
         etapa > 1 -> etapa - 1
-        else -> 0
+        else -> 1
     }
     val voltarUmaEtapaOuFechar = {
         if (etapaAtual > 1) {
@@ -1919,41 +2000,10 @@ fun NovoAgendamentoDialog(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 when (etapaAtual) {
-                    0 -> {
-                        Button(
-                            onClick = { etapaAtual = 1 },
-                            enabled = fluxoCadastro != null,
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = nextActionBlue,
-                                contentColor = Color.White,
-                                disabledContainerColor = nextActionBlue.copy(alpha = 0.42f),
-                                disabledContentColor = Color.White.copy(alpha = 0.85f)
-                            ),
-                            shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier.fillMaxWidth().height(52.dp).offset(y = (-10).dp)
-                        ) {
-                            Text(tr("Próximo", "Next"), fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-                            Spacer(Modifier.width(8.dp))
-                            Icon(Icons.Default.KeyboardArrowRight, contentDescription = null)
-                        }
-                    }
-                    1 -> {
-                        Button(
-                            onClick = { etapaAtual = if (isRegistroServico) 3 else 2 },
-                            enabled = podeAvancarEtapa1,
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = nextActionBlue,
-                                contentColor = Color.White,
-                                disabledContainerColor = nextActionBlue.copy(alpha = 0.42f),
-                                disabledContentColor = Color.White.copy(alpha = 0.85f)
-                            ),
-                            shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier.fillMaxWidth().height(52.dp).offset(y = (-10).dp)
-                        ) { Text(textoBotaoEtapa1, fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
-                    }
+                    1 -> Unit
                     2 -> {
                         Button(
-                            onClick = { etapaAtual = 3 },
+                            onClick = { etapaAtual = if (deveExibirEtapaModoCriacao) 3 else 4 },
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = nextActionBlue,
                                 contentColor = Color.White
@@ -1964,13 +2014,23 @@ fun NovoAgendamentoDialog(
                     }
                     3 -> {
                         Button(
+                            onClick = { etapaAtual = 4 },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = nextActionBlue,
+                                contentColor = Color.White
+                            ),
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.fillMaxWidth().height(52.dp).offset(y = (-10).dp)
+                        ) { Text(tr("Próximo", "Next"), fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
+                    }
+                    4 -> {
+                        Button(
                             onClick = {
                                 tentarSalvarAvisos()
                             },
-                            border = BorderStroke(1.dp, neutralButtonBorder),
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = neutralButtonContainer,
-                                contentColor = neutralButtonContent
+                                containerColor = nextActionBlue,
+                                contentColor = Color.White
                             ),
                             shape = RoundedCornerShape(14.dp),
                             modifier = Modifier.fillMaxWidth().height(52.dp).offset(y = (-10).dp)
@@ -2016,284 +2076,13 @@ fun NovoAgendamentoDialog(
                     IconButton(onClick = voltarUmaEtapaOuFechar) {
                         Icon(Icons.Default.ArrowBackIosNew, contentDescription = tr("Voltar", "Back"), tint = iconColor)
                     }
-                    if (etapaAtual == 0) {
-                        Surface(
-                            shape = CircleShape,
-                            color = accentBlue.copy(alpha = if (isDark) 0.24f else 0.14f),
-                            border = BorderStroke(
-                                1.dp,
-                                accentBlue.copy(alpha = if (isDark) 0.38f else 0.28f)
-                            )
-                        ) {
-                            IconButton(
-                                onClick = { showCadastroHelpDialog = true },
-                                modifier = Modifier.size(38.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.HelpOutline,
-                                    contentDescription = tr("Ajuda sobre cadastro", "Registration help"),
-                                    tint = accentBlue
-                                )
-                            }
-                        }
-                    } else {
-                        Spacer(Modifier.width(38.dp))
-                    }
+                    Spacer(Modifier.width(38.dp))
                 }
                 Column(
                     modifier = Modifier.padding(top = 0.dp, bottom = 6.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                 when (etapaAtual) {
-                    0 -> {
-                        Column(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(56.dp)
-                                    .clip(CircleShape)
-                                    .background(accentBlue.copy(alpha = 0.18f))
-                                    .border(
-                                        width = 1.dp,
-                                        color = accentBlue.copy(alpha = 0.28f),
-                                        shape = CircleShape
-                                    ),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    Icons.Rounded.CalendarMonth,
-                                    contentDescription = null,
-                                    tint = accentBlue,
-                                    modifier = Modifier.size(30.dp)
-                                )
-                            }
-                            Spacer(Modifier.height(2.dp))
-                            Text(
-                                tr("Como deseja cadastrar?", "How do you want to register?"),
-                                color = textPrimary,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 25.sp,
-                                textAlign = TextAlign.Center
-                            )
-                            Text(
-                                tr(
-                                    "Escolha entre registrar um serviço já realizado ou criar um lembrete futuro.",
-                                    "Choose between recording a completed service or creating a future reminder."
-                                ),
-                                color = textSecondary,
-                                textAlign = TextAlign.Center,
-                                fontSize = 14.sp,
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        }
-                        Spacer(Modifier.height(6.dp))
-                        val opcoesCadastro = listOf(
-                            FluxoCadastroAviso.REGISTRAR_SERVICO to tr("Registrar um serviço já realizado", "Record a completed service"),
-                            FluxoCadastroAviso.CRIAR_LEMBRETE to tr("Criar um lembrete de um serviço a ser realizado", "Create a service reminder")
-                        )
-                        opcoesCadastro.forEach { (fluxo, tituloOpcao) ->
-                            val selecionado = isFluxoPosto && fluxo == FluxoCadastroAviso.REGISTRAR_SERVICO ||
-                                (!isFluxoPosto && fluxoCadastro == fluxo)
-                            val desabilitado = isFluxoPosto && fluxo == FluxoCadastroAviso.CRIAR_LEMBRETE
-                            if (desabilitado) {
-                                OutlinedButton(
-                                    onClick = {},
-                                    enabled = false,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(56.dp)
-                                        .alpha(0.62f),
-                                    shape = RoundedCornerShape(12.dp),
-                                    border = BorderStroke(1.dp, if (isDark) Color.White.copy(alpha = 0.18f) else Color.Black.copy(alpha = 0.14f)),
-                                    colors = ButtonDefaults.outlinedButtonColors(
-                                        containerColor = if (isDark) Color(0xFF0F172A) else Color(0xFFF8FAFC),
-                                        contentColor = textSecondary,
-                                        disabledContentColor = textSecondary
-                                    )
-                                ) {
-                                    Text(tituloOpcao, fontWeight = FontWeight.SemiBold)
-                                }
-                            } else if (selecionado) {
-                                Surface(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(56.dp)
-                                        .clickable(enabled = !desabilitado) {
-                                            fluxoCadastro = fluxo
-                                        },
-                                    shape = RoundedCornerShape(14.dp),
-                                    color = if (isDark) Color(0xFF334155) else Color(0xFFF1F5F9),
-                                    border = BorderStroke(1.5.dp, Color(0xFF10B981))
-                                ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .padding(horizontal = 14.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.Center
-                                    ) {
-                                        Text(tituloOpcao, fontWeight = FontWeight.SemiBold, color = textPrimary)
-                                    }
-                                }
-                            } else {
-                                OutlinedButton(
-                                    onClick = { if (!desabilitado) fluxoCadastro = fluxo },
-                                    enabled = !desabilitado,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(56.dp),
-                                    shape = RoundedCornerShape(12.dp),
-                                    border = BorderStroke(1.dp, cardBorder),
-                                    colors = ButtonDefaults.outlinedButtonColors(
-                                        containerColor = Color.Transparent,
-                                        contentColor = textPrimary,
-                                        disabledContentColor = textSecondary
-                                    )
-                                ) {
-                                    Text(tituloOpcao, fontWeight = FontWeight.SemiBold)
-                                }
-                            }
-                        }
-                        if (isFluxoPosto) {
-                            Surface(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(top = 4.dp),
-                                shape = RoundedCornerShape(14.dp),
-                                color = if (isDark) Color(0xFF111827) else Color(0xFFFFFBEB),
-                                border = BorderStroke(
-                                    1.dp,
-                                    if (isDark) Color(0xFFF59E0B).copy(alpha = 0.35f) else Color(0xFFFCD34D)
-                                )
-                            ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 12.dp, vertical = 11.dp),
-                                    verticalAlignment = Alignment.Top,
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(22.dp)
-                                            .clip(CircleShape)
-                                            .background(Color(0xFFF59E0B).copy(alpha = if (isDark) 0.25f else 0.18f)),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(
-                                            Icons.Default.WarningAmber,
-                                            contentDescription = null,
-                                            tint = Color(0xFFF59E0B),
-                                            modifier = Modifier.size(14.dp)
-                                        )
-                                    }
-                                    Column(
-                                        modifier = Modifier.weight(1f),
-                                        verticalArrangement = Arrangement.spacedBy(2.dp)
-                                    ) {
-                                        Text(
-                                            tr("Categoria Posto", "Fuel category"),
-                                            color = textPrimary,
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.SemiBold
-                                        )
-                                        Text(
-                                            tr("Salva apenas no histórico (sem lembrete ativo).", "Saves only to history (no active reminder)."),
-                                            color = textSecondary,
-                                            fontSize = 11.sp,
-                                            lineHeight = 14.sp
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                        if (showCadastroHelpDialog) {
-                            AlertDialog(
-                                onDismissRequest = { showCadastroHelpDialog = false },
-                                icon = {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(50.dp)
-                                            .clip(CircleShape)
-                                            .background(accentBlue.copy(alpha = if (isDark) 0.22f else 0.14f))
-                                            .border(1.dp, accentBlue.copy(alpha = 0.32f), CircleShape),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.HelpOutline,
-                                            contentDescription = null,
-                                            tint = accentBlue
-                                        )
-                                    }
-                                },
-                                title = {
-                                    Text(
-                                        text = tr("Como funciona cada opção?", "How does each option work?"),
-                                        color = textPrimary,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                },
-                                text = {
-                                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                        Text(
-                                            text = tr("Registrar serviço feito", "Record completed service"),
-                                            color = textPrimary,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                        Text(
-                                            text = tr(
-                                                "Use quando a troca de item/peça já foi realizada. Esse registro entra no relatório: Tela inicial > Relatório.",
-                                                "Use this when the item/part replacement has already been completed. This record appears in the report: Home > Report."
-                                            ),
-                                            color = textSecondary
-                                        )
-                                        Text(
-                                            text = tr(
-                                                "Esses registros ajudam o Zellu a montar um relatório do seu veículo, incluindo valor estimado, saúde e histórico.",
-                                                "These records help Zellu build a vehicle report, including estimated value, health, and history."
-                                            ),
-                                            color = textSecondary
-                                        )
-                                        Text(
-                                            text = tr("Criar lembrete de serviço a ser realizado", "Create service reminder"),
-                                            color = textPrimary,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                        Text(
-                                            text = tr(
-                                                "Use para lembrar uma troca, manutenção ou outro serviço que ainda não foi feito.",
-                                                "Use this to remember a replacement, maintenance, or another service that has not been done yet."
-                                            ),
-                                            color = textSecondary
-                                        )
-                                        Text(
-                                            text = tr(
-                                                "As duas opções alimentam o relatório de acordo com a categoria escolhida.",
-                                                "Both options feed the report according to the selected category."
-                                            ),
-                                            color = textSecondary,
-                                            fontWeight = FontWeight.SemiBold
-                                        )
-                                    }
-                                },
-                                confirmButton = {
-                                    Button(
-                                        onClick = { showCadastroHelpDialog = false },
-                                        border = BorderStroke(1.dp, neutralButtonBorder),
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = neutralButtonContainer,
-                                            contentColor = neutralButtonContent
-                                        )
-                                    ) {
-                                        Text(tr("Entendi", "Got it"))
-                                    }
-                                }
-                            )
-                        }
-                    }
                     1 -> {
                         Column(
                             modifier = Modifier.fillMaxWidth(),
@@ -2322,77 +2111,66 @@ fun NovoAgendamentoDialog(
                                 fontSize = 25.sp
                             )
                         }
-                        Spacer(Modifier.height(0.dp))
+                        Spacer(Modifier.height(14.dp))
                         if (categoriaPermiteEscanearNota(tipoSelecionado)) {
                             Button(
-                                onClick = { tentarAbrirCamera() },
+                                onClick = {
+                                    usarCadastroManualPosScan = false
+                                    tentarAbrirCamera()
+                                },
                                 modifier = Modifier.fillMaxWidth().height(48.dp),
                                 shape = RoundedCornerShape(12.dp),
-                                border = if (fotoCaminho == null) BorderStroke(1.dp, neutralButtonBorder) else null,
                                 colors = ButtonDefaults.buttonColors(
-                                    containerColor = if (fotoCaminho != null) Color(0xFF10B981) else neutralButtonContainer,
-                                    contentColor = if (fotoCaminho != null) Color.White else neutralButtonContent
+                                    containerColor = accentBlue,
+                                    contentColor = Color.White
                                 )
                             ) {
                                 Icon(
                                     if (fotoCaminho != null) Icons.Default.Check else Icons.Default.CameraAlt,
                                     null,
-                                    tint = if (fotoCaminho != null) cameraIconColor else neutralButtonContent
+                                    tint = Color.White
                                 )
                                 Spacer(Modifier.width(8.dp))
                                 Text(
                                     if (fotoCaminho != null) "Escanear QR code da nota novamente" else "Escanear QR code da nota",
-                                    color = if (fotoCaminho != null) Color.White else neutralButtonContent
+                                    color = Color.White
                                 )
                             }
-                        }
-                        if (!qrModoSeparado) {
-                            ExposedDropdownMenuBox(expanded = menuExpanded, onExpandedChange = { menuExpanded = !menuExpanded }) {
-                                OutlinedTextField(
-                                    value = labelCategoriaSelecionada,
-                                    onValueChange = {},
-                                    readOnly = true,
-                                    label = { Text(tr("Categoria", "Category")) },
-                                    modifier = Modifier.menuAnchor().fillMaxWidth(),
-                                    leadingIcon = {
-                                        TipoIcon(
-                                            tipo = tipoSelecionado,
-                                            tint = corCategoria(tipoSelecionado),
-                                            size = 18.dp
-                                        )
+                            if (fotoCaminho != null) {
+                                OutlinedButton(
+                                    onClick = {
+                                        usarCadastroManualPosScan = true
+                                        isModoLista = false
+                                        qrModoSeparado = false
                                     },
-                                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = menuExpanded) },
-                                    shape = RoundedCornerShape(12.dp)
-                                )
-                                ExposedDropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
-                                    categoriasDisponiveis.forEach { t ->
-                                        DropdownMenuItem(
-                                            text = { Text(tipoManutencaoLabel(t)) },
-                                            onClick = { tipoSelecionado = t; menuExpanded = false },
-                                            leadingIcon = {
-                                                TipoIcon(
-                                                    tipo = t,
-                                                    tint = corCategoria(t),
-                                                    size = 18.dp
-                                                )
-                                            }
-                                        )
-                                    }
+                                    modifier = Modifier.fillMaxWidth().height(46.dp),
+                                    shape = RoundedCornerShape(12.dp),
+                                    border = BorderStroke(1.dp, cardBorder),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = textPrimary)
+                                ) {
+                                    Text(tr("Cadastro manual", "Manual entry"), fontWeight = FontWeight.SemiBold)
                                 }
                             }
                         }
+                        OutlinedTextField(
+                            value = tituloAviso,
+                            onValueChange = { tituloAviso = it },
+                            label = { Text(tr("Título do aviso *", "Reminder title *")) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp)
+                        )
                         OutlinedTextField(
                             value = TextFieldValue(
                                 text = descricao,
                                 selection = TextRange(descricao.length)
                             ),
                             onValueChange = { descricao = it.text },
-                            label = { Text(tr("Itens (total e descrição)", "Items (total and description)")) },
+                            label = { Text(tr("Descrição do aviso", "Reminder description")) },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .heightIn(max = 280.dp)
-                                .animateContentSize()
-                                .focusRequester(descricaoFocusRequester),
+                                .animateContentSize(),
                             maxLines = 12,
                             keyboardOptions = KeyboardOptions.Default.copy(imeAction = ImeAction.Done),
                             keyboardActions = KeyboardActions(
@@ -2404,6 +2182,35 @@ fun NovoAgendamentoDialog(
                             shape = RoundedCornerShape(12.dp)
                         )
                         if (!qrModoSeparado) {
+                            val valorBrutoExibicao = qrValorTotalBruto
+                            val valorDescontoExibicao = qrValorDesconto
+                            val valorFinalExibicao = qrValorFinalComDesconto
+                                ?: valorInput.replace(",", ".").toDoubleOrNull()
+                            val quantidadeTotalExtraida = qrQuantidadeTotalItens
+                                ?: listaItensDetectados.takeIf { it.isNotEmpty() }?.sumOf { it.quantidade.coerceAtLeast(1) }
+                            val formaPagamentoExibicao = qrFormaPagamento?.trim().orEmpty()
+                            val trocoExibicao = qrTroco?.takeIf { it.isFinite() } ?: 0.0
+                            val veioDeEscaneamento = !usarCadastroManualPosScan && (
+                                fotoCaminho != null ||
+                                    qrNomeEstabelecimento.isNotBlank() ||
+                                    listaItensDetectados.isNotEmpty() ||
+                                    qrQuantidadeTotalItens != null ||
+                                    qrValorTotalBruto != null ||
+                                    qrValorDesconto != null ||
+                                    qrValorFinalComDesconto != null ||
+                                    formaPagamentoExibicao.isNotBlank()
+                                )
+                            val mostrarResumoNota = (
+                                veioDeEscaneamento && (
+                                    valorBrutoExibicao != null ||
+                                    (valorDescontoExibicao ?: 0.0) > 0.0 ||
+                                    valorFinalExibicao != null ||
+                                    formaPagamentoExibicao.isNotBlank() ||
+                                    quantidadeTotalExtraida != null
+                                )
+                            )
+
+                            if (!veioDeEscaneamento) {
                             OutlinedTextField(
                                 value = valorInput,
                                 onValueChange = { novo ->
@@ -2424,218 +2231,136 @@ fun NovoAgendamentoDialog(
                                 ),
                                 shape = RoundedCornerShape(12.dp)
                             )
-                        }
-                        if (qrPossuiItensSeparaveis && listaItensDetectados.isNotEmpty()) {
-                            Column(
+                            OutlinedTextField(
+                                value = quantidadeManualInput,
+                                onValueChange = { quantidadeManualInput = it.filter(Char::isDigit).take(3) },
+                                label = { Text(tr("Quantidade *", "Quantity *")) },
                                 modifier = Modifier.fillMaxWidth(),
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Text(
-                                    if (isRegistroServico) {
-                                        tr("Como deseja registrar os itens desta nota?", "How do you want to register the items from this receipt?")
-                                    } else {
-                                        tr("Como deseja criar os lembretes desta nota?", "How do you want to create reminders from this receipt?")
-                                    },
-                                    color = textPrimary,
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    textAlign = TextAlign.Center,
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                                Row(
+                                keyboardOptions = KeyboardOptions(
+                                    keyboardType = KeyboardType.Number,
+                                    imeAction = ImeAction.Done
+                                ),
+                                singleLine = true,
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                            }
+                            if (mostrarResumoNota) {
+                                Surface(
                                     modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    shape = RoundedCornerShape(14.dp),
+                                    color = if (isDark) Color(0xFF0F172A) else Color(0xFFF8FAFC),
+                                    border = BorderStroke(1.dp, cardBorder)
                                 ) {
-                                    OutlinedButton(
-                                        onClick = {
-                                            qrModoSeparado = false
-                                            isModoLista = false
-                                            descricao = descricaoQrConsolidada
-                                        },
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .height(48.dp),
-                                        shape = RoundedCornerShape(12.dp),
-                                        border = BorderStroke(
-                                            1.dp,
-                                            if (!qrModoSeparado) accentBlue else if (isDark) Color.White else Color.Black
-                                        ),
-                                        colors = ButtonDefaults.outlinedButtonColors(
-                                            containerColor = if (!qrModoSeparado) accentBlue else Color.Transparent,
-                                            contentColor = if (!qrModoSeparado) Color.White else textPrimary
-                                        )
-                                    ) {
-                                        Text(
-                                            if (isRegistroServico) {
-                                                tr("Registrar 1 serviço", "Register 1 service")
-                                            } else {
-                                                tr("Criar 1 lembrete", "Create 1 reminder")
-                                            },
-                                            fontWeight = FontWeight.SemiBold
-                                        )
-                                    }
-                                    OutlinedButton(
-                                        onClick = {
-                                            qrModoSeparado = true
-                                            isModoLista = true
-                                        },
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .height(48.dp),
-                                        shape = RoundedCornerShape(12.dp),
-                                        border = BorderStroke(
-                                            1.dp,
-                                            if (qrModoSeparado) accentBlue else if (isDark) Color.White else Color.Black
-                                        ),
-                                        colors = ButtonDefaults.outlinedButtonColors(
-                                            containerColor = if (qrModoSeparado) accentBlue else Color.Transparent,
-                                            contentColor = if (qrModoSeparado) Color.White else textPrimary
-                                        )
-                                    ) {
-                                        Text(tr("1 por item", "1 per item"), fontWeight = FontWeight.SemiBold)
-                                    }
-                                }
-                                Spacer(Modifier.height(8.dp))
-                                if (qrModoSeparado) {
                                     Column(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                                        verticalArrangement = Arrangement.spacedBy(6.dp)
                                     ) {
-                                        listaItensDetectados.forEachIndexed { index, item ->
-                                            val tipoItem = itemTipoOverrides[item.id] ?: item.tipo
-                                            Card(
+                                        if (quantidadeTotalExtraida != null && quantidadeTotalExtraida > 0) {
+                                            Row(
                                                 modifier = Modifier.fillMaxWidth(),
-                                                colors = CardDefaults.cardColors(
-                                                    containerColor = if (isDark) Color(0xFF111827) else Color(0xFFF8FAFC)
-                                                ),
-                                                shape = RoundedCornerShape(14.dp),
-                                                border = BorderStroke(1.dp, cardBorder)
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
                                             ) {
-                                                Box(modifier = Modifier.fillMaxWidth()) {
-                                                    Column(
-                                                        modifier = Modifier
-                                                            .fillMaxWidth()
-                                                            .padding(12.dp),
-                                                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                                                        horizontalAlignment = Alignment.Start
-                                                    ) {
-                                                        Row(
-                                                            modifier = Modifier.fillMaxWidth(),
-                                                            verticalAlignment = Alignment.CenterVertically,
-                                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                                        ) {
-                                                            Box(
-                                                                modifier = Modifier
-                                                                    .size(28.dp)
-                                                                    .clip(CircleShape)
-                                                                    .background(accentBlue.copy(alpha = 0.14f))
-                                                                    .border(
-                                                                        width = 1.dp,
-                                                                        color = accentBlue.copy(alpha = 0.24f),
-                                                                        shape = CircleShape
-                                                                    ),
-                                                                contentAlignment = Alignment.Center
-                                                            ) {
-                                                                Icon(
-                                                                    Icons.Default.Notifications,
-                                                                    contentDescription = null,
-                                                                    tint = accentBlue,
-                                                                    modifier = Modifier.size(15.dp)
-                                                                )
-                                                            }
-                                                            Text(
-                                                                item.nome,
-                                                                color = textPrimary,
-                                                                fontSize = 14.sp,
-                                                                fontWeight = FontWeight.Bold
-                                                            )
-                                                        }
-                                                        ExposedDropdownMenuBox(
-                                                            expanded = itemCategoriaMenuAbertoId == item.id,
-                                                            onExpandedChange = { expandido ->
-                                                                itemCategoriaMenuAbertoId = if (expandido) item.id else null
-                                                            }
-                                                        ) {
-                                                            OutlinedTextField(
-                                                                value = tipoManutencaoLabel(tipoItem),
-                                                                onValueChange = {},
-                                                                readOnly = true,
-                                                                label = { Text(tr("Categoria", "Category")) },
-                                                                modifier = Modifier
-                                                                    .menuAnchor()
-                                                                    .fillMaxWidth(),
-                                                                leadingIcon = {
-                                                                    TipoIcon(
-                                                                        tipo = tipoItem,
-                                                                        tint = corCategoria(tipoItem),
-                                                                        size = 18.dp
-                                                                    )
-                                                                },
-                                                                trailingIcon = {
-                                                                    ExposedDropdownMenuDefaults.TrailingIcon(
-                                                                        expanded = itemCategoriaMenuAbertoId == item.id
-                                                                    )
-                                                                },
-                                                                shape = RoundedCornerShape(12.dp)
-                                                            )
-                                                            ExposedDropdownMenu(
-                                                                expanded = itemCategoriaMenuAbertoId == item.id,
-                                                                onDismissRequest = { itemCategoriaMenuAbertoId = null }
-                                                            ) {
-                                                                categoriasDisponiveis.forEach { categoria ->
-                                                                    DropdownMenuItem(
-                                                                        text = { Text(tipoManutencaoLabel(categoria)) },
-                                                                        onClick = {
-                                                                            itemTipoOverrides = itemTipoOverrides + (item.id to categoria)
-                                                                            itemCategoriaMenuAbertoId = null
-                                                                        },
-                                                                        leadingIcon = {
-                                                                            TipoIcon(
-                                                                                tipo = categoria,
-                                                                                tint = corCategoria(categoria),
-                                                                                size = 18.dp
-                                                                            )
-                                                                        }
-                                                                    )
-                                                                }
-                                                            }
-                                                        }
-                                                        Surface(
-                                                            modifier = Modifier.fillMaxWidth(),
-                                                            shape = RoundedCornerShape(12.dp),
-                                                            color = if (isDark) Color(0xFF0F172A) else Color(0xFFF0FDF4),
-                                                            border = BorderStroke(1.dp, Color(0xFF16A34A).copy(alpha = 0.22f))
-                                                        ) {
-                                                            Row(
-                                                                modifier = Modifier
-                                                                    .fillMaxWidth()
-                                                                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                                                                horizontalArrangement = Arrangement.SpaceBetween,
-                                                                verticalAlignment = Alignment.CenterVertically
-                                                            ) {
-                                                                Text(
-                                                                    tr("Valor:", "Amount:"),
-                                                                    color = textSecondary,
-                                                                    fontSize = 12.sp,
-                                                                    fontWeight = FontWeight.SemiBold
-                                                                )
-                                                                Text(
-                                                                    text = currencyFormatter.format(
-                                                                        itemValorOverrides[item.id]?.toDoubleOrNull() ?: item.valor
-                                                                    ),
-                                                                    color = Color(0xFF16A34A),
-                                                                    fontSize = 15.sp,
-                                                                    fontWeight = FontWeight.Bold
-                                                                )
-                                                            }
-                                                        }
-                                                    }
-                                                }
+                                                Text(tr("Quantidade total de itens", "Total item quantity"), color = textSecondary, fontSize = 12.sp)
+                                                Text(
+                                                    text = quantidadeTotalExtraida.toString(),
+                                                    color = textPrimary,
+                                                    fontSize = 13.sp,
+                                                    fontWeight = FontWeight.SemiBold
+                                                )
                                             }
+                                        }
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(tr("Valor total", "Total amount"), color = textSecondary, fontSize = 12.sp)
+                                            Text(
+                                                text = valorBrutoExibicao?.let { currencyFormatter.format(it) } ?: "-",
+                                                color = textPrimary,
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                        }
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(tr("Desconto", "Discount"), color = textSecondary, fontSize = 12.sp)
+                                            val descontoExibido = valorDescontoExibicao?.takeIf { it > 0.0 } ?: 0.0
+                                            Text(
+                                                text = currencyFormatter.format(descontoExibido),
+                                                color = if (descontoExibido > 0.0) Color(0xFFDC2626) else textPrimary,
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                        }
+                                        HorizontalDivider(color = cardBorder.copy(alpha = 0.55f))
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(tr("Valor final", "Final amount"), color = textPrimary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                            Text(
+                                                text = valorFinalExibicao?.let { currencyFormatter.format(it) } ?: "-",
+                                                color = Color(0xFF16A34A),
+                                                fontSize = 16.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                        if (formaPagamentoExibicao.isNotBlank()) {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text(tr("Forma de pagamento", "Payment method"), color = textSecondary, fontSize = 12.sp)
+                                                Text(
+                                                    text = formaPagamentoExibicao,
+                                                    color = textPrimary,
+                                                    fontSize = 13.sp,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    textAlign = TextAlign.End
+                                                )
+                                            }
+                                        }
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(tr("Troco", "Change"), color = textSecondary, fontSize = 12.sp)
+                                            Text(
+                                                text = currencyFormatter.format(trocoExibicao),
+                                                color = textPrimary,
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
                                         }
                                     }
                                 }
                             }
+                        }
+                        Button(
+                            onClick = { etapaAtual = if (isRegistroServico) 4 else 2 },
+                            enabled = podeAvancarEtapa1,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = nextActionBlue,
+                                contentColor = Color.White,
+                                disabledContainerColor = nextActionBlue.copy(alpha = 0.42f),
+                                disabledContentColor = Color.White.copy(alpha = 0.85f)
+                            ),
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(52.dp)
+                        ) {
+                            Text(textoBotaoEtapa1, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                         }
                     }
                     2 -> {
@@ -2787,7 +2512,7 @@ fun NovoAgendamentoDialog(
                         }
                         val mostrarFrequencia = if (qrModoSeparado && listaItensDetectados.isNotEmpty()) {
                             listaItensDetectados.any { item ->
-                                val tipoItem = itemTipoOverrides[item.id] ?: item.tipo
+                                val tipoItem = itemTipoOverrides[item.id] ?: tipoSelecionado
                                 tipoPermiteFrequencia(tipoItem)
                             }
                         } else {
@@ -2806,8 +2531,9 @@ fun NovoAgendamentoDialog(
                                         repetirAteDesativar = novoValor
                                         if (novoValor) {
                                             if (frequenciaLembreteKey == "NONE") {
-                                                frequenciaLembreteKey = "DAY_CUSTOM"
+                                                frequenciaLembreteKey = "DAY"
                                             }
+                                            aplicarPrimeiroAvisoAgoraSeRecorrente()
                                         } else {
                                             frequenciaLembreteKey = "NONE"
                                             menuFrequenciaExpanded = false
@@ -2822,8 +2548,9 @@ fun NovoAgendamentoDialog(
                                         repetirAteDesativar = marcado
                                         if (marcado) {
                                             if (frequenciaLembreteKey == "NONE") {
-                                                frequenciaLembreteKey = "DAY_CUSTOM"
+                                                frequenciaLembreteKey = "DAY"
                                             }
+                                            aplicarPrimeiroAvisoAgoraSeRecorrente()
                                         } else {
                                             frequenciaLembreteKey = "NONE"
                                             menuFrequenciaExpanded = false
@@ -2831,7 +2558,7 @@ fun NovoAgendamentoDialog(
                                     }
                                 )
                                 Text(
-                                    text = tr("Repitir esse aviso até eu desativar", "Repeat this reminder until I disable it"),
+                                    text = tr("Repetir este aviso", "Repeat this reminder"),
                                     color = textPrimary,
                                     fontWeight = FontWeight.SemiBold
                                 )
@@ -2861,15 +2588,16 @@ fun NovoAgendamentoDialog(
                                         onDismissRequest = { menuFrequenciaExpanded = false }
                                     ) {
                                         val opcoes = listOf(
-                                            "DAY_CUSTOM" to tr("A cada X dias", "Every X days"),
-                                            "MONTH_CUSTOM" to tr("A cada X meses", "Every X months"),
-                                            "YEAR_CUSTOM" to tr("A cada X anos", "Every X years")
+                                            "DAY" to tr("Dias", "Days"),
+                                            "MONTH" to tr("Meses", "Months"),
+                                            "YEAR" to tr("Anos", "Years")
                                         )
                                         opcoes.forEach { (key, label) ->
                                             DropdownMenuItem(
                                                 text = { Text(label) },
                                                 onClick = {
                                                     frequenciaLembreteKey = key
+                                                    aplicarPrimeiroAvisoAgoraSeRecorrente()
                                                     menuFrequenciaExpanded = false
                                                 }
                                             )
@@ -2877,182 +2605,358 @@ fun NovoAgendamentoDialog(
                                     }
                                 }
                                 if (
-                                    frequenciaLembreteKey == "DAY_CUSTOM" ||
-                                    frequenciaLembreteKey == "MONTH_CUSTOM" ||
-                                    frequenciaLembreteKey == "YEAR_CUSTOM"
+                                    frequenciaLembreteKey == "DAY" ||
+                                    frequenciaLembreteKey == "MONTH" ||
+                                    frequenciaLembreteKey == "YEAR"
                                 ) {
                                     OutlinedTextField(
-                                        value = when (frequenciaLembreteKey) {
-                                            "DAY_CUSTOM" -> intervaloDiasPersonalizado
-                                            "MONTH_CUSTOM" -> intervaloMesesPersonalizado
-                                            else -> intervaloAnosPersonalizado
-                                        },
-                                        onValueChange = {
-                                            val filtrado = it.filter(Char::isDigit).take(2)
-                                            when (frequenciaLembreteKey) {
-                                                "DAY_CUSTOM" -> intervaloDiasPersonalizado = filtrado
-                                                "MONTH_CUSTOM" -> intervaloMesesPersonalizado = filtrado
-                                                else -> intervaloAnosPersonalizado = filtrado
-                                            }
-                                        },
-                                        label = {
-                                            Text(
-                                                when (frequenciaLembreteKey) {
-                                                    "DAY_CUSTOM" -> tr("Repetir a cada quantos dias?", "Repeat every how many days?")
-                                                    "MONTH_CUSTOM" -> tr("Repetir a cada quantos meses?", "Repeat every how many months?")
-                                                    else -> tr("Repetir a cada quantos anos?", "Repeat every how many years?")
-                                                }
-                                            )
-                                        },
+                                        value = intervaloAtualTexto(),
+                                        onValueChange = { atualizarIntervaloAtual(it) },
+                                        label = { Text(tr("Repetir a cada", "Repeat every")) },
                                         modifier = Modifier.fillMaxWidth(),
                                         keyboardOptions = KeyboardOptions(
                                             keyboardType = KeyboardType.Number,
                                             imeAction = ImeAction.Done
                                         ),
+                                        suffix = {
+                                            Text(
+                                                when (frequenciaLembreteKey) {
+                                                    "DAY" -> tr("dia(s)", "day(s)")
+                                                    "MONTH" -> tr("mês(es)", "month(s)")
+                                                    else -> tr("ano(s)", "year(s)")
+                                                }
+                                            )
+                                        },
+                                        supportingText = {
+                                            Text(
+                                                when (frequenciaLembreteKey) {
+                                                    "DAY" -> tr("Informe de 1 a 31 dias.", "Enter from 1 to 31 days.")
+                                                    "MONTH" -> tr("Informe de 1 a 12 meses.", "Enter from 1 to 12 months.")
+                                                    else -> tr("Informe de 1 a 10 anos (12 meses = 1 ano).", "Enter from 1 to 10 years (12 months = 1 year).")
+                                                }
+                                            )
+                                        },
                                         singleLine = true,
                                         shape = RoundedCornerShape(12.dp)
                                     )
                                 }
                             }
                         }
-                        if (qrModoSeparado && listaItensDetectados.isNotEmpty()) {
+                    }
+                    3 -> {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .offset(y = (-14).dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(56.dp)
+                                    .clip(CircleShape)
+                                    .background(accentBlue.copy(alpha = 0.18f))
+                                    .border(
+                                        width = 1.dp,
+                                        color = accentBlue.copy(alpha = 0.28f),
+                                        shape = CircleShape
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Rounded.Build, contentDescription = null, tint = accentBlue, modifier = Modifier.size(30.dp))
+                            }
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                tr("Como criar os lembretes", "How to create reminders"),
+                                color = textPrimary,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 25.sp
+                            )
+                        }
+                        if (deveExibirEtapaModoCriacao) {
                             Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text(
+                                    tr("Como deseja criar os lembretes desta nota?", "How do you want to create reminders from this receipt?"),
+                                    color = textPrimary,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    OutlinedButton(
+                                        onClick = {
+                                            qrModoSeparado = false
+                                            isModoLista = false
+                                            descricao = descricaoQrConsolidada
+                                        },
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .height(48.dp),
+                                        shape = RoundedCornerShape(12.dp),
+                                        border = BorderStroke(
+                                            1.dp,
+                                            if (!qrModoSeparado) accentBlue else if (isDark) Color.White else Color.Black
+                                        ),
+                                        colors = ButtonDefaults.outlinedButtonColors(
+                                            containerColor = if (!qrModoSeparado) accentBlue else Color.Transparent,
+                                            contentColor = if (!qrModoSeparado) Color.White else textPrimary
+                                        )
+                                    ) {
+                                        Text(tr("Criar 1 lembrete", "Create 1 reminder"), fontWeight = FontWeight.SemiBold)
+                                    }
+                                    OutlinedButton(
+                                        onClick = {
+                                            qrModoSeparado = true
+                                            isModoLista = true
+                                        },
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .height(48.dp),
+                                        shape = RoundedCornerShape(12.dp),
+                                        border = BorderStroke(
+                                            1.dp,
+                                            if (qrModoSeparado) accentBlue else if (isDark) Color.White else Color.Black
+                                        ),
+                                        colors = ButtonDefaults.outlinedButtonColors(
+                                            containerColor = if (qrModoSeparado) accentBlue else Color.Transparent,
+                                            contentColor = if (qrModoSeparado) Color.White else textPrimary
+                                        )
+                                    ) {
+                                        Text(tr("1 por item", "1 per item"), fontWeight = FontWeight.SemiBold)
+                                    }
+                                }
+                            }
+                        } else {
+                            Surface(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp),
+                                color = if (isDark) Color(0xFF0F172A) else Color(0xFFF8FAFC),
+                                border = BorderStroke(1.dp, cardBorder)
+                            ) {
+                                Text(
+                                    text = tr("Esta nota será criada como 1 lembrete.", "This receipt will be created as 1 reminder."),
+                                    modifier = Modifier.padding(12.dp),
+                                    color = textSecondary,
+                                    fontSize = 13.sp
+                                )
+                            }
+                        }
+                        if (deveExibirEtapaModoCriacao && !qrModoSeparado) {
+                            Card(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(top = 14.dp),
-                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (isDark) Color(0xFF111827) else Color(0xFFF8FAFC)
+                                ),
+                                shape = RoundedCornerShape(14.dp),
+                                border = BorderStroke(
+                                    1.dp,
+                                    if (isDark) Color.White.copy(alpha = 0.18f) else Color.Black.copy(alpha = 0.18f)
+                                )
                             ) {
-                                listaItensDetectados.forEach { item ->
-                                    val dataItem = itemDataAvisoOverrides[item.id] ?: dataAviso
-                                    val tipoItem = itemTipoOverrides[item.id] ?: item.tipo
-                                    val usaDataPadrao = itemDataAvisoOverrides[item.id] == null
-                                    Card(
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Row(
                                         modifier = Modifier.fillMaxWidth(),
-                                        colors = CardDefaults.cardColors(
-                                            containerColor = if (isDark) Color(0xFF111827) else Color(0xFFF8FAFC)
-                                        ),
-                                        shape = RoundedCornerShape(14.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(28.dp)
+                                                .clip(CircleShape)
+                                                .background(accentBlue.copy(alpha = 0.14f))
+                                                .border(
+                                                    width = 1.dp,
+                                                    color = accentBlue.copy(alpha = 0.24f),
+                                                    shape = CircleShape
+                                                ),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Notifications,
+                                                contentDescription = null,
+                                                tint = accentBlue,
+                                                modifier = Modifier.size(15.dp)
+                                            )
+                                        }
+                                        Text(
+                                            text = tituloAviso.trim().ifBlank { descricao.trim().ifBlank { tr("Aviso", "Reminder") } },
+                                            color = textPrimary,
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                    OutlinedTextField(
+                                        value = dataAviso,
+                                        onValueChange = {},
+                                        label = { Text(tr("Data deste aviso", "Date for this reminder")) },
+                                        readOnly = true,
+                                        enabled = false,
+                                        modifier = Modifier.fillMaxWidth(),
+                                        trailingIcon = {
+                                            Icon(Icons.Default.Event, contentDescription = null, tint = textSecondary)
+                                        },
+                                        singleLine = true,
+                                        shape = RoundedCornerShape(12.dp)
+                                    )
+                                    OutlinedTextField(
+                                        value = tipoManutencaoLabel(tipoSelecionado),
+                                        onValueChange = {},
+                                        label = { Text(tr("Categoria", "Category")) },
+                                        readOnly = true,
+                                        enabled = false,
+                                        modifier = Modifier.fillMaxWidth(),
+                                        leadingIcon = {
+                                            TipoIcon(
+                                                tipo = tipoSelecionado,
+                                                tint = textSecondary,
+                                                size = 18.dp
+                                            )
+                                        },
+                                        trailingIcon = {
+                                            ExposedDropdownMenuDefaults.TrailingIcon(expanded = false)
+                                        },
+                                        singleLine = true,
+                                        shape = RoundedCornerShape(12.dp)
+                                    )
+                                    Surface(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(12.dp),
+                                        color = if (isDark) Color(0xFF0F172A) else Color(0xFFF1F5F9),
                                         border = BorderStroke(
                                             1.dp,
-                                            if (isDark) Color.White.copy(alpha = 0.18f) else Color.Black.copy(alpha = 0.18f)
+                                            if (isDark) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.10f)
                                         )
                                     ) {
-                                        Column(
+                                        Row(
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .padding(12.dp),
-                                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            Row(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                            ) {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .size(28.dp)
-                                                        .clip(CircleShape)
-                                                        .background(accentBlue.copy(alpha = 0.14f))
-                                                        .border(
-                                                            width = 1.dp,
-                                                            color = accentBlue.copy(alpha = 0.24f),
-                                                            shape = CircleShape
-                                                        ),
-                                                    contentAlignment = Alignment.Center
-                                                ) {
-                                                    Icon(
-                                                        Icons.Default.Notifications,
-                                                        contentDescription = null,
-                                                        tint = accentBlue,
-                                                        modifier = Modifier.size(15.dp)
-                                                    )
-                                                }
+                                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                                 Text(
-                                                    item.nome,
-                                                    color = textPrimary,
-                                                    fontSize = 14.sp,
+                                                    tr("Categoria", "Category"),
+                                                    color = textSecondary,
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.SemiBold
+                                                )
+                                                Text(
+                                                    tipoManutencaoLabel(tipoSelecionado),
+                                                    color = textSecondary,
+                                                    fontSize = 13.sp,
+                                                    fontWeight = FontWeight.SemiBold
+                                                )
+                                            }
+                                            Column(
+                                                horizontalAlignment = Alignment.End,
+                                                verticalArrangement = Arrangement.spacedBy(2.dp)
+                                            ) {
+                                                Text(
+                                                    tr("Valor", "Amount"),
+                                                    color = textSecondary,
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.SemiBold
+                                                )
+                                                Text(
+                                                    text = currencyFormatter.format(valorInput.replace(",", ".").toDoubleOrNull() ?: 0.0),
+                                                    color = textSecondary,
+                                                    fontSize = 15.sp,
                                                     fontWeight = FontWeight.Bold
                                                 )
                                             }
-                                            OutlinedTextField(
-                                                value = dataItem,
-                                                onValueChange = {},
-                                                label = { Text(if (usaDataPadrao) tr("Data deste aviso (padrão)", "Date for this reminder (default)") else tr("Data deste aviso", "Date for this reminder")) },
-                                                readOnly = true,
-                                                modifier = Modifier.fillMaxWidth(),
-                                                trailingIcon = {
-                                                    IconButton(onClick = {
-                                                        abrirDatePicker(dataItem) { selecionada ->
-                                                            itemDataAvisoOverrides =
-                                                                itemDataAvisoOverrides + (item.id to selecionada)
-                                                        }
-                                                    }) {
-                                                        Icon(Icons.Default.Event, contentDescription = null)
-                                                    }
-                                                },
-                                                singleLine = true,
-                                                shape = RoundedCornerShape(12.dp)
-                                            )
-                                            if (usaDataPadrao) {
+                                        }
+                                    }
+                                }
+                            }
+                            Text(
+                                text = tr(
+                                    "Não é possível editar essas informações aqui. Para editar, volte para a tela Dados do lembrete.",
+                                    "You cannot edit this information here. To edit it, go back to Reminder data."
+                                ),
+                                color = textSecondary,
+                                fontSize = 12.sp,
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                            )
+                        }
+                        if (qrModoSeparado && listaItensDetectados.isNotEmpty()) {
+                            Text(
+                                text = tr(
+                                    "Edicao por item desativada. Data e categoria seguem o aviso principal.",
+                                    "Per-item editing disabled. Date and category follow the main reminder."
+                                ),
+                                color = textSecondary,
+                                fontSize = 12.sp,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 14.dp)
+                                    .padding(horizontal = 4.dp, vertical = 2.dp)
+                            )
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 8.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                listaItensDetectados.forEach { item ->
+                                    val tipoItem = itemTipoOverrides[item.id] ?: tipoSelecionado
+                                    Surface(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(12.dp),
+                                        color = if (isDark) Color(0xFF0F172A) else Color(0xFFF0FDF4),
+                                        border = BorderStroke(1.dp, Color(0xFF16A34A).copy(alpha = 0.22f))
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                                 Text(
-                                                    "Usando a data padrão",
+                                                    tr("Categoria", "Category"),
                                                     color = textSecondary,
                                                     fontSize = 11.sp,
-                                                    modifier = Modifier.padding(start = 4.dp, top = 2.dp)
+                                                    fontWeight = FontWeight.SemiBold
+                                                )
+                                                Text(
+                                                    tipoManutencaoLabel(tipoItem),
+                                                    color = textPrimary,
+                                                    fontSize = 13.sp,
+                                                    fontWeight = FontWeight.SemiBold
                                                 )
                                             }
-                                            Surface(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                shape = RoundedCornerShape(12.dp),
-                                                color = if (isDark) Color(0xFF0F172A) else Color(0xFFF0FDF4),
-                                                border = BorderStroke(1.dp, Color(0xFF16A34A).copy(alpha = 0.22f))
+                                            Column(
+                                                horizontalAlignment = Alignment.End,
+                                                verticalArrangement = Arrangement.spacedBy(2.dp)
                                             ) {
-                                                Row(
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                                    verticalAlignment = Alignment.CenterVertically
-                                                ) {
-                                                    Row(
-                                                        verticalAlignment = Alignment.CenterVertically,
-                                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                                    ) {
-                                                        Column(
-                                                            verticalArrangement = Arrangement.spacedBy(2.dp)
-                                                        ) {
-                                                            Text(
-                                                                tr("Categoria", "Category"),
-                                                                color = textSecondary,
-                                                                fontSize = 11.sp,
-                                                                fontWeight = FontWeight.SemiBold
-                                                            )
-                                                            Text(
-                                                                tipoManutencaoLabel(tipoItem),
-                                                                color = textPrimary,
-                                                                fontSize = 13.sp,
-                                                                fontWeight = FontWeight.SemiBold
-                                                            )
-                                                        }
-                                                    }
-                                                    Column(
-                                                        horizontalAlignment = Alignment.End,
-                                                        verticalArrangement = Arrangement.spacedBy(2.dp)
-                                                    ) {
-                                                        Text(
-                                                            tr("Valor", "Amount"),
-                                                            color = textSecondary,
-                                                            fontSize = 11.sp,
-                                                            fontWeight = FontWeight.SemiBold
-                                                        )
-                                                        Text(
-                                                            text = currencyFormatter.format(item.valor),
-                                                            color = Color(0xFF16A34A),
-                                                            fontSize = 15.sp,
-                                                            fontWeight = FontWeight.Bold
-                                                        )
-                                                    }
-                                                }
+                                                Text(
+                                                    tr("Valor", "Amount"),
+                                                    color = textSecondary,
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.SemiBold
+                                                )
+                                                Text(
+                                                    text = currencyFormatter.format(item.valor),
+                                                    color = Color(0xFF16A34A),
+                                                    fontSize = 15.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
                                             }
                                         }
                                     }
@@ -3060,7 +2964,7 @@ fun NovoAgendamentoDialog(
                             }
                         }
                     }
-                    3 -> {
+                    4 -> {
                         EtapaRevisaoAvisoContent(
                             isDark = isDark,
                             textPrimary = textPrimary,
@@ -3678,6 +3582,8 @@ private val ESTADOS_UF = listOf(
     "MA", "MT", "MS", "MG", "PA", "PB", "PR", "PE", "PI",
     "RJ", "RN", "RS", "RO", "RR", "SC", "SP", "SE", "TO"
 )
+
+
 
 
 

@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Opacity
 import androidx.compose.material.icons.rounded.Agriculture
 import androidx.compose.material.icons.rounded.BatteryChargingFull
 import androidx.compose.material.icons.rounded.Build
@@ -532,7 +533,7 @@ enum class TipoManutencao(val label: String) {
         PNEU -> Icons.Rounded.TireRepair
         TRANSMISSAO -> Icons.Rounded.Settings
         REVISAO -> Icons.Rounded.Description
-        OLEO -> Icons.Rounded.WaterDrop
+        OLEO -> Icons.Default.Opacity
         LAVAGEM -> Icons.Rounded.LocalCarWash
         ABASTECIMENTO -> Icons.Rounded.LocalGasStation
         BATERIA -> Icons.Rounded.BatteryChargingFull
