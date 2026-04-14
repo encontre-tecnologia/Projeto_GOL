@@ -249,6 +249,7 @@ fun NovoAgendamentoDialog(
     var fotoCaminho by remember { mutableStateOf<String?>(null) }
     var horaNotificacao by remember { mutableStateOf("09:00") }
     var dataAviso by remember { mutableStateOf(LocalDate.now().format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))) }
+    var dataAvisoEscolhidaManualmente by remember { mutableStateOf(false) }
     var frequenciaLembreteKey by remember { mutableStateOf("NONE") }
     var repetirAteDesativar by remember { mutableStateOf(false) }
     var intervaloDiasPersonalizado by remember { mutableStateOf("1") }
@@ -2006,6 +2007,7 @@ fun NovoAgendamentoDialog(
         0
     }
     val podeAvancarEtapa3 = !qrModoSeparado || totalItensModoSeparado == 0 || itensCompletosModoSeparado == totalItensModoSeparado
+    val podeAvancarEtapa2 = dataAvisoEscolhidaManualmente && dataItemValida(dataAviso)
     val textoBotaoEtapa1 = tr("Avançar", "Continue")
     val textoBotaoSalvar = if (isFluxoPosto) {
         tr("Cadastrar abastecimento", "Register fuel")
@@ -2053,9 +2055,12 @@ fun NovoAgendamentoDialog(
                     2 -> {
                         Button(
                             onClick = { etapaAtual = if (deveExibirEtapaModoCriacao) 3 else 4 },
+                            enabled = podeAvancarEtapa2,
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = nextActionBlue,
-                                contentColor = Color.White
+                                contentColor = Color.White,
+                                disabledContainerColor = nextActionBlue.copy(alpha = 0.42f),
+                                disabledContentColor = Color.White.copy(alpha = 0.85f)
                             ),
                             shape = RoundedCornerShape(14.dp),
                             modifier = Modifier.fillMaxWidth().height(52.dp).offset(y = (-10).dp)
@@ -2597,6 +2602,7 @@ fun NovoAgendamentoDialog(
                                         abrirDatePicker(dataAviso) {
                                             dataAviso = it
                                             avisoPersonalizado = true
+                                            dataAvisoEscolhidaManualmente = true
                                         }
                                     }) {
                                         Icon(Icons.Default.Event, contentDescription = null)
@@ -2622,6 +2628,14 @@ fun NovoAgendamentoDialog(
                                 },
                                 singleLine = true,
                                 shape = RoundedCornerShape(12.dp)
+                            )
+                        }
+                        if (!dataAvisoEscolhidaManualmente) {
+                            Text(
+                                text = tr("Selecione a data do lembrete para continuar.", "Select the reminder date to continue."),
+                                color = Color(0xFFEF4444),
+                                fontSize = 12.sp,
+                                modifier = Modifier.fillMaxWidth()
                             )
                         }
                         val mostrarFrequencia = if (qrModoSeparado && listaItensDetectados.isNotEmpty()) {

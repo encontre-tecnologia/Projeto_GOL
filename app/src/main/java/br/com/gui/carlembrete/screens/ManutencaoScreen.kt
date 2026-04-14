@@ -1200,7 +1200,14 @@ fun ManutencaoScreen(
                                         contentScale = ContentScale.Crop
                                     )
                                 } else {
-                                    Icon(Icons.Rounded.DirectionsCar, null, tint = textLight, modifier = Modifier.size(28.dp))
+                                    Image(
+                                        painter = painterResource(id = R.mipmap.ic_launcher_foreground),
+                                        contentDescription = "Imagem padrão de perfil",
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .clip(CircleShape),
+                                        contentScale = ContentScale.Crop
+                                    )
                                 }
                             }
                             Spacer(Modifier.width(12.dp))
