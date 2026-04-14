@@ -9,6 +9,8 @@ data class BackupPayload(
     val abastecimentos: List<Abastecimento> = emptyList(),
     val pedaladas: List<Pedalada> = emptyList(),
     val travelTripsJson: String = "",
+    val fleetStockItemsJson: String = "",
+    val fleetStockMovementsJson: String = "",
     val geradoEm: Long = System.currentTimeMillis()
 ) : Serializable
 
@@ -57,7 +59,13 @@ fun BackupPayload.toMap(): Map<String, Any> = mapOf(
             "data" to item.data,
             "precoLitro" to item.precoLitro,
             "valorPago" to item.valorPago,
-            "litros" to item.litros
+            "litros" to item.litros,
+            "itens" to item.itens.map { detalhe ->
+                mapOf(
+                    "nome" to detalhe.nome,
+                    "valor" to detalhe.valor
+                )
+            }
         )
     },
     "pedaladas" to pedaladas.map { item ->
@@ -69,6 +77,8 @@ fun BackupPayload.toMap(): Map<String, Any> = mapOf(
         )
     },
     "travelTripsJson" to travelTripsJson,
+    "fleetStockItemsJson" to fleetStockItemsJson,
+    "fleetStockMovementsJson" to fleetStockMovementsJson,
     "geradoEm" to geradoEm
 )
 
@@ -147,6 +157,8 @@ fun backupPayloadFromMap(data: Map<String, Any>): BackupPayload {
     } ?: emptyList()
 
     val travelTripsJson = data["travelTripsJson"] as? String ?: ""
+    val fleetStockItemsJson = data["fleetStockItemsJson"] as? String ?: ""
+    val fleetStockMovementsJson = data["fleetStockMovementsJson"] as? String ?: ""
     val geradoEm = (data["geradoEm"] as? Number)?.toLong() ?: System.currentTimeMillis()
     return BackupPayload(
         carros = carros,
@@ -155,6 +167,8 @@ fun backupPayloadFromMap(data: Map<String, Any>): BackupPayload {
         abastecimentos = abastecimentos,
         pedaladas = pedaladas,
         travelTripsJson = travelTripsJson,
+        fleetStockItemsJson = fleetStockItemsJson,
+        fleetStockMovementsJson = fleetStockMovementsJson,
         geradoEm = geradoEm
     )
 }

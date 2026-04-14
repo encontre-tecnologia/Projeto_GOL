@@ -725,6 +725,14 @@ fun gerarPdfRelatorio(
         val vezesBatidoTexto = carro.vezesBatido?.toString() ?: "Nao informado"
         val tempoComVeiculoTexto = carro.tempoComVeiculo.ifBlank { "Nao informado" }
         val isBike = carro.tipoVeiculo == TipoVeiculo.BICICLETA || carro.tipoVeiculo == TipoVeiculo.BIKE_ELETRICA
+        val abastecimentosCarro = BancoDeDados.carregarAbastecimentos(context).filter { it.carroId == carro.id }
+        val hoje = LocalDate.now()
+        val litrosTotais = abastecimentosCarro.sumOf { it.litros.coerceAtLeast(0.0) }
+        val totalMesCombustivel = abastecimentosCarro.sumOf { item ->
+            val data = runCatching { LocalDate.parse(item.data, DateTimeFormatter.ofPattern("dd/MM/yyyy")) }.getOrNull()
+            if (data != null && data.year == hoje.year && data.monthValue == hoje.monthValue) item.valorPago else 0.0
+        }
+        val referenciaMes = hoje.format(DateTimeFormatter.ofPattern("MM/yyyy"))
         if (!isBike) {
             drawSectionTitle("INFORMACOES")
             val infoBoxHeight = 126f
@@ -806,6 +814,24 @@ fun gerarPdfRelatorio(
         canvas.drawText(resultadoGeral, leftX, resultadoBaseline, valueBoldPaint)
         canvas.drawText(saudeLabel, leftX, saudeBaseline, saudePaint)
         y += statusBoxHeight + 34f
+
+        if (!isBike) {
+            drawSectionTitle("CONSUMO")
+            val consumoCardHeight = 84f
+            drawCard(consumoCardHeight) { topY ->
+                val infoLeftX = marginX + 12f
+                val infoRightX = marginX + contentWidth / 2 + 10f
+                val infoRowY = topY + 24f
+                drawKeyValue("Total mes ($referenciaMes)", formatarMoeda(totalMesCombustivel), infoLeftX, infoRowY)
+                drawKeyValue(
+                    "Litros totais",
+                    "${String.format(Locale("pt", "BR"), "%.2f", litrosTotais)} L",
+                    infoRightX,
+                    infoRowY
+                )
+            }
+            y += 8f
+        }
 
         if (!isBike) {
             drawSectionTitle("DOCUMENTACAO")

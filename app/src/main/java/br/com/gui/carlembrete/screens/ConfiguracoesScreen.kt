@@ -130,13 +130,17 @@ fun ConfiguracoesScreen(
                 val abastecimentos = BancoDeDados.carregarAbastecimentos(context)
                 val pedaladas = BancoDeDados.carregarPedaladas(context)
                 val travelTripsJson = loadTravelTripsBackupJson(context)
+                val fleetStockItemsJson = loadFleetStockItemsBackupJson(context)
+                val fleetStockMovementsJson = loadFleetStockMovementsBackupJson(context)
                 val payload = BackupPayload(
                     carros = carros,
                     lembretes = lembretes,
                     contatos = contatos,
                     abastecimentos = abastecimentos,
                     pedaladas = pedaladas,
-                    travelTripsJson = travelTripsJson
+                    travelTripsJson = travelTripsJson,
+                    fleetStockItemsJson = fleetStockItemsJson,
+                    fleetStockMovementsJson = fleetStockMovementsJson
                 )
                 driveBackupManager.uploadBackup(payload, account)
                 withContext(Dispatchers.Main) {
@@ -178,6 +182,11 @@ fun ConfiguracoesScreen(
                 BancoDeDados.salvarAbastecimentos(context, payload.abastecimentos)
                 BancoDeDados.salvarPedaladas(context, payload.pedaladas)
                 saveTravelTripsBackupJson(context, payload.travelTripsJson)
+                saveFleetStockBackupJson(
+                    context,
+                    itemsJson = payload.fleetStockItemsJson,
+                    movementsJson = payload.fleetStockMovementsJson
+                )
                 NotificacaoHelper.reagendarExistentes(context.applicationContext, payload.lembretes)
                 withContext(Dispatchers.Main) {
                     Toast.makeText(context, context.getString(R.string.cfg_backup_restore_success), Toast.LENGTH_SHORT).show()
