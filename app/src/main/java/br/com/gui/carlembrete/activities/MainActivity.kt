@@ -38,11 +38,19 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import br.com.gui.carlembrete.ui.theme.CarLembreteTheme
 import com.google.firebase.auth.FirebaseAuth
+import com.google.android.play.core.appupdate.AppUpdateManager
+import com.google.android.play.core.appupdate.AppUpdateManagerFactory
+import com.google.android.play.core.install.InstallStateUpdatedListener
+import com.google.android.play.core.install.model.AppUpdateType
+import com.google.android.play.core.install.model.InstallStatus
+import com.google.android.play.core.install.model.UpdateAvailability
+import com.google.android.play.core.review.ReviewManagerFactory
 import java.io.File
 import java.io.FileOutputStream
 import java.io.ObjectInputStream
@@ -66,6 +74,10 @@ class MainActivity : ComponentActivity() {
     private var openLembreteCarroIdFromIntent by mutableStateOf<String?>(null)
     @Volatile
     private var keepNativeSplashVisible: Boolean = false
+    private var inAppUpdateChecked = false
+    private var reviewCheckedThisSession = false
+    private var appUpdateManager: AppUpdateManager? = null
+    private var installStateListener: InstallStateUpdatedListener? = null
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -177,6 +189,11 @@ class MainActivity : ComponentActivity() {
                         delay(450)
                         requestStartupPermissionsIfNeeded()
                         AdminUsageMetrics.markAppOpen(this@MainActivity)
+                        registrarUsoEEventosLeves()
+                        if (!showOnboarding) {
+                            iniciarInAppReviewSeElegivel()
+                            iniciarInAppUpdateSeDisponivel()
+                        }
                     }
                 }
                 val baseBackground = MaterialTheme.colorScheme.background
@@ -215,6 +232,164 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        val manager = appUpdateManager ?: return
+        manager.appUpdateInfo
+            .addOnSuccessListener { info ->
+                if (info.updateAvailability() == UpdateAvailability.DEVELOPER_TRIGGERED_UPDATE_IN_PROGRESS) {
+                    runCatching {
+                        manager.startUpdateFlowForResult(
+                            info,
+                            AppUpdateType.FLEXIBLE,
+                            this,
+                            REQ_CODE_IN_APP_UPDATE
+                        )
+                    }
+                }
+            }
+    }
+
+    override fun onDestroy() {
+        installStateListener?.let { listener ->
+            appUpdateManager?.unregisterListener(listener)
+        }
+        installStateListener = null
+        super.onDestroy()
+    }
+
+    private fun iniciarInAppUpdateSeDisponivel() {
+        if (inAppUpdateChecked) return
+        inAppUpdateChecked = true
+        val manager = AppUpdateManagerFactory.create(this)
+        appUpdateManager = manager
+        val listener = InstallStateUpdatedListener { state ->
+            if (state.installStatus() == InstallStatus.DOWNLOADED) {
+                Toast.makeText(
+                    this,
+                    trNow("Atualização baixada. Finalizando instalação...", "Update downloaded. Finishing installation..."),
+                    Toast.LENGTH_LONG
+                ).show()
+                runCatching { manager.completeUpdate() }
+            }
+        }
+        installStateListener = listener
+        manager.registerListener(listener)
+        manager.appUpdateInfo
+            .addOnSuccessListener { info ->
+                val updateAvailable = info.updateAvailability() == UpdateAvailability.UPDATE_AVAILABLE
+                val flexibleAllowed = info.isUpdateTypeAllowed(AppUpdateType.FLEXIBLE)
+                if (updateAvailable && flexibleAllowed) {
+                    runCatching {
+                        manager.startUpdateFlowForResult(
+                            info,
+                            AppUpdateType.FLEXIBLE,
+                            this,
+                            REQ_CODE_IN_APP_UPDATE
+                        )
+                    }
+                }
+            }
+    }
+
+    private fun iniciarInAppReviewSeElegivel() {
+        if (reviewCheckedThisSession) return
+        reviewCheckedThisSession = true
+        val prefs = getSharedPreferences(ENGAGEMENT_PREFS, Context.MODE_PRIVATE)
+        val now = System.currentTimeMillis()
+        val firstOpen = prefs.getLong(KEY_FIRST_OPEN_MS, 0L).takeIf { it > 0L } ?: now
+        val openCount = prefs.getInt(KEY_OPEN_COUNT, 0)
+        val lastPrompt = prefs.getLong(KEY_LAST_REVIEW_PROMPT_MS, 0L)
+        val daysSinceFirst = ((now - firstOpen) / DAY_MS).toInt()
+        val canPrompt = openCount >= 8 &&
+            daysSinceFirst >= 5 &&
+            (lastPrompt == 0L || (now - lastPrompt) >= 45L * DAY_MS)
+        if (!canPrompt) return
+
+        val reviewManager = ReviewManagerFactory.create(this)
+        reviewManager.requestReviewFlow()
+            .addOnCompleteListener { task ->
+                prefs.edit().putLong(KEY_LAST_REVIEW_PROMPT_MS, now).apply()
+                if (!task.isSuccessful) return@addOnCompleteListener
+                val reviewInfo = task.result
+                reviewManager.launchReviewFlow(this, reviewInfo)
+            }
+    }
+
+    private fun registrarUsoEEventosLeves() {
+        val prefs = getSharedPreferences(ENGAGEMENT_PREFS, Context.MODE_PRIVATE)
+        val now = System.currentTimeMillis()
+        val firstOpen = prefs.getLong(KEY_FIRST_OPEN_MS, 0L)
+        val openCount = prefs.getInt(KEY_OPEN_COUNT, 0) + 1
+        val editor = prefs.edit()
+            .putInt(KEY_OPEN_COUNT, openCount)
+            .putLong(KEY_LAST_OPEN_MS, now)
+        if (firstOpen == 0L) editor.putLong(KEY_FIRST_OPEN_MS, now)
+        editor.apply()
+
+        if (!notificacoesPermitidas()) return
+
+        val lastSimpleReminder = prefs.getLong(KEY_LAST_SIMPLE_REMINDER_MS, 0L)
+        if (openCount >= 3 && (now - lastSimpleReminder) >= 7L * DAY_MS) {
+            NotificacaoHelper.dispararNotificacaoInstantanea(
+                context = this,
+                titulo = trNow("Hora de revisar seu veículo", "Time for a vehicle check"),
+                descricao = trNow(
+                    "Dá uma olhada nos avisos e mantenha a revisão em dia.",
+                    "Quick check your reminders and keep maintenance up to date."
+                )
+            )
+            prefs.edit().putLong(KEY_LAST_SIMPLE_REMINDER_MS, now).apply()
+        }
+
+        val formatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
+        val dueSoon = BancoDeDados.carregarLembretes(this)
+            .filterNot(::isLembreteRealizado)
+            .mapNotNull { lembrete ->
+                runCatching { LocalDate.parse(lembrete.dataLimite, formatter) }.getOrNull()?.let { data -> lembrete to data }
+            }
+            .any { (_, data) ->
+                val days = java.time.temporal.ChronoUnit.DAYS.between(LocalDate.now(), data)
+                days in 0..3
+            }
+        if (dueSoon) {
+            val lastDueSoon = prefs.getLong(KEY_LAST_DUE_SOON_NOTIF_MS, 0L)
+            if ((now - lastDueSoon) >= DAY_MS) {
+                NotificacaoHelper.dispararNotificacaoInstantanea(
+                    context = this,
+                    titulo = trNow("Tem aviso chegando", "Upcoming reminder"),
+                    descricao = trNow(
+                        "Você tem revisão/aviso para os próximos dias. Bora conferir?",
+                        "You have maintenance reminders for the next days. Want to check now?"
+                    )
+                )
+                prefs.edit().putLong(KEY_LAST_DUE_SOON_NOTIF_MS, now).apply()
+            }
+        }
+    }
+
+    private fun notificacoesPermitidas(): Boolean {
+        if (!NotificationManagerCompat.from(this).areNotificationsEnabled()) return false
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            return false
+        }
+        return true
+    }
+
+    companion object {
+        private const val REQ_CODE_IN_APP_UPDATE = 2417
+        private const val ENGAGEMENT_PREFS = "engagement_prefs_v1"
+        private const val KEY_FIRST_OPEN_MS = "first_open_ms"
+        private const val KEY_LAST_OPEN_MS = "last_open_ms"
+        private const val KEY_OPEN_COUNT = "open_count"
+        private const val KEY_LAST_REVIEW_PROMPT_MS = "last_review_prompt_ms"
+        private const val KEY_LAST_SIMPLE_REMINDER_MS = "last_simple_reminder_ms"
+        private const val KEY_LAST_DUE_SOON_NOTIF_MS = "last_due_soon_notif_ms"
+        private const val DAY_MS = 24L * 60L * 60L * 1000L
     }
 }
 

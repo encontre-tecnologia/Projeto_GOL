@@ -170,6 +170,8 @@ dependencies {
 
     // Google Play Billing
     implementation("com.android.billingclient:billing-ktx:6.1.0")
+    implementation("com.google.android.play:review-ktx:2.0.2")
+    implementation("com.google.android.play:app-update-ktx:2.1.0")
 
     // Google Drive (App Folder) backup
     implementation("com.google.api-client:google-api-client-android:2.2.0")
