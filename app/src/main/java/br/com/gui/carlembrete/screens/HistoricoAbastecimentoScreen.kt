@@ -265,7 +265,7 @@ fun TimelineItem(
     isDark: Boolean
 ) {
     val context = LocalContext.current
-    val descricao = remember(item.id, item.itens) { carregarDescricaoAbastecimento(context, item) }
+    val descricao = remember(item.id) { carregarDescricaoAbastecimento(context, item) }
     val cardGradient = if (isDark) {
         Brush.verticalGradient(colors = listOf(GradientStart, GradientEnd))
     } else {
@@ -380,40 +380,6 @@ fun TimelineItem(
                         Spacer(Modifier.height(12.dp))
                     }
 
-                    if (item.itens.isNotEmpty()) {
-                        Text(
-                            text = tr("Itens do abastecimento", "Fuel items"),
-                            color = cardTitle,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 13.sp
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        item.itens.forEachIndexed { idx, itemDetalhe ->
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.Top
-                            ) {
-                                Text(
-                                    text = "${idx + 1}. ${itemDetalhe.nome}",
-                                    color = cardBody,
-                                    fontSize = 12.sp,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                Spacer(Modifier.width(12.dp))
-                                Text(
-                                    text = formatarMoedaLocal(itemDetalhe.valor),
-                                    color = cardTitle,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                            }
-                            if (idx < item.itens.lastIndex) {
-                                Spacer(Modifier.height(4.dp))
-                            }
-                        }
-                        Spacer(Modifier.height(14.dp))
-                    }
 
                     // --- RODAPÃ‰ COM INFORMAÃ‡Ã•ES INVERTIDAS ---
                     Row(
@@ -699,7 +665,7 @@ private fun carregarDescricaoAbastecimento(context: Context, item: Abastecimento
     val prefs = context.getSharedPreferences("fuel_desc_store", Context.MODE_PRIVATE)
     val descricaoSalva = prefs.getString(item.id, null)
     if (!descricaoSalva.isNullOrBlank()) return descricaoSalva
-    return item.itens.firstOrNull()?.nome.orEmpty()
+    return ""
 }
 
 private fun salvarDescricaoAbastecimento(context: Context, id: String, descricao: String) {
