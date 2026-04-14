@@ -55,6 +55,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
+import com.google.android.gms.auth.api.signin.GoogleSignInStatusCodes
 import com.google.android.gms.common.api.ApiException
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
@@ -110,8 +111,16 @@ fun AuthCreateAccountScreen(
                     Toast.makeText(context, "Falha no cadastro com Google", Toast.LENGTH_SHORT).show()
                 }
             }
+        } catch (e: ApiException) {
+            val msg = when (e.statusCode) {
+                GoogleSignInStatusCodes.SIGN_IN_CANCELLED -> "Cadastro com Google cancelado"
+                GoogleSignInStatusCodes.SIGN_IN_FAILED -> "Falha no cadastro com Google. Tente novamente."
+                10 -> "Configuração Google/Firebase inválida (SHA-1/SHA-256 ou OAuth)."
+                else -> "Falha no cadastro com Google (código ${e.statusCode})"
+            }
+            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
         } catch (_: Exception) {
-            Toast.makeText(context, "Falha no cadastro com Google", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Falha inesperada no cadastro com Google", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -297,7 +306,11 @@ fun AuthCreateAccountScreen(
                 Divider(color = Color(0xFF334155), modifier = Modifier.weight(1f))
             }
             OutlinedButton(
-                onClick = { googleLauncher.launch(googleSignInClient.signInIntent) },
+                onClick = {
+                    googleSignInClient.signOut().addOnCompleteListener {
+                        googleLauncher.launch(googleSignInClient.signInIntent)
+                    }
+                },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(56.dp),

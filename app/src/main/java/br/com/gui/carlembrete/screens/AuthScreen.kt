@@ -407,7 +407,9 @@ fun AuthScreen(onSignedIn: () -> Unit) {
                     }
                     authStatusMessage = null
                     isAuthLoading = true
-                    googleLauncher.launch(googleSignInClient.signInIntent)
+                    googleSignInClient.signOut().addOnCompleteListener {
+                        googleLauncher.launch(googleSignInClient.signInIntent)
+                    }
                 },
                 modifier = Modifier
                     .fillMaxWidth()
