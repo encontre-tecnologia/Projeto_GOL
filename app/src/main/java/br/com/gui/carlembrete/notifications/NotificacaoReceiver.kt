@@ -43,6 +43,10 @@ class NotificacaoReceiver : BroadcastReceiver() {
         val titulo = intent.getStringExtra(EXTRA_TITULO) ?: return
         val descricao = intent.getStringExtra(EXTRA_DESCRICAO) ?: ""
         val lembreteId = intent.getStringExtra(EXTRA_ID) ?: titulo
+        if (!NotificacaoHelper.deveDispararAgora(context, lembreteId)) {
+            Log.w(NotificacaoHelper.TAG_NOTIF, "notificacao suprimida por duplicidade id=$lembreteId")
+            return
+        }
         val carroId = intent.getStringExtra(EXTRA_CARRO_ID)
         val nomeVeiculo = carroId?.let { id ->
             BancoDeDados.carregarCarros(context).orEmpty()
@@ -303,8 +307,10 @@ class NotificacaoReceiver : BroadcastReceiver() {
 }
 
 object NotificacaoHelper {
-    private const val TAG_NOTIF = "NotificacaoHelper"
+    const val TAG_NOTIF = "NotificacaoHelper"
     private const val PREFS_NAME = "notificacoes_prefs"
+    private const val PREFS_LAST_DISPATCH_PREFIX = "last_dispatch_"
+    private const val DISPATCH_DEBOUNCE_MS = 45_000L
     data class RecorrenciaConfig(val unit: String, val interval: Int)
     const val REC_UNIT_DAY = "DAY"
     const val REC_UNIT_WEEK = "WEEK"
@@ -753,7 +759,23 @@ object NotificacaoHelper {
             if (objId == id) continue
             atualizado.put(obj)
         }
-        prefs.edit().putString(PREFS_HISTORY_KEY, atualizado.toString()).apply()
+        prefs.edit()
+            .putString(PREFS_HISTORY_KEY, atualizado.toString())
+            .remove("$PREFS_LAST_DISPATCH_PREFIX$id")
+            .apply()
+    }
+
+    fun deveDispararAgora(context: Context, id: String): Boolean {
+        if (id.isBlank()) return true
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val now = System.currentTimeMillis()
+        val key = "$PREFS_LAST_DISPATCH_PREFIX$id"
+        val last = prefs.getLong(key, 0L)
+        if (last > 0L && now - last < DISPATCH_DEBOUNCE_MS) {
+            return false
+        }
+        prefs.edit().putLong(key, now).apply()
+        return true
     }
 
     fun registrarListenerHistorico(

@@ -259,7 +259,7 @@ fun NovoAgendamentoDialog(
     var avisoPersonalizado by remember { mutableStateOf(false) }
     var etapaAtual by remember { mutableStateOf(1) }
     var fluxoCadastro by remember {
-        mutableStateOf<FluxoCadastroAviso?>(FluxoCadastroAviso.CRIAR_LEMBRETE)
+        mutableStateOf<FluxoCadastroAviso?>(null)
     }
     val isFluxoPosto = tipoSelecionado == TipoManutencao.ABASTECIMENTO
     val isRegistroServico = fluxoCadastro == FluxoCadastroAviso.REGISTRAR_SERVICO
@@ -351,7 +351,6 @@ fun NovoAgendamentoDialog(
     }
 
     LaunchedEffect(tipoSelecionado) {
-        if (fluxoCadastro == null) fluxoCadastro = FluxoCadastroAviso.CRIAR_LEMBRETE
         if (tituloAviso.isBlank()) {
             tituloAviso = tipoSelecionado.label
         }
@@ -1320,6 +1319,7 @@ fun NovoAgendamentoDialog(
             marcaSelecionadaDialog = null
             if (resultado.itensEncontrados.isNotEmpty()) {
                 listaItensDetectados = resultado.itensEncontrados
+                qrPossuiItensSeparaveis = resultado.itensEncontrados.size > 1
                 itemTipoOverrides = resultado.itensEncontrados.associate { item -> item.id to item.tipo }
                 val totalItens = resultado.itensEncontrados.sumOf { it.valor }
                 if (totalItens > 0.0) {
@@ -1327,6 +1327,7 @@ fun NovoAgendamentoDialog(
                 }
                 isModoLista = true
             } else {
+                qrPossuiItensSeparaveis = false
                 isModoLista = false
                 val principal = resultado.sugestoesProduto.firstOrNull()
                 val principalLimpo = principal?.let { limparTextoProdutosRemovendoTotal(it) }?.takeIf { it.isNotBlank() }
@@ -1837,10 +1838,15 @@ fun NovoAgendamentoDialog(
     val valorTotalManual = valorInput.replace(",", ".").toDoubleOrNull()
     val valorTotalValido = valorTotalManual != null && valorTotalManual > 0.0
     val quantidadeManualValida = quantidadeManualInput.toIntOrNull()?.let { it > 0 } == true
+    val fluxoSelecionado = isFluxoPosto || fluxoCadastro != null
     val podeAvancarEtapa1 = if (isModoLista && listaItensDetectados.isNotEmpty()) {
         true
     } else {
-        tituloAviso.isNotBlank() && descricao.isNotBlank() && valorTotalValido && quantidadeManualValida
+        fluxoSelecionado &&
+            tituloAviso.isNotBlank() &&
+            descricao.isNotBlank() &&
+            valorTotalValido &&
+            quantidadeManualValida
     }
 
     if (showKmSugeridoDialog) {
@@ -1981,7 +1987,7 @@ fun NovoAgendamentoDialog(
     } else {
         1
     }
-    val deveExibirEtapaModoCriacao = qrPossuiItensSeparaveis && listaItensDetectados.isNotEmpty()
+    val deveExibirEtapaModoCriacao = listaItensDetectados.size > 1
     fun dataItemValida(dataTexto: String): Boolean = runCatching {
         LocalDate.parse(dataTexto, dataFormatter)
     }.isSuccess
@@ -2149,13 +2155,84 @@ fun NovoAgendamentoDialog(
                             }
                             Spacer(Modifier.height(2.dp))
                             Text(
-                                if (isRegistroServico) tr("Dados do serviço", "Service data") else tr("Dados do lembrete", "Reminder data"),
+                                when {
+                                    isRegistroServico -> tr("Dados do serviço", "Service data")
+                                    fluxoCadastro == FluxoCadastroAviso.CRIAR_LEMBRETE -> tr("Dados do lembrete", "Reminder data")
+                                    else -> tr("Dados do aviso", "Reminder data")
+                                },
                                 color = textPrimary,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 25.sp
                             )
                         }
                         Spacer(Modifier.height(14.dp))
+                        if (!isFluxoPosto) {
+                            Surface(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp),
+                                color = if (isDark) Color(0xFF0F172A) else Color(0xFFF8FAFC),
+                                border = BorderStroke(1.dp, cardBorder)
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Text(
+                                        tr("Esse aviso já aconteceu ou vai acontecer?", "Did this reminder already happen or will it happen?"),
+                                        color = textPrimary,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        OutlinedButton(
+                                            onClick = {
+                                                fluxoCadastro = FluxoCadastroAviso.CRIAR_LEMBRETE
+                                            },
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .height(46.dp),
+                                            shape = RoundedCornerShape(12.dp),
+                                            border = BorderStroke(
+                                                1.dp,
+                                                if (fluxoCadastro == FluxoCadastroAviso.CRIAR_LEMBRETE) accentBlue else cardBorder
+                                            ),
+                                            colors = ButtonDefaults.outlinedButtonColors(
+                                                containerColor = if (fluxoCadastro == FluxoCadastroAviso.CRIAR_LEMBRETE) accentBlue else Color.Transparent,
+                                                contentColor = if (fluxoCadastro == FluxoCadastroAviso.CRIAR_LEMBRETE) Color.White else textPrimary
+                                            )
+                                        ) {
+                                            Text(tr("Vai acontecer", "Will happen"), fontWeight = FontWeight.SemiBold)
+                                        }
+                                        OutlinedButton(
+                                            onClick = {
+                                                fluxoCadastro = FluxoCadastroAviso.REGISTRAR_SERVICO
+                                                frequenciaLembreteKey = "NONE"
+                                                repetirAteDesativar = false
+                                            },
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .height(46.dp),
+                                            shape = RoundedCornerShape(12.dp),
+                                            border = BorderStroke(
+                                                1.dp,
+                                                if (fluxoCadastro == FluxoCadastroAviso.REGISTRAR_SERVICO) accentBlue else cardBorder
+                                            ),
+                                            colors = ButtonDefaults.outlinedButtonColors(
+                                                containerColor = if (fluxoCadastro == FluxoCadastroAviso.REGISTRAR_SERVICO) accentBlue else Color.Transparent,
+                                                contentColor = if (fluxoCadastro == FluxoCadastroAviso.REGISTRAR_SERVICO) Color.White else textPrimary
+                                            )
+                                        ) {
+                                            Text(tr("Já aconteceu", "Already happened"), fontWeight = FontWeight.SemiBold)
+                                        }
+                                    }
+                                }
+                            }
+                        }
                         if (categoriaPermiteEscanearNota(tipoSelecionado)) {
                             Button(
                                 onClick = {

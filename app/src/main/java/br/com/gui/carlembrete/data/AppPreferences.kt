@@ -69,15 +69,20 @@ object AppPreferences {
     }
 
     fun getAppLanguage(context: Context): AppLanguage {
-        val stored = context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-            .getString(KEY_APP_LANGUAGE, AppLanguage.SYSTEM.name)
-        return AppLanguage.entries.firstOrNull { it.name == stored } ?: AppLanguage.SYSTEM
+        val prefs = context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        val stored = prefs.getString(KEY_APP_LANGUAGE, AppLanguage.PORTUGUESE.name)
+        val resolved = AppLanguage.entries.firstOrNull { it.name == stored } ?: AppLanguage.PORTUGUESE
+        // O app opera somente em portugues; normaliza legado "SYSTEM" para evitar seguir idioma do aparelho.
+        if (resolved != AppLanguage.PORTUGUESE) {
+            prefs.edit().putString(KEY_APP_LANGUAGE, AppLanguage.PORTUGUESE.name).apply()
+        }
+        return AppLanguage.PORTUGUESE
     }
 
     fun setAppLanguage(context: Context, language: AppLanguage) {
         context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
             .edit()
-            .putString(KEY_APP_LANGUAGE, language.name)
+            .putString(KEY_APP_LANGUAGE, AppLanguage.PORTUGUESE.name)
             .apply()
     }
 

@@ -2,27 +2,18 @@ package br.com.gui.carlembrete
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
-import androidx.compose.ui.platform.LocalConfiguration
-import java.util.Locale
 
 @Composable
 @ReadOnlyComposable
 fun isEnglishUi(): Boolean {
-    val configuration = LocalConfiguration.current
-    val locale = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
-        configuration.locales.get(0)
-    } else {
-        @Suppress("DEPRECATION")
-        configuration.locale
-    } ?: Locale.getDefault()
-    return locale.language.equals("en", ignoreCase = true)
+    return false
 }
 
 @Composable
 @ReadOnlyComposable
 fun tr(pt: String, en: String): String = if (isEnglishUi()) en else pt
 
-fun isEnglishNow(): Boolean = Locale.getDefault().language.equals("en", ignoreCase = true)
+fun isEnglishNow(): Boolean = false
 
 fun trNow(pt: String, en: String): String = if (isEnglishNow()) en else pt
 
