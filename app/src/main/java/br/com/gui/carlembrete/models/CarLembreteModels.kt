@@ -84,7 +84,11 @@ data class Lembrete(
     val horaAviso: String = "09:00",
     val estabelecimentoNome: String = "",
     val estabelecimentoEndereco: String = ""
-) : Serializable
+) : Serializable {
+    companion object {
+        private const val serialVersionUID: Long = 1L
+    }
+}
 
 // Logos removidos por segurança legal. Use ícones genéricos por tipo de veículo.
 
@@ -377,6 +381,10 @@ data class CarroInfo(
     val vezesBatido: Int? = null,
     val tempoComVeiculo: String = ""
 ) : Serializable {
+    companion object {
+        private const val serialVersionUID: Long = 1L
+    }
+
     fun getCorUI(): Color = Color(corArgb)
 }
 
@@ -505,7 +513,11 @@ data class ContatoProfissional(
     val nome: String,
     val telefone: String,
     val tipoServico: String
-) : Serializable
+) : Serializable {
+    companion object {
+        private const val serialVersionUID: Long = 1L
+    }
+}
 
 data class Abastecimento(
     val id: String = UUID.randomUUID().toString(),
@@ -515,19 +527,31 @@ data class Abastecimento(
     val valorPago: Double,
     val litros: Double,
     val itens: List<ItemAbastecimento> = emptyList()
-) : Serializable
+) : Serializable {
+    companion object {
+        private const val serialVersionUID: Long = 1L
+    }
+}
 
 data class ItemAbastecimento(
     val nome: String,
     val valor: Double
-) : Serializable
+) : Serializable {
+    companion object {
+        private const val serialVersionUID: Long = 1L
+    }
+}
 
 data class Pedalada(
     val id: String = UUID.randomUUID().toString(),
     val carroId: String,
     val data: String,
     val km: Double
-) : Serializable
+) : Serializable {
+    companion object {
+        private const val serialVersionUID: Long = 1L
+    }
+}
 
 enum class TipoManutencao(val label: String) {
     CORRENTE("Corrente"),

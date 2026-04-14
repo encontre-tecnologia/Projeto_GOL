@@ -19,3 +19,11 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+# Keep Serializable models stable across releases to avoid data loss
+# in local ObjectInputStream/ObjectOutputStream persistence.
+-keepnames class br.com.gui.carlembrete.** implements java.io.Serializable
+-keepclassmembers class br.com.gui.carlembrete.** implements java.io.Serializable {
+    static final long serialVersionUID;
+    !static !transient <fields>;
+}

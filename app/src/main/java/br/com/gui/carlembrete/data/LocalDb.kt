@@ -129,7 +129,7 @@ object BancoDeDados {
 
     fun salvarCarros(context: Context, lista: List<CarroInfo>) = salvar(context, FILE_CARROS, lista)
     fun carregarCarros(context: Context): List<CarroInfo>? = carregar<List<CarroInfo>>(context, FILE_CARROS)
-    fun carregarCarrosComFallback(context: Context): List<CarroInfo> { val lista = carregarCarros(context); return if (lista.isNullOrEmpty()) listOf(CarroInfo(nome = "Carro Padrão", modelo = "Modelo 1.0", marca = "Marca Padrão", kmAtual = 0)) else lista }
+    fun carregarCarrosComFallback(context: Context): List<CarroInfo> = carregarCarros(context).orEmpty()
 
     fun salvarLembretes(context: Context, lista: List<Lembrete>) = salvar(context, FILE_LEMBRETES, lista)
     fun carregarLembretes(context: Context): List<Lembrete> = carregar<List<Lembrete>>(context, FILE_LEMBRETES) ?: emptyList()

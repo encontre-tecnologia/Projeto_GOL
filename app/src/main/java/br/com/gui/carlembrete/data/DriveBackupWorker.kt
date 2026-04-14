@@ -18,7 +18,7 @@ class DriveBackupWorker(
             return Result.success()
         }
         return try {
-            val carros = BancoDeDados.carregarCarrosComFallback(applicationContext)
+            val carros = BancoDeDados.carregarCarros(applicationContext).orEmpty()
             val lembretes = BancoDeDados.carregarLembretes(applicationContext)
             val contatos = BancoDeDados.carregarContatos(applicationContext)
             val abastecimentos = BancoDeDados.carregarAbastecimentos(applicationContext)
