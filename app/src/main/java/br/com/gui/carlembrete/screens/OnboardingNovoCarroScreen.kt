@@ -57,6 +57,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -147,16 +148,17 @@ private fun OnboardingNovoCarroScreenContent(
         }
     }
     val scheme = MaterialTheme.colorScheme
-    val bgLight = if (isOnboardingVariant) Color(0xFF0B1320) else scheme.background
-    val borderLight = if (isOnboardingVariant) Color(0xFF334155) else scheme.outlineVariant
+    val isDark = scheme.background.luminance() < 0.5f
+    val bgLight = if (isOnboardingVariant) Color.Black else if (isDark) Color.Black else scheme.background
+    val borderLight = if (isOnboardingVariant) Color(0xFF262626) else scheme.outlineVariant
     val textPrimary = if (isOnboardingVariant) Color(0xFFF8FAFC) else scheme.onBackground
-    val textSecondary = if (isOnboardingVariant) Color(0xFF94A3B8) else scheme.onSurfaceVariant
+    val textSecondary = if (isOnboardingVariant) Color(0xFFA3A3A3) else scheme.onSurfaceVariant
     val accentBlue = if (isOnboardingVariant) Color(0xFF60A5FA) else scheme.primary
     val selectorTextPrimary = if (isOnboardingVariant) Color(0xFFF8FAFC) else scheme.onSurface
     val selectorTextSecondary = if (isOnboardingVariant) Color(0xFF94A3B8) else scheme.onSurfaceVariant
     val selectorAccent = if (isOnboardingVariant) Color(0xFF60A5FA) else scheme.primary
-    val selectorBorder = if (isOnboardingVariant) Color(0xFF334155) else scheme.outlineVariant
-    val selectorDropdownBg = if (isOnboardingVariant) Color(0xFF1E293B) else scheme.surface
+    val selectorBorder = if (isOnboardingVariant) Color(0xFF2A2A2A) else scheme.outlineVariant
+    val selectorDropdownBg = if (isOnboardingVariant) Color(0xFF0A0A0A) else if (isDark) Color(0xFF111827) else scheme.surface
     val selectorFieldColors = OutlinedTextFieldDefaults.colors(
         focusedTextColor = selectorTextPrimary,
         unfocusedTextColor = selectorTextPrimary,
@@ -216,7 +218,7 @@ private fun OnboardingNovoCarroScreenContent(
         unfocusedContainerColor = Color.Transparent,
         disabledContainerColor = Color.Transparent
     )
-    val cardBg = if (isOnboardingVariant) Color(0xFF111827) else scheme.surface
+    val cardBg = if (isOnboardingVariant) Color(0xFF050505) else if (isDark) Color(0xFF111827) else scheme.surface
     val carroBase = CarroInfo(nome = "", modelo = "")
 
     var nome by remember { mutableStateOf("") }
@@ -280,10 +282,13 @@ private fun OnboardingNovoCarroScreenContent(
 
     val isBikeTypeGlobal =
         tipoSelecionado == TipoVeiculo.BICICLETA || tipoSelecionado == TipoVeiculo.BIKE_ELETRICA
+    val tipoSemAno =
+        tipoSelecionado == TipoVeiculo.BICICLETA ||
+            tipoSelecionado == TipoVeiculo.BIKE_ELETRICA
     val etapa1Valida = marca.isNotBlank() &&
             nome.isNotBlank() &&
             modelo.isNotBlank() &&
-            (isBikeTypeGlobal || (anoSelecionado.isNotBlank() && anoValido)) &&
+            (tipoSemAno || (anoSelecionado.isNotBlank() && anoValido)) &&
             corSelecionada != null
     val hasTypeSelected = tipoSelecionado != null
     val hasBrandSelected = marca.isNotBlank()
@@ -293,7 +298,7 @@ private fun OnboardingNovoCarroScreenContent(
     val erroMarca = etapaCadastro == 1 && tentouAvancarEtapa1 && marca.isBlank()
     val erroNome = etapaCadastro == 1 && tentouAvancarEtapa1 && nome.isBlank()
     val erroModelo = etapaCadastro == 1 && tentouAvancarEtapa1 && modelo.isBlank()
-    val erroAno = etapaCadastro == 1 && !isBikeTypeGlobal && tentouAvancarEtapa1 && (anoSelecionado.isBlank() || !anoValido)
+    val erroAno = etapaCadastro == 1 && !tipoSemAno && tentouAvancarEtapa1 && (anoSelecionado.isBlank() || !anoValido)
     val erroCor = etapaCadastro == 1 && tentouAvancarEtapa1 && corSelecionada == null
     val erroKm = etapaCadastro == 2 && !isBikeTypeGlobal && tentouSalvarEtapa2 && kmAtualStr.filter(Char::isDigit).isEmpty()
     val etapa2Valida = proprietario.isNotBlank() &&
@@ -734,9 +739,7 @@ private fun OnboardingNovoCarroScreenContent(
                                             TipoVeiculo.FURGAO,
                                             TipoVeiculo.CAMINHAO,
                                             TipoVeiculo.ONIBUS,
-                                            TipoVeiculo.MOTORHOME,
-                                            TipoVeiculo.TRATOR,
-                                            TipoVeiculo.CARRETINHA
+                                            TipoVeiculo.MOTORHOME
                                         )
 
                                         Box(
@@ -1214,8 +1217,6 @@ private fun OnboardingNovoCarroScreenContent(
                         val isFreeNameType =
                             tipoSelecionado == TipoVeiculo.BICICLETA ||
                                     tipoSelecionado == TipoVeiculo.BIKE_ELETRICA ||
-                                    tipoSelecionado == TipoVeiculo.TRATOR ||
-                                    tipoSelecionado == TipoVeiculo.CARRETINHA ||
                                     tipoSelecionado == TipoVeiculo.MOTORHOME
                         val isManualNameMode =
                             isFreeNameType || nomeManualNoCadastro || (hasBrandSelected && consultaModelosConcluida && nomeManualPorFalhaApi)
@@ -1223,8 +1224,6 @@ private fun OnboardingNovoCarroScreenContent(
                         if (isManualNameMode) {
                             val freeNameLabel = when (tipoSelecionado) {
                                 TipoVeiculo.BICICLETA, TipoVeiculo.BIKE_ELETRICA -> "Nome da bike"
-                                TipoVeiculo.TRATOR -> "Nome do trator"
-                                TipoVeiculo.CARRETINHA -> "Nome da carretinha"
                                 TipoVeiculo.MOTORHOME -> "Nome do motorhome"
                                 else -> "Nome do veículo"
                             }
@@ -1261,6 +1260,8 @@ private fun OnboardingNovoCarroScreenContent(
                                 }
                             }
                         } else {
+                            val nomeVeiculoLabel = if (aguardarBuscaModelos) "Carregando nomes...." else "Nome do veículo"
+                            val nomeVeiculoPlaceholder = if (aguardarBuscaModelos) "Carregando nomes...." else "Selecione"
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -1270,8 +1271,8 @@ private fun OnboardingNovoCarroScreenContent(
                                     onValueChange = {},
                                     readOnly = true,
                                     isError = erroNome,
-                                label = { Text("Nome do veículo") },
-                                placeholder = { Text("Selecione") },
+                                label = { Text(nomeVeiculoLabel) },
+                                placeholder = { Text(nomeVeiculoPlaceholder) },
                                 singleLine = true,
                                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = showNomePickerScreen) },
                                 colors = selectorFieldColorsWithState(
@@ -1341,7 +1342,7 @@ private fun OnboardingNovoCarroScreenContent(
                             }
                         }
 
-                        if (!isBikeTypeGlobal) {
+                        if (!tipoSemAno) {
                             ExposedDropdownMenuBox(
                                 expanded = anoExpanded,
                                 onExpandedChange = {
@@ -1590,7 +1591,7 @@ private fun OnboardingNovoCarroScreenContent(
                             Button(
                                 onClick = {
                                     tentouAvancarEtapa1 = true
-                                    if (!isBikeTypeGlobal && anoSelecionado.isNotBlank() && !anoValido) {
+                            if (!tipoSemAno && anoSelecionado.isNotBlank() && !anoValido) {
                                         Toast.makeText(
                                             context,
                                             "Ano inválido. Digite um ano entre 1900 e $anoAtualPermitido.",
@@ -1666,7 +1667,7 @@ private fun OnboardingNovoCarroScreenContent(
                             Button(
                                 onClick = {
                                     tentouAvancarEtapa1 = true
-                                    if (!isBikeTypeGlobal && anoSelecionado.isNotBlank() && !anoValido) {
+                            if (!tipoSemAno && anoSelecionado.isNotBlank() && !anoValido) {
                                         Toast.makeText(
                                             context,
                                             "Ano inválido. Digite um ano entre 1900 e $anoAtualPermitido.",
@@ -1699,7 +1700,7 @@ private fun OnboardingNovoCarroScreenContent(
                             Button(
                                 onClick = {
                                     tentouSalvarEtapa2 = true
-                                    if (!isBikeTypeGlobal && anoSelecionado.isNotBlank() && !anoValido) {
+                        if (!tipoSemAno && anoSelecionado.isNotBlank() && !anoValido) {
                                         Toast.makeText(
                                             context,
                                             "Ano inválido. Digite um ano entre 1900 e $anoAtualPermitido.",
