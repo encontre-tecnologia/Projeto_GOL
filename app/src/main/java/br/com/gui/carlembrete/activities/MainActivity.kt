@@ -206,12 +206,6 @@ class MainActivity : ComponentActivity() {
                                 ManutencaoScreen(
                                     openAondePareiOnStart = openAondePareiFromIntent,
                                     onAondePareiStartConsumed = { openAondePareiFromIntent = false },
-                                    openReminderIdOnStart = openLembreteIdFromIntent,
-                                    openReminderCarIdOnStart = openLembreteCarroIdFromIntent,
-                                    onReminderStartConsumed = {
-                                        openLembreteIdFromIntent = null
-                                        openLembreteCarroIdFromIntent = null
-                                    },
                                     onLoaded = { keepNativeSplashVisible = false },
                                     onThemeModeChanged = { themeMode = it }
                                 )

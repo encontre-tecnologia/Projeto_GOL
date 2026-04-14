@@ -281,11 +281,6 @@ fun CarroInfoScreen(
                         modifier = Modifier.size(18.dp)
                     )
                 }
-                SuggestionIdeaEntryPoint(
-                    modifier = Modifier
-                        .align(Alignment.CenterEnd)
-                        .padding(top = 6.dp)
-                )
             }
 
             // --- HERO SECTION (Carro) ---
