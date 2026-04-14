@@ -52,13 +52,18 @@ import java.text.NumberFormat
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import kotlinx.coroutines.delay
 
 const val EXTRA_OPEN_AONDE_PAREI = "extra_open_aonde_parei"
+const val EXTRA_OPEN_LEMBRETE_ID = "extra_open_lembrete_id"
+const val EXTRA_OPEN_LEMBRETE_CARRO_ID = "extra_open_lembrete_carro_id"
 private const val TAG_MAIN_STARTUP = "MainStartup"
 
 class MainActivity : ComponentActivity() {
     private var contentInitialized = false
     private var openAondePareiFromIntent by mutableStateOf(false)
+    private var openLembreteIdFromIntent by mutableStateOf<String?>(null)
+    private var openLembreteCarroIdFromIntent by mutableStateOf<String?>(null)
     @Volatile
     private var keepNativeSplashVisible: Boolean = false
 
@@ -113,6 +118,14 @@ class MainActivity : ComponentActivity() {
             openAondePareiFromIntent = true
             intent.removeExtra(EXTRA_OPEN_AONDE_PAREI)
         }
+        intent?.getStringExtra(EXTRA_OPEN_LEMBRETE_ID)?.let { lembreteId ->
+            if (lembreteId.isNotBlank()) {
+                openLembreteIdFromIntent = lembreteId
+                openLembreteCarroIdFromIntent = intent.getStringExtra(EXTRA_OPEN_LEMBRETE_CARRO_ID)
+            }
+            intent.removeExtra(EXTRA_OPEN_LEMBRETE_ID)
+            intent.removeExtra(EXTRA_OPEN_LEMBRETE_CARRO_ID)
+        }
     }
 
     private fun initializeContentIfNeeded() {
@@ -161,6 +174,7 @@ class MainActivity : ComponentActivity() {
                 }
                 LaunchedEffect(usuario) {
                     if (usuario != null) {
+                        delay(450)
                         requestStartupPermissionsIfNeeded()
                         AdminUsageMetrics.markAppOpen(this@MainActivity)
                     }
@@ -192,6 +206,12 @@ class MainActivity : ComponentActivity() {
                                 ManutencaoScreen(
                                     openAondePareiOnStart = openAondePareiFromIntent,
                                     onAondePareiStartConsumed = { openAondePareiFromIntent = false },
+                                    openReminderIdOnStart = openLembreteIdFromIntent,
+                                    openReminderCarIdOnStart = openLembreteCarroIdFromIntent,
+                                    onReminderStartConsumed = {
+                                        openLembreteIdFromIntent = null
+                                        openLembreteCarroIdFromIntent = null
+                                    },
                                     onLoaded = { keepNativeSplashVisible = false },
                                     onThemeModeChanged = { themeMode = it }
                                 )
@@ -535,46 +555,6 @@ fun gerarPdfRelatorio(
         val valorParaVenderTexto = valorParaVender?.takeIf { it.isNotBlank() } ?: "Nao disponivel"
         val vezesBatidoTexto = carro.vezesBatido?.toString() ?: "Nao informado"
         val tempoComVeiculoTexto = carro.tempoComVeiculo.ifBlank { "Nao informado" }
-        val abastecimentosCarro = BancoDeDados.carregarAbastecimentos(context).filter { it.carroId == carro.id }
-        val totalLitrosAbastecidos = abastecimentosCarro.sumOf { it.litros.coerceAtLeast(0.0) }
-        val kmInicialConsumo = AppPreferences.getFuelStartKm(context, carro.id)
-        val distanciaConsumoKm = if (
-            kmInicialConsumo != null &&
-            carro.kmAtual > kmInicialConsumo &&
-            totalLitrosAbastecidos > 0.0
-        ) {
-            (carro.kmAtual - kmInicialConsumo).toDouble()
-        } else {
-            null
-        }
-        val consumoKmPorLitro = if (distanciaConsumoKm != null && totalLitrosAbastecidos > 0.0) {
-            distanciaConsumoKm / totalLitrosAbastecidos
-        } else {
-            null
-        }
-        val consumoLitrosPorKm = if (distanciaConsumoKm != null && distanciaConsumoKm > 0.0) {
-            totalLitrosAbastecidos / distanciaConsumoKm
-        } else {
-            null
-        }
-        val consumoLitrosPor100Km = if (distanciaConsumoKm != null && distanciaConsumoKm > 0.0) {
-            (totalLitrosAbastecidos * 100.0) / distanciaConsumoKm
-        } else {
-            null
-        }
-        val ultimoAbastecimentoData = abastecimentosCarro
-            .mapNotNull { item ->
-                runCatching { LocalDate.parse(item.data, DateTimeFormatter.ofPattern("dd/MM/yyyy")) }.getOrNull()
-            }
-            .maxOrNull()
-            ?.format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))
-            ?: "--"
-        val ultimoAbastecimento = abastecimentosCarro
-            .maxByOrNull { item ->
-                runCatching { LocalDate.parse(item.data, DateTimeFormatter.ofPattern("dd/MM/yyyy")) }.getOrNull()
-                    ?: LocalDate.MIN
-            }
-
         val isBike = carro.tipoVeiculo == TipoVeiculo.BICICLETA || carro.tipoVeiculo == TipoVeiculo.BIKE_ELETRICA
         if (!isBike) {
             drawSectionTitle("INFORMACOES")
@@ -659,34 +639,6 @@ fun gerarPdfRelatorio(
         y += statusBoxHeight + 34f
 
         if (!isBike) {
-            drawSectionTitle("CONSUMO")
-            val consumoCardHeight = 84f
-            drawCard(consumoCardHeight) { topY ->
-                val infoLeftX = marginX + 12f
-                val infoRightX = marginX + contentWidth / 2 + 10f
-                val infoRowY = topY + 24f
-                val consumoTexto = if (consumoKmPorLitro != null && consumoLitrosPor100Km != null) {
-                    String.format(
-                        Locale("pt", "BR"),
-                        "%.1f km/L (%.1f L/100km)",
-                        consumoKmPorLitro,
-                        consumoLitrosPor100Km
-                    )
-                } else {
-                    "Nao disponivel"
-                }
-                val ultimoTexto = if (ultimoAbastecimento != null) {
-                    "${ultimoAbastecimentoData} - ${String.format(Locale("pt", "BR"), "%.1f L", ultimoAbastecimento.litros)}"
-                } else {
-                    "--"
-                }
-                drawKeyValue("Consumo medio", consumoTexto, infoLeftX, infoRowY)
-                drawKeyValue("Ultimo abastecimento", ultimoTexto, infoRightX, infoRowY)
-            }
-            y += 8f
-        }
-
-        if (carro.tipoVeiculo != TipoVeiculo.BICICLETA) {
             drawSectionTitle("DOCUMENTACAO")
             val documentos = listOf(
                 TipoManutencao.IPVA to "IPVA",
@@ -809,7 +761,15 @@ fun gerarPdfRelatorio(
             canvas.drawText("Gerado pelo Zellu", pageInfo.pageWidth / 2f, pageInfo.pageHeight - 24f, watermarkPaint)
         }
         document.finishPage(currentPage)
-        val pdfFile = File(context.cacheDir, "relatorio_${System.currentTimeMillis()}.pdf")
+        val anoNoModelo = Regex("(19|20)\\d{2}").find(carro.modelo)?.value ?: LocalDate.now().year.toString()
+        val dataArquivo = LocalDate.now().format(DateTimeFormatter.ofPattern("dd-MM-yyyy"))
+        val nomeCarroNormalizado = Normalizer.normalize(carro.nome.lowercase(Locale("pt", "BR")), Normalizer.Form.NFD)
+            .replace(Regex("\\p{M}+"), "")
+            .replace(Regex("[^a-z0-9]+"), "-")
+            .trim('-')
+            .ifBlank { "veiculo" }
+        val nomeArquivo = "relatorio_${nomeCarroNormalizado}_${anoNoModelo}_${dataArquivo}.pdf"
+        val pdfFile = File(context.cacheDir, nomeArquivo)
         FileOutputStream(pdfFile).use { output -> document.writeTo(output) }
         document.close()
         FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", pdfFile)

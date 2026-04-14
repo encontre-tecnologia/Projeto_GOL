@@ -62,24 +62,34 @@ fun CarroInfoScreen(
 ) {
     val scheme = MaterialTheme.colorScheme
     val isDark = scheme.background.luminance() < 0.5f
-    val pageLight = if (isDark) Color(0xFF0F172A) else scheme.background
-    val cardColor = if (isDark) Color(0xFF1E293B) else Color.White
+    val pageLight = if (isDark) Color.Black else scheme.background
+    val cardColor = if (isDark) Color(0xFF111827) else Color.White
     val textLight = if (isDark) Color(0xFFF1F5F9) else Color(0xFF0F172A)
     val textDim = if (isDark) Color(0xFF94A3B8) else Color(0xFF64748B)
     val accentColor = Color(0xFF38BDF8)
     val cardBorder = if (isDark) Color.White.copy(alpha = 0.14f) else Color(0xFFCBD5E1)
     val dividerColor = if (isDark) Color.White.copy(alpha = 0.12f) else Color(0xFFCBD5E1)
-    val pdfAccent = if (isDark) Color.White else Color.Black
-    val pdfContainer = Color.Transparent
 
     val lembretesSemAbastecimento = lembretes.filter { it.tipo != TipoManutencao.ABASTECIMENTO }
     val lembretesAtivos = lembretesSemAbastecimento.filterNot(::isLembreteRealizado)
     val lembretesRealizados = lembretesSemAbastecimento.filter(::isLembreteRealizado)
     val totalGastos = lembretes.sumOf { it.valor }
+    val hoje = LocalDate.now()
+    val anoReferencia = hoje.year
+    val mesReferencia = hoje.format(DateTimeFormatter.ofPattern("MM/yyyy"))
+    val totalGastosAno = lembretesSemAbastecimento.sumOf { lembrete ->
+        val data = dataRealizacaoLembrete(lembrete) ?: dataParaOrdenacao(lembrete)
+        if (data != LocalDate.MAX && data.year == anoReferencia) lembrete.valor else 0.0
+    }
+    val totalGastosMes = lembretesSemAbastecimento.sumOf { lembrete ->
+        val data = dataRealizacaoLembrete(lembrete) ?: dataParaOrdenacao(lembrete)
+        if (data != LocalDate.MAX && data.year == anoReferencia && data.monthValue == hoje.monthValue) lembrete.valor else 0.0
+    }
     val context = LocalContext.current
     val view = LocalView.current
     var showHistoricoConsumo by remember { mutableStateOf(false) }
     val isBikeType = carro.tipoVeiculo == TipoVeiculo.BICICLETA || carro.tipoVeiculo == TipoVeiculo.BIKE_ELETRICA
+    val suportaFipe = remember(carro.tipoVeiculo) { tipoFipeParaRelatorio(carro.tipoVeiculo) != null }
 
     DisposableEffect(view, isDark) {
         val activity = view.context as? android.app.Activity
@@ -119,7 +129,6 @@ fun CarroInfoScreen(
 
     val corNome = corNomePorArgb(carro.corArgb)
     val (tituloSaudeOriginal, descricaoSaudeOriginal) = calcularReputacao(lembretesSemAbastecimento)
-    val hoje = LocalDate.now()
     val avisosVencidos = lembretesAtivos.count { lembrete ->
         val data = dataParaOrdenacao(lembrete)
         data != LocalDate.MAX && data.isBefore(hoje)
@@ -157,7 +166,6 @@ fun CarroInfoScreen(
     )
         .distinctBy { (_, lembrete) -> lembrete.id }
         .sortedByDescending { it.first }
-        .take(5)
     val manutencoesFuturas = lembretesAtivos
         .mapNotNull { lembrete ->
             val data = dataParaOrdenacao(lembrete)
@@ -169,7 +177,22 @@ fun CarroInfoScreen(
                 lembrete.tipo != TipoManutencao.LICENCIAMENTO
         }
         .sortedBy { it.first }
-        .take(10)
+
+    val historicoPageSize = 5
+    var historicoPage by remember(historicoManutencoes.size) { mutableStateOf(0) }
+    val historicoTotalPages = if (historicoManutencoes.isEmpty()) 1 else (historicoManutencoes.size + historicoPageSize - 1) / historicoPageSize
+    val historicoPageAtual = historicoPage.coerceIn(0, historicoTotalPages - 1)
+    val historicoPaginado = historicoManutencoes
+        .drop(historicoPageAtual * historicoPageSize)
+        .take(historicoPageSize)
+
+    val futurasPageSize = 5
+    var futurasPage by remember(manutencoesFuturas.size) { mutableStateOf(0) }
+    val futurasTotalPages = if (manutencoesFuturas.isEmpty()) 1 else (manutencoesFuturas.size + futurasPageSize - 1) / futurasPageSize
+    val futurasPageAtual = futurasPage.coerceIn(0, futurasTotalPages - 1)
+    val futurasPaginado = manutencoesFuturas
+        .drop(futurasPageAtual * futurasPageSize)
+        .take(futurasPageSize)
 
     val documentos = listOf(
         TipoManutencao.IPVA to tr("IPVA", "IPVA"),
@@ -209,6 +232,11 @@ fun CarroInfoScreen(
     val valorVendaSugerido = valorFipeNumerico?.let { it * fatorVendaSugerido }
 
     LaunchedEffect(carro.id, carro.marca, carro.modelo, carro.tipoVeiculo) {
+        if (!suportaFipe) {
+            precoTabelaFipe = null
+            carregandoPrecoFipe = false
+            return@LaunchedEffect
+        }
         carregandoPrecoFipe = true
         precoTabelaFipe = withContext(Dispatchers.IO) { buscarPrecoFipeVeiculo(context, carro) }
         carregandoPrecoFipe = false
@@ -240,13 +268,6 @@ fun CarroInfoScreen(
                     .padding(horizontal = 16.dp, vertical = 2.dp),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    tr("Relatório Técnico", "Technical Report"),
-                    color = textLight,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 17.sp
-                )
-
                 IconButton(
                     onClick = onDismiss,
                     modifier = Modifier
@@ -260,36 +281,11 @@ fun CarroInfoScreen(
                         modifier = Modifier.size(18.dp)
                     )
                 }
-
-                FilledTonalButton(
-                    onClick = {
-                        val uri = gerarPdfRelatorio(
-                            context = context,
-                            carro = carro,
-                            lembretes = lembretes,
-                            isPremium = isPremium,
-                            valorTabela = precoTabelaFipe,
-                            valorParaVender = valorVendaSugerido?.let(::formatarMoedaLocal)
-                        )
-                        if (uri != null) {
-                            compartilharPdf(context, uri)
-                        } else {
-                            Toast.makeText(context, trNow("Erro ao gerar PDF", "Failed to generate PDF"), Toast.LENGTH_SHORT).show()
-                        }
-                    },
-                    colors = ButtonDefaults.filledTonalButtonColors(
-                        containerColor = pdfContainer,
-                        contentColor = pdfAccent
-                    ),
-                    border = BorderStroke(1.dp, cardBorder),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                    shape = RoundedCornerShape(9.dp),
-                    modifier = Modifier.align(Alignment.CenterEnd)
-                ) {
-                    Icon(Icons.Default.Print, contentDescription = null, modifier = Modifier.size(14.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text(tr("PDF", "PDF"), fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                }
+                SuggestionIdeaEntryPoint(
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .padding(top = 6.dp)
+                )
             }
 
             // --- HERO SECTION (Carro) ---
@@ -302,110 +298,123 @@ fun CarroInfoScreen(
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold,
                     color = textLight,
-                    modifier = Modifier.offset(y = (4).dp)
+                    modifier = Modifier.padding(top = 2.dp, bottom = 6.dp)
                 )
 
-                VehicleIcon(
-                    tipoVeiculo = carro.tipoVeiculo,
-                    tint = if (isDark) Color.White else Color.Black,
-                    size = 210.dp,
-                    modifier = Modifier.offset(y = (-22).dp)
-                )
-
-                Surface(
+                Box(
                     modifier = Modifier
-                        .offset(y = (-64).dp)
-                        .padding(horizontal = 16.dp)
-                        .fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    color = cardColor,
-                    border = BorderStroke(0.8.dp, cardBorder)
+                        .fillMaxWidth()
+                        .height(120.dp),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Column(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Text(
-                            text = tr("Marca • Modelo • Ano", "Brand • Model • Year"),
-                            color = textDim,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                        Text(
-                            text = listOf(carro.marca, modeloSemAno, anoVeiculo.takeIf { it != "--" })
-                                .filterNotNull()
-                                .filter { it.isNotBlank() }
-                                .joinToString(" • ")
-                                .ifBlank { "N/A" },
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = textLight,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
-                }
-
-                if (carregandoPrecoFipe) {
-                    Text(
-                        text = tr("Buscando FIPE...", "Loading FIPE..."),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = textDim,
-                        modifier = Modifier.offset(y = (-54).dp)
+                    VehicleIcon(
+                        tipoVeiculo = carro.tipoVeiculo,
+                        tint = if (isDark) Color.White else Color.Black,
+                        size = 180.dp
                     )
-                } else if (!precoTabelaFipe.isNullOrBlank()) {
-                    ElevatedCard(
-                        modifier = Modifier
-                            .offset(y = (-54).dp)
-                            .padding(horizontal = 16.dp)
-                            .fillMaxWidth(),
-                        shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.elevatedCardColors(containerColor = cardColor),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .border(0.8.dp, cardBorder, RoundedCornerShape(16.dp))
-                                .padding(14.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            InfoRowModern(tr("Tabela FIPE", "FIPE Table"), precoTabelaFipe.orEmpty(), textDim, Color(0xFF22C55E))
-                            if (valorVendaSugerido != null) {
-                                Divider(color = dividerColor)
-                                InfoRowModern(tr("Por quanto vender", "Suggested sale price"), formatarMoedaLocal(valorVendaSugerido), textDim, Color(0xFF22C55E))
-                            }
-                        }
-                    }
                 }
-
-                Spacer(Modifier.height(0.dp))
             }
 
             if (!isBikeType) {
-                FilledTonalButton(
-                    onClick = { showHistoricoConsumo = true },
-                    colors = ButtonDefaults.filledTonalButtonColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 4.dp)
+                        .padding(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    FilledTonalButton(
+                        onClick = { showHistoricoConsumo = true },
+                        colors = ButtonDefaults.filledTonalButtonColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary
+                        ),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.Default.LocalGasStation, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(tr("Ver consumo", "View consumption"), fontWeight = FontWeight.SemiBold)
+                    }
+                    Button(
+                        onClick = {
+                            val uri = gerarPdfRelatorio(
+                                context = context,
+                                carro = carro,
+                                lembretes = lembretes,
+                                isPremium = isPremium,
+                                valorTabela = if (suportaFipe) precoTabelaFipe else null,
+                                valorParaVender = if (suportaFipe) valorVendaSugerido?.let(::formatarMoedaLocal) else null
+                            )
+                            if (uri != null) {
+                                compartilharPdf(context, uri)
+                            } else {
+                                Toast.makeText(context, trNow("Erro ao gerar PDF", "Failed to generate PDF"), Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF22C55E),
+                            contentColor = Color.White
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Share,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                            tint = Color(0xFFD1FAE5)
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(tr("Compartilhar", "Share"), fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            } else {
+                Button(
+                    onClick = {
+                        val uri = gerarPdfRelatorio(
+                            context = context,
+                            carro = carro,
+                            lembretes = lembretes,
+                            isPremium = isPremium,
+                            valorTabela = if (suportaFipe) precoTabelaFipe else null,
+                            valorParaVender = if (suportaFipe) valorVendaSugerido?.let(::formatarMoedaLocal) else null
+                        )
+                        if (uri != null) {
+                            compartilharPdf(context, uri)
+                        } else {
+                            Toast.makeText(context, trNow("Erro ao gerar PDF", "Failed to generate PDF"), Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF22C55E),
+                        contentColor = Color.White
                     ),
-                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier
-                        .offset(y = (-46).dp)
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp)
+                        .padding(horizontal = 16.dp),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp)
                 ) {
-                    Icon(Icons.Default.LocalGasStation, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Icon(
+                        Icons.Default.Share,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                        tint = Color(0xFFD1FAE5)
+                    )
                     Spacer(Modifier.width(8.dp))
-                    Text(tr("Ver consumo", "View consumption"), fontWeight = FontWeight.SemiBold)
+                    Text(tr("Compartilhar", "Share"), fontWeight = FontWeight.SemiBold)
                 }
             }
 
             Spacer(Modifier.height(0.dp))
+            Spacer(Modifier.height(12.dp))
 
             // --- RESUMO RÁPIDO ---
             ContentSection(
                 modifier = Modifier
-                    .offset(y = (-34).dp)
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp),
                 title = tr("Resumo", "Summary"),
@@ -414,21 +423,58 @@ fun CarroInfoScreen(
                 titleColor = textLight,
                 borderColor = cardBorder
             ) {
-                InfoRowModern(tr("Saúde", "Health"), tituloSaude, textDim, corSaude)
+                InfoRowModern(
+                    tr("Marca/Modelo", "Brand/Model"),
+                    listOf(carro.marca, modeloSemAno)
+                        .filterNotNull()
+                        .filter { it.isNotBlank() }
+                        .joinToString(" • ")
+                        .ifBlank { "N/A" },
+                    textDim,
+                    textLight
+                )
                 Divider(color = dividerColor)
-                InfoRowModern(tr("Total gasto", "Total spent"), formatarMoedaLocal(totalGastos), textDim, textLight)
+                InfoRowModern(tr("Saúde", "Health"), tituloSaude, textDim, corSaude)
+                if (!isBikeType) {
+                    Divider(color = dividerColor)
+                    InfoRowModern(tr("Ano do veículo", "Vehicle year"), anoVeiculo, textDim, textLight)
+                }
+                Divider(color = dividerColor)
+                InfoRowModern(tr("Total ano $anoReferencia", "Year total $anoReferencia"), formatarMoedaLocal(totalGastosAno), textDim, textLight)
+                Divider(color = dividerColor)
+                InfoRowModern(tr("Total mês $mesReferencia", "Month total $mesReferencia"), formatarMoedaLocal(totalGastosMes), textDim, textLight)
+                if (suportaFipe) {
+                    Divider(color = dividerColor)
+                    when {
+                        carregandoPrecoFipe -> {
+                            InfoRowModern(tr("Tabela FIPE", "FIPE Table"), tr("Buscando...", "Loading..."), textDim, textDim)
+                        }
+                        !precoTabelaFipe.isNullOrBlank() -> {
+                            InfoRowModern(tr("Tabela FIPE", "FIPE Table"), precoTabelaFipe.orEmpty(), textDim, Color(0xFF22C55E))
+                        }
+                        else -> {
+                            InfoRowModern(tr("Tabela FIPE", "FIPE Table"), "--", textDim, textDim)
+                        }
+                    }
+                    Divider(color = dividerColor)
+                    InfoRowModern(
+                        tr("Por quanto vender", "Suggested sale price"),
+                        valorVendaSugerido?.let(::formatarMoedaLocal) ?: "--",
+                        textDim,
+                        if (valorVendaSugerido != null) Color(0xFF22C55E) else textDim
+                    )
+                }
                 if (!isBikeType) {
                     Divider(color = dividerColor)
                     InfoRowModern(tr("KM atual", "Current mileage"), kmAtualResumo, textDim, accentColor)
                 }
             }
 
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(16.dp))
 
             // --- CONTEÚDO DETALHADO ---
             Column(
                 modifier = Modifier
-                    .offset(y = (-34).dp)
                     .padding(horizontal = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
@@ -451,7 +497,7 @@ fun CarroInfoScreen(
                 }
 
                 // Seção Documentos (apenas para veículos com documentação)
-                if (carro.tipoVeiculo != TipoVeiculo.BICICLETA) {
+                if (!isBikeType) {
                     ContentSection(
                         title = tr("Situação Legal", "Legal Status"),
                         icon = Icons.Outlined.Description,
@@ -489,62 +535,107 @@ fun CarroInfoScreen(
                     icon = Icons.Outlined.History,
                     cardColor = cardColor,
                     titleColor = textLight,
-                    borderColor = cardBorder
+                    borderColor = cardBorder,
+                    contentPadding = PaddingValues(top = 0.dp, start = 0.dp, end = 0.dp, bottom = 0.dp)
                 ) {
                     if (historicoManutencoes.isEmpty()) {
-                        Text(tr("Nenhum registro encontrado.", "No records found."), color = textDim, fontSize = 12.sp, modifier = Modifier.padding(vertical = 8.dp))
+                        EmptyTableStateCard(
+                            icon = Icons.Outlined.History,
+                            title = tr("Sem manutenções realizadas", "No completed maintenance yet"),
+                            message = tr(
+                                "Quando você concluir um serviço, ele vai aparecer aqui com data e valor.",
+                                "When you complete a service, it will appear here with date and amount."
+                            ),
+                            isDark = isDark,
+                            textLight = textLight,
+                            textDim = textDim,
+                            borderColor = cardBorder
+                        )
                     } else {
-                        Surface(
-                            modifier = Modifier.fillMaxWidth(),
-                            color = Color.Transparent,
-                            border = BorderStroke(1.dp, dividerColor),
-                            shape = RoundedCornerShape(10.dp)
-                        ) {
-                            Column {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            Divider(color = dividerColor)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(if (isDark) Color.White.copy(alpha = 0.08f) else Color(0xFFE2E8F0))
+                                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(tr("Item", "Item"), color = textLight, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                                Text(tr("Data", "Date"), color = textLight, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(92.dp))
+                                Text(tr("Valor", "Amount"), color = textLight, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(82.dp), textAlign = TextAlign.End)
+                            }
+                            historicoPaginado.forEachIndexed { index, (data, lembrete) ->
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .background(if (isDark) Color.White.copy(alpha = 0.08f) else Color(0xFFE2E8F0))
                                         .padding(horizontal = 10.dp, vertical = 8.dp),
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text(tr("Item", "Item"), color = textLight, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                                    Text(tr("Data", "Date"), color = textLight, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(92.dp))
-                                    Text(tr("Valor", "Amount"), color = textLight, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(82.dp), textAlign = TextAlign.End)
+                                    Text(
+                                        lembrete.titulo,
+                                        color = textLight,
+                                        fontWeight = FontWeight.Medium,
+                                        fontSize = 12.sp,
+                                        maxLines = 1,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    Text(
+                                        data.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")),
+                                        color = textDim,
+                                        fontSize = 11.sp,
+                                        modifier = Modifier.width(92.dp)
+                                    )
+                                    Text(
+                                        formatarMoedaLocal(lembrete.valor),
+                                        color = textLight.copy(alpha = 0.9f),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        modifier = Modifier.width(82.dp),
+                                        textAlign = TextAlign.End
+                                    )
                                 }
-                                historicoManutencoes.forEachIndexed { index, (data, lembrete) ->
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 10.dp, vertical = 8.dp),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(
-                                            lembrete.titulo,
-                                            color = textLight,
-                                            fontWeight = FontWeight.Medium,
-                                            fontSize = 12.sp,
-                                            maxLines = 1,
-                                            modifier = Modifier.weight(1f)
-                                        )
-                                        Text(
-                                            data.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")),
-                                            color = textDim,
-                                            fontSize = 11.sp,
-                                            modifier = Modifier.width(92.dp)
-                                        )
-                                        Text(
-                                            formatarMoedaLocal(lembrete.valor),
-                                            color = textLight.copy(alpha = 0.9f),
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                            modifier = Modifier.width(82.dp),
-                                            textAlign = TextAlign.End
-                                        )
-                                    }
-                                    if (index < historicoManutencoes.lastIndex) Divider(color = dividerColor)
+                                if (index < historicoPaginado.lastIndex) Divider(color = dividerColor)
+                            }
+                            Divider(color = dividerColor)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(if (isDark) Color.White.copy(alpha = 0.08f) else Color(0xFFE2E8F0))
+                                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                IconButton(
+                                    onClick = { historicoPage = (historicoPageAtual - 1).coerceAtLeast(0) },
+                                    enabled = historicoPageAtual > 0,
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.KeyboardArrowLeft,
+                                        contentDescription = tr("Anterior", "Previous"),
+                                        tint = if (historicoPageAtual > 0) textLight else textDim
+                                    )
+                                }
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    text = "${tr("Página", "Page")} ${historicoPageAtual + 1}/$historicoTotalPages",
+                                    color = textDim,
+                                    fontSize = 12.sp
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                IconButton(
+                                    onClick = { historicoPage = (historicoPageAtual + 1).coerceAtMost(historicoTotalPages - 1) },
+                                    enabled = historicoPageAtual < historicoTotalPages - 1,
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.KeyboardArrowRight,
+                                        contentDescription = tr("Próxima", "Next"),
+                                        tint = if (historicoPageAtual < historicoTotalPages - 1) textLight else textDim
+                                    )
                                 }
                             }
                         }
@@ -556,65 +647,110 @@ fun CarroInfoScreen(
                     icon = Icons.Default.Event,
                     cardColor = cardColor,
                     titleColor = textLight,
-                    borderColor = cardBorder
+                    borderColor = cardBorder,
+                    contentPadding = PaddingValues(top = 0.dp, start = 0.dp, end = 0.dp, bottom = 0.dp)
                 ) {
                     if (manutencoesFuturas.isEmpty()) {
-                        Text(tr("Nenhum lembrete futuro.", "No upcoming reminders."), color = textDim, fontSize = 12.sp)
+                        EmptyTableStateCard(
+                            icon = Icons.Default.Event,
+                            title = tr("Sem lembretes futuros", "No upcoming reminders"),
+                            message = tr(
+                                "Adicione um novo aviso para não perder a próxima manutenção.",
+                                "Add a new reminder so you don't miss the next maintenance."
+                            ),
+                            isDark = isDark,
+                            textLight = textLight,
+                            textDim = textDim,
+                            borderColor = cardBorder
+                        )
                     } else {
                         val colData = 110.dp
                         val colKm = 90.dp
-                        Surface(
-                            modifier = Modifier.fillMaxWidth(),
-                            color = Color.Transparent,
-                            border = BorderStroke(1.dp, dividerColor),
-                            shape = RoundedCornerShape(10.dp)
-                        ) {
-                            Column {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            Divider(color = dividerColor)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(if (isDark) Color.White.copy(alpha = 0.08f) else Color(0xFFE2E8F0))
+                                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(tr("Item", "Item"), color = textLight, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                                Text(tr("Data", "Date"), color = textLight, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(colData), textAlign = TextAlign.Center)
+                                Text(tr("KM", "Mileage"), color = textLight, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(colKm), textAlign = TextAlign.End)
+                            }
+                            futurasPaginado.forEachIndexed { index, (data, lembrete) ->
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .background(if (isDark) Color.White.copy(alpha = 0.08f) else Color(0xFFE2E8F0))
                                         .padding(horizontal = 10.dp, vertical = 8.dp),
                                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text(tr("Item", "Item"), color = textLight, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                                    Text(tr("Data", "Date"), color = textLight, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(colData), textAlign = TextAlign.Center)
-                                    Text(tr("KM", "Mileage"), color = textLight, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(colKm), textAlign = TextAlign.End)
+                                    Text(
+                                        lembrete.titulo,
+                                        color = textLight,
+                                        fontWeight = FontWeight.Medium,
+                                        fontSize = 12.sp,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    Text(
+                                        data.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")),
+                                        color = textDim,
+                                        fontSize = 11.sp,
+                                        modifier = Modifier.width(colData),
+                                        textAlign = TextAlign.Center
+                                    )
+                                    Text(
+                                        lembrete.kmLimite.ifBlank { "--" },
+                                        color = textLight,
+                                        fontSize = 11.sp,
+                                        modifier = Modifier.width(colKm),
+                                        textAlign = TextAlign.End
+                                    )
                                 }
-                                manutencoesFuturas.forEachIndexed { index, (data, lembrete) ->
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 10.dp, vertical = 8.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(
-                                            lembrete.titulo,
-                                            color = textLight,
-                                            fontWeight = FontWeight.Medium,
-                                            fontSize = 12.sp,
-                                            maxLines = 2,
-                                            overflow = TextOverflow.Ellipsis,
-                                            modifier = Modifier.weight(1f)
-                                        )
-                                        Text(
-                                            data.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")),
-                                            color = textDim,
-                                            fontSize = 11.sp,
-                                            modifier = Modifier.width(colData),
-                                            textAlign = TextAlign.Center
-                                        )
-                                        Text(
-                                            lembrete.kmLimite.ifBlank { "--" },
-                                            color = textLight,
-                                            fontSize = 11.sp,
-                                            modifier = Modifier.width(colKm),
-                                            textAlign = TextAlign.End
-                                        )
-                                    }
-                                    if (index < manutencoesFuturas.lastIndex) Divider(color = dividerColor)
+                                if (index < futurasPaginado.lastIndex) Divider(color = dividerColor)
+                            }
+                            Divider(color = dividerColor)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(if (isDark) Color.White.copy(alpha = 0.08f) else Color(0xFFE2E8F0))
+                                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                IconButton(
+                                    onClick = { futurasPage = (futurasPageAtual - 1).coerceAtLeast(0) },
+                                    enabled = futurasPageAtual > 0,
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.KeyboardArrowLeft,
+                                        contentDescription = tr("Anterior", "Previous"),
+                                        tint = if (futurasPageAtual > 0) textLight else textDim
+                                    )
+                                }
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    text = "${tr("Página", "Page")} ${futurasPageAtual + 1}/$futurasTotalPages",
+                                    color = textDim,
+                                    fontSize = 12.sp
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                IconButton(
+                                    onClick = { futurasPage = (futurasPageAtual + 1).coerceAtMost(futurasTotalPages - 1) },
+                                    enabled = futurasPageAtual < futurasTotalPages - 1,
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.KeyboardArrowRight,
+                                        contentDescription = tr("Próxima", "Next"),
+                                        tint = if (futurasPageAtual < futurasTotalPages - 1) textLight else textDim
+                                    )
                                 }
                             }
                         }
@@ -673,8 +809,14 @@ fun ContentSection(
     cardColor: Color,
     titleColor: Color,
     borderColor: Color,
+    contentPadding: PaddingValues = PaddingValues(16.dp),
     content: @Composable ColumnScope.() -> Unit
 ) {
+    val headerBg = if (cardColor.luminance() < 0.5f) {
+        Color.White.copy(alpha = 0.08f)
+    } else {
+        Color(0xFFE2E8F0)
+    }
     ElevatedCard(
         modifier = modifier
             .fillMaxWidth()
@@ -684,15 +826,85 @@ fun ContentSection(
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            modifier = Modifier.fillMaxWidth()
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(icon, contentDescription = null, tint = titleColor.copy(alpha = 0.82f), modifier = Modifier.size(16.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(headerBg)
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    icon,
+                    contentDescription = null,
+                    tint = titleColor.copy(alpha = 0.82f),
+                    modifier = Modifier.size(16.dp)
+                )
                 Spacer(Modifier.width(8.dp))
-                Text(title.uppercase(), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = titleColor.copy(alpha = 0.82f))
+                Text(
+                    title.uppercase(),
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = titleColor.copy(alpha = 0.82f)
+                )
             }
-            content()
+            Column(
+                modifier = Modifier.padding(contentPadding),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                content()
+            }
+        }
+    }
+}
+
+@Composable
+private fun EmptyTableStateCard(
+    icon: ImageVector,
+    title: String,
+    message: String,
+    isDark: Boolean,
+    textLight: Color,
+    textDim: Color,
+    borderColor: Color
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 10.dp, vertical = 10.dp),
+        shape = RoundedCornerShape(12.dp),
+        color = if (isDark) Color.White.copy(alpha = 0.04f) else Color(0xFFF8FAFC),
+        border = BorderStroke(1.dp, borderColor.copy(alpha = if (isDark) 0.65f else 1f))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 14.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = textDim.copy(alpha = 0.9f),
+                modifier = Modifier.size(18.dp)
+            )
+            Text(
+                text = title,
+                color = textLight,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 13.sp,
+                textAlign = TextAlign.Center
+            )
+            Text(
+                text = message,
+                color = textDim,
+                fontSize = 12.sp,
+                textAlign = TextAlign.Center,
+                lineHeight = 16.sp
+            )
         }
     }
 }
