@@ -1,8 +1,7 @@
-﻿import android.app.DatePickerDialog
+import android.content.Context
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -15,7 +14,6 @@ import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.LocalGasStation
-import androidx.compose.material.icons.rounded.WaterDrop
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -42,22 +40,24 @@ import br.com.gui.carlembrete.tr
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
-import java.time.temporal.ChronoUnit
+import java.time.format.DateTimeParseException
 import java.util.Locale
 import androidx.core.view.WindowInsetsControllerCompat
 
 // --- PALETA ZELLU ---
-private val PrimaryDark = Color(0xFF0F172A)
-private val GradientStart = Color(0xFF334155)
-private val GradientEnd = Color(0xFF1E293B)
+private val PrimaryDark = Color.Black
+private val GradientStart = Color(0xFF111827)
+private val GradientEnd = Color(0xFF1F2937)
 private val TextWhite = Color(0xFFF8FAFC)
 private val TextGray = Color(0xFF94A3B8)
 private val AccentBlue = Color(0xFF3B82F6)
 private val AccentGreen = Color(0xFF22C55E)
 private val AlertRed = Color(0xFFEF4444)
-private val SurfaceDark = Color(0xFF1E293B)
+private val SurfaceDark = Color(0xFF111827)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -68,45 +68,44 @@ fun HistoricoAbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
     val titleColor = colorScheme.onSurface
     val bodyColor = colorScheme.onSurfaceVariant
     val cardBorderColor = if (isDark) Color.White.copy(alpha = 0.10f) else Color(0xFFCBD5E1)
-    val summaryGradient = if (isDark) {
-        Brush.verticalGradient(listOf(Color(0xFF334155), Color(0xFF1E293B)))
-    } else {
-        Brush.verticalGradient(listOf(Color.White, Color.White))
-    }
     val context = LocalContext.current
     val view = LocalView.current
     val scope = rememberCoroutineScope()
     var abastecimentos by remember { mutableStateOf<List<Abastecimento>>(emptyList()) }
-    var kmAtualVeiculo by remember { mutableStateOf(0) }
+    var kmAtualCarro by remember { mutableStateOf(0) }
     var itemEdicao by remember { mutableStateOf<Abastecimento?>(null) }
     var itemExcluir by remember { mutableStateOf<Abastecimento?>(null) }
     val formatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
 
     LaunchedEffect(Unit) {
         scope.launch {
-            abastecimentos = withContext(Dispatchers.IO) {
-                BancoDeDados.carregarAbastecimentos(context).filter { it.carroId == carroId }
+            val (abastecimentosCarro, kmAtual) = withContext(Dispatchers.IO) {
+                val listaAbastecimento = BancoDeDados.carregarAbastecimentos(context).filter { it.carroId == carroId }
+                val carro = (BancoDeDados.carregarCarros(context) ?: emptyList()).firstOrNull { it.id == carroId }
+                listaAbastecimento to (carro?.kmAtual ?: 0)
             }
-            kmAtualVeiculo = withContext(Dispatchers.IO) {
-                BancoDeDados.carregarCarros(context)
-                    ?.firstOrNull { it.id == carroId }
-                    ?.kmAtual ?: 0
-            }
+            abastecimentos = abastecimentosCarro
+            kmAtualCarro = kmAtual
         }
     }
 
     val ordenados = remember(abastecimentos) {
-        abastecimentos.sortedByDescending { runCatching { LocalDate.parse(it.data, formatter) }.getOrNull() }
+        abastecimentos.sortedByDescending { parseLocalDateFlexible(it.data, formatter) }
     }
-    val resumoConsumo = remember(ordenados, kmAtualVeiculo) {
-        calcularResumoConsumoHistorico(
+    val resumoGastos = remember(ordenados) {
+        calcularResumoGastosAbastecimento(
             abastecimentos = ordenados,
-            formatter = formatter,
-            kmAtual = kmAtualVeiculo,
-            kmInicial = AppPreferences.getFuelStartKm(context, carroId)
+            formatter = formatter
         )
     }
-
+    val resumoConsumo = remember(ordenados, kmAtualCarro, carroId) {
+        calcularResumoConsumoAbastecimento(
+            context = context,
+            carroId = carroId,
+            kmAtualCarro = kmAtualCarro,
+            abastecimentos = ordenados
+        )
+    }
     DisposableEffect(view, isDark, screenBg) {
         val window = (view.context as? android.app.Activity)?.window
         val insetsController = window?.let { WindowInsetsControllerCompat(it, it.decorView) }
@@ -188,34 +187,41 @@ fun HistoricoAbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
             ) {
                 Column(
                     modifier = Modifier
-                        .background(summaryGradient)
-                        .padding(14.dp),
+                        .fillMaxWidth()
+                        .background(
+                            Brush.verticalGradient(
+                                colors = if (isDark) {
+                                    listOf(Color(0xFF0B1220), Color(0xFF111827))
+                                } else {
+                                    listOf(Color(0xFFF8FAFC), Color(0xFFFFFFFF))
+                                }
+                            )
+                        )
+                        .padding(horizontal = 14.dp, vertical = 14.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(32.dp)
-                                .clip(CircleShape)
-                                .background(AccentBlue.copy(alpha = 0.2f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(Icons.Rounded.LocalGasStation, contentDescription = null, tint = if (isDark) Color.White else AccentBlue, modifier = Modifier.size(16.dp))
-                        }
-                        Spacer(Modifier.width(8.dp))
-                        Text("Resumo de abastecimentos", color = titleColor, fontWeight = FontWeight.SemiBold)
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        ResumoChip(
-                            "Total esta semana",
-                            resumoConsumo.custoSemana?.let { formatarMoedaLocal(it) } ?: "--",
+                    Text(
+                        text = tr("Resumo de consumo", "Consumption summary"),
+                        color = if (isDark) Color(0xFF93C5FD) else Color(0xFF1D4ED8),
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 12.sp
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        MiniResumoDestaque(
+                            label = tr("Total do mes", "Month total"),
+                            value = formatarMoedaLocal(resumoGastos.gastoMes),
                             isDark = isDark,
+                            valueColor = if (isDark) Color(0xFF86EFAC) else Color(0xFF166534),
                             modifier = Modifier.weight(1f)
                         )
-                        ResumoChip(
-                            "Total este mes",
-                            resumoConsumo.custoMes?.let { formatarMoedaLocal(it) } ?: "--",
+                        MiniResumoDestaque(
+                            label = tr("Litros", "Liters"),
+                            value = String.format(Locale("pt", "BR"), "%.2f L", resumoConsumo.litrosTotais),
                             isDark = isDark,
+                            valueColor = if (isDark) Color(0xFF93C5FD) else Color(0xFF1D4ED8),
                             modifier = Modifier.weight(1f)
                         )
                     }
@@ -251,21 +257,6 @@ fun HistoricoAbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
 }
 
 @Composable
-private fun ResumoChip(label: String, value: String, isDark: Boolean, modifier: Modifier = Modifier) {
-    val valueColor = if (isDark) TextWhite else Color(0xFF0F172A)
-    val labelColor = if (isDark) TextGray else Color(0xFF475569)
-    Column(
-        modifier = modifier
-            .clip(RoundedCornerShape(10.dp))
-            .background(if (isDark) Color(0xFF0F172A).copy(alpha = 0.6f) else Color.White.copy(alpha = 0.88f))
-            .padding(horizontal = 8.dp, vertical = 7.dp)
-    ) {
-        Text(label, color = labelColor, fontSize = 10.sp)
-        Text(value, color = valueColor, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, maxLines = 1)
-    }
-}
-
-@Composable
 fun TimelineItem(
     item: Abastecimento,
     isLast: Boolean,
@@ -273,6 +264,8 @@ fun TimelineItem(
     onDelete: () -> Unit,
     isDark: Boolean
 ) {
+    val context = LocalContext.current
+    val descricao = remember(item.id, item.itens) { carregarDescricaoAbastecimento(context, item) }
     val cardGradient = if (isDark) {
         Brush.verticalGradient(colors = listOf(GradientStart, GradientEnd))
     } else {
@@ -377,11 +370,56 @@ fun TimelineItem(
                     HorizontalDivider(color = if (isDark) Color.White.copy(alpha = 0.05f) else Color(0xFFCBD5E1))
                     Spacer(Modifier.height(16.dp))
 
+                    if (descricao.isNotBlank()) {
+                        Text(
+                            text = descricao,
+                            color = cardBody,
+                            fontSize = 12.sp,
+                            maxLines = 2
+                        )
+                        Spacer(Modifier.height(12.dp))
+                    }
+
+                    if (item.itens.isNotEmpty()) {
+                        Text(
+                            text = tr("Itens do abastecimento", "Fuel items"),
+                            color = cardTitle,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 13.sp
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        item.itens.forEachIndexed { idx, itemDetalhe ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.Top
+                            ) {
+                                Text(
+                                    text = "${idx + 1}. ${itemDetalhe.nome}",
+                                    color = cardBody,
+                                    fontSize = 12.sp,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Spacer(Modifier.width(12.dp))
+                                Text(
+                                    text = formatarMoedaLocal(itemDetalhe.valor),
+                                    color = cardTitle,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                            if (idx < item.itens.lastIndex) {
+                                Spacer(Modifier.height(4.dp))
+                            }
+                        }
+                        Spacer(Modifier.height(14.dp))
+                    }
+
                     // --- RODAPÃ‰ COM INFORMAÃ‡Ã•ES INVERTIDAS ---
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Start,
-                        verticalAlignment = Alignment.CenterVertically
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.Bottom
                     ) {
                         Column(horizontalAlignment = Alignment.Start) {
                             Text(
@@ -405,58 +443,159 @@ fun TimelineItem(
                                 )
                             }
                         }
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text(
+                                text = "Litros",
+                                color = cardBody,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            Surface(
+                                color = AccentBlue.copy(alpha = 0.12f),
+                                shape = RoundedCornerShape(10.dp),
+                                border = BorderStroke(1.dp, AccentBlue.copy(alpha = 0.35f))
+                            ) {
+                                Text(
+                                    text = "${String.format(Locale("pt", "BR"), "%.2f", item.litros)} L",
+                                    color = if (isDark) Color(0xFF93C5FD) else AccentBlue,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                )
+                            }
+                        }
                     }
+
                 }
             }
         }
     }
 }
 
-private data class ResumoConsumoHistorico(
-    val mediaLitrosPorAbastecimento: Double?,
-    val custoSemana: Double?,
-    val custoMes: Double?
-)
-
-private fun calcularResumoConsumoHistorico(
-    abastecimentos: List<Abastecimento>,
-    formatter: DateTimeFormatter,
-    kmAtual: Int,
-    kmInicial: Int?
-): ResumoConsumoHistorico {
-    val entries = abastecimentos.mapNotNull { item ->
-        val data = runCatching { LocalDate.parse(item.data, formatter) }.getOrNull()
-        if (data != null && item.litros > 0.0 && item.valorPago > 0.0) {
-            Triple(data, item.litros, item.valorPago)
-        } else {
-            null
-        }
-    }.sortedBy { it.first }
-
-    if (entries.isEmpty()) {
-        return ResumoConsumoHistorico(
-            mediaLitrosPorAbastecimento = null,
-            custoSemana = null,
-            custoMes = null
+@Composable
+private fun MiniResumoDestaque(
+    label: String,
+    value: String,
+    isDark: Boolean,
+    valueColor: Color,
+    modifier: Modifier = Modifier
+) {
+    val labelColor = if (isDark) TextGray else Color(0xFF64748B)
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(14.dp))
+            .background(if (isDark) Color(0xFF0F172A).copy(alpha = 0.62f) else Color.White)
+            .border(
+                width = 1.dp,
+                color = if (isDark) Color.White.copy(alpha = 0.08f) else Color(0xFFE2E8F0),
+                shape = RoundedCornerShape(14.dp)
+            )
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+    ) {
+        Text(label, color = labelColor, fontSize = 11.sp, maxLines = 1)
+        Spacer(Modifier.height(4.dp))
+        Text(
+            value,
+            color = valueColor,
+            fontWeight = FontWeight.ExtraBold,
+            fontSize = 16.sp,
+            maxLines = 1
         )
     }
+}
 
-    val mediaDias = entries.windowed(2).mapNotNull { (anterior, atual) ->
-        val dias = ChronoUnit.DAYS.between(anterior.first, atual.first)
-        if (dias <= 0) null else dias.toDouble()
-    }.average().takeIf { !it.isNaN() } ?: 7.0
+private data class ResumoGastosAbastecimento(
+    val gastoMes: Double
+)
 
-    val mediaCustoDia = entries.windowed(2).mapNotNull { (anterior, atual) ->
-        val dias = ChronoUnit.DAYS.between(anterior.first, atual.first)
-        if (dias <= 0) null else atual.third / dias.toDouble()
-    }.average().takeIf { !it.isNaN() } ?: (entries.last().third / mediaDias)
+private data class ResumoConsumoAbastecimento(
+    val kmPorLitro: Double?,
+    val litrosPorKm: Double?,
+    val litrosTotais: Double
+) {
+    val label: String
+        get() = if (kmPorLitro != null && litrosPorKm != null) {
+            val locale = Locale("pt", "BR")
+            "${String.format(locale, "%.2f", kmPorLitro)} km/L • ${String.format(locale, "%.3f", litrosPorKm)} L/km"
+        } else if (litrosTotais > 0.0) {
+            val locale = Locale("pt", "BR")
+            "${String.format(locale, "%.2f", litrosTotais)} L registrados"
+        } else {
+            "--"
+        }
+}
 
-    val mediaLitrosPorAbastecimento = entries.map { it.second }.average().takeIf { !it.isNaN() }
+private fun calcularResumoGastosAbastecimento(
+    abastecimentos: List<Abastecimento>,
+    formatter: DateTimeFormatter
+): ResumoGastosAbastecimento {
+    val hoje = LocalDate.now()
+    val inicioMes = hoje.withDayOfMonth(1)
 
-    return ResumoConsumoHistorico(
-        mediaLitrosPorAbastecimento = mediaLitrosPorAbastecimento,
-        custoSemana = mediaCustoDia * 7.0,
-        custoMes = mediaCustoDia * 30.0
+    val gastosMes = abastecimentos.sumOf { item ->
+        val data = parseLocalDateFlexible(item.data, formatter)
+        if (data != null && !data.isBefore(inicioMes) && !data.isAfter(hoje)) item.valorPago else 0.0
+    }
+
+    return ResumoGastosAbastecimento(
+        gastoMes = gastosMes
+    )
+}
+
+private fun parseLocalDateFlexible(raw: String, fallbackFormatter: DateTimeFormatter): LocalDate? {
+    val valor = raw.trim()
+    if (valor.isBlank()) return null
+
+    runCatching { return LocalDate.parse(valor, fallbackFormatter) }
+    runCatching { return LocalDate.parse(valor, DateTimeFormatter.ISO_LOCAL_DATE) }
+    runCatching { return Instant.parse(valor).atZone(java.time.ZoneId.systemDefault()).toLocalDate() }
+
+    val formatosDataHora = listOf(
+        DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS"),
+        DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"),
+        DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS"),
+        DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss")
+    )
+    formatosDataHora.forEach { formato ->
+        try {
+            return LocalDateTime.parse(valor, formato).toLocalDate()
+        } catch (_: DateTimeParseException) {
+        }
+    }
+
+    if (valor.length >= 10) {
+        val prefixo = valor.substring(0, 10)
+        runCatching { return LocalDate.parse(prefixo, DateTimeFormatter.ISO_LOCAL_DATE) }
+    }
+    return null
+}
+
+private fun calcularResumoConsumoAbastecimento(
+    context: android.content.Context,
+    carroId: String,
+    kmAtualCarro: Int,
+    abastecimentos: List<Abastecimento>
+): ResumoConsumoAbastecimento {
+    val litrosTotais = abastecimentos.sumOf { it.litros.coerceAtLeast(0.0) }
+    val kmInicial = AppPreferences.getFuelStartKm(context, carroId)
+
+    if (kmInicial == null || kmAtualCarro <= kmInicial || litrosTotais <= 0.0) {
+        return ResumoConsumoAbastecimento(kmPorLitro = null, litrosPorKm = null, litrosTotais = litrosTotais)
+    }
+
+    val distancia = (kmAtualCarro - kmInicial).toDouble()
+    if (distancia <= 0.0) {
+        return ResumoConsumoAbastecimento(kmPorLitro = null, litrosPorKm = null, litrosTotais = litrosTotais)
+    }
+
+    val kmPorLitro = distancia / litrosTotais
+    val litrosPorKm = litrosTotais / distancia
+
+    return ResumoConsumoAbastecimento(
+        kmPorLitro = kmPorLitro.takeIf { it.isFinite() && it > 0.0 },
+        litrosPorKm = litrosPorKm.takeIf { it.isFinite() && it > 0.0 },
+        litrosTotais = litrosTotais
     )
 }
 
@@ -479,7 +618,8 @@ fun DialogEditar(
     val context = LocalContext.current
     var precoTexto by remember { mutableStateOf(String.format(Locale("pt", "BR"), "%.2f", item.precoLitro)) }
     var totalTexto by remember { mutableStateOf(String.format(Locale("pt", "BR"), "%.2f", item.valorPago)) }
-    var dataSelecionada by remember { mutableStateOf(runCatching { LocalDate.parse(item.data, formatter) }.getOrNull() ?: LocalDate.now()) }
+    var dataTexto by remember { mutableStateOf(item.data) }
+    var descricaoTexto by remember { mutableStateOf(carregarDescricaoAbastecimento(context, item)) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -512,18 +652,26 @@ fun DialogEditar(
                     modifier = Modifier.fillMaxWidth()
                 )
                 OutlinedTextField(
-                    value = dataSelecionada.format(formatter),
-                    onValueChange = {}, readOnly = true,
-                    label = { Text("Data") },
-                    trailingIcon = { Icon(Icons.Rounded.Edit, null, tint = AccentBlue) },
+                    value = descricaoTexto,
+                    onValueChange = { descricaoTexto = it },
+                    label = { Text("Descricao") },
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = fieldTextColor, unfocusedTextColor = fieldTextColor,
                         focusedBorderColor = AccentBlue, unfocusedBorderColor = fieldBorderColor,
                         focusedLabelColor = AccentBlue, unfocusedLabelColor = fieldLabelColor
                     ),
-                    modifier = Modifier.fillMaxWidth().clickable {
-                        DatePickerDialog(context, { _, y, m, d -> dataSelecionada = LocalDate.of(y, m + 1, d) }, dataSelecionada.year, dataSelecionada.monthValue - 1, dataSelecionada.dayOfMonth).show()
-                    }
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = dataTexto,
+                    onValueChange = { dataTexto = it },
+                    label = { Text("Data") },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = fieldTextColor, unfocusedTextColor = fieldTextColor,
+                        focusedBorderColor = AccentBlue, unfocusedBorderColor = fieldBorderColor,
+                        focusedLabelColor = AccentBlue, unfocusedLabelColor = fieldLabelColor
+                    ),
+                    modifier = Modifier.fillMaxWidth()
                 )
             }
         },
@@ -532,11 +680,33 @@ fun DialogEditar(
                 val preco = precoTexto.replace(",", ".").toDoubleOrNull()
                 val total = totalTexto.replace(",", ".").toDoubleOrNull()
                 val litros = if (preco != null && total != null && preco > 0.0) total / preco else item.litros
-                onConfirm(item.copy(data = dataSelecionada.format(formatter), precoLitro = preco ?: item.precoLitro, valorPago = total ?: item.valorPago, litros = litros))
+                salvarDescricaoAbastecimento(context, item.id, descricaoTexto)
+                onConfirm(
+                    item.copy(
+                        data = dataTexto.ifBlank { item.data },
+                        precoLitro = preco ?: item.precoLitro,
+                        valorPago = total ?: item.valorPago,
+                        litros = litros
+                    )
+                )
             }, colors = ButtonDefaults.buttonColors(containerColor = AccentBlue)) { Text("Salvar", color = Color.White) }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar", color = fieldLabelColor) } }
     )
+}
+
+private fun carregarDescricaoAbastecimento(context: Context, item: Abastecimento): String {
+    val prefs = context.getSharedPreferences("fuel_desc_store", Context.MODE_PRIVATE)
+    val descricaoSalva = prefs.getString(item.id, null)
+    if (!descricaoSalva.isNullOrBlank()) return descricaoSalva
+    return item.itens.firstOrNull()?.nome.orEmpty()
+}
+
+private fun salvarDescricaoAbastecimento(context: Context, id: String, descricao: String) {
+    context.getSharedPreferences("fuel_desc_store", Context.MODE_PRIVATE)
+        .edit()
+        .putString(id, descricao.trim())
+        .apply()
 }
 
 @Composable
