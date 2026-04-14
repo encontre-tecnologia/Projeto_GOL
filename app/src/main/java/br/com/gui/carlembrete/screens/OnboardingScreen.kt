@@ -225,6 +225,9 @@ fun OnboardingScreen(
 ) {
     var step by remember { mutableIntStateOf(1) }
     val context = LocalContext.current
+    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val onboardingBg = if (isDark) Color.Black else Color(0xFF0F2A4A)
+    val onboardingCardBg = if (isDark) Color(0xFF111827) else Color(0xFF1E293B)
     val scope = rememberCoroutineScope()
     var carroNome by remember { mutableStateOf("") }
     var carroMarca by remember { mutableStateOf("") }
@@ -238,9 +241,8 @@ fun OnboardingScreen(
     var aceitouTermos by remember { mutableStateOf(false) }
     var aceitouPrivacidade by remember { mutableStateOf(false) }
     val previousStep = when (step) {
-        8 -> 4
         7 -> 5
-        6 -> 8
+        6 -> 4
         5 -> 1
         9 -> 5
         4 -> 7
@@ -253,39 +255,52 @@ fun OnboardingScreen(
     val maxVehicles = 3
     val termosUsoTexto = remember {
         """
-        1. Objeto: o Zellu oferece recursos de cadastro e gerenciamento de veículos, lembretes e informações relacionadas.
+        1. Aceite: ao usar o Zellu, você concorda com estes Termos e com a Política de Privacidade.
 
-        2. Uso adequado: você se compromete a utilizar o app de forma lícita e a fornecer dados verdadeiros, atualizados e de sua responsabilidade.
+        2. Objeto: o app oferece gestão de veículos, lembretes, manutenções, viagens, frota e estoque.
 
-        3. Responsabilidade do usuário: decisões de manutenção, compra, venda, deslocamento e segurança do veículo são de responsabilidade exclusiva do usuário.
+        3. Uso adequado: você se compromete a usar o app de forma lícita, sem fraude, abuso técnico ou violação de direitos de terceiros.
 
-        4. Limitação de responsabilidade: o Zellu é ferramenta de apoio e não substitui diagnóstico técnico, vistoria, seguro, assistência mecânica ou orientação profissional.
+        4. Conta e segurança: você é responsável pelos dados da conta e pela guarda do acesso.
 
-        5. Disponibilidade: funcionalidades podem ser alteradas, corrigidas, suspensas ou descontinuadas sem aviso prévio, quando necessário.
+        5. Planos e cobrança: planos pagos (como Lite/Frota) seguem regras da loja/plataforma de pagamento para renovação, cancelamento e reembolso.
 
-        6. Foro: para dirimir eventuais conflitos relacionados ao uso do app, fica eleito o foro da comarca de Sao Carlos/SP, sem endereco comercial divulgado neste momento.
+        6. Limitação: o Zellu é ferramenta de apoio e não substitui diagnóstico técnico, vistoria, seguro, assistência mecânica ou orientação profissional.
+
+        7. Disponibilidade: funcionalidades podem ser alteradas, corrigidas, suspensas ou descontinuadas por evolução do produto, segurança ou obrigação legal.
+
+        8. Propriedade intelectual: marca, software, layout e conteúdo do app são protegidos por lei.
+
+        9. Legislação e foro: aplica-se a legislação brasileira, com foro da comarca de Sao Carlos/SP, salvo competência legal específica.
+
+        10. Contato legal e suporte: guilhermedevsistemas@gmail.com
         """.trimIndent()
     }
     val politicaPrivacidadeTexto = remember {
         """
-        1. Dados tratados: o app pode tratar dados de cadastro de veículos, lembretes, contatos, localização, câmera e notificações, conforme recursos utilizados por você.
+        1. Dados tratados: o app pode tratar dados de conta (nome, e-mail e identificadores), cadastro de veículos, lembretes, contatos, viagens, itens de estoque, localização, câmera, notificações e dados técnicos essenciais.
 
-        2. Finalidade: os dados são usados para executar funcionalidades do app, personalizar a experiência e permitir recursos solicitados pelo usuário.
+        2. Finalidades: autenticação, execução das funcionalidades, segurança, prevenção de abuso/fraude, suporte e melhoria contínua.
 
-        3. LGPD (Lei 13.709/2018): o tratamento de dados observa os princípios da necessidade, finalidade, adequação e transparência, com base legal aplicável para execução do serviço e consentimento quando exigido.
+        3. Bases legais (LGPD): execução de contrato, consentimento quando exigido, legítimo interesse para segurança/estabilidade e cumprimento de obrigação legal.
 
-        4. Permissões: câmera, localização e notificações somente são usadas após consentimento e podem ser revogadas a qualquer momento nas configurações do dispositivo.
+        4. Permissões: câmera, localização e notificações são usadas somente com autorização e podem ser revogadas a qualquer momento no dispositivo.
 
-        5. Compartilhamento: o Zellu não comercializa dados pessoais e utiliza informações apenas para operação do serviço e integrações técnicas necessárias.
+        5. Compartilhamento: não vendemos dados pessoais. Podemos compartilhar com operadores/provedores técnicos necessários ao funcionamento do app e com autoridades quando houver obrigação legal.
 
-        6. Direitos do titular: você pode solicitar confirmação de tratamento, acesso, correção, anonimização, exclusão e revogação do consentimento, nos termos da LGPD.
+        6. Retenção e armazenamento: parte dos dados pode ficar no dispositivo e parte em nuvem, pelo tempo necessário às finalidades e obrigações legais.
 
-        7. Exclusão de conta e dados: ao solicitar a exclusão da conta, os dados pessoais e registros vinculados serão removidos, observadas apenas retenções legais obrigatórias.
+        7. Direitos do titular: você pode solicitar confirmação de tratamento, acesso, correção, anonimização, exclusão e revogação do consentimento, nos termos da LGPD.
 
-        8. Contato de privacidade, remoção de dados, dúvidas e sugestões:
+        8. Exclusão de conta e dados: ao solicitar exclusão, removemos dados pessoais e registros vinculados, ressalvadas retenções legais obrigatórias.
+
+        9. Transferência internacional: alguns provedores podem processar dados fora do Brasil, com salvaguardas adequadas.
+
+        10. Contato oficial de privacidade, remoção de dados, dúvidas e suporte:
         - guilhermedevsistemas@gmail.com
-        - hiasminlorrane8@gmail.com
-        Os mesmos e-mails acima também são canais oficiais para dúvidas, suporte e sugestões de melhoria.
+        Páginas oficiais:
+        - https://account-deletion-site-eight.vercel.app/privacy-policy.html
+        - https://account-deletion-site-eight.vercel.app/terms-of-use.html
         """.trimIndent()
     }
     val permissionItems = remember {
@@ -362,7 +377,7 @@ fun OnboardingScreen(
         Dialog(onDismissRequest = { showOutroVeiculoDialog = false }) {
             Card(
                 shape = RoundedCornerShape(24.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                colors = CardDefaults.cardColors(containerColor = if (isDark) Color(0xFF111827) else MaterialTheme.colorScheme.surface),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
@@ -411,7 +426,7 @@ fun OnboardingScreen(
                         Button(
                             onClick = {
                                 showOutroVeiculoDialog = false
-                                step = 8
+                                step = 6
                             },
                             modifier = Modifier.weight(1f).height(50.dp),
                             shape = RoundedCornerShape(12.dp),
@@ -443,7 +458,7 @@ fun OnboardingScreen(
                         if (atualizada.size == 1) {
                             showOutroVeiculoDialog = true
                         } else {
-                            step = 8
+                            step = 6
                         }
                     }
                 }
@@ -455,7 +470,7 @@ fun OnboardingScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF0F2A4A))
+            .background(onboardingBg)
             .statusBarsPadding(),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
@@ -465,7 +480,7 @@ fun OnboardingScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(if (currentStep == 8 || currentStep == 6) 0.dp else 24.dp)
+                    .padding(if (currentStep == 6) 0.dp else 24.dp)
             ) {
                 when (currentStep) {
                     1 -> {
@@ -558,12 +573,6 @@ fun OnboardingScreen(
                             }
                         }
                     }
-                    8 -> {
-                        OnboardingPremiumWelcomeScreen(
-                            onNext = { step = 6 },
-                            onSkip = { step = 6 }
-                        )
-                    }
                     5 -> {
                         LazyColumn(
                             modifier = Modifier
@@ -614,7 +623,7 @@ fun OnboardingScreen(
                                 val granted = permissionStatus[item.permission] == true
                                 Card(
                                     modifier = Modifier.fillMaxWidth(),
-                                    colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                                    colors = CardDefaults.cardColors(containerColor = onboardingCardBg),
                                     border = BorderStroke(
                                         1.dp,
                                         if (granted) Color(0xFF22C55E) else Color(0xFFEF4444)
@@ -767,7 +776,7 @@ fun OnboardingScreen(
                             Spacer(Modifier.height(20.dp))
                             Card(
                                 modifier = Modifier.fillMaxWidth(),
-                                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                                colors = CardDefaults.cardColors(containerColor = onboardingCardBg),
                                 border = BorderStroke(1.dp, if (notifGranted) Color(0xFF22C55E) else Color(0xFFEF4444)),
                                 shape = RoundedCornerShape(14.dp)
                             ) {
@@ -870,7 +879,7 @@ fun OnboardingScreen(
                                 item {
                                 Card(
                                     modifier = Modifier.fillMaxWidth(),
-                                    colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                                    colors = CardDefaults.cardColors(containerColor = onboardingCardBg),
                                     shape = RoundedCornerShape(14.dp),
                                     border = BorderStroke(1.dp, Color(0xFF334155))
                                 ) {
@@ -900,7 +909,7 @@ fun OnboardingScreen(
                                 item {
                                 Card(
                                     modifier = Modifier.fillMaxWidth(),
-                                    colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                                    colors = CardDefaults.cardColors(containerColor = onboardingCardBg),
                                     shape = RoundedCornerShape(14.dp),
                                     border = BorderStroke(1.dp, Color(0xFF334155))
                                 ) {
@@ -930,7 +939,7 @@ fun OnboardingScreen(
                                 item {
                                 Card(
                                     modifier = Modifier.fillMaxWidth(),
-                                    colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                                    colors = CardDefaults.cardColors(containerColor = onboardingCardBg),
                                     shape = RoundedCornerShape(14.dp),
                                     border = BorderStroke(
                                         1.dp,
@@ -1149,7 +1158,7 @@ fun OnboardingScreen(
                                 }
                                 val listaSalvar = listaFinal
                                 scope.launch(Dispatchers.IO) { BancoDeDados.salvarCarros(context, listaSalvar) }
-                                step = 8
+                                step = 6
                             },
                             modifier = Modifier.fillMaxWidth().height(50.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981))
