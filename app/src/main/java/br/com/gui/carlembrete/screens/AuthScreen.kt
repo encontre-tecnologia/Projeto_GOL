@@ -52,6 +52,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
+import com.google.android.gms.auth.api.signin.GoogleSignInStatusCodes
 import com.google.android.gms.common.api.ApiException
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
@@ -121,24 +122,15 @@ fun AuthScreen(onSignedIn: () -> Unit) {
     val googleLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        isAuthLoading = false
-        if (result.resultCode != Activity.RESULT_OK) {
-            val semInternetAgora = !isInternetAvailable(context)
-            val msg = if (semInternetAgora) {
-                "Sem internet. Conecte-se e tente novamente."
-            } else {
-                "Login com Google cancelado"
-            }
-            authStatusMessage = msg
-            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
-            return@rememberLauncherForActivityResult
-        }
         val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
         try {
             val account = task.getResult(ApiException::class.java)
             val token = account.idToken
             if (token.isNullOrBlank()) {
-                Toast.makeText(context, "Token do Google não gerado. Verifique SHA-1.", Toast.LENGTH_SHORT).show()
+                isAuthLoading = false
+                val msg = "Token do Google não gerado. Verifique SHA-1/SHA-256 no Firebase."
+                authStatusMessage = msg
+                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                 return@rememberLauncherForActivityResult
             }
             val credential = GoogleAuthProvider.getCredential(token, null)
@@ -161,12 +153,28 @@ fun AuthScreen(onSignedIn: () -> Unit) {
                     Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                 }
             }
+        } catch (e: ApiException) {
+            isAuthLoading = false
+            val msg = when {
+                !isInternetAvailable(context) -> "Sem internet. Conecte-se e tente novamente."
+                e.statusCode == GoogleSignInStatusCodes.SIGN_IN_CANCELLED || result.resultCode == Activity.RESULT_CANCELED ->
+                    "Login com Google cancelado"
+                e.statusCode == GoogleSignInStatusCodes.SIGN_IN_FAILED ->
+                    "Falha no login com Google. Tente novamente."
+                e.statusCode == GoogleSignInStatusCodes.SIGN_IN_CURRENTLY_IN_PROGRESS ->
+                    "Login já em andamento. Aguarde e tente de novo."
+                e.statusCode == 10 ->
+                    "Configuração Google/Firebase inválida (SHA-1/SHA-256 ou OAuth)."
+                else -> "Falha no login com Google (código ${e.statusCode})"
+            }
+            authStatusMessage = msg
+            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
         } catch (_: Exception) {
             isAuthLoading = false
             val msg = if (!isInternetAvailable(context)) {
                 "Sem internet. Conecte-se e tente novamente."
             } else {
-                "Falha no login com Google"
+                "Falha inesperada no login com Google"
             }
             authStatusMessage = msg
             Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
