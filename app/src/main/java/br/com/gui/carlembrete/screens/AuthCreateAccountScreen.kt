@@ -37,13 +37,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.layout.ContentScale
@@ -58,6 +58,8 @@ import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.android.gms.common.api.ApiException
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @Composable
 fun AuthCreateAccountScreen(
@@ -65,13 +67,12 @@ fun AuthCreateAccountScreen(
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
-    val colorScheme = MaterialTheme.colorScheme
-    val isDark = colorScheme.background.luminance() < 0.5f
     val auth = remember { FirebaseAuth.getInstance() }
     var email by remember { mutableStateOf("") }
     var senha by remember { mutableStateOf("") }
     var senhaVisivel by remember { mutableStateOf(false) }
     var tentouCriar by remember { mutableStateOf(false) }
+    val uiScope = rememberCoroutineScope()
     val emailValido = Patterns.EMAIL_ADDRESS.matcher(email.trim()).matches()
     val emailFormatoInvalido = email.isNotBlank() && !emailValido
     val emailErro = (tentouCriar && email.isBlank()) || emailFormatoInvalido
@@ -100,8 +101,11 @@ fun AuthCreateAccountScreen(
             val credential = GoogleAuthProvider.getCredential(token, null)
             auth.signInWithCredential(credential).addOnCompleteListener { signInTask ->
                 if (signInTask.isSuccessful) {
-                    AdminUsersSync.syncCurrentUser()
                     onSignedIn()
+                    uiScope.launch {
+                        delay(500)
+                        AdminUsersSync.syncCurrentUser()
+                    }
                 } else {
                     Toast.makeText(context, "Falha no cadastro com Google", Toast.LENGTH_SHORT).show()
                 }
@@ -118,7 +122,6 @@ fun AuthCreateAccountScreen(
         }
         auth.createUserWithEmailAndPassword(email, senha).addOnCompleteListener { task ->
             if (task.isSuccessful) {
-                AdminUsersSync.syncCurrentUser()
                 auth.currentUser?.sendEmailVerification()?.addOnCompleteListener { emailTask ->
                     if (emailTask.isSuccessful) {
                         Toast.makeText(context, "Conta criada! Enviamos um e-mail de confirmação.", Toast.LENGTH_LONG).show()
@@ -127,6 +130,10 @@ fun AuthCreateAccountScreen(
                     }
                 }
                 onSignedIn()
+                uiScope.launch {
+                    delay(500)
+                    AdminUsersSync.syncCurrentUser()
+                }
             } else {
                 Toast.makeText(context, "Falha ao criar conta", Toast.LENGTH_SHORT).show()
             }
@@ -137,22 +144,12 @@ fun AuthCreateAccountScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(
-                if (isDark) {
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            colorScheme.background,
-                            colorScheme.background
-                        )
+                Brush.verticalGradient(
+                    colors = listOf(
+                        Color(0xFF020617),
+                        Color(0xFF000000)
                     )
-                } else {
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            Color(0xFF081428),
-                            Color(0xFF0B2342),
-                            Color(0xFF143A6C)
-                        )
-                    )
-                }
+                )
             )
             .padding(24.dp),
         verticalArrangement = Arrangement.Center,

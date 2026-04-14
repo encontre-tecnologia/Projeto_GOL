@@ -52,6 +52,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
@@ -123,7 +124,8 @@ internal fun NovoCarroScreenContent(
         }
     }
     val scheme = MaterialTheme.colorScheme
-    val bgLight = if (isOnboardingVariant) Color(0xFF0B1320) else scheme.background
+    val isDark = scheme.background.luminance() < 0.5f
+    val bgLight = if (isOnboardingVariant) Color(0xFF0B1320) else if (isDark) Color.Black else scheme.background
     val borderLight = if (isOnboardingVariant) Color(0xFF334155) else scheme.outlineVariant
     val textPrimary = if (isOnboardingVariant) Color(0xFFF8FAFC) else scheme.onBackground
     val textSecondary = if (isOnboardingVariant) Color(0xFF94A3B8) else scheme.onSurfaceVariant
@@ -132,7 +134,7 @@ internal fun NovoCarroScreenContent(
     val selectorTextSecondary = if (isOnboardingVariant) Color(0xFF94A3B8) else scheme.onSurfaceVariant
     val selectorAccent = if (isOnboardingVariant) Color(0xFF60A5FA) else scheme.primary
     val selectorBorder = if (isOnboardingVariant) Color(0xFF334155) else scheme.outlineVariant
-    val selectorDropdownBg = if (isOnboardingVariant) Color(0xFF1E293B) else scheme.surface
+    val selectorDropdownBg = if (isOnboardingVariant) Color(0xFF1E293B) else if (isDark) Color(0xFF111827) else scheme.surface
     val selectorFieldColors = OutlinedTextFieldDefaults.colors(
         focusedTextColor = selectorTextPrimary,
         unfocusedTextColor = selectorTextPrimary,
@@ -150,7 +152,7 @@ internal fun NovoCarroScreenContent(
         unfocusedContainerColor = Color.Transparent,
         disabledContainerColor = Color.Transparent
     )
-    val cardBg = if (isOnboardingVariant) Color(0xFF111827) else scheme.surface
+    val cardBg = if (isOnboardingVariant) Color(0xFF111827) else if (isDark) Color(0xFF111827) else scheme.surface
     val carroBase = CarroInfo(nome = "", modelo = "")
 
     var nome by remember { mutableStateOf("") }
@@ -199,7 +201,10 @@ internal fun NovoCarroScreenContent(
     }
     val isBikeTypeGlobal =
         tipoSelecionado == TipoVeiculo.BICICLETA || tipoSelecionado == TipoVeiculo.BIKE_ELETRICA
-    val anoObrigatorio = !isBikeTypeGlobal && anosFipe.isNotEmpty()
+    val tipoSemAno =
+        tipoSelecionado == TipoVeiculo.BICICLETA ||
+            tipoSelecionado == TipoVeiculo.BIKE_ELETRICA
+    val anoObrigatorio = !tipoSemAno && anosFipe.isNotEmpty()
     val etapa1Valida = tipoSelecionado != null &&
         marca.isNotBlank() &&
         nome.isNotBlank() &&
@@ -213,7 +218,7 @@ internal fun NovoCarroScreenContent(
     val erroMarca = etapaCadastro == 1 && tentouAvancarEtapa1 && marca.isBlank()
     val erroNome = etapaCadastro == 1 && tentouAvancarEtapa1 && nome.isBlank()
     val erroModelo = etapaCadastro == 1 && tentouAvancarEtapa1 && modelo.isBlank()
-    val erroAno = etapaCadastro == 1 && !isBikeTypeGlobal && tentouAvancarEtapa1 && anoObrigatorio && anoSelecionado.isBlank()
+    val erroAno = etapaCadastro == 1 && !tipoSemAno && tentouAvancarEtapa1 && anoObrigatorio && anoSelecionado.isBlank()
     val erroCor = etapaCadastro == 1 && tentouAvancarEtapa1 && corSelecionada == null
     val erroKm = etapaCadastro == 2 && !isBikeTypeGlobal && tentouSalvarEtapa2 && kmAtualStr.filter(Char::isDigit).isEmpty()
     val etapa2Valida = proprietario.isNotBlank() &&
@@ -630,14 +635,10 @@ internal fun NovoCarroScreenContent(
                     val isFreeNameType =
                         tipoSelecionado == TipoVeiculo.BICICLETA ||
                             tipoSelecionado == TipoVeiculo.BIKE_ELETRICA ||
-                            tipoSelecionado == TipoVeiculo.TRATOR ||
-                            tipoSelecionado == TipoVeiculo.CARRETINHA ||
                             tipoSelecionado == TipoVeiculo.MOTORHOME
                     if (isFreeNameType) {
                         val freeNameLabel = when (tipoSelecionado) {
                             TipoVeiculo.BICICLETA, TipoVeiculo.BIKE_ELETRICA -> "Nome da bike"
-                            TipoVeiculo.TRATOR -> "Nome do trator"
-                            TipoVeiculo.CARRETINHA -> "Nome da carretinha"
                             TipoVeiculo.MOTORHOME -> "Nome do motorhome"
                             else -> "Nome do veiculo"
                         }
@@ -822,7 +823,7 @@ internal fun NovoCarroScreenContent(
                         enabled = hasTypeSelected
                     )
 
-                    if (!isBikeTypeGlobal) {
+                    if (!tipoSemAno) {
                         ExposedDropdownMenuBox(
                             expanded = anoExpanded,
                             onExpandedChange = {

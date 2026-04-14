@@ -21,8 +21,8 @@ class SubscriptionManager(context: Context) : PurchasesUpdatedListener {
         .enablePendingPurchases()
         .build()
 
-    private var productDetails: ProductDetails? = null
-    private var selectedOfferToken: String? = null
+    private val productDetailsById = mutableMapOf<String, ProductDetails>()
+    private val offerTokenByProductId = mutableMapOf<String, String>()
 
     private val _planTier = MutableStateFlow(PlanTier.FREE)
     val planTier: StateFlow<PlanTier> = _planTier
@@ -50,10 +50,16 @@ class SubscriptionManager(context: Context) : PurchasesUpdatedListener {
         }
     }
 
-    fun launchPurchaseFlow(activity: android.app.Activity) {
-        val details = productDetails ?: return
-        val offerToken = selectedOfferToken ?: run {
-            Log.w("Billing", "Oferta de assinatura indisponivel para $SUBSCRIPTION_PRODUCT_ID")
+    fun launchPurchaseFlow(
+        activity: android.app.Activity,
+        plan: SubscriptionPlan = SubscriptionPlan.FROTA
+    ) {
+        val targetProductId = plan.productId
+        val details = productDetailsById[targetProductId] ?: productDetailsById.values.firstOrNull() ?: return
+        val offerToken = offerTokenByProductId[targetProductId]
+            ?: offerTokenByProductId[details.productId]
+            ?: run {
+            Log.w("Billing", "Oferta de assinatura indisponivel para $targetProductId")
             return
         }
         val params = BillingFlowParams.newBuilder()
@@ -70,34 +76,47 @@ class SubscriptionManager(context: Context) : PurchasesUpdatedListener {
     }
 
     private fun queryProduct() {
+        val productIds = listOf(
+            SubscriptionPlan.LITE.productId,
+            SubscriptionPlan.FROTA.productId
+        )
         val params = QueryProductDetailsParams.newBuilder()
             .setProductList(
-                listOf(
+                productIds.map { productId ->
                     QueryProductDetailsParams.Product.newBuilder()
-                        .setProductId(SUBSCRIPTION_PRODUCT_ID)
+                        .setProductId(productId)
                         .setProductType(BillingClient.ProductType.SUBS)
                         .build()
-                )
+                }
             )
             .build()
         billingClient.queryProductDetailsAsync(params) { billingResult, detailsList ->
             if (billingResult.responseCode != BillingClient.BillingResponseCode.OK) {
-                productDetails = null
-                selectedOfferToken = null
+                productDetailsById.clear()
+                offerTokenByProductId.clear()
                 Log.w("Billing", "Falha ao consultar produto: code=${billingResult.responseCode}")
                 return@queryProductDetailsAsync
             }
 
-            productDetails = detailsList.firstOrNull()
-            selectedOfferToken = productDetails
-                ?.subscriptionOfferDetails
-                ?.firstOrNull()
-                ?.offerToken
+            productDetailsById.clear()
+            offerTokenByProductId.clear()
 
-            if (productDetails == null) {
-                Log.w("Billing", "Produto nao encontrado: $SUBSCRIPTION_PRODUCT_ID")
-            } else if (selectedOfferToken == null) {
-                Log.w("Billing", "Produto encontrado sem oferta ativa: $SUBSCRIPTION_PRODUCT_ID")
+            detailsList.forEach { details ->
+                val offerToken = details.subscriptionOfferDetails
+                    ?.firstOrNull()
+                    ?.offerToken
+                if (offerToken != null) {
+                    productDetailsById[details.productId] = details
+                    offerTokenByProductId[details.productId] = offerToken
+                } else {
+                    Log.w("Billing", "Produto encontrado sem oferta ativa: ${details.productId}")
+                }
+            }
+
+            productIds.forEach { productId ->
+                if (!productDetailsById.containsKey(productId)) {
+                    Log.w("Billing", "Produto nao encontrado: $productId")
+                }
             }
         }
     }
@@ -118,12 +137,16 @@ class SubscriptionManager(context: Context) : PurchasesUpdatedListener {
     }
 
     private fun handlePurchases(purchases: List<Purchase>) {
-        var hasPremium = false
+        var tier = PlanTier.FREE
         for (purchase in purchases) {
             if (purchase.purchaseState == Purchase.PurchaseState.PURCHASED &&
-                purchase.products.contains(SUBSCRIPTION_PRODUCT_ID)
+                purchase.products.any { it == SubscriptionPlan.LITE.productId || it == SubscriptionPlan.FROTA.productId }
             ) {
-                hasPremium = true
+                if (purchase.products.contains(SubscriptionPlan.FROTA.productId)) {
+                    tier = PlanTier.FROTA
+                } else if (tier == PlanTier.FREE && purchase.products.contains(SubscriptionPlan.LITE.productId)) {
+                    tier = PlanTier.LITE
+                }
                 if (!purchase.isAcknowledged) {
                     val params = AcknowledgePurchaseParams.newBuilder()
                         .setPurchaseToken(purchase.purchaseToken)
@@ -132,21 +155,23 @@ class SubscriptionManager(context: Context) : PurchasesUpdatedListener {
                 }
             }
         }
-        val tier = when {
-            hasPremium -> PlanTier.PREMIUM
-            else -> PlanTier.FREE
-        }
         _planTier.value = tier
         _isSubscribed.value = tier != PlanTier.FREE
     }
 
     companion object {
-        // Troque pelo ID real da assinatura no Google Play
-        const val SUBSCRIPTION_PRODUCT_ID = "carlembrete_premium_monthly"
+        const val SUBSCRIPTION_LITE_PRODUCT_ID = "zellu_lite"
+        const val SUBSCRIPTION_FROTA_PRODUCT_ID = "zellu_frota"
     }
+}
+
+enum class SubscriptionPlan(val productId: String) {
+    LITE(SubscriptionManager.SUBSCRIPTION_LITE_PRODUCT_ID),
+    FROTA(SubscriptionManager.SUBSCRIPTION_FROTA_PRODUCT_ID)
 }
 
 enum class PlanTier(val productId: String) {
     FREE(""),
-    PREMIUM(SubscriptionManager.SUBSCRIPTION_PRODUCT_ID)
+    LITE(SubscriptionManager.SUBSCRIPTION_LITE_PRODUCT_ID),
+    FROTA(SubscriptionManager.SUBSCRIPTION_FROTA_PRODUCT_ID)
 }

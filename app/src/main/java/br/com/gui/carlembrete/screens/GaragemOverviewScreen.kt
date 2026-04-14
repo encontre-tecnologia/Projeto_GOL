@@ -4,6 +4,7 @@ import android.graphics.BitmapFactory
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -29,7 +30,6 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -41,7 +41,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -79,11 +78,11 @@ fun GaragemOverviewScreen(
     val context = LocalContext.current
     val scheme = MaterialTheme.colorScheme
     val isDark = scheme.background.luminance() < 0.5f
-    val bg = if (isDark) scheme.background else scheme.background
+    val bg = if (isDark) Color.Black else scheme.background
     val accentBlue = Color(0xFF3B82F6)
     val textPrimary = if (isDark) Color.White else Color.Black
     val textDim = if (isDark) Color(0xFF94A3B8) else Color(0xFF475569)
-    val cardBg = if (isDark) Color(0xFF0F172A) else Color.White
+    val cardBg = if (isDark) Color(0xFF111827) else Color.White
     val cardBorder = if (isDark) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.10f)
     val isEnglish = isEnglishUi()
     val allFilterLabel = if (isEnglish) "ALL" else "TODOS"
@@ -183,26 +182,7 @@ fun GaragemOverviewScreen(
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
-        containerColor = bg,
-        topBar = {
-            CenterAlignedTopAppBar(
-                title = {},
-                navigationIcon = {
-                    IconButton(
-                        onClick = onDismiss,
-                        modifier = Modifier.size(56.dp)
-                    ) {
-                        Icon(
-                            Icons.Default.ArrowBackIosNew,
-                            contentDescription = tr("Voltar", "Back"),
-                            tint = textPrimary,
-                            modifier = Modifier.size(26.dp)
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = bg)
-            )
-        }
+        containerColor = bg
     ) { innerPadding ->
         Box(modifier = Modifier.fillMaxSize().background(bg)) {
             if (carros.isEmpty()) {
@@ -211,10 +191,29 @@ fun GaragemOverviewScreen(
                         .fillMaxSize()
                         .padding(innerPadding)
                         .padding(24.dp),
-                    verticalArrangement = Arrangement.Center,
+                    verticalArrangement = Arrangement.Top,
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Spacer(Modifier.height(12.dp))
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 2.dp, bottom = 8.dp)
+                    ) {
+                        IconButton(
+                            onClick = onDismiss,
+                            modifier = Modifier
+                                .size(56.dp)
+                                .align(Alignment.CenterStart)
+                        ) {
+                            Icon(
+                                Icons.Default.ArrowBackIosNew,
+                                contentDescription = tr("Voltar", "Back"),
+                                tint = textPrimary,
+                                modifier = Modifier.size(26.dp)
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(28.dp))
                     Text(tr("Nenhum veículo cadastrado", "No registered vehicles"), color = textDim)
                 }
             } else {
@@ -225,6 +224,28 @@ fun GaragemOverviewScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     contentPadding = PaddingValues(start = 16.dp, top = 4.dp, end = 16.dp, bottom = 12.dp)
                 ) {
+                    item {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 2.dp, bottom = 4.dp)
+                        ) {
+                            IconButton(
+                                onClick = onDismiss,
+                                modifier = Modifier
+                                    .size(56.dp)
+                                    .align(Alignment.CenterStart)
+                            ) {
+                                Icon(
+                                    Icons.Default.ArrowBackIosNew,
+                                    contentDescription = tr("Voltar", "Back"),
+                                    tint = textPrimary,
+                                    modifier = Modifier.size(26.dp)
+                                )
+                            }
+                        }
+                    }
+
                     item {
                         Column(
                             modifier = Modifier.fillMaxWidth().padding(top = 0.dp, bottom = 6.dp),
@@ -348,6 +369,19 @@ fun GaragemOverviewScreen(
                         }
                     } else {
                         items(carrosFiltrados) { carro ->
+                            val corBaseVeiculo = carro.getCorUI()
+                            val corCirculoVeiculo = when {
+                                // Evita "sumir" no tema escuro quando a cor do veículo é preta/muito escura.
+                                isDark && corBaseVeiculo.luminance() < 0.12f -> Color(0xFF334155)
+                                // Em tema claro, evita bolha extremamente escura com pouco contraste.
+                                !isDark && corBaseVeiculo.luminance() < 0.08f -> Color(0xFFE2E8F0)
+                                else -> corBaseVeiculo
+                            }
+                            val tintIconeVeiculo = if (corCirculoVeiculo.luminance() < 0.45f) {
+                                Color.White
+                            } else {
+                                Color(0xFF0F172A)
+                            }
                             Card(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -371,12 +405,17 @@ fun GaragemOverviewScreen(
                                             modifier = Modifier
                                                 .size(56.dp)
                                                 .clip(CircleShape)
-                                                .background(carro.getCorUI().copy(alpha = if (isDark) 0.38f else 0.24f)),
+                                                .background(corCirculoVeiculo.copy(alpha = if (isDark) 0.60f else 0.24f))
+                                                .border(
+                                                    width = 1.dp,
+                                                    color = if (isDark) Color.White.copy(alpha = 0.18f) else Color.Black.copy(alpha = 0.08f),
+                                                    shape = CircleShape
+                                                ),
                                             contentAlignment = Alignment.Center
                                         ) {
                                             VehicleIcon(
                                                 tipoVeiculo = carro.tipoVeiculo,
-                                                tint = if (isDark) Color.White else Color.Black,
+                                                tint = tintIconeVeiculo,
                                                 size = 28.dp
                                             )
                                         }
@@ -391,9 +430,19 @@ fun GaragemOverviewScreen(
                                                 fontWeight = FontWeight.Bold,
                                                 fontSize = 16.sp
                                             )
-                                            val anoVeiculo = extrairAnoDoModeloNoCard(carro.modelo)
+                                            val isBikeType =
+                                                carro.tipoVeiculo == TipoVeiculo.BICICLETA ||
+                                                    carro.tipoVeiculo == TipoVeiculo.BIKE_ELETRICA
+                                            val detalheModelo = if (isBikeType) {
+                                                extrairAroDoModeloNoCard(carro.modelo)
+                                                    .takeIf { it.isNotBlank() && it != "--" }
+                                                    ?.let { "${tr("Aro", "Rim")}: $it" }
+                                            } else {
+                                                extrairAnoDoModeloNoCard(carro.modelo)
+                                                    .takeIf { it.isNotBlank() && it != "--" }
+                                            }
                                             val marcaAno = listOf(
-                                                anoVeiculo.takeIf { it.isNotBlank() && it != "--" },
+                                                detalheModelo,
                                                 carro.marca.takeIf { it.isNotBlank() }
                                             ).joinToString(" • ").ifBlank { tr("Marca não informada", "Brand not informed") }
                                             Text(
@@ -582,6 +631,17 @@ fun VisaoGeralFrotaScreen(
 private fun extrairAnoDoModeloNoCard(modelo: String): String {
     val match = Regex("\\b(19|20)\\d{2}\\b").find(modelo)
     return match?.value ?: "--"
+}
+
+private fun extrairAroDoModeloNoCard(modelo: String): String {
+    val texto = modelo.trim()
+    if (texto.isBlank()) return "--"
+
+    val comPrefixo = Regex("(?i)\\baro\\s*[:\\-]?\\s*(\\d{1,2})\\b").find(texto)?.groupValues?.getOrNull(1)
+    if (!comPrefixo.isNullOrBlank()) return comPrefixo
+
+    val numeroSolto = Regex("\\b(\\d{1,2})\\b").find(texto)?.groupValues?.getOrNull(1)
+    return numeroSolto ?: texto
 }
 
 

@@ -52,9 +52,11 @@ fun SelecionarPrestadorScreen(
     val accentBlue = Color(0xFF2563EB)
     val textPrimary = if (isDark) Color(0xFFF8FAFC) else Color(0xFF0F172A)
     val textSecondary = if (isDark) Color(0xFF94A3B8) else Color(0xFF64748B)
-    val containerColor = if (isDark) Color(0xFF0F172A) else Color.White
+    val containerColor = if (isDark) Color(0xFF111827) else Color.White
     val borderColor = if (isDark) Color.White.copy(alpha = 0.16f) else Color.Black.copy(alpha = 0.14f)
     val textFieldBg = if (isDark) Color(0xFF111827) else Color(0xFFF8FAFC)
+    val cancelarBorderColor = if (isDark) Color.White else borderColor
+    val cancelarTextColor = if (isDark) Color.White else textPrimary
 
     var nomeInput by rememberSaveable { mutableStateOf("") }
     var telefoneInput by rememberSaveable { mutableStateOf("") }
@@ -164,12 +166,20 @@ fun SelecionarPrestadorScreen(
             OutlinedButton(
                 onClick = onDismiss,
                 shape = RoundedCornerShape(12.dp),
-                border = androidx.compose.foundation.BorderStroke(1.dp, borderColor),
+                border = androidx.compose.foundation.BorderStroke(1.dp, cancelarBorderColor),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    contentColor = cancelarTextColor
+                ),
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(54.dp)
             ) {
-                Text(tr("Cancelar", "Cancel"), fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                Text(
+                    tr("Cancelar", "Cancel"),
+                    color = cancelarTextColor,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
             }
         },
         confirmButton = {

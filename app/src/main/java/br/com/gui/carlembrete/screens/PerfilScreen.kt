@@ -54,8 +54,8 @@ fun PerfilScreen(
 
     // Cores baseadas no tema
     val isDark = colorScheme.background.luminance() < 0.5f
-    val bg = if (isDark) Color(0xFF0F172A) else colorScheme.background
-    val cardBg = if (isDark) Color(0xFF1E293B) else Color(0xFFF8FAFC)
+    val bg = if (isDark) Color.Black else colorScheme.background
+    val cardBg = if (isDark) Color(0xFF111827) else Color(0xFFF8FAFC)
     val border = if (isDark) Color.White.copy(alpha = 0.10f) else Color(0xFFE2E8F0)
 
     val user = FirebaseAuth.getInstance().currentUser

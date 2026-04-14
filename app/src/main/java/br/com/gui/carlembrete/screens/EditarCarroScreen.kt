@@ -1,11 +1,5 @@
 ﻿package br.com.gui.carlembrete
 
-import android.app.Activity
-import android.content.Intent
-import android.speech.RecognizerIntent
-import android.widget.Toast
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -19,7 +13,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBackIosNew
-import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.DirectionsCar
 import androidx.compose.material.icons.rounded.Edit
@@ -59,7 +52,6 @@ fun EditarCarroScreen(
     onSalvar: (CarroInfo) -> Unit,
     onExcluir: () -> Unit
 ) {
-    val context = LocalContext.current
     val nomeUsuarioLogado = remember {
         val displayName = FirebaseAuth.getInstance().currentUser?.displayName
             ?.trim()
@@ -72,11 +64,12 @@ fun EditarCarroScreen(
         }
     }
     val scheme = MaterialTheme.colorScheme
+    val isDark = scheme.background.luminance() < 0.5f
     val titleColor = scheme.onBackground
     val textSecondary = scheme.onSurfaceVariant
     val accentBlue = scheme.primary
-    val sectionBorder = scheme.outlineVariant
-    val bgLight = scheme.background
+    val sectionBorder = if (isDark) Color(0xFF334155) else scheme.outlineVariant
+    val bgLight = if (isDark) Color.Black else scheme.background
     val textFieldColors = OutlinedTextFieldDefaults.colors(
         focusedTextColor = titleColor,
         unfocusedTextColor = titleColor,
@@ -118,6 +111,9 @@ fun EditarCarroScreen(
     var quemUsaExpanded by remember { mutableStateOf(false) }
     var kmAtualStr by remember { mutableStateOf(if (carroAtual.kmAtual > 0) formatarKmLocal(carroAtual.kmAtual) else "") }
     val tipoSelecionado = carroAtual.tipoVeiculo
+    val proprietarioInicial = remember(carroAtual.proprietario, nomeUsuarioLogado) {
+        if (carroAtual.proprietario.equals("Eu mesmo", ignoreCase = true)) nomeUsuarioLogado else carroAtual.proprietario
+    }
     var corSelecionada by remember { mutableStateOf(carroAtual.corArgb) }
     var corExpanded by remember { mutableStateOf(false) }
     val opcoesCor = remember {
@@ -148,10 +144,37 @@ fun EditarCarroScreen(
     }
     var vezesBatido by remember { mutableStateOf(carroAtual.vezesBatido) }
     var tempoComVeiculo by remember { mutableStateOf(carroAtual.tempoComVeiculo) }
-    var alvoVoz by remember { mutableStateOf("nome") }
     val contentScrollState = rememberScrollState()
     val isBikeType = tipoSelecionado == TipoVeiculo.BICICLETA || tipoSelecionado == TipoVeiculo.BIKE_ELETRICA
     var showDeleteDialog by remember { mutableStateOf(false) }
+    val kmAtualNormalizado by remember(kmAtualStr) {
+        derivedStateOf { kmAtualStr.filter(Char::isDigit).toIntOrNull() ?: 0 }
+    }
+    val hasChanges by remember(
+        nome,
+        marca,
+        modelo,
+        proprietario,
+        corSelecionada,
+        kmAtualNormalizado,
+        vezesBatido,
+        tempoComVeiculo,
+        tipoSelecionado,
+        carroAtual,
+        proprietarioInicial
+    ) {
+        derivedStateOf {
+            nome != carroAtual.nome ||
+                marca != carroAtual.marca ||
+                modelo != carroAtual.modelo ||
+                proprietario != proprietarioInicial ||
+                corSelecionada != carroAtual.corArgb ||
+                kmAtualNormalizado != carroAtual.kmAtual ||
+                tipoSelecionado != carroAtual.tipoVeiculo ||
+                vezesBatido != carroAtual.vezesBatido ||
+                tempoComVeiculo != carroAtual.tempoComVeiculo
+        }
+    }
 
     if (showDeleteDialog) {
         DeleteVehicleDialog(
@@ -163,75 +186,9 @@ fun EditarCarroScreen(
         )
     }
 
-    val speechLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            val textoReconhecido = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
-            if (!textoReconhecido.isNullOrBlank()) {
-                if (alvoVoz == "motor") {
-                    modelo = textoReconhecido
-                } else {
-                    nome = textoReconhecido
-                }
-            }
-        }
-    }
-
-    fun iniciarCapturaVozApelido() {
-        alvoVoz = "nome"
-        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
-            putExtra(RecognizerIntent.EXTRA_PROMPT, "Diga o nome do veiculo")
-        }
-        try {
-            speechLauncher.launch(intent)
-        } catch (_: Exception) {
-            Toast.makeText(context, "Voz indisponivel neste dispositivo", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    fun iniciarCapturaVozMotor() {
-        alvoVoz = "motor"
-        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
-            putExtra(RecognizerIntent.EXTRA_PROMPT, "Diga o motor do veiculo")
-        }
-        try {
-            speechLauncher.launch(intent)
-        } catch (_: Exception) {
-            Toast.makeText(context, "Voz indisponivel neste dispositivo", Toast.LENGTH_SHORT).show()
-        }
-    }
-
     Scaffold(
         containerColor = bgLight,
-        topBar = {
-            CenterAlignedTopAppBar(
-                title = {
-                    Text(
-                        if (isBikeType) trNow("Editar bike", "Edit bike") else trNow("Editar veiculo", "Edit vehicle"),
-                        color = titleColor,
-                        fontWeight = FontWeight.Bold
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.ArrowBackIosNew, contentDescription = trNow("Voltar", "Back"), tint = titleColor)
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { showDeleteDialog = true }) {
-                        Icon(
-                            imageVector = Icons.Rounded.Delete,
-                            contentDescription = trNow("Excluir veiculo", "Delete vehicle"),
-                            tint = MaterialTheme.colorScheme.error
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = bgLight)
-            )
-        }
+        contentWindowInsets = WindowInsets(0, 0, 0, 0)
     ) { innerPadding ->
         Box(
             modifier = Modifier
@@ -243,9 +200,64 @@ fun EditarCarroScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .verticalScroll(contentScrollState)
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+                    .padding(horizontal = 16.dp, vertical = 0.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                        .padding(top = 0.dp, bottom = 0.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            IconButton(onClick = onDismiss) {
+                                Icon(
+                                    Icons.Default.ArrowBackIosNew,
+                                    contentDescription = trNow("Voltar", "Back"),
+                                    tint = titleColor
+                                )
+                            }
+                            IconButton(onClick = { showDeleteDialog = true }) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Delete,
+                                    contentDescription = trNow("Excluir veiculo", "Delete vehicle"),
+                                    tint = MaterialTheme.colorScheme.error
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Box(
+                            modifier = Modifier
+                                .size(56.dp)
+                                .background(accentBlue.copy(alpha = 0.14f), CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Edit,
+                                contentDescription = null,
+                                tint = accentBlue,
+                                modifier = Modifier.size(30.dp)
+                            )
+                        }
+                        Text(
+                            text = if (isBikeType) trNow("Editar bike", "Edit bike") else trNow("Editar veiculo", "Edit vehicle"),
+                            color = titleColor,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 25.sp
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                    }
+                }
+
                 EditSectionCard(title = "", icon = null) {
                     var batidasExpanded by remember { mutableStateOf(false) }
                     var tempoExpanded by remember { mutableStateOf(false) }
@@ -321,11 +333,6 @@ fun EditarCarroScreen(
                         onValueChange = { nome = it },
                         label = { Text("Nome do veiculo") },
                         singleLine = true,
-                        trailingIcon = {
-                            IconButton(onClick = ::iniciarCapturaVozApelido) {
-                                Icon(Icons.Default.Mic, contentDescription = "Falar nome do veiculo")
-                            }
-                        },
                         colors = textFieldColors,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -501,6 +508,7 @@ fun EditarCarroScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(54.dp),
+                    enabled = hasChanges,
                     colors = ButtonDefaults.buttonColors(containerColor = accentBlue),
                     shape = RoundedCornerShape(14.dp)
                 ) {
@@ -517,11 +525,12 @@ private fun DeleteVehicleDialog(
     onConfirm: () -> Unit
 ) {
     val scheme = MaterialTheme.colorScheme
+    val isDark = scheme.background.luminance() < 0.5f
     Dialog(onDismissRequest = onDismiss) {
         Card(
             shape = RoundedCornerShape(28.dp),
-            colors = CardDefaults.cardColors(containerColor = scheme.surface),
-            border = BorderStroke(1.dp, scheme.outlineVariant),
+            colors = CardDefaults.cardColors(containerColor = if (isDark) Color(0xFF111827) else scheme.surface),
+            border = BorderStroke(1.dp, if (isDark) Color(0xFF334155) else scheme.outlineVariant),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(
@@ -543,7 +552,10 @@ private fun DeleteVehicleDialog(
                 )
                 Spacer(Modifier.height(12.dp))
                 Text(
-                    text = "Esta aÃ§Ã£o nÃ£o pode ser desfeita e todos os dados do veÃ­culo serÃ£o removidos.",
+                    text = trNow(
+                        "Esta acao nao pode ser desfeita e todos os dados do veiculo serao removidos.",
+                        "This action cannot be undone and all vehicle data will be removed."
+                    ),
                     style = MaterialTheme.typography.bodyMedium,
                     color = scheme.onSurfaceVariant,
                     textAlign = TextAlign.Center
@@ -553,7 +565,11 @@ private fun DeleteVehicleDialog(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    TextButton(onClick = onDismiss, modifier = Modifier.weight(1f)) {
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.weight(1f),
+                        border = BorderStroke(1.dp, scheme.outline)
+                    ) {
                         Text(trNow("Cancelar", "Cancel"))
                     }
                     Button(
@@ -631,11 +647,12 @@ private fun EditSectionCard(
     content: @Composable ColumnScope.() -> Unit
 ) {
     val scheme = MaterialTheme.colorScheme
+    val isDark = scheme.background.luminance() < 0.5f
 
     Card(
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = scheme.surface),
-        border = BorderStroke(1.dp, scheme.outlineVariant)
+        colors = CardDefaults.cardColors(containerColor = if (isDark) Color(0xFF111827) else scheme.surface),
+        border = BorderStroke(1.dp, if (isDark) Color(0xFF334155) else scheme.outlineVariant)
     ) {
         Column(
             modifier = Modifier

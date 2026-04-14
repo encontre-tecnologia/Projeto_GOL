@@ -2,6 +2,7 @@
 
 import android.Manifest
 import android.app.Activity
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -83,12 +84,20 @@ fun AondePareiScreen(
 ) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE) }
+    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
 
     // --- TEMAS E CORES ---
     val primaryColor = Color(0xFF3B82F6) // Azul Zellu suavizado
-    val secondaryColor = Color(0xFF64748B)
+    val secondaryColor = if (isDark) Color(0xFF94A3B8) else Color(0xFF64748B)
     val successColor = Color(0xFF10B981)
-    val themedIconTint = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) Color.White else Color.Black
+    val themedIconTint = if (isDark) Color.White else Color.Black
+    val mapsButtonContainerColor = if (isDark) Color(0xFF2563EB) else primaryColor
+    val mapsButtonContentColor = Color.White
+    val screenBg = if (isDark) Color.Black else MaterialTheme.colorScheme.background
+    val cardBg = if (isDark) Color(0xFF111827) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+    val surfaceBg = if (isDark) Color(0xFF0F172A) else MaterialTheme.colorScheme.surface
+    val outlineColor = if (isDark) Color.White.copy(alpha = 0.18f) else MaterialTheme.colorScheme.outlineVariant
+    val titleText = if (isDark) Color(0xFFF8FAFC) else MaterialTheme.colorScheme.onSurface
     val englishUi = isEnglishUi()
 
     // --- ESTADOS ---
@@ -115,21 +124,49 @@ fun AondePareiScreen(
     var finalizedPhotoUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
 
     // --- VEICULOS ---
-    val otherVehicleLabel = tr("Outro", "Other")
     val registeredVehicles = remember {
         BancoDeDados.carregarCarros(context).orEmpty()
+    }
+    val lastSelectedCarId = remember { AppPreferences.getLastSelectedCarId(context) }
+    val currentVehicle = remember(registeredVehicles, lastSelectedCarId) {
+        registeredVehicles.firstOrNull { it.id == lastSelectedCarId } ?: registeredVehicles.firstOrNull()
+    }
+    val isBikeType: (TipoVeiculo?) -> Boolean = { tipo ->
+        tipo == TipoVeiculo.BICICLETA || tipo == TipoVeiculo.BIKE_ELETRICA
+    }
+    val bikeContext = isBikeType(currentVehicle?.tipoVeiculo)
+    val otherVehicleLabel = if (bikeContext) tr("Outra bike", "Other bike") else tr("Outro", "Other")
+    val availableVehicles = remember(registeredVehicles, bikeContext) {
+        if (bikeContext) registeredVehicles.filter { isBikeType(it.tipoVeiculo) } else registeredVehicles
     }
     val vehicleDisplayName: (CarroInfo) -> String = { carro ->
         carro.nome.ifBlank { "${carro.marca} ${carro.modelo}".trim().ifBlank { if (englishUi) "Unnamed vehicle" else "Veículo sem nome" } }
     }
-    val registeredVehicleNames = remember(registeredVehicles) {
-        registeredVehicles.map(vehicleDisplayName).filter { it.isNotBlank() }.distinct()
+    val registeredVehicleNames = remember(availableVehicles) {
+        availableVehicles.map(vehicleDisplayName).filter { it.isNotBlank() }.distinct()
     }
     var showVehicleSelectorDialog by remember { mutableStateOf(false) }
     var selectedVehicleName by remember { mutableStateOf(registeredVehicleNames.firstOrNull().orEmpty()) }
     var customVehicleName by remember { mutableStateOf("") }
     var showVehicleImageDialog by remember { mutableStateOf(false) }
     var previewVehicleType by remember { mutableStateOf(TipoVeiculo.HATCH) }
+    val selectedVehicle = availableVehicles
+        .firstOrNull { vehicleDisplayName(it) == selectedVehicleName }
+        ?: currentVehicle
+    val selectedVehicleDisplayName = selectedVehicle?.let(vehicleDisplayName)?.takeIf { it.isNotBlank() }
+    val selectedVehicleType = selectedVehicle?.tipoVeiculo
+    val isBikeSelected = bikeContext ||
+        selectedVehicleType == TipoVeiculo.BICICLETA ||
+        selectedVehicleType == TipoVeiculo.BIKE_ELETRICA ||
+        (selectedVehicleName == otherVehicleLabel && bikeContext)
+
+    LaunchedEffect(registeredVehicleNames) {
+        if (registeredVehicleNames.isEmpty()) {
+            selectedVehicleName = ""
+        } else if (selectedVehicleName !in registeredVehicleNames) {
+            selectedVehicleName = registeredVehicleNames.first()
+        }
+    }
 
     // --- LAUNCHERS ---
     val locationPermissionLauncher = rememberLauncherForActivityResult(
@@ -141,7 +178,13 @@ fun AondePareiScreen(
             AppPreferences.setParkingFinalized(context, false)
             photoUris.clear()
             AppPreferences.clearParkingPhotoUris(context)
-            showParkingOngoingNotification(context, it)
+            showParkingOngoingNotification(
+                context = context,
+                location = it,
+                isBike = isBikeSelected,
+                carroId = selectedVehicle?.id,
+                vehicleName = selectedVehicleDisplayName
+            )
         }
         else Toast.makeText(context, trNow("Permissão necessária para salvar o local.", "Permission required to save location."), Toast.LENGTH_SHORT).show()
     }
@@ -157,9 +200,15 @@ fun AondePareiScreen(
         }
     }
 
-    LaunchedEffect(savedLocation, parkingFinalized) {
+    LaunchedEffect(savedLocation, parkingFinalized, isBikeSelected) {
         if (savedLocation != null && !parkingFinalized) {
-            showParkingOngoingNotification(context, savedLocation!!)
+            showParkingOngoingNotification(
+                context = context,
+                location = savedLocation!!,
+                isBike = isBikeSelected,
+                carroId = selectedVehicle?.id,
+                vehicleName = selectedVehicleDisplayName
+            )
         } else {
             cancelParkingOngoingNotification(context)
         }
@@ -174,7 +223,13 @@ fun AondePareiScreen(
                 AppPreferences.setParkingFinalized(context, false)
                 photoUris.clear()
                 AppPreferences.clearParkingPhotoUris(context)
-                showParkingOngoingNotification(context, it)
+                showParkingOngoingNotification(
+                    context = context,
+                    location = it,
+                    isBike = isBikeSelected,
+                    carroId = selectedVehicle?.id,
+                    vehicleName = selectedVehicleDisplayName
+                )
             }
         } else {
             locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
@@ -190,10 +245,13 @@ fun AondePareiScreen(
         }
     }
 
-    Scaffold { innerPadding ->
+    Scaffold(
+        containerColor = screenBg
+    ) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .background(screenBg)
                 .padding(innerPadding)
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp),
@@ -205,22 +263,29 @@ fun AondePareiScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(onClick = onDismiss) {
-                    Icon(Icons.Default.ArrowBackIosNew, tr("Voltar", "Back"))
+                    Icon(Icons.Default.ArrowBackIosNew, tr("Voltar", "Back"), tint = titleText)
                 }
                 Text(
-                    text = tr("Onde parei", "Where I parked"),
+                    text = if (bikeContext) tr("Onde parei a bike", "Where I left my bike") else tr("Onde parei", "Where I parked"),
+                    color = titleText,
                     fontWeight = FontWeight.Bold,
+                    fontSize = 23.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                Spacer(modifier = Modifier.size(48.dp))
+                SuggestionIdeaEntryPoint(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .padding(top = 6.dp)
+                )
             }
 
             // 1. HEADER STATUS
             StatusHeader(
                 isParked = isParkedState,
                 location = savedLocation,
-                primaryColor = primaryColor
+                primaryColor = primaryColor,
+                isBike = isBikeSelected
             )
 
             // 2. AÃ‡Ã•ES PRINCIPAIS
@@ -236,7 +301,7 @@ fun AondePareiScreen(
                 ) { parked ->
                     if (!parked) {
                         BigActionButton(
-                            text = tr("Marcar Local Atual", "Mark Current Location"),
+                            text = if (bikeContext) tr("Marcar parada atual", "Mark current stop") else tr("Marcar Local Atual", "Mark Current Location"),
                             icon = Icons.Rounded.LocationOn,
                             color = primaryColor,
                             onClick = { requestLocation() }
@@ -244,7 +309,7 @@ fun AondePareiScreen(
                     } else {
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             BigActionButton(
-                                text = tr("Encontrei meu Carro", "I found my car"),
+                                text = if (isBikeSelected) tr("Encontrei minha bike", "I found my bike") else tr("Encontrei meu Carro", "I found my car"),
                                 icon = Icons.Default.CheckCircle,
                                 color = successColor,
                                 onClick = {
@@ -275,7 +340,7 @@ fun AondePareiScreen(
                                 }
                             )
 
-                            OutlinedButton(
+                            Button(
                                 onClick = {
                                     // VERIFICA SE O USUARIO MARCOU "NÃƒO MOSTRAR NOVAMENTE"
                                     val dontShowAgain = prefs.getBoolean("skip_nav_warning", false)
@@ -289,8 +354,10 @@ fun AondePareiScreen(
                                     .fillMaxWidth()
                                     .height(56.dp),
                                 shape = RoundedCornerShape(16.dp),
-                                border = BorderStroke(1.dp, primaryColor),
-                                colors = ButtonDefaults.outlinedButtonColors(contentColor = primaryColor)
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = mapsButtonContainerColor,
+                                    contentColor = mapsButtonContentColor
+                                )
                             ) {
                                 Icon(Icons.Rounded.Navigation, null)
                                 Spacer(Modifier.width(8.dp))
@@ -309,16 +376,16 @@ fun AondePareiScreen(
 
             // 3. DETALHES (VeÃ­culo e Fotos)
             Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                colors = CardDefaults.cardColors(containerColor = cardBg),
                 shape = RoundedCornerShape(20.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Text(tr("Qual veículo?", "Which vehicle?"), style = MaterialTheme.typography.labelLarge, color = secondaryColor)
+                    Text(if (bikeContext) tr("Qual bike?", "Which bike?") else tr("Qual veículo?", "Which vehicle?"), style = MaterialTheme.typography.labelLarge, color = secondaryColor)
                     Surface(
-                        color = MaterialTheme.colorScheme.surface,
+                        color = surfaceBg,
                         shape = RoundedCornerShape(12.dp),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                        border = BorderStroke(1.dp, outlineColor),
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable { showVehicleSelectorDialog = true }
@@ -327,7 +394,7 @@ fun AondePareiScreen(
                             modifier = Modifier.padding(16.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            val selectedVehicleMatch = registeredVehicles.firstOrNull { vehicleDisplayName(it) == selectedVehicleName }
+                            val selectedVehicleMatch = availableVehicles.firstOrNull { vehicleDisplayName(it) == selectedVehicleName }
                             if (selectedVehicleMatch != null) {
                                 VehicleIcon(
                                     tipoVeiculo = selectedVehicleMatch.tipoVeiculo,
@@ -351,7 +418,9 @@ fun AondePareiScreen(
                             }
                             Spacer(Modifier.width(12.dp))
                             Text(
-                                text = selectedVehicleName.ifBlank { tr("Selecionar veículo", "Select vehicle") },
+                                text = selectedVehicleName.ifBlank {
+                                    if (bikeContext) tr("Selecionar bike", "Select bike") else tr("Selecionar veículo", "Select vehicle")
+                                },
                                 style = MaterialTheme.typography.bodyLarge,
                                 fontWeight = FontWeight.Medium,
                                 color = themedIconTint,
@@ -373,7 +442,7 @@ fun AondePareiScreen(
                         )
                     }
 
-                    Divider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                    Divider(color = outlineColor.copy(alpha = 0.7f))
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -381,15 +450,18 @@ fun AondePareiScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(tr("Fotos de referência", "Reference photos"), style = MaterialTheme.typography.labelLarge, color = secondaryColor)
-                        OutlinedButton(
+                        Button(
                             onClick = {
                                 val uri = createTempImageUri(context)
                                 pendingPhotoUri = uri
                                 cameraLauncher.launch(uri)
                             },
                             enabled = isParkedState,
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                            shape = RoundedCornerShape(10.dp)
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = mapsButtonContainerColor,
+                                contentColor = mapsButtonContentColor
+                            )
                         ) {
                             Icon(Icons.Outlined.PhotoCamera, null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(4.dp))
@@ -403,8 +475,8 @@ fun AondePareiScreen(
                                 .fillMaxWidth()
                                 .height(100.dp)
                                 .clip(RoundedCornerShape(12.dp))
-                                .background(MaterialTheme.colorScheme.surface)
-                                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp)),
+                                .background(surfaceBg)
+                                .border(1.dp, outlineColor, RoundedCornerShape(12.dp)),
                             contentAlignment = Alignment.Center
                         ) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -441,7 +513,7 @@ fun AondePareiScreen(
         Dialog(onDismissRequest = { showNavigationDialog = false }) {
             Card(
                 shape = RoundedCornerShape(24.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                colors = CardDefaults.cardColors(containerColor = surfaceBg),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
@@ -460,9 +532,13 @@ fun AondePareiScreen(
                     }
 
                     Text(
-                        tr("Quando voltar ao carro, toque em \"Encontrei meu carro\" para registrar o tempo corretamente.", "When you return to the car, tap \"I found my car\" to record time correctly."),
+                        if (bikeContext) {
+                            tr("Quando voltar para a bike, toque em \"Encontrei minha bike\" para registrar o tempo corretamente.", "When you return to your bike, tap \"I found my bike\" to record time correctly.")
+                        } else {
+                            tr("Quando voltar ao carro, toque em \"Encontrei meu carro\" para registrar o tempo corretamente.", "When you return to the car, tap \"I found my car\" to record time correctly.")
+                        },
                         textAlign = TextAlign.Start, // TEXTO ALINHADO A ESQUERDA
-                        color = MaterialTheme.colorScheme.onSurface,
+                        color = titleText,
                         style = MaterialTheme.typography.bodyMedium
                     )
 
@@ -520,7 +596,7 @@ fun AondePareiScreen(
         Dialog(onDismissRequest = { selectedPhotoUri = null }) {
             Card(
                 shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                colors = CardDefaults.cardColors(containerColor = surfaceBg),
                 modifier = Modifier.width(320.dp)
             ) {
                 Column(
@@ -554,7 +630,7 @@ fun AondePareiScreen(
         Dialog(onDismissRequest = { showVehicleSelectorDialog = false }) {
             Card(
                 shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                colors = CardDefaults.cardColors(containerColor = surfaceBg),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
@@ -562,7 +638,7 @@ fun AondePareiScreen(
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     Text(
-                        tr("Selecionar veículo", "Select vehicle"),
+                        if (bikeContext) tr("Selecionar bike", "Select bike") else tr("Selecionar veículo", "Select vehicle"),
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface
@@ -575,14 +651,14 @@ fun AondePareiScreen(
                         val list = registeredVehicleNames + otherVehicleLabel
                         items(list) { name ->
                             val isSelected = selectedVehicleName == name
-                            val vehicleMatch = registeredVehicles.firstOrNull { vehicleDisplayName(it) == name }
+                            val vehicleMatch = availableVehicles.firstOrNull { vehicleDisplayName(it) == name }
                             Surface(
                                 shape = RoundedCornerShape(12.dp),
                                 color = if (isSelected) primaryColor.copy(alpha = 0.1f) else Color.Transparent,
                                 border = if (isSelected) {
                                     BorderStroke(1.dp, primaryColor)
                                 } else {
-                                    BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
+                                    BorderStroke(1.dp, outlineColor.copy(alpha = 0.85f))
                                 },
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -663,7 +739,7 @@ fun AondePareiScreen(
         Dialog(onDismissRequest = { showVehicleImageDialog = false }) {
             Card(
                 shape = RoundedCornerShape(24.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                colors = CardDefaults.cardColors(containerColor = surfaceBg),
                 modifier = Modifier.width(280.dp)
             ) {
                 Column(
@@ -697,7 +773,7 @@ fun AondePareiScreen(
         Dialog(onDismissRequest = { showParkingFinishedDialog = false }) {
             Card(
                 shape = RoundedCornerShape(24.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                colors = CardDefaults.cardColors(containerColor = surfaceBg),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
@@ -715,14 +791,19 @@ fun AondePareiScreen(
                     }
 
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(tr("Tudo certo!", "All good!"), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                        Text(tr("Tudo certo!", "All good!"), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = titleText)
                         Spacer(Modifier.height(4.dp))
-                        Text(tr("Estacionamento finalizado.", "Parking finished."), style = MaterialTheme.typography.bodyMedium, color = secondaryColor, textAlign = TextAlign.Center)
+                        Text(
+                            if (isBikeSelected) tr("Parada finalizada.", "Stop finished.") else tr("Estacionamento finalizado.", "Parking finished."),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = secondaryColor,
+                            textAlign = TextAlign.Center
+                        )
                     }
 
                     if (finishedParkingDurationText != null) {
                         Card(
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                            colors = CardDefaults.cardColors(containerColor = cardBg),
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
@@ -788,7 +869,7 @@ fun AondePareiScreen(
 
 // --- HELPERS E PDF (Mantenha o StatusHeader e funÃ§Ãµes de PDF iguais) ---
 @Composable
-fun StatusHeader(isParked: Boolean, location: ParkedLocation?, primaryColor: Color) {
+fun StatusHeader(isParked: Boolean, location: ParkedLocation?, primaryColor: Color, isBike: Boolean = false) {
     val bgBrush = if (isParked) {
         Brush.horizontalGradient(listOf(primaryColor, primaryColor.copy(alpha = 0.7f)))
     } else {
@@ -823,7 +904,11 @@ fun StatusHeader(isParked: Boolean, location: ParkedLocation?, primaryColor: Col
                 Spacer(Modifier.width(16.dp))
                 Column {
                     Text(
-                        if (isParked) tr("Estacionado", "Parked") else tr("Livre", "Free"),
+                        if (isParked) {
+                            if (isBike) tr("Parado", "Stopped") else tr("Estacionado", "Parked")
+                        } else {
+                            tr("Livre", "Free")
+                        },
                         color = Color.White,
                         fontWeight = FontWeight.Bold,
                         fontSize = 22.sp
@@ -911,7 +996,13 @@ private const val PARKING_NOTIFICATION_CHANNEL_ID = "parking_ongoing_channel"
 private const val PARKING_NOTIFICATION_ID = 90421
 private const val PARKING_NOTIFICATION_HISTORY_ID = "PARKING_90421"
 
-private fun showParkingOngoingNotification(context: Context, location: ParkedLocation) {
+private fun showParkingOngoingNotification(
+    context: Context,
+    location: ParkedLocation,
+    isBike: Boolean = false,
+    carroId: String? = null,
+    vehicleName: String? = null
+) {
     if (!hasNotificationPermission(context)) return
 
     val manager = NotificationManagerCompat.from(context)
@@ -927,15 +1018,28 @@ private fun showParkingOngoingNotification(context: Context, location: ParkedLoc
         launchIntent,
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
     )
+    val deleteIntent = PendingIntent.getBroadcast(
+        context,
+        90423,
+        Intent(context, NotificacaoReceiver::class.java).apply {
+            action = NotificacaoReceiver.ACTION_PARKING_NOTIFICATION_DISMISSED
+            putExtra(NotificacaoReceiver.EXTRA_PARKING_IS_BIKE, isBike)
+        },
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+    )
 
     val sinceText = SimpleDateFormat("dd/MM HH:mm", Locale("pt", "BR")).format(Date(location.timeMillis))
+    val baseTitle = if (isBike) trNow("Parada em andamento", "Stop in progress") else trNow("Estacionamento em andamento", "Parking in progress")
+    val title = if (!vehicleName.isNullOrBlank()) "$baseTitle • $vehicleName" else baseTitle
+    val tapText = if (isBike) trNow("Toque quando encontrar a bike.", "Tap when you find the bike.") else trNow("Toque quando encontrar o carro.", "Tap when you find the car.")
+    val finishText = if (isBike) trNow("\"Encontrei minha bike\"", "\"I found my bike\"") else trNow("\"Encontrei meu carro\"", "\"I found my car\"")
     val notification = NotificationCompat.Builder(context, PARKING_NOTIFICATION_CHANNEL_ID)
-        .setSmallIcon(R.drawable.logonotificacao)
-        .setContentTitle(trNow("Estacionamento em andamento", "Parking in progress"))
-        .setContentText(trNow("Toque quando encontrar o carro. Desde: $sinceText", "Tap when you find the car. Since: $sinceText"))
+        .setSmallIcon(R.drawable.ic_shield_notification)
+        .setContentTitle(title)
+        .setContentText("$tapText ${trNow("Desde", "Since")}: $sinceText")
         .setStyle(
             NotificationCompat.BigTextStyle().bigText(
-                trNow("Local marcado com sucesso. Esta notificacao fica ativa ate voce tocar em \"Encontrei meu carro\" no app.", "Location saved successfully. This notification stays active until you tap \"I found my car\" in the app.")
+                trNow("Local marcado com sucesso. Esta notificacao fica ativa ate voce tocar em $finishText no app.", "Location saved successfully. This notification stays active until you tap $finishText in the app.")
             )
         )
         .setPriority(NotificationCompat.PRIORITY_DEFAULT)
@@ -944,15 +1048,27 @@ private fun showParkingOngoingNotification(context: Context, location: ParkedLoc
         .setAutoCancel(false)
         .setOnlyAlertOnce(true)
         .setContentIntent(pendingIntent)
+        .setDeleteIntent(deleteIntent)
         .build()
+        .apply {
+            flags = flags or Notification.FLAG_NO_CLEAR
+        }
 
     manager.notify(PARKING_NOTIFICATION_ID, notification)
     NotificacaoHelper.registrarNotificacaoDisparadaUnica(
         context = context,
         id = PARKING_NOTIFICATION_HISTORY_ID,
-        titulo = trNow("Estacionamento em andamento", "Parking in progress"),
-        descricao = trNow("Local marcado com sucesso. A notificacao permanece ate voce finalizar no app.", "Location saved successfully. The notification remains until you finish in the app."),
-        carroId = null
+        titulo = title,
+        descricao = buildString {
+            append(trNow("Local marcado com sucesso. A notificacao permanece ate voce finalizar no app.", "Location saved successfully. The notification remains until you finish in the app."))
+            if (!vehicleName.isNullOrBlank()) {
+                append(" ")
+                append(trNow("Veículo", "Vehicle"))
+                append(": ")
+                append(vehicleName)
+            }
+        },
+        carroId = carroId
     )
 }
 
@@ -980,7 +1096,7 @@ private fun hasNotificationPermission(context: Context): Boolean {
         ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
 }
 
-// --- GERAÃ‡ÃƒO DE PDF ---
+// --- GERACAO DE PDF ---
 private fun generateParkingReceiptPdf(
     context: Context,
     location: ParkedLocation,
@@ -1023,19 +1139,19 @@ private fun generateParkingReceiptPdf(
         val startedText = sdf.format(Date(startedAtMillis))
         val endedText = sdf.format(Date(endedAtMillis))
         canvas.drawText("RESUMO DO ESTACIONAMENTO", margin + 14f, y + 22f, labelPaint)
-        canvas.drawText("VeÃ­culo: $vehicleName", margin + 14f, y + 40f, valuePaint)
-        canvas.drawText("InÃ­cio: $startedText", margin + 14f, y + 58f, valuePaint)
+        canvas.drawText("Ve\u00EDculo: $vehicleName", margin + 14f, y + 40f, valuePaint)
+        canvas.drawText("In\u00EDcio: $startedText", margin + 14f, y + 58f, valuePaint)
         canvas.drawText("Fim: $endedText", margin + 14f, y + 74f, valuePaint)
         canvas.drawText("Tempo total: ${if (durationText.isBlank()) "-" else durationText}", margin + 14f, y + 92f, valueBoldPaint)
         canvas.drawLine(margin + 14f, y + 106f, margin + contentWidth - 14f, y + 106f, dividerPaint)
         val latStr = "%.6f".format(Locale.US, location.lat)
         val lngStr = "%.6f".format(Locale.US, location.lng)
-        canvas.drawText("DADOS TÃ‰CNICOS", margin + 14f, y + 126f, labelPaint)
+        canvas.drawText("DADOS T\u00C9CNICOS", margin + 14f, y + 126f, labelPaint)
         canvas.drawText("Lat: $latStr", margin + 14f, y + 144f, valuePaint)
         canvas.drawText("Lng: $lngStr", margin + 14f, y + 160f, valuePaint)
         canvas.drawText("Mapa: http://maps.google.com/?q=${location.lat},${location.lng}", margin + 14f, y + 178f, valuePaint)
         y += 226f
-        canvas.drawText("FOTOS DE REFERÃŠNCIA", margin, y, Paint().apply { textSize = 12.5f; typeface = Typeface.DEFAULT_BOLD })
+        canvas.drawText("FOTOS DE REFER\u00CANCIA", margin, y, Paint().apply { textSize = 12.5f; typeface = Typeface.DEFAULT_BOLD })
         y += 8f
         canvas.drawLine(margin, y, pageWidth - margin, y, dividerPaint)
         y += 12f
@@ -1059,7 +1175,7 @@ private fun generateParkingReceiptPdf(
                 if (bitmap != null) {
                     drawBitmapFitForPdf(canvas, bitmap, left + 8f, top + 30f, slotWidth - 16f, slotHeight - 38f)
                 } else {
-                    canvas.drawText("Imagem indisponÃ­vel", left + 10f, top + 50f, valuePaint)
+                    canvas.drawText("Imagem indispon\u00EDvel", left + 10f, top + 50f, valuePaint)
                 }
             }
         }

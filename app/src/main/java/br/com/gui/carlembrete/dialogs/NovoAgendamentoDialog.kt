@@ -190,21 +190,21 @@ fun NovoAgendamentoDialog(
     val isPremium = planTier != PlanTier.FREE
     val scheme = MaterialTheme.colorScheme
     val isDark = scheme.background.luminance() < 0.5f
-    val pageBackground = if (isDark) scheme.background else scheme.background
+    val pageBackground = if (isDark) Color.Black else scheme.background
     val surfaceCardColor = if (isDark) Color(0xFF111827) else scheme.surface
     val cardBorder = if (isDark) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.12f)
     val currencyFormatter = remember { NumberFormat.getCurrencyInstance(Locale("pt", "BR")) }
     val textPrimary = if (isDark) Color.White else Color.Black
     val textSecondary = if (isDark) Color(0xFF94A3B8) else Color(0xFF475569)
     val iconColor = if (isDark) Color.White else Color.Black
-    val modalContainer = if (isDark) Color(0xFF1E293B) else scheme.surface
+    val modalContainer = if (isDark) Color(0xFF111827) else scheme.surface
     val modalTextSecondary = if (isDark) Color(0xFF94A3B8) else Color(0xFF475569)
     val modalOptionContainer = if (isDark) Color(0xFF111827) else scheme.surface
-    val modalOptionSelectedContainer = if (isDark) Color(0xFF1E293B) else Color(0xFFEFF6FF)
+    val modalOptionSelectedContainer = if (isDark) Color(0xFF1F2937) else Color(0xFFEFF6FF)
     val modalOptionBorder = if (isDark) Color(0xFF334155) else Color(0xFFBFDBFE)
     val modalPrimaryAction = Color(0xFF3B82F6)
-    val nextActionBlue = Color(0xFF2563EB)
-    val neutralButtonContainer = if (isDark) Color(0xFF1E293B) else scheme.surface
+    val nextActionBlue = Color(0xFF3B82F6)
+    val neutralButtonContainer = if (isDark) Color(0xFF111827) else scheme.surface
     val neutralButtonContent = textPrimary
     val neutralButtonBorder = if (isDark) Color(0xFF334155) else scheme.outlineVariant
     val categoriasDisponiveis = tiposAvisoCadastroPorVeiculo(carroAtual.tipoVeiculo)
@@ -236,6 +236,7 @@ fun NovoAgendamentoDialog(
     var itemDataAvisoOverrides by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var itemHoraAvisoOverrides by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var itemValorOverrides by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var itemTituloOverrides by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var itemTipoOverrides by remember { mutableStateOf<Map<String, TipoManutencao>>(emptyMap()) }
     var itemCategoriaMenuAbertoId by remember { mutableStateOf<String?>(null) }
     var showKmConfirmDialog by remember { mutableStateOf(false) }
@@ -275,7 +276,6 @@ fun NovoAgendamentoDialog(
     var qrValorDesconto by remember { mutableStateOf<Double?>(null) }
     var qrValorFinalComDesconto by remember { mutableStateOf<Double?>(null) }
     var qrFormaPagamento by remember { mutableStateOf<String?>(null) }
-    var qrTroco by remember { mutableStateOf<Double?>(null) }
     var usarCadastroManualPosScan by remember { mutableStateOf(false) }
     var qrUrlValidacaoSpPendente by remember { mutableStateOf<String?>(null) }
     var resultadoQrPendente by remember { mutableStateOf<ResultadoCaptura?>(null) }
@@ -378,7 +378,6 @@ fun NovoAgendamentoDialog(
         qrValorDesconto = null
         qrValorFinalComDesconto = null
         qrFormaPagamento = null
-        qrTroco = null
     }
     fun aplicarDadosFinanceirosNotaScan(notaInfo: NotaQrInfo) {
         qrQuantidadeTotalItens = notaInfo.quantidadeTotalItens
@@ -386,7 +385,6 @@ fun NovoAgendamentoDialog(
         qrValorDesconto = notaInfo.valorDesconto
         qrValorFinalComDesconto = notaInfo.valorFinalComDesconto
         qrFormaPagamento = notaInfo.formaPagamento
-        qrTroco = notaInfo.troco?.takeIf { it.isFinite() } ?: 0.0
         val valorPreferencial = notaInfo.valorFinalComDesconto ?: notaInfo.valorTotal ?: notaInfo.valorBruto
         if (valorPreferencial != null) {
             valorInput = String.format(Locale.US, "%.2f", valorPreferencial)
@@ -426,11 +424,13 @@ fun NovoAgendamentoDialog(
             itemDataAvisoOverrides = emptyMap()
             itemHoraAvisoOverrides = emptyMap()
             itemValorOverrides = emptyMap()
-            itemTipoOverrides = itensQr.associate { item -> item.id to tipoSelecionado }
+            itemTituloOverrides = emptyMap()
+            itemTipoOverrides = itensQr.associate { item -> item.id to item.tipo }
         } else {
             itemDataAvisoOverrides = emptyMap()
             itemHoraAvisoOverrides = emptyMap()
             itemValorOverrides = emptyMap()
+            itemTituloOverrides = emptyMap()
             itemTipoOverrides = emptyMap()
         }
         itemCategoriaMenuAbertoId = null
@@ -880,7 +880,10 @@ fun NovoAgendamentoDialog(
     }
 
     fun salvarAvisos(kmAtualBaseForcado: Int? = null) {
-        fun registrarAbastecimentosNoHistorico(valores: List<Double>) {
+        fun registrarAbastecimentosNoHistorico(
+            valores: List<Double>,
+            itensRegistrados: List<ItemAbastecimento> = emptyList()
+        ) {
             val valoresValidos = valores.filter { it > 0.0 }
             if (valoresValidos.isEmpty()) return
             scope.launch(Dispatchers.IO) {
@@ -897,7 +900,8 @@ fun NovoAgendamentoDialog(
                         data = data,
                         precoLitro = precoReferencia,
                         valorPago = total,
-                        litros = litrosEstimados
+                        litros = litrosEstimados,
+                        itens = itensRegistrados
                     )
                 }
                 BancoDeDados.salvarAbastecimentos(context, existentes + novosRegistros)
@@ -932,7 +936,12 @@ fun NovoAgendamentoDialog(
                 val horaItem = itemHoraAvisoOverrides[item.id] ?: horaNotificacao
                 val valorItem = itemValorOverrides[item.id]?.toDoubleOrNull() ?: item.valor
                 (1..rep).map { indice ->
-                    val tituloBase = if (tituloAviso.isBlank()) item.nome else "${tituloAviso.trim()} - ${item.nome}"
+                    val tituloCustom = itemTituloOverrides[item.id]?.trim().orEmpty()
+                    val tituloBase = when {
+                        tituloCustom.isNotBlank() -> tituloCustom
+                        tituloAviso.isBlank() -> item.nome
+                        else -> "${tituloAviso.trim()} - ${item.nome}"
+                    }
                     val tituloFormatado = if (rep > 1) "$tituloBase (${indice}/$rep)" else tituloBase
                     Lembrete(
                         titulo = tituloFormatado,
@@ -1013,7 +1022,18 @@ fun NovoAgendamentoDialog(
                 estabelecimentoEndereco = qrEnderecoEstabelecimento
             )
             if (novoLembrete.tipo == TipoManutencao.ABASTECIMENTO) {
-                registrarAbastecimentosNoHistorico(listOf(novoLembrete.valor))
+                val itensAbastecimento = listaItensDetectados.mapNotNull { item ->
+                    val valorItem = itemValorOverrides[item.id]
+                        ?.replace(",", ".")
+                        ?.toDoubleOrNull()
+                        ?: item.valor
+                    if (valorItem <= 0.0) return@mapNotNull null
+                    ItemAbastecimento(nome = item.nome, valor = valorItem)
+                }
+                registrarAbastecimentosNoHistorico(
+                    valores = listOf(novoLembrete.valor),
+                    itensRegistrados = itensAbastecimento
+                )
                 Toast.makeText(context, "Registro salvo no historico de abastecimento.", Toast.LENGTH_SHORT).show()
             } else if (isRegistroServico) {
                 onConfirm(marcarLembreteComoRealizado(novoLembrete))
@@ -1201,6 +1221,7 @@ fun NovoAgendamentoDialog(
                     itemDataAvisoOverrides = emptyMap()
                     itemHoraAvisoOverrides = emptyMap()
                     itemValorOverrides = emptyMap()
+                    itemTituloOverrides = emptyMap()
                     itemTipoOverrides = emptyMap()
                     itemCategoriaMenuAbertoId = null
                     descricao = sugestaoOcrLimpa ?: "Nota fiscal lida (itens indisponiveis)"
@@ -1240,11 +1261,13 @@ fun NovoAgendamentoDialog(
                         itemDataAvisoOverrides = emptyMap()
                         itemHoraAvisoOverrides = emptyMap()
                         itemValorOverrides = emptyMap()
-                        itemTipoOverrides = itensQr.associate { item -> item.id to tipoSelecionado }
+                        itemTituloOverrides = emptyMap()
+                        itemTipoOverrides = itensQr.associate { item -> item.id to item.tipo }
                     } else {
                         itemDataAvisoOverrides = emptyMap()
                         itemHoraAvisoOverrides = emptyMap()
                         itemValorOverrides = emptyMap()
+                        itemTituloOverrides = emptyMap()
                         itemTipoOverrides = emptyMap()
                     }
                     itemCategoriaMenuAbertoId = null
@@ -1287,6 +1310,7 @@ fun NovoAgendamentoDialog(
             itemDataAvisoOverrides = emptyMap()
             itemHoraAvisoOverrides = emptyMap()
             itemValorOverrides = emptyMap()
+            itemTituloOverrides = emptyMap()
             itemTipoOverrides = emptyMap()
             itemCategoriaMenuAbertoId = null
             textosDetectados = filtrarTextosDetectados(resultado.linhasReconhecidas)
@@ -1296,6 +1320,7 @@ fun NovoAgendamentoDialog(
             marcaSelecionadaDialog = null
             if (resultado.itensEncontrados.isNotEmpty()) {
                 listaItensDetectados = resultado.itensEncontrados
+                itemTipoOverrides = resultado.itensEncontrados.associate { item -> item.id to item.tipo }
                 val totalItens = resultado.itensEncontrados.sumOf { it.valor }
                 if (totalItens > 0.0) {
                     valorInput = String.format(Locale.US, "%.2f", totalItens)
@@ -1950,13 +1975,31 @@ fun NovoAgendamentoDialog(
             }
         )
     }
-    val accentBlue = scheme.primary
+    val accentBlue = Color(0xFF3B82F6)
     val quantidadeLembretesConfigurados = if (qrModoSeparado && listaItensDetectados.isNotEmpty()) {
         listaItensDetectados.size
     } else {
         1
     }
     val deveExibirEtapaModoCriacao = qrPossuiItensSeparaveis && listaItensDetectados.isNotEmpty()
+    fun dataItemValida(dataTexto: String): Boolean = runCatching {
+        LocalDate.parse(dataTexto, dataFormatter)
+    }.isSuccess
+    val totalItensModoSeparado = listaItensDetectados.size
+    val itensCompletosModoSeparado = if (qrModoSeparado && totalItensModoSeparado > 0) {
+        listaItensDetectados.count { item ->
+            val tipoItem = itemTipoOverrides[item.id] ?: tipoSelecionado
+            val dataItem = itemDataAvisoOverrides[item.id] ?: dataAviso
+            val tituloItemPadrao = if (tituloAviso.isBlank()) item.nome else "${tituloAviso.trim()} - ${item.nome}"
+            val tituloItemAtual = itemTituloOverrides[item.id] ?: tituloItemPadrao
+            tituloItemAtual.trim().isNotBlank() &&
+                dataItemValida(dataItem) &&
+                (tipoItem in categoriasDisponiveis)
+        }
+    } else {
+        0
+    }
+    val podeAvancarEtapa3 = !qrModoSeparado || totalItensModoSeparado == 0 || itensCompletosModoSeparado == totalItensModoSeparado
     val textoBotaoEtapa1 = tr("Avançar", "Continue")
     val textoBotaoSalvar = if (isFluxoPosto) {
         tr("Cadastrar abastecimento", "Register fuel")
@@ -2015,6 +2058,7 @@ fun NovoAgendamentoDialog(
                     3 -> {
                         Button(
                             onClick = { etapaAtual = 4 },
+                            enabled = podeAvancarEtapa3,
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = nextActionBlue,
                                 contentColor = Color.White
@@ -2142,6 +2186,7 @@ fun NovoAgendamentoDialog(
                                         usarCadastroManualPosScan = true
                                         isModoLista = false
                                         qrModoSeparado = false
+                                        fotoCaminho = null
                                     },
                                     modifier = Modifier.fillMaxWidth().height(46.dp),
                                     shape = RoundedCornerShape(12.dp),
@@ -2189,7 +2234,6 @@ fun NovoAgendamentoDialog(
                             val quantidadeTotalExtraida = qrQuantidadeTotalItens
                                 ?: listaItensDetectados.takeIf { it.isNotEmpty() }?.sumOf { it.quantidade.coerceAtLeast(1) }
                             val formaPagamentoExibicao = qrFormaPagamento?.trim().orEmpty()
-                            val trocoExibicao = qrTroco?.takeIf { it.isFinite() } ?: 0.0
                             val veioDeEscaneamento = !usarCadastroManualPosScan && (
                                 fotoCaminho != null ||
                                     qrNomeEstabelecimento.isNotBlank() ||
@@ -2329,25 +2373,18 @@ fun NovoAgendamentoDialog(
                                                 )
                                             }
                                         }
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Text(tr("Troco", "Change"), color = textSecondary, fontSize = 12.sp)
-                                            Text(
-                                                text = currencyFormatter.format(trocoExibicao),
-                                                color = textPrimary,
-                                                fontSize = 13.sp,
-                                                fontWeight = FontWeight.SemiBold
-                                            )
-                                        }
                                     }
                                 }
                             }
                         }
                         Button(
-                            onClick = { etapaAtual = if (isRegistroServico) 4 else 2 },
+                            onClick = {
+                                etapaAtual = when {
+                                    isFluxoPosto -> 4
+                                    isRegistroServico -> 4
+                                    else -> 2
+                                }
+                            },
                             enabled = podeAvancarEtapa1,
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = nextActionBlue,
@@ -2881,6 +2918,35 @@ fun NovoAgendamentoDialog(
                                             }
                                         }
                                     }
+                                    Surface(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(12.dp),
+                                        color = if (isDark) Color(0xFF0F172A) else Color(0xFFF1F5F9),
+                                        border = BorderStroke(
+                                            1.dp,
+                                            if (isDark) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.10f)
+                                        )
+                                    ) {
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Text(
+                                                tr("Descrição dos itens", "Items description"),
+                                                color = textSecondary,
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                            Text(
+                                                text = descricaoQrConsolidada.ifBlank { descricao },
+                                                color = textPrimary,
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                        }
+                                    }
                                 }
                             }
                             Text(
@@ -2894,69 +2960,345 @@ fun NovoAgendamentoDialog(
                             )
                         }
                         if (qrModoSeparado && listaItensDetectados.isNotEmpty()) {
-                            Text(
-                                text = tr(
-                                    "Edicao por item desativada. Data e categoria seguem o aviso principal.",
-                                    "Per-item editing disabled. Date and category follow the main reminder."
-                                ),
-                                color = textSecondary,
-                                fontSize = 12.sp,
+                            val progresso = if (totalItensModoSeparado > 0) {
+                                itensCompletosModoSeparado.toFloat() / totalItensModoSeparado.toFloat()
+                            } else 0f
+                            val existemPendencias = itensCompletosModoSeparado < totalItensModoSeparado
+                            Surface(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(top = 14.dp)
-                                    .padding(horizontal = 4.dp, vertical = 2.dp)
-                            )
+                                    .padding(top = 14.dp),
+                                shape = RoundedCornerShape(12.dp),
+                                color = if (isDark) Color(0xFF0F172A) else Color(0xFFF8FAFC),
+                                border = BorderStroke(1.dp, cardBorder)
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Text(
+                                        text = tr(
+                                            "Edite título, data e categoria de cada aviso.",
+                                            "Edit title, date and category for each reminder."
+                                        ),
+                                        color = textPrimary,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Text(
+                                        text = if (existemPendencias) {
+                                            tr(
+                                                "$itensCompletosModoSeparado de $totalItensModoSeparado itens prontos. Complete os pendentes para avançar.",
+                                                "$itensCompletosModoSeparado of $totalItensModoSeparado items ready. Complete pending ones to continue."
+                                            )
+                                        } else {
+                                            tr(
+                                                "Tudo certo: $totalItensModoSeparado de $totalItensModoSeparado itens configurados.",
+                                                "All good: $totalItensModoSeparado of $totalItensModoSeparado items configured."
+                                            )
+                                        },
+                                        color = if (existemPendencias) Color(0xFFF59E0B) else Color(0xFF16A34A),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    LinearProgressIndicator(
+                                        progress = { progresso.coerceIn(0f, 1f) },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(8.dp)
+                                            .clip(RoundedCornerShape(999.dp)),
+                                        color = if (existemPendencias) Color(0xFFF59E0B) else Color(0xFF16A34A),
+                                        trackColor = if (isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f)
+                                    )
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        OutlinedButton(
+                                            onClick = {
+                                                itemDataAvisoOverrides = listaItensDetectados.associate { it.id to dataAviso }
+                                            },
+                                            modifier = Modifier.weight(1f).height(42.dp),
+                                            shape = RoundedCornerShape(10.dp),
+                                            border = BorderStroke(1.dp, cardBorder),
+                                            colors = ButtonDefaults.outlinedButtonColors(contentColor = textPrimary)
+                                        ) {
+                                            Text(tr("Aplicar data padrão", "Apply default date"), fontSize = 12.sp)
+                                        }
+                                        OutlinedButton(
+                                            onClick = {
+                                                itemTipoOverrides = listaItensDetectados.associate { it.id to tipoSelecionado }
+                                                itemCategoriaMenuAbertoId = null
+                                            },
+                                            modifier = Modifier.weight(1f).height(42.dp),
+                                            shape = RoundedCornerShape(10.dp),
+                                            border = BorderStroke(1.dp, cardBorder),
+                                            colors = ButtonDefaults.outlinedButtonColors(contentColor = textPrimary)
+                                        ) {
+                                            Text(tr("Aplicar categoria padrão", "Apply default category"), fontSize = 12.sp)
+                                        }
+                                    }
+                                }
+                            }
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(top = 8.dp),
                                 verticalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                listaItensDetectados.forEach { item ->
+                                listaItensDetectados.forEachIndexed { index, item ->
                                     val tipoItem = itemTipoOverrides[item.id] ?: tipoSelecionado
-                                    Surface(
+                                    val dataItem = itemDataAvisoOverrides[item.id] ?: dataAviso
+                                    val tituloItemPadrao = if (tituloAviso.isBlank()) item.nome else "${tituloAviso.trim()} - ${item.nome}"
+                                    val tituloItemAtual = itemTituloOverrides[item.id] ?: tituloItemPadrao
+                                    val tituloValido = tituloItemAtual.trim().isNotBlank()
+                                    val dataValida = dataItemValida(dataItem)
+                                    val categoriaValida = tipoItem in categoriasDisponiveis
+                                    val itemCompleto = tituloValido && dataValida && categoriaValida
+                                    Card(
                                         modifier = Modifier.fillMaxWidth(),
-                                        shape = RoundedCornerShape(12.dp),
-                                        color = if (isDark) Color(0xFF0F172A) else Color(0xFFF0FDF4),
-                                        border = BorderStroke(1.dp, Color(0xFF16A34A).copy(alpha = 0.22f))
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = if (isDark) Color(0xFF111827) else Color(0xFFF8FAFC)
+                                        ),
+                                        shape = RoundedCornerShape(14.dp),
+                                        border = BorderStroke(
+                                            1.dp,
+                                            if (itemCompleto) {
+                                                if (isDark) Color.White.copy(alpha = 0.18f) else Color.Black.copy(alpha = 0.18f)
+                                            } else {
+                                                Color(0xFFF59E0B).copy(alpha = if (isDark) 0.65f else 0.45f)
+                                            }
+                                        )
                                     ) {
-                                        Row(
+                                        Column(
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .padding(horizontal = 12.dp, vertical = 10.dp),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
+                                                .padding(12.dp),
+                                            verticalArrangement = Arrangement.spacedBy(10.dp)
                                         ) {
-                                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                                Text(
-                                                    tr("Categoria", "Category"),
-                                                    color = textSecondary,
-                                                    fontSize = 11.sp,
-                                                    fontWeight = FontWeight.SemiBold
-                                                )
-                                                Text(
-                                                    tipoManutencaoLabel(tipoItem),
-                                                    color = textPrimary,
-                                                    fontSize = 13.sp,
-                                                    fontWeight = FontWeight.SemiBold
-                                                )
-                                            }
-                                            Column(
-                                                horizontalAlignment = Alignment.End,
-                                                verticalArrangement = Arrangement.spacedBy(2.dp)
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.SpaceBetween
                                             ) {
                                                 Text(
-                                                    tr("Valor", "Amount"),
+                                                    text = tr("Item ${index + 1}/$totalItensModoSeparado", "Item ${index + 1}/$totalItensModoSeparado"),
                                                     color = textSecondary,
                                                     fontSize = 11.sp,
                                                     fontWeight = FontWeight.SemiBold
                                                 )
-                                                Text(
-                                                    text = currencyFormatter.format(item.valor),
-                                                    color = Color(0xFF16A34A),
-                                                    fontSize = 15.sp,
-                                                    fontWeight = FontWeight.Bold
+                                                Surface(
+                                                    shape = RoundedCornerShape(999.dp),
+                                                    color = if (itemCompleto) Color(0xFF16A34A).copy(alpha = 0.15f) else Color(0xFFF59E0B).copy(alpha = 0.16f),
+                                                    border = BorderStroke(1.dp, if (itemCompleto) Color(0xFF16A34A).copy(alpha = 0.35f) else Color(0xFFF59E0B).copy(alpha = 0.40f))
+                                                ) {
+                                                    Text(
+                                                        text = if (itemCompleto) tr("Pronto", "Ready") else tr("Pendente", "Pending"),
+                                                        color = if (itemCompleto) Color(0xFF16A34A) else Color(0xFFF59E0B),
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                                    )
+                                                }
+                                            }
+                                            OutlinedTextField(
+                                                value = tituloItemAtual,
+                                                onValueChange = { novoTitulo ->
+                                                    itemTituloOverrides = if (novoTitulo == tituloItemPadrao) {
+                                                        itemTituloOverrides - item.id
+                                                    } else {
+                                                        itemTituloOverrides + (item.id to novoTitulo)
+                                                    }
+                                                },
+                                                label = { Text(tr("Título do aviso *", "Reminder title *")) },
+                                                singleLine = true,
+                                                isError = !tituloValido,
+                                                supportingText = {
+                                                    if (!tituloValido) {
+                                                        Text(tr("Título obrigatório.", "Title is required."))
+                                                    }
+                                                },
+                                                modifier = Modifier.fillMaxWidth(),
+                                                shape = RoundedCornerShape(12.dp)
+                                            )
+                                            OutlinedTextField(
+                                                value = dataItem,
+                                                onValueChange = {},
+                                                label = { Text(tr("Data deste aviso *", "Date for this reminder *")) },
+                                                readOnly = true,
+                                                enabled = true,
+                                                isError = !dataValida,
+                                                supportingText = {
+                                                    if (!dataValida) {
+                                                        Text(tr("Data inválida. Toque no calendário para corrigir.", "Invalid date. Tap calendar to fix it."))
+                                                    }
+                                                },
+                                                modifier = Modifier.fillMaxWidth(),
+                                                trailingIcon = {
+                                                    IconButton(onClick = {
+                                                        abrirDatePicker(dataItem) { novaData ->
+                                                            itemDataAvisoOverrides = itemDataAvisoOverrides + (item.id to novaData)
+                                                        }
+                                                    }) {
+                                                        Icon(Icons.Default.Event, contentDescription = null, tint = textSecondary)
+                                                    }
+                                                },
+                                                singleLine = true,
+                                                shape = RoundedCornerShape(12.dp)
+                                            )
+                                            ExposedDropdownMenuBox(
+                                                expanded = itemCategoriaMenuAbertoId == item.id,
+                                                onExpandedChange = { expanded ->
+                                                    itemCategoriaMenuAbertoId = if (expanded) item.id else null
+                                                },
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                OutlinedTextField(
+                                                    value = tipoManutencaoLabel(tipoItem),
+                                                    onValueChange = {},
+                                                    label = { Text(tr("Categoria *", "Category *")) },
+                                                    readOnly = true,
+                                                    isError = !categoriaValida,
+                                                    modifier = Modifier
+                                                        .menuAnchor()
+                                                        .fillMaxWidth(),
+                                                    leadingIcon = {
+                                                        TipoIcon(
+                                                            tipo = tipoItem,
+                                                            tint = textSecondary,
+                                                            size = 18.dp
+                                                        )
+                                                    },
+                                                    trailingIcon = {
+                                                        ExposedDropdownMenuDefaults.TrailingIcon(expanded = itemCategoriaMenuAbertoId == item.id)
+                                                    },
+                                                    singleLine = true,
+                                                    shape = RoundedCornerShape(12.dp)
                                                 )
+                                                ExposedDropdownMenu(
+                                                    expanded = itemCategoriaMenuAbertoId == item.id,
+                                                    onDismissRequest = { itemCategoriaMenuAbertoId = null }
+                                                ) {
+                                                    categoriasDisponiveis.forEach { tipo ->
+                                                        DropdownMenuItem(
+                                                            text = { Text(tipoManutencaoLabel(tipo)) },
+                                                            onClick = {
+                                                                itemTipoOverrides = itemTipoOverrides + (item.id to tipo)
+                                                                itemCategoriaMenuAbertoId = null
+                                                            }
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                            Surface(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                shape = RoundedCornerShape(12.dp),
+                                                color = if (isDark) Color(0xFF0F172A) else Color(0xFFF1F5F9),
+                                                border = BorderStroke(
+                                                    1.dp,
+                                                    if (isDark) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.10f)
+                                                )
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                                        Text(
+                                                            tr("Categoria", "Category"),
+                                                            color = textSecondary,
+                                                            fontSize = 11.sp,
+                                                            fontWeight = FontWeight.SemiBold
+                                                        )
+                                                        Text(
+                                                            tipoManutencaoLabel(tipoItem),
+                                                            color = textSecondary,
+                                                            fontSize = 13.sp,
+                                                            fontWeight = FontWeight.SemiBold
+                                                        )
+                                                    }
+                                                    Column(
+                                                        horizontalAlignment = Alignment.End,
+                                                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                                                    ) {
+                                                        Text(
+                                                            tr("Valor", "Amount"),
+                                                            color = textSecondary,
+                                                            fontSize = 11.sp,
+                                                            fontWeight = FontWeight.SemiBold
+                                                        )
+                                                        Text(
+                                                            text = currencyFormatter.format(item.valor),
+                                                            color = textSecondary,
+                                                            fontSize = 15.sp,
+                                                            fontWeight = FontWeight.Bold
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                            Surface(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                shape = RoundedCornerShape(12.dp),
+                                                color = if (isDark) Color(0xFF0F172A) else Color(0xFFF1F5F9),
+                                                border = BorderStroke(
+                                                    1.dp,
+                                                    if (isDark) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.10f)
+                                                )
+                                            ) {
+                                                Column(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                                ) {
+                                                    Text(
+                                                        tr("Descrição do produto", "Product description"),
+                                                        color = textSecondary,
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.SemiBold
+                                                    )
+                                                    Text(
+                                                        text = item.nome,
+                                                        color = textPrimary,
+                                                        fontSize = 13.sp,
+                                                        fontWeight = FontWeight.Medium
+                                                    )
+                                                }
+                                            }
+                                            Surface(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                shape = RoundedCornerShape(12.dp),
+                                                color = if (isDark) Color(0xFF0F172A) else Color(0xFFF1F5F9),
+                                                border = BorderStroke(
+                                                    1.dp,
+                                                    if (isDark) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.10f)
+                                                )
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Text(
+                                                        tr("Quantidade", "Quantity"),
+                                                        color = textSecondary,
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.SemiBold
+                                                    )
+                                                    Text(
+                                                        text = item.quantidade.coerceAtLeast(1).toString(),
+                                                        color = textPrimary,
+                                                        fontSize = 13.sp,
+                                                        fontWeight = FontWeight.SemiBold
+                                                    )
+                                                }
                                             }
                                         }
                                     }
@@ -2970,10 +3312,14 @@ fun NovoAgendamentoDialog(
                             textPrimary = textPrimary,
                             textSecondary = textSecondary,
                             accentBlue = accentBlue,
+                            tituloLugar = tituloAviso.trim().ifBlank { localServicoInput.trim() },
                             descricao = descricao,
                             tipoSelecionado = tipoSelecionado,
                             isModoLista = isModoLista,
                             listaItensDetectados = listaItensDetectados,
+                            quantidadeTotalItens = qrQuantidadeTotalItens
+                                ?: listaItensDetectados.takeIf { it.isNotEmpty() }?.sumOf { it.quantidade.coerceAtLeast(1) }
+                                ?: (quantidadeManualInput.toIntOrNull()?.coerceAtLeast(1) ?: 1),
                             kmBase = kmBase,
                             data = data,
                             dataAviso = dataAviso,
@@ -3044,9 +3390,7 @@ private fun isDescricaoPadraoCategoria(texto: String): Boolean {
 }
 
 private fun tiposAvisoCadastroPorVeiculo(tipoVeiculo: TipoVeiculo): List<TipoManutencao> = when (tipoVeiculo) {
-    TipoVeiculo.BICICLETA,
-    TipoVeiculo.BIKE_ELETRICA -> listOf(
-        TipoManutencao.ABASTECIMENTO,
+    TipoVeiculo.BICICLETA -> listOf(
         TipoManutencao.CORRENTE,
         TipoManutencao.LUBRIFICACAO,
         TipoManutencao.PEDIVELA,
@@ -3057,7 +3401,20 @@ private fun tiposAvisoCadastroPorVeiculo(tipoVeiculo: TipoVeiculo): List<TipoMan
         TipoManutencao.LAVAGEM,
         TipoManutencao.REVISAO,
         TipoManutencao.FREIO,
-        TipoManutencao.SEGURO,
+        TipoManutencao.OUTROS
+    )
+    TipoVeiculo.BIKE_ELETRICA -> listOf(
+        TipoManutencao.CORRENTE,
+        TipoManutencao.LUBRIFICACAO,
+        TipoManutencao.PEDIVELA,
+        TipoManutencao.ACESSORIOS,
+        TipoManutencao.CONFORTO,
+        TipoManutencao.PNEU,
+        TipoManutencao.TRANSMISSAO,
+        TipoManutencao.LAVAGEM,
+        TipoManutencao.REVISAO,
+        TipoManutencao.FREIO,
+        TipoManutencao.BATERIA,
         TipoManutencao.OUTROS
     )
     TipoVeiculo.MOTO -> listOf(
@@ -3065,18 +3422,22 @@ private fun tiposAvisoCadastroPorVeiculo(tipoVeiculo: TipoVeiculo): List<TipoMan
         TipoManutencao.OLEO,
         TipoManutencao.LAVAGEM,
         TipoManutencao.FREIO,
-        TipoManutencao.VIDROS,
         TipoManutencao.MECANICA,
         TipoManutencao.BATERIA,
         TipoManutencao.PNEU,
         TipoManutencao.REVISAO,
         TipoManutencao.LICENCIAMENTO,
+        TipoManutencao.IPVA,
         TipoManutencao.SEGURO,
         TipoManutencao.OUTROS
     )
     TipoVeiculo.CAMINHAO,
     TipoVeiculo.VAN,
-    TipoVeiculo.ONIBUS -> listOf(
+    TipoVeiculo.ONIBUS,
+    TipoVeiculo.CAMINHONETE,
+    TipoVeiculo.FURGAO,
+    TipoVeiculo.HATCH,
+    TipoVeiculo.MOTORHOME -> listOf(
         TipoManutencao.ABASTECIMENTO,
         TipoManutencao.OLEO,
         TipoManutencao.LAVAGEM,
@@ -3088,6 +3449,7 @@ private fun tiposAvisoCadastroPorVeiculo(tipoVeiculo: TipoVeiculo): List<TipoMan
         TipoManutencao.PNEU,
         TipoManutencao.REVISAO,
         TipoManutencao.LICENCIAMENTO,
+        TipoManutencao.IPVA,
         TipoManutencao.SEGURO,
         TipoManutencao.OUTROS
     )
@@ -3096,32 +3458,30 @@ private fun tiposAvisoCadastroPorVeiculo(tipoVeiculo: TipoVeiculo): List<TipoMan
         TipoManutencao.OLEO,
         TipoManutencao.LAVAGEM,
         TipoManutencao.FREIO,
-        TipoManutencao.VIDROS,
         TipoManutencao.MECANICA,
         TipoManutencao.BATERIA,
         TipoManutencao.PNEU,
         TipoManutencao.REVISAO,
-        TipoManutencao.LICENCIAMENTO,
-        TipoManutencao.SEGURO,
         TipoManutencao.OUTROS
     )
     TipoVeiculo.VEICULO_ELETRICO -> listOf(
-        TipoManutencao.ABASTECIMENTO,
         TipoManutencao.FREIO,
         TipoManutencao.LAVAGEM,
         TipoManutencao.VIDROS,
         TipoManutencao.MECANICA,
+        TipoManutencao.FUNILARIA,
         TipoManutencao.BATERIA,
         TipoManutencao.PNEU,
         TipoManutencao.REVISAO,
         TipoManutencao.LICENCIAMENTO,
+        TipoManutencao.IPVA,
         TipoManutencao.SEGURO,
         TipoManutencao.OUTROS
     )
     TipoVeiculo.CARRETINHA -> listOf(
-        TipoManutencao.ABASTECIMENTO,
         TipoManutencao.LAVAGEM,
         TipoManutencao.PNEU,
+        TipoManutencao.MECANICA,
         TipoManutencao.LICENCIAMENTO,
         TipoManutencao.SEGURO,
         TipoManutencao.OUTROS

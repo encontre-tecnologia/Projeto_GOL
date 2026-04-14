@@ -279,6 +279,23 @@ val marcasBikeEletrica = listOf(
     "Haibike"
 )
 
+val marcasMoto = listOf(
+    "Honda",
+    "Yamaha",
+    "Suzuki",
+    "Kawasaki",
+    "BMW",
+    "Ducati",
+    "Triumph",
+    "Royal Enfield",
+    "KTM",
+    "Harley-Davidson",
+    "Bajaj",
+    "Haojue",
+    "Shineray",
+    "Dafra"
+)
+
 val marcasTrator = listOf(
     "Sem marca",
     "John Deere",
@@ -332,6 +349,7 @@ val marcasVeiculoEletrico = listOf(
 fun marcasPorTipo(tipo: TipoVeiculo?): List<String> = when (tipo) {
     TipoVeiculo.BICICLETA -> marcasBicicleta
     TipoVeiculo.BIKE_ELETRICA -> marcasBikeEletrica
+    TipoVeiculo.MOTO -> marcasMoto
     TipoVeiculo.TRATOR -> marcasTrator
     TipoVeiculo.CARRETINHA -> marcasCarretinha
     TipoVeiculo.VEICULO_ELETRICO -> marcasVeiculoEletrico
@@ -433,6 +451,9 @@ fun TipoVeiculoSelector(
     modifier: Modifier = Modifier
 ) {
     val accent = Color(0xFF3B82F6)
+    val tiposDisponiveis = remember {
+        TipoVeiculo.values().filter { it != TipoVeiculo.TRATOR && it != TipoVeiculo.CARRETINHA }
+    }
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -440,7 +461,7 @@ fun TipoVeiculoSelector(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        TipoVeiculo.values().forEach { tipo ->
+        tiposDisponiveis.forEach { tipo ->
             val selected = tipo == selecionado
             val bgColor = when {
                 selected -> accent
@@ -492,7 +513,13 @@ data class Abastecimento(
     val data: String,
     val precoLitro: Double,
     val valorPago: Double,
-    val litros: Double
+    val litros: Double,
+    val itens: List<ItemAbastecimento> = emptyList()
+) : Serializable
+
+data class ItemAbastecimento(
+    val nome: String,
+    val valor: Double
 ) : Serializable
 
 data class Pedalada(
@@ -540,7 +567,7 @@ enum class TipoManutencao(val label: String) {
         VIDROS -> Icons.Rounded.DirectionsCar
         MECANICA -> Icons.Rounded.Build
         FUNILARIA -> Icons.Rounded.FormatPaint
-        FREIO -> Icons.Rounded.DiscFull
+        FREIO -> Icons.Rounded.TireRepair
         LICENCIAMENTO -> Icons.Rounded.Description
         IPVA -> Icons.Rounded.Payments
         SEGURO -> Icons.Rounded.Shield

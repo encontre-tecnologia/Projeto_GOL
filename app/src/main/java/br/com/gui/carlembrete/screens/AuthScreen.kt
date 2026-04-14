@@ -1,6 +1,9 @@
 ﻿package br.com.gui.carlembrete
 
 import android.app.Activity
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.util.Patterns
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -29,6 +32,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
@@ -38,7 +42,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
@@ -59,13 +62,14 @@ import androidx.compose.foundation.Image
 import androidx.compose.ui.res.painterResource
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.foundation.BorderStroke
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @Composable
 fun AuthScreen(onSignedIn: () -> Unit) {
     val context = LocalContext.current
-    val colorScheme = MaterialTheme.colorScheme
-    val isDark = colorScheme.background.luminance() < 0.5f
     val auth = remember { FirebaseAuth.getInstance() }
     var email by remember { mutableStateOf("") }
     var senha by remember { mutableStateOf("") }
@@ -73,6 +77,9 @@ fun AuthScreen(onSignedIn: () -> Unit) {
     var modoRecuperacao by remember { mutableStateOf(false) }
     var modoCriarConta by remember { mutableStateOf(false) }
     var tentouEntrar by remember { mutableStateOf(false) }
+    var isAuthLoading by remember { mutableStateOf(false) }
+    var authStatusMessage by remember { mutableStateOf<String?>(null) }
+    val uiScope = rememberCoroutineScope()
 
     if (modoRecuperacao) {
         AuthForgotPasswordScreen(
@@ -114,8 +121,16 @@ fun AuthScreen(onSignedIn: () -> Unit) {
     val googleLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
+        isAuthLoading = false
         if (result.resultCode != Activity.RESULT_OK) {
-            Toast.makeText(context, "Login com Google cancelado", Toast.LENGTH_SHORT).show()
+            val semInternetAgora = !isInternetAvailable(context)
+            val msg = if (semInternetAgora) {
+                "Sem internet. Conecte-se e tente novamente."
+            } else {
+                "Login com Google cancelado"
+            }
+            authStatusMessage = msg
+            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
             return@rememberLauncherForActivityResult
         }
         val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
@@ -128,29 +143,67 @@ fun AuthScreen(onSignedIn: () -> Unit) {
             }
             val credential = GoogleAuthProvider.getCredential(token, null)
             auth.signInWithCredential(credential).addOnCompleteListener { signInTask ->
+                isAuthLoading = false
                 if (signInTask.isSuccessful) {
-                    AdminUsersSync.syncCurrentUser()
+                    authStatusMessage = null
                     onSignedIn()
+                    uiScope.launch {
+                        delay(500)
+                        AdminUsersSync.syncCurrentUser()
+                    }
                 } else {
-                    Toast.makeText(context, "Falha no login com Google", Toast.LENGTH_SHORT).show()
+                    val msg = if (!isInternetAvailable(context)) {
+                        "Sem internet. Conecte-se e tente novamente."
+                    } else {
+                        "Falha no login com Google"
+                    }
+                    authStatusMessage = msg
+                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                 }
             }
         } catch (_: Exception) {
-            Toast.makeText(context, "Falha no login com Google", Toast.LENGTH_SHORT).show()
+            isAuthLoading = false
+            val msg = if (!isInternetAvailable(context)) {
+                "Sem internet. Conecte-se e tente novamente."
+            } else {
+                "Falha no login com Google"
+            }
+            authStatusMessage = msg
+            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
         }
     }
 
     fun entrarEmailSenha() {
+        if (isAuthLoading) return
         if (email.isBlank() || senha.isBlank()) {
             Toast.makeText(context, "Informe email e senha", Toast.LENGTH_SHORT).show()
             return
         }
+        if (!isInternetAvailable(context)) {
+            val msg = "Sem internet. Conecte-se para entrar."
+            authStatusMessage = msg
+            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+            return
+        }
+        authStatusMessage = null
+        isAuthLoading = true
         auth.signInWithEmailAndPassword(email, senha).addOnCompleteListener { task ->
+            isAuthLoading = false
             if (task.isSuccessful) {
-                AdminUsersSync.syncCurrentUser()
+                authStatusMessage = null
                 onSignedIn()
+                uiScope.launch {
+                    delay(500)
+                    AdminUsersSync.syncCurrentUser()
+                }
             } else {
-                Toast.makeText(context, "Falha ao entrar", Toast.LENGTH_SHORT).show()
+                val msg = if (!isInternetAvailable(context)) {
+                    "Sem internet. Conecte-se e tente novamente."
+                } else {
+                    "Falha ao entrar"
+                }
+                authStatusMessage = msg
+                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -159,22 +212,12 @@ fun AuthScreen(onSignedIn: () -> Unit) {
         modifier = Modifier
             .fillMaxSize()
             .background(
-                if (isDark) {
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            colorScheme.background,
-                            colorScheme.background
-                        )
+                Brush.verticalGradient(
+                    colors = listOf(
+                        Color(0xFF020617),
+                        Color(0xFF000000)
                     )
-                } else {
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            Color(0xFF081428),
-                            Color(0xFF0B2342),
-                            Color(0xFF143A6C)
-                        )
-                    )
-                }
+                )
             )
             .padding(24.dp),
         verticalArrangement = Arrangement.Center,
@@ -218,7 +261,7 @@ fun AuthScreen(onSignedIn: () -> Unit) {
             val emailFormatoInvalido = email.isNotBlank() && !emailValido
             val emailErro = (tentouEntrar && email.isBlank()) || emailFormatoInvalido
             val senhaErro = tentouEntrar && senha.isBlank()
-            val podeEntrar = emailValido && senha.isNotBlank()
+            val podeEntrar = emailValido && senha.isNotBlank() && !isAuthLoading
             Spacer(Modifier.height(8.dp))
             OutlinedTextField(
                 value = email,
@@ -298,13 +341,30 @@ fun AuthScreen(onSignedIn: () -> Unit) {
                 colors = ButtonDefaults.buttonColors(
                     containerColor = if (podeEntrar) Color(0xFF3B82F6) else Color(0xFF334155),
                     contentColor = if (podeEntrar) Color.White else Color(0xFF94A3B8)
-                )
+                ),
+                enabled = podeEntrar
             ) {
-                Text(
-                    "Entrar",
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.padding(top = 1.dp)
-                )
+                if (isAuthLoading) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        CircularProgressIndicator(
+                            modifier = Modifier
+                                .width(18.dp)
+                                .height(18.dp),
+                            strokeWidth = 2.dp,
+                            color = Color.White
+                        )
+                        Text(
+                            "Entrando...",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                    }
+                } else {
+                    Text(
+                        "Entrar",
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(top = 1.dp)
+                    )
+                }
             }
             OutlinedButton(
                 onClick = { modoCriarConta = true },
@@ -329,13 +389,25 @@ fun AuthScreen(onSignedIn: () -> Unit) {
                 Divider(color = Color(0xFFE2E8F0), modifier = Modifier.weight(1f))
             }
             OutlinedButton(
-                onClick = { googleLauncher.launch(googleSignInClient.signInIntent) },
+                onClick = {
+                    if (isAuthLoading) return@OutlinedButton
+                    if (!isInternetAvailable(context)) {
+                        val msg = "Sem internet. Conecte-se para entrar com Google."
+                        authStatusMessage = msg
+                        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                        return@OutlinedButton
+                    }
+                    authStatusMessage = null
+                    isAuthLoading = true
+                    googleLauncher.launch(googleSignInClient.signInIntent)
+                },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(56.dp),
                 shape = RoundedCornerShape(14.dp),
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
-                border = BorderStroke(1.dp, Color(0xFF93C5FD).copy(alpha = 0.55f))
+                border = BorderStroke(1.dp, Color(0xFF93C5FD).copy(alpha = 0.55f)),
+                enabled = !isAuthLoading
             ) {
                 Image(
                     painter = painterResource(id = R.drawable.ic_google_g),
@@ -344,7 +416,24 @@ fun AuthScreen(onSignedIn: () -> Unit) {
                 Spacer(Modifier.width(8.dp))
                 Text("Entrar com Google")
             }
+            authStatusMessage?.let { status ->
+                Text(
+                    text = status,
+                    color = Color(0xFFFCA5A5),
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.align(Alignment.Start)
+                )
+            }
         }
     }
+}
+
+private fun isInternetAvailable(context: Context): Boolean {
+    val connectivityManager =
+        context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return false
+    val network = connectivityManager.activeNetwork ?: return false
+    val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return false
+    return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+        capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
 }
 

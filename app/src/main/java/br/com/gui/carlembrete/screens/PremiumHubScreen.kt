@@ -53,7 +53,7 @@ import com.google.firebase.auth.FirebaseAuth
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PremiumHubScreen(
-    isPremium: Boolean,
+    planTier: PlanTier,
     onDismiss: () -> Unit,
     onOpenGuardian: () -> Unit,
     onOpenAiAssistant: () -> Unit,
@@ -70,8 +70,8 @@ fun PremiumHubScreen(
     val accentGold = Color(0xFFD4A017)
     val borderColor = if (isDark) Color(0xFF8B6B1F) else Color(0xFFE9C46A)
     val cardSurface = if (isDark) Color(0xFF111827) else colorScheme.surface
-    val screenBg = if (isDark) colorScheme.background else colorScheme.background
-    val featureCardSurface = if (isDark) Color(0xFF0F172A) else Color(0xFFFFFEF8)
+    val screenBg = if (isDark) Color.Black else colorScheme.background
+    val featureCardSurface = if (isDark) Color(0xFF111827) else Color(0xFFFFFEF8)
     val isEnglish = isEnglishUi()
     val supportPhone = "5516994392545"
     val userName = FirebaseAuth.getInstance().currentUser?.displayName
@@ -108,7 +108,7 @@ fun PremiumHubScreen(
                         Icon(Icons.Default.ArrowBackIosNew, contentDescription = tr("Voltar", "Back"), tint = textPrimary)
                     }
                 },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = cardSurface)
+                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = screenBg)
             )
         }
     ) { innerPadding ->
@@ -152,7 +152,15 @@ fun PremiumHubScreen(
                             )
                         }
                         Text(tr("Zellu Premium", "Zellu Premium"), color = textPrimary, fontWeight = FontWeight.Bold, fontSize = 25.sp)
-                        Text(tr("Veja seu novo recurso", "See your new feature"), color = textDim, fontSize = 14.sp)
+                        Text(
+                            text = when (planTier) {
+                                PlanTier.LITE -> tr("Plano Lite ativo", "Lite plan active")
+                                PlanTier.FROTA -> tr("Plano Frota ativo", "Fleet plan active")
+                                PlanTier.FREE -> tr("Assine para liberar recursos", "Subscribe to unlock features")
+                            },
+                            color = textDim,
+                            fontSize = 14.sp
+                        )
                     }
 
                     Spacer(modifier = Modifier.size(14.dp))
@@ -170,34 +178,36 @@ fun PremiumHubScreen(
                         Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = Color(0xFFEA580C))
                     }
 
-                    Spacer(modifier = Modifier.size(10.dp))
+                    if (planTier == PlanTier.FROTA) {
+                        Spacer(modifier = Modifier.size(10.dp))
 
-                    PremiumFeatureCard(
-                        title = tr("Visão geral frota", "Fleet overview"),
-                        subtitle = tr("Veja os veículos da garagem sem status de saúde", "See garage vehicles without health status"),
-                        iconColor = Color(0xFF0284C7),
-                        textPrimary = textPrimary,
-                        textDim = textDim,
-                        borderColor = borderColor,
-                        cardSurface = featureCardSurface,
-                        onClick = onOpenFleetOverview
-                    ) {
-                        Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = Color(0xFF0284C7))
-                    }
+                        PremiumFeatureCard(
+                            title = tr("Visão geral frota", "Fleet overview"),
+                            subtitle = tr("Veja os veículos da garagem sem status de saúde", "See garage vehicles without health status"),
+                            iconColor = Color(0xFF0284C7),
+                            textPrimary = textPrimary,
+                            textDim = textDim,
+                            borderColor = borderColor,
+                            cardSurface = featureCardSurface,
+                            onClick = onOpenFleetOverview
+                        ) {
+                            Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = Color(0xFF0284C7))
+                        }
 
-                    Spacer(modifier = Modifier.size(10.dp))
+                        Spacer(modifier = Modifier.size(10.dp))
 
-                    PremiumFeatureCard(
-                        title = tr("Estoque da Frota", "Fleet Stock"),
-                        subtitle = tr("Gerencie itens, código de barras e reposição", "Manage items, barcode and replenishment"),
-                        iconColor = Color(0xFF2563EB),
-                        textPrimary = textPrimary,
-                        textDim = textDim,
-                        borderColor = borderColor,
-                        cardSurface = featureCardSurface,
-                        onClick = onOpenFleetStock
-                    ) {
-                        Icon(Icons.Default.Inventory2, contentDescription = null, tint = Color(0xFF2563EB))
+                        PremiumFeatureCard(
+                            title = tr("Estoque da Frota", "Fleet Stock"),
+                            subtitle = tr("Gerencie itens, código de barras e reposição", "Manage items, barcode and replenishment"),
+                            iconColor = Color(0xFF2563EB),
+                            textPrimary = textPrimary,
+                            textDim = textDim,
+                            borderColor = borderColor,
+                            cardSurface = featureCardSurface,
+                            onClick = onOpenFleetStock
+                        ) {
+                            Icon(Icons.Default.Inventory2, contentDescription = null, tint = Color(0xFF2563EB))
+                        }
                     }
                 }
 

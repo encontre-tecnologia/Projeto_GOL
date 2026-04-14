@@ -71,10 +71,10 @@ private fun avisosPalette(): AvisosPalette {
     val scheme = MaterialTheme.colorScheme
     val isDark = scheme.background.luminance() < 0.5f
     return AvisosPalette(
-        cardBackground = if (isDark) Color(0xFF334155) else Color.White,
-        itemBackground = if (isDark) Color(0xFF253449) else Color(0xFFF8FAFC),
-        surfaceHighlight = if (isDark) Color(0xFF334155) else Color(0xFFCBD5E1),
-        categoryBadgeBorder = if (isDark) Color(0xFF2B3950) else Color.White,
+        cardBackground = if (isDark) Color(0xFF172033) else Color.White,
+        itemBackground = if (isDark) Color(0xFF1F2937) else Color(0xFFF8FAFC),
+        surfaceHighlight = if (isDark) Color(0xFF172033) else Color(0xFFCBD5E1),
+        categoryBadgeBorder = if (isDark) Color(0xFF172033) else Color.White,
         textPrimary = scheme.onSurface,
         textSecondary = scheme.onSurfaceVariant,
         accent = scheme.primary,
@@ -368,7 +368,12 @@ fun LembreteCardLocal(
 
             // DivisÃ³ria sutil
             Spacer(Modifier.height(16.dp))
-            Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color.White.copy(alpha = 0.05f)))
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(1.dp)
+                    .background(if (palette.isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f))
+            )
             Spacer(Modifier.height(16.dp))
 
             }

@@ -150,8 +150,8 @@ fun PremiumFleetStockScreen(
     val context = androidx.compose.ui.platform.LocalContext.current
     val scheme = MaterialTheme.colorScheme
     val isDark = scheme.background.luminance() < 0.5f
-    val bg = scheme.background
-    val cardBg = if (isDark) Color(0xFF0F172A) else Color(0xFFF8FAFC)
+    val bg = if (isDark) Color.Black else scheme.background
+    val cardBg = if (isDark) Color(0xFF111827) else Color(0xFFF8FAFC)
     val textPrimary = if (isDark) Color(0xFFF8FAFC) else Color(0xFF0F172A)
     val textDim = if (isDark) Color(0xFF94A3B8) else Color(0xFF475569)
     val border = if (isDark) Color.White.copy(alpha = 0.14f) else Color.Black.copy(alpha = 0.12f)

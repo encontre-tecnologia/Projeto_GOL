@@ -90,6 +90,7 @@ fun ConfiguracoesScreen(
     onThemeModeChanged: (AppThemeMode) -> Unit
 ) {
     val colorScheme = MaterialTheme.colorScheme
+    val isDark = colorScheme.background.luminance() < 0.5f
     val scrollState = rememberScrollState()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -287,7 +288,7 @@ fun ConfiguracoesScreen(
                     Text(stringResource(R.string.common_cancel), color = Color.White)
                 }
             },
-            containerColor = Color(0xFF0F172A)
+            containerColor = if (isDark) Color(0xFF111827) else Color(0xFF0F172A)
         )
     }
     if (showRestoreRestartDialog) {
@@ -305,12 +306,12 @@ fun ConfiguracoesScreen(
                     Text(stringResource(R.string.common_ok), color = Color.White, fontWeight = FontWeight.Bold)
                 }
             },
-            containerColor = colorScheme.surface
+            containerColor = if (isDark) Color(0xFF111827) else colorScheme.surface
         )
     }
     Scaffold(
         modifier = Modifier.fillMaxSize(),
-        containerColor = colorScheme.background,
+        containerColor = if (isDark) Color.Black else colorScheme.background,
         bottomBar = {
             Divider(color = colorScheme.outlineVariant, thickness = 1.dp)
             Box(
@@ -509,6 +510,7 @@ private enum class BackupAction {
 @Composable
 fun SectionHeader(title: String) {
     val colorScheme = MaterialTheme.colorScheme
+    val isDark = colorScheme.background.luminance() < 0.5f
     Column(modifier = Modifier.fillMaxWidth()) {
         Text(
             text = title,
@@ -518,7 +520,7 @@ fun SectionHeader(title: String) {
             modifier = Modifier.padding(start = 24.dp, bottom = 8.dp)
         )
         Divider(
-            color = colorScheme.outlineVariant,
+            color = if (isDark) Color.White.copy(alpha = 0.10f) else colorScheme.outlineVariant,
             thickness = 1.dp
         )
     }
@@ -586,6 +588,7 @@ private fun ThemeModeOptionButton(
     modifier: Modifier = Modifier
 ) {
     val colorScheme = MaterialTheme.colorScheme
+    val isDark = colorScheme.background.luminance() < 0.5f
     OutlinedButton(
         onClick = onClick,
         modifier = modifier.height(40.dp),
@@ -595,7 +598,11 @@ private fun ThemeModeOptionButton(
             color = if (selected) colorScheme.primary else colorScheme.outline
         ),
         colors = ButtonDefaults.outlinedButtonColors(
-            containerColor = if (selected) colorScheme.primary.copy(alpha = 0.16f) else colorScheme.surface,
+            containerColor = if (selected) {
+                colorScheme.primary.copy(alpha = 0.16f)
+            } else {
+                if (isDark) Color(0xFF111827) else colorScheme.surface
+            },
             contentColor = colorScheme.onSurface
         )
     ) {

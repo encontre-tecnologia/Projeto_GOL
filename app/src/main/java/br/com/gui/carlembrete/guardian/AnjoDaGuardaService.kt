@@ -960,7 +960,7 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Anjo da Guarda")
             .setContentText(text)
-            .setSmallIcon(R.drawable.logonotificacao)
+            .setSmallIcon(R.drawable.ic_shield_notification)
             .setOngoing(true)
             .build()
     }
@@ -986,7 +986,7 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Anjo da Guarda")
             .setContentText(text)
-            .setSmallIcon(R.drawable.logonotificacao)
+            .setSmallIcon(R.drawable.ic_shield_notification)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .build()

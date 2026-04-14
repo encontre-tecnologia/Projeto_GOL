@@ -126,7 +126,13 @@ fun backupPayloadFromMap(data: Map<String, Any>): BackupPayload {
             data = mapa["data"] as? String ?: "",
             precoLitro = (mapa["precoLitro"] as? Number)?.toDouble() ?: 0.0,
             valorPago = (mapa["valorPago"] as? Number)?.toDouble() ?: 0.0,
-            litros = (mapa["litros"] as? Number)?.toDouble() ?: 0.0
+            litros = (mapa["litros"] as? Number)?.toDouble() ?: 0.0,
+            itens = (mapa["itens"] as? List<*>)?.mapNotNull { itemDetalhe ->
+                val itemMap = itemDetalhe as? Map<*, *> ?: return@mapNotNull null
+                val nome = itemMap["nome"] as? String ?: return@mapNotNull null
+                val valor = (itemMap["valor"] as? Number)?.toDouble() ?: 0.0
+                br.com.gui.carlembrete.ItemAbastecimento(nome = nome, valor = valor)
+            } ?: emptyList()
         )
     } ?: emptyList()
 

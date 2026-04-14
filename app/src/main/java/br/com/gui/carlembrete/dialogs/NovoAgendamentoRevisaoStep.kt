@@ -25,10 +25,12 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -44,10 +46,12 @@ fun EtapaRevisaoAvisoContent(
     textPrimary: Color,
     textSecondary: Color,
     accentBlue: Color,
+    tituloLugar: String,
     descricao: String,
     tipoSelecionado: TipoManutencao,
     isModoLista: Boolean,
     listaItensDetectados: List<ItemDetectado>,
+    quantidadeTotalItens: Int,
     kmBase: String,
     data: String,
     dataAviso: String,
@@ -75,10 +79,11 @@ fun EtapaRevisaoAvisoContent(
         listaItensDetectados.flatMap { item ->
             val repeticoes = maxOf(1, item.quantidade)
             (1..repeticoes).map { indice ->
-                val tituloFormatado = if (repeticoes > 1) "${item.nome} (${indice}/${repeticoes})" else item.nome
                 val tipo = itemTipoOverrides[item.id] ?: item.tipo
                 AvisoResumoUi(
-                    titulo = tituloFormatado,
+                    titulo = tituloLugar.ifBlank { tr("Aviso", "Reminder") },
+                    descricaoItens = item.nome,
+                    quantidadeResumo = if (repeticoes > 1) "$indice/$repeticoes" else "1",
                     categoria = if (tipo == TipoManutencao.ABASTECIMENTO) tr("Posto", "Fuel") else tipo.label,
                     tipo = tipo,
                     km = kmBase.ifBlank { tr("Nao informado", "Not informed") },
@@ -93,7 +98,9 @@ fun EtapaRevisaoAvisoContent(
     } else {
         listOf(
             AvisoResumoUi(
-                titulo = descricao.ifBlank { tr("Aviso sem nome", "Unnamed reminder") },
+                titulo = tituloLugar.ifBlank { tr("Aviso", "Reminder") },
+                descricaoItens = descricao.ifBlank { tr("Sem descricao", "No description") },
+                quantidadeResumo = quantidadeTotalItens.coerceAtLeast(1).toString(),
                 categoria = tituloCategoria,
                 tipo = tipoSelecionado,
                 km = kmBase.ifBlank { tr("Nao informado", "Not informed") },
@@ -205,24 +212,49 @@ private fun AvisoResumoCardPosto(
                 fontSize = 16.sp,
                 fontWeight = FontWeight.SemiBold
             )
-            Text(
-                "${tr("Valor", "Amount")}: ${aviso.valor}",
-                color = textSecondary,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Bold
+            LinhaResumo(
+                titulo = tr("Descricao dos itens", "Items description"),
+                valor = aviso.descricaoItens,
+                textPrimary = textPrimary,
+                textSecondary = textSecondary,
+                itemBg = if (bgCard.luminance() < 0.5f) Color(0xFF0B1220) else Color(0xFFF8FAFC),
+                borderColor = borderColor
             )
-            Text(
-                "${tr("Repeticao", "Repeat")}: ${aviso.repeticao}",
-                color = textSecondary,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Medium
-            )
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                color = if (bgCard.luminance() < 0.5f) Color(0xFF0B1220) else Color(0xFFF8FAFC),
+                border = BorderStroke(1.dp, borderColor)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        tr("Valor", "Amount"),
+                        color = textSecondary,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        aviso.valor,
+                        color = Color(0xFF22C55E),
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
         }
     }
 }
 
 private data class AvisoResumoUi(
     val titulo: String,
+    val descricaoItens: String,
+    val quantidadeResumo: String,
     val categoria: String,
     val tipo: TipoManutencao,
     val km: String,
@@ -304,6 +336,22 @@ private fun AvisoResumoCard(
                     .padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
+                LinhaResumo(
+                    titulo = tr("Descricao dos itens", "Items description"),
+                    valor = aviso.descricaoItens,
+                    textPrimary = textPrimary,
+                    textSecondary = textSecondary,
+                    itemBg = itemBg,
+                    borderColor = borderColor
+                )
+                LinhaResumo(
+                    titulo = tr("Quantidade", "Quantity"),
+                    valor = aviso.quantidadeResumo,
+                    textPrimary = textPrimary,
+                    textSecondary = textSecondary,
+                    itemBg = itemBg,
+                    borderColor = borderColor
+                )
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)

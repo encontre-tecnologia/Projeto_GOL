@@ -74,6 +74,7 @@ import androidx.compose.material.icons.filled.Wallet
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -90,6 +91,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.ui.window.Dialog
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -102,11 +104,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.luminance
@@ -140,6 +142,10 @@ import java.io.FileOutputStream
 import java.io.IOException
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
+import java.time.DayOfWeek
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.temporal.TemporalAdjusters
 import java.util.Date
 import java.util.Locale
 import java.util.UUID
@@ -152,13 +158,24 @@ private data class TravelExpense(
     val label: String,
     val amount: Double,
     val category: String,
+    val placeName: String = "",
+    val createdAtMillis: Long = System.currentTimeMillis(),
+    val originalAmount: Double = amount,
+    val discountAmount: Double = 0.0,
     val vehicleName: String = "",
     val notePhotoUri: Uri? = null
-)
+) {
+    fun finalAmount(): Double {
+        val base = if (originalAmount > 0.0) originalAmount else amount
+        val discounted = (base - discountAmount).coerceAtLeast(0.0)
+        return if (discountAmount > 0.0) discounted else amount
+    }
+}
 
 private data class TravelTrip(
     val id: String,
     val name: String,
+    val createdAtMillis: Long = System.currentTimeMillis(),
     val location: String = "",
     val responsible: String = "",
     val pickupKm: String = "",
@@ -178,7 +195,7 @@ fun AssistentePremiumScreen(
     val context = LocalContext.current
     val scheme = MaterialTheme.colorScheme
     val isDark = scheme.background.luminance() < 0.5f
-    val bg = if (isDark) scheme.background else scheme.background
+    val bg = if (isDark) Color.Black else scheme.background
     val textPrimary = if (isDark) Color.White else Color.Black
     val textDim = if (isDark) Color(0xFF94A3B8) else Color(0xFF475569)
     val cardBorder = if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.12f)
@@ -192,25 +209,8 @@ fun AssistentePremiumScreen(
     val trips = remember(context) {
         mutableStateListOf<TravelTrip>().apply { addAll(loadTravelTrips(context)) }
     }
-    val defaultTrip = remember {
-        TravelTrip(
-            id = UUID.randomUUID().toString(),
-            name = trNow("Minha viagem", "My trip"),
-            location = "",
-            responsible = "",
-            pickupKm = "",
-            returnKm = "",
-            pickedBy = "",
-            returnedBy = "",
-            expenses = emptyList()
-        )
-    }
-    if (trips.isEmpty()) {
-        trips.add(defaultTrip)
-        saveTravelTrips(context, trips)
-    }
-    var activeTripId by remember(context) { mutableStateOf(trips.firstOrNull()?.id ?: defaultTrip.id) }
-    var tripName by remember(context) { mutableStateOf(trips.firstOrNull()?.name ?: defaultTrip.name) }
+    var activeTripId by remember(context) { mutableStateOf(trips.firstOrNull()?.id.orEmpty()) }
+    var tripName by remember(context) { mutableStateOf(trips.firstOrNull()?.name.orEmpty()) }
     var tripLocation by remember(context) { mutableStateOf(trips.firstOrNull()?.location.orEmpty()) }
     var showExpensesScreen by remember { mutableStateOf(false) }
     var showTripsScreen by remember { mutableStateOf(true) }
@@ -226,7 +226,10 @@ fun AssistentePremiumScreen(
         }
     }
     var expenseLabel by remember { mutableStateOf("") }
+    var expensePlaceName by remember { mutableStateOf("") }
     var expenseAmount by remember { mutableStateOf("") }
+    var expenseOriginalAmount by remember { mutableStateOf<Double?>(null) }
+    var expenseDiscountAmount by remember { mutableStateOf<Double?>(null) }
     var category by remember { mutableStateOf(if (englishUi) "Fuel" else "Combustivel") }
     val registeredVehicles = remember(context) {
         BancoDeDados.carregarCarros(context).orEmpty().map { it.nome }.filter { it.isNotBlank() }
@@ -267,10 +270,12 @@ fun AssistentePremiumScreen(
     }
 
     fun persistCurrentTrip() {
+        if (activeTripId.isBlank()) return
         val existingTrip = trips.firstOrNull { it.id == activeTripId }
+        if (existingTrip == null) return
         val tripToSave = TravelTrip(
             id = activeTripId,
-            name = tripName.ifBlank { trNow("Minha viagem", "My trip") },
+            name = tripName.ifBlank { existingTrip.name },
             location = tripLocation.trim(),
             responsible = existingTrip?.responsible.orEmpty(),
             pickupKm = existingTrip?.pickupKm.orEmpty(),
@@ -284,9 +289,6 @@ fun AssistentePremiumScreen(
         val idx = trips.indexOfFirst { it.id == activeTripId }
         if (idx >= 0) {
             trips[idx] = tripToSave
-        } else {
-            trips.add(tripToSave)
-            activeTripId = tripToSave.id
         }
         saveTravelTrips(context, trips)
     }
@@ -320,6 +322,14 @@ fun AssistentePremiumScreen(
     }
 
     fun openAddExpenseForm() {
+        if (activeTripId.isBlank()) {
+            Toast.makeText(
+                context,
+                trNow("Crie uma viagem antes de adicionar gastos.", "Create a trip before adding expenses."),
+                Toast.LENGTH_SHORT
+            ).show()
+            return
+        }
         val latestExpense = trips.firstOrNull { it.id == activeTripId }?.expenses?.lastOrNull()
         latestExpense?.category
             ?.takeIf { it in categories }
@@ -337,7 +347,10 @@ fun AssistentePremiumScreen(
             selectedVehicleName = registeredVehicles.firstOrNull().orEmpty()
         }
         expenseLabel = ""
+        expensePlaceName = ""
         expenseAmount = ""
+        expenseOriginalAmount = null
+        expenseDiscountAmount = null
         photoUris.clear()
         pendingPhotoUri = null
         showAddExpenseScreen = true
@@ -361,7 +374,6 @@ fun AssistentePremiumScreen(
             accentBlue = accentBlue,
             onBack = { showCreateTripScreen = false },
             onCreate = { newName, location, responsible, participantEmails, pickupKm, pickedBy, returnedBy ->
-                persistCurrentTrip()
                 val newTrip = TravelTrip(
                     id = UUID.randomUUID().toString(),
                     name = newName.ifBlank { trNow("Nova viagem", "New trip") },
@@ -438,6 +450,8 @@ fun AssistentePremiumScreen(
             onCustomVehicleNameChange = { customVehicleName = it },
             expenseLabel = expenseLabel,
             onExpenseLabelChange = { expenseLabel = it },
+            expensePlaceName = expensePlaceName,
+            onExpensePlaceNameChange = { expensePlaceName = it },
             expenseAmount = expenseAmount,
             onExpenseAmountChange = { expenseAmount = it },
             photoCount = photoUris.size,
@@ -478,6 +492,25 @@ fun AssistentePremiumScreen(
                         label = expenseLabel.ifBlank { category },
                         amount = amount,
                         category = category,
+                        placeName = expensePlaceName.ifBlank {
+                            tripLocation.ifBlank { trNow("Local não informado", "Place not informed") }
+                        },
+                        createdAtMillis = System.currentTimeMillis(),
+                        originalAmount = run {
+                            val parsedOriginal = expenseOriginalAmount ?: amount
+                            val parsedDiscount = (expenseDiscountAmount ?: 0.0).coerceAtLeast(0.0)
+                            val baseFromDiff = if (parsedOriginal > amount) parsedOriginal else amount + parsedDiscount
+                            baseFromDiff.coerceAtLeast(amount)
+                        },
+                        discountAmount = run {
+                            val parsedOriginal = (expenseOriginalAmount ?: amount).coerceAtLeast(amount)
+                            val parsedDiscount = (expenseDiscountAmount ?: 0.0).coerceAtLeast(0.0)
+                            when {
+                                parsedDiscount > 0.0 -> parsedDiscount
+                                parsedOriginal > amount -> (parsedOriginal - amount).coerceAtLeast(0.0)
+                                else -> 0.0
+                            }
+                        },
                         vehicleName = vehicleNameToSave,
                         notePhotoUri = photoUris.lastOrNull()
                     )
@@ -485,7 +518,10 @@ fun AssistentePremiumScreen(
                 AdminUsageMetrics.markTravelExpenseSaved()
                 persistCurrentTrip()
                 expenseLabel = ""
+                expensePlaceName = ""
                 expenseAmount = ""
+                expenseOriginalAmount = null
+                expenseDiscountAmount = null
                 customVehicleName = ""
                 photoUris.clear()
                 pendingPhotoUri = null
@@ -738,19 +774,25 @@ fun AssistentePremiumScreen(
                 showEditTripScreen = true
             },
             onDeleteTrip = { tripId ->
-                if (trips.size <= 1) {
-                    Toast.makeText(context, "Mantenha ao menos uma viagem.", Toast.LENGTH_SHORT).show()
-                } else {
-                    trips.removeAll { it.id == tripId }
-                    if (tripId == activeTripId) {
-                        val fallback = trips.first()
+                trips.removeAll { it.id == tripId }
+                if (tripId == activeTripId) {
+                    val fallback = trips.firstOrNull()
+                    if (fallback != null) {
                         activeTripId = fallback.id
                         tripName = fallback.name
+                        tripLocation = fallback.location
                         expenses.clear()
                         expenses.addAll(fallback.expenses)
+                    } else {
+                        activeTripId = ""
+                        tripName = ""
+                        tripLocation = ""
+                        expenses.clear()
+                        showExpensesScreen = false
+                        showTripsScreen = true
                     }
-                    saveTravelTrips(context, trips)
                 }
+                saveTravelTrips(context, trips)
             }
         )
     } else Scaffold(
@@ -791,7 +833,7 @@ fun AssistentePremiumScreen(
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(
-                    containerColor = if (isDark) Color(0xFF0F172A) else Color(0xFFF8FAFC)
+                    containerColor = if (isDark) Color(0xFF111827) else Color(0xFFF8FAFC)
                 ),
                 border = BorderStroke(1.dp, cardBorder),
                 shape = RoundedCornerShape(14.dp)
@@ -832,7 +874,7 @@ fun AssistentePremiumScreen(
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(
-                    containerColor = if (isDark) Color(0xFF0F172A) else Color(0xFFF8FAFC)
+                    containerColor = if (isDark) Color(0xFF111827) else Color(0xFFF8FAFC)
                 ),
                 border = BorderStroke(1.dp, cardBorder)
             ) {
@@ -1052,9 +1094,20 @@ fun AssistentePremiumScreen(
                 val notaInfo = resultado.notaQrInfo
                 isQrLoading = false
                 if (notaInfo != null) {
-                    notaInfo.valorTotal?.let { total ->
+                    val descontoNota = (notaInfo.valorDesconto ?: 0.0).coerceAtLeast(0.0)
+                    val valorFinalNota = notaInfo.valorFinalComDesconto
+                        ?: notaInfo.valorTotal
+                    val valorBrutoNota = when {
+                        notaInfo.valorBruto != null && notaInfo.valorBruto > 0.0 -> notaInfo.valorBruto
+                        valorFinalNota != null && descontoNota > 0.0 -> valorFinalNota + descontoNota
+                        notaInfo.valorTotal != null && descontoNota > 0.0 -> notaInfo.valorTotal + descontoNota
+                        else -> notaInfo.valorTotal
+                    }
+                    valorFinalNota?.let { total ->
                         expenseAmount = "R$ ${formatarValorBr(total)}"
                     }
+                    expenseOriginalAmount = valorBrutoNota
+                    expenseDiscountAmount = if (descontoNota > 0.0) descontoNota else null
                     val descricaoItens = notaInfo.descricaoItens?.trim().orEmpty()
                     val sugestaoOcr = resultado.sugestoesProduto
                         .map { it.trim() }
@@ -1063,6 +1116,7 @@ fun AssistentePremiumScreen(
                     val estabelecimentoUtil = estabelecimento.isNotBlank() &&
                         !estabelecimento.contains("secretaria da fazenda", ignoreCase = true) &&
                         !estabelecimento.contains("governo do estado", ignoreCase = true)
+                    expensePlaceName = if (estabelecimentoUtil) estabelecimento else ""
 
                     expenseLabel = when {
                         descricaoItens.isNotBlank() -> formatarProdutosParaDescricao(descricaoItens)
@@ -1080,6 +1134,9 @@ fun AssistentePremiumScreen(
                         .map { it.trim() }
                         .firstOrNull { it.isNotBlank() }
                     expenseLabel = sugestaoOcr ?: "Nota fiscal lida (itens indisponiveis)"
+                    expensePlaceName = ""
+                    expenseOriginalAmount = null
+                    expenseDiscountAmount = null
                     Log.i(
                         QR_PARSER_TAG,
                         "Bind UI gastos => notaInfo=null sugestaoOcr=${!sugestaoOcr.isNullOrBlank()} labelFinal=$expenseLabel"
@@ -1306,6 +1363,19 @@ private fun formatarProdutosParaDescricao(descricaoItens: String): String {
 private fun formatarValorBr(valor: Double): String =
     String.format(Locale("pt", "BR"), "%.2f", valor)
 
+private fun formatarKmCampo(valorInput: String): String {
+    val digits = valorInput.filter(Char::isDigit)
+    if (digits.isBlank()) return ""
+    return digits
+        .reversed()
+        .chunked(3)
+        .joinToString(".")
+        .reversed()
+}
+
+private fun limparFormatacaoKm(valorInput: String): String =
+    valorInput.filter(Char::isDigit)
+
 private fun parseValorMonetario(valorInput: String): Double? {
     val limpo = valorInput
         .replace("R$", "", ignoreCase = true)
@@ -1335,6 +1405,31 @@ private fun buildProductsPreview(rawProducts: String, maxLines: Int): ProductsPr
     )
 }
 
+private data class ExpenseItemLine(
+    val name: String,
+    val value: Double?
+)
+
+private fun parseExpenseItemLines(rawProducts: String): List<ExpenseItemLine> {
+    val valueRegex = Regex("""(?:R\$\s*)?(\d{1,3}(?:\.\d{3})*,\d{2}|\d+(?:[.,]\d{2}))\s*$""")
+    return rawProducts
+        .lineSequence()
+        .map { it.trim() }
+        .filter { it.isNotBlank() }
+        .map { line ->
+            val match = valueRegex.find(line)
+            if (match != null) {
+                val rawValue = match.groupValues[1]
+                val numeric = rawValue.replace(".", "").replace(",", ".").toDoubleOrNull()
+                val name = line.removeRange(match.range).trim().trim('-', ':').ifBlank { trNow("Item", "Item") }
+                ExpenseItemLine(name = name, value = numeric)
+            } else {
+                ExpenseItemLine(name = line, value = null)
+            }
+        }
+        .toList()
+}
+
 private const val TRAVEL_EXPENSES_PREFS = "travel_expenses_prefs"
 private const val KEY_TRAVEL_EXPENSES = "travel_expenses_json"
 private const val KEY_TRAVEL_TRIPS = "travel_trips_json"
@@ -1350,6 +1445,10 @@ private fun saveTravelExpenses(context: Context, expenses: List<TravelExpense>) 
             .put("label", expense.label)
             .put("amount", expense.amount)
             .put("category", expense.category)
+            .put("placeName", expense.placeName)
+            .put("createdAtMillis", expense.createdAtMillis)
+            .put("originalAmount", expense.originalAmount)
+            .put("discountAmount", expense.discountAmount)
             .put("vehicleName", expense.vehicleName)
             .put("notePhotoUri", expense.notePhotoUri?.toString())
         jsonArray.put(obj)
@@ -1377,6 +1476,10 @@ private fun loadTravelExpenses(context: Context): List<TravelExpense> {
                         label = obj.optString("label"),
                         amount = obj.optDouble("amount", 0.0),
                         category = obj.optString("category"),
+                        placeName = obj.optString("placeName"),
+                        createdAtMillis = obj.optLong("createdAtMillis").takeIf { it > 0L } ?: System.currentTimeMillis(),
+                        originalAmount = obj.optDouble("originalAmount", obj.optDouble("amount", 0.0)),
+                        discountAmount = obj.optDouble("discountAmount", 0.0),
                         vehicleName = obj.optString("vehicleName"),
                         notePhotoUri = obj.optString("notePhotoUri").takeIf { it.isNotBlank() }?.let(Uri::parse)
                     )
@@ -1439,6 +1542,10 @@ private fun saveTravelTrips(context: Context, trips: List<TravelTrip>) {
                     .put("label", expense.label)
                     .put("amount", expense.amount)
                     .put("category", expense.category)
+                    .put("placeName", expense.placeName)
+                    .put("createdAtMillis", expense.createdAtMillis)
+                    .put("originalAmount", expense.originalAmount)
+                    .put("discountAmount", expense.discountAmount)
                     .put("vehicleName", expense.vehicleName)
                     .put("notePhotoUri", expense.notePhotoUri?.toString())
             )
@@ -1447,6 +1554,7 @@ private fun saveTravelTrips(context: Context, trips: List<TravelTrip>) {
             JSONObject()
                 .put("id", trip.id)
                 .put("name", trip.name)
+                .put("createdAtMillis", trip.createdAtMillis)
                 .put("location", trip.location)
                 .put("responsible", trip.responsible)
                 .put("pickupKm", trip.pickupKm)
@@ -1483,6 +1591,10 @@ private fun loadTravelTrips(context: Context): List<TravelTrip> {
                                     label = obj.optString("label"),
                                     amount = obj.optDouble("amount", 0.0),
                                     category = obj.optString("category"),
+                                    placeName = obj.optString("placeName"),
+                                    createdAtMillis = obj.optLong("createdAtMillis").takeIf { it > 0L } ?: System.currentTimeMillis(),
+                                    originalAmount = obj.optDouble("originalAmount", obj.optDouble("amount", 0.0)),
+                                    discountAmount = obj.optDouble("discountAmount", 0.0),
                                     vehicleName = obj.optString("vehicleName"),
                                     notePhotoUri = obj.optString("notePhotoUri").takeIf { it.isNotBlank() }?.let(Uri::parse)
                                 )
@@ -1493,6 +1605,8 @@ private fun loadTravelTrips(context: Context): List<TravelTrip> {
                         TravelTrip(
                             id = tripObj.optString("id").ifBlank { UUID.randomUUID().toString() },
                             name = tripObj.optString("name").ifBlank { "Minha viagem" },
+                            createdAtMillis = tripObj.optLong("createdAtMillis").takeIf { it > 0L }
+                                ?: System.currentTimeMillis(),
                             location = tripObj.optString("location"),
                             responsible = tripObj.optString("responsible"),
                             pickupKm = tripObj.optString("pickupKm"),
@@ -1575,18 +1689,18 @@ private fun TripsByTravelScreen(
     var printButtonRect by remember { mutableStateOf<Rect?>(null) }
     var addButtonRect by remember { mutableStateOf<Rect?>(null) }
     var firstTripRect by remember { mutableStateOf<Rect?>(null) }
-    var showExportScreen by remember { mutableStateOf(false) }
+    var showExportDialog by remember { mutableStateOf(false) }
     val tutorialSteps = remember(englishUi) {
         if (englishUi) {
             listOf(
-                "Export: tap here to open PDF, print, and overall trips spreadsheet options." to "pdf",
+                "Export: tap here to open PDF and print options." to "pdf",
                 "Print overall: use Export menu to print the full trips report." to "print",
                 "New expense: tap + button to open form and add an expense to the selected trip." to "add",
                 "Trip details: tap a trip to see expenses, edit information, and delete what you need." to "trip"
             )
         } else {
             listOf(
-                "Exportar: toque aqui para abrir as opcoes de PDF, impressao e planilha geral das viagens." to "pdf",
+                "Exportar: toque aqui para abrir as opcoes de PDF e impressao." to "pdf",
                 "Imprimir geral: use no menu Exportar para abrir a impressÃ£o do relatÃ³rio completo de viagens." to "print",
                 "Novo gasto: toque no botÃ£o + para abrir o formulÃ¡rio e cadastrar uma despesa na viagem escolhida." to "add",
                 "Detalhes da viagem: toque em uma viagem para ver os gastos, editar informaÃ§Ãµes e excluir o que precisar." to "trip"
@@ -1600,44 +1714,43 @@ private fun TripsByTravelScreen(
         }
     }
 
-    if (showExportScreen) {
-        ExportOptionsScreen(
+    val zone = ZoneId.systemDefault()
+    val today = LocalDate.now(zone)
+    val startOfWeekMillis = today
+        .with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+        .atStartOfDay(zone)
+        .toInstant()
+        .toEpochMilli()
+    val startOfMonthMillis = today
+        .withDayOfMonth(1)
+        .atStartOfDay(zone)
+        .toInstant()
+        .toEpochMilli()
+    val tripsThisWeek = trips.count { it.createdAtMillis >= startOfWeekMillis }
+    val tripsThisMonth = trips.count { it.createdAtMillis >= startOfMonthMillis }
+    val totalMonth = trips
+        .filter { it.createdAtMillis >= startOfMonthMillis }
+        .sumOf { trip -> trip.expenses.sumOf { expense -> expense.finalAmount() } }
+    val activeTrips = trips.count { !it.isFinished }
+    val finishedTrips = trips.count { it.isFinished }
+
+    if (showExportDialog) {
+        ExportPdfOptionsDialog(
             bg = bg,
             textPrimary = textPrimary,
-            textDim = textDim,
             cardBorder = cardBorder,
             accentBlue = accentBlue,
-            subtitle = tr("Use os arquivos abaixo para compartilhar o controle centralizado.", "Use the files below to share centralized control."),
             actions = listOf(
-                ExportOptionAction(
-                    label = tr("Imprimir", "Print"),
-                    icon = Icons.Default.Print,
+                ExportPdfOptionAction(
+                    label = tr("Exportar todas as viagens", "Export all trips"),
                     onClick = {
-                        showExportScreen = false
-                        onPrintAllTripsPdf()
-                    }
-                ),
-                ExportOptionAction(
-                    label = tr("Exportar PDF", "Export PDF"),
-                    icon = Icons.Default.PictureAsPdf,
-                    onClick = {
-                        showExportScreen = false
+                        showExportDialog = false
                         onExportAllTripsPdf()
-                    }
-                ),
-                ExportOptionAction(
-                    label = tr("Exportar planilha + fotos", "Export spreadsheet + photos"),
-                    icon = Icons.Default.ReceiptLong,
-                    onClick = {
-                        showExportScreen = false
-                        onExportAllTripsSpreadsheet()
                     }
                 )
             ),
-            isDark = isDark,
-            onBack = { showExportScreen = false }
+            onDismiss = { showExportDialog = false }
         )
-        return
     }
 
     Scaffold(containerColor = bg) { innerPadding ->
@@ -1660,7 +1773,7 @@ private fun TripsByTravelScreen(
                 }
                 ExportActionButton(
                     isDark = isDark,
-                    onClick = { showExportScreen = true },
+                    onClick = { showExportDialog = true },
                     modifier = Modifier.onGloballyPositioned {
                         val bounds = it.boundsInRoot()
                         pdfButtonRect = bounds
@@ -1719,191 +1832,288 @@ private fun TripsByTravelScreen(
                 Text(tr("Criar viagem", "Create trip"), fontWeight = FontWeight.SemiBold)
             }
 
+            TravelMetricCard(
+                modifier = Modifier.fillMaxWidth(),
+                title = tr("Total no mês", "Month total"),
+                value = currency.format(totalMonth),
+                subtitle = tr("$tripsThisMonth viagens no mês", "$tripsThisMonth trips this month"),
+                isDark = isDark,
+                textPrimary = textPrimary,
+                textDim = textDim,
+                cardBorder = cardBorder,
+                accentBlue = accentBlue
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                TravelMetricCard(
+                    modifier = Modifier.weight(1f),
+                    title = tr("Em andamento", "In progress"),
+                    value = activeTrips.toString(),
+                    subtitle = tr("viagens ativas", "active trips"),
+                    isDark = isDark,
+                    textPrimary = textPrimary,
+                    textDim = textDim,
+                    cardBorder = cardBorder,
+                    accentBlue = accentBlue
+                )
+                TravelMetricCard(
+                    modifier = Modifier.weight(1f),
+                    title = tr("Finalizadas", "Finished"),
+                    value = finishedTrips.toString(),
+                    subtitle = tr("viagens concluídas", "completed trips"),
+                    isDark = isDark,
+                    textPrimary = textPrimary,
+                    textDim = textDim,
+                    cardBorder = cardBorder,
+                    accentBlue = accentBlue
+                )
+            }
+
             Spacer(Modifier.height(8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                HorizontalDivider(
+                    modifier = Modifier.weight(1f),
+                    color = cardBorder.copy(alpha = if (isDark) 0.72f else 0.55f),
+                    thickness = 1.dp
+                )
+                Text(
+                    tr("Suas viagens", "Your trips"),
+                    color = textDim,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                )
+                HorizontalDivider(
+                    modifier = Modifier.weight(1f),
+                    color = cardBorder.copy(alpha = if (isDark) 0.72f else 0.55f),
+                    thickness = 1.dp
+                )
+            }
 
             if (trips.isEmpty()) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = bg),
-                    border = BorderStroke(1.dp, cardBorder)
+                    colors = CardDefaults.cardColors(containerColor = if (isDark) Color(0xFF0B1220) else Color(0xFFF8FAFC)),
+                    border = BorderStroke(1.dp, cardBorder.copy(alpha = if (isDark) 0.64f else 0.42f)),
+                    shape = RoundedCornerShape(18.dp)
                 ) {
                     Column(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 26.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 18.dp, vertical = 24.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Icon(Icons.Default.Wallet, contentDescription = null, tint = textDim, modifier = Modifier.size(24.dp))
-                        Spacer(Modifier.height(8.dp))
-                        Text(tr("Nenhuma viagem criada.", "No trip created."), color = textDim, fontSize = 12.sp)
+                        Box(
+                            modifier = Modifier
+                                .size(56.dp)
+                                .background(
+                                    accentBlue.copy(alpha = if (isDark) 0.24f else 0.14f),
+                                    RoundedCornerShape(16.dp)
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                Icons.Default.CalendarMonth,
+                                contentDescription = null,
+                                tint = accentBlue,
+                                modifier = Modifier.size(30.dp)
+                            )
+                        }
+                        Spacer(Modifier.height(12.dp))
+                        Text(
+                            tr("Nenhuma viagem cadastrada ainda", "No trips registered yet"),
+                            color = textPrimary,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            tr(
+                                "Crie sua primeira viagem para começar a registrar gastos e gerar relatórios em PDF.",
+                                "Create your first trip to start tracking expenses and generating PDF reports."
+                            ),
+                            color = textDim,
+                            fontSize = 13.sp,
+                            lineHeight = 18.sp,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
                     }
                 }
             } else {
                 trips.forEachIndexed { idx, trip ->
-                    val total = trip.expenses.sumOf { it.amount }
-                    val tripCardBg = if (isDark) Color(0xFF0E1628) else Color(0xFFFCFDFF)
-                    val chipBg = if (isDark) Color.White.copy(alpha = 0.08f) else Color(0xFFF1F5F9)
+                    val total = trip.expenses.sumOf { it.finalAmount() }
+                    val tripCardBg = if (isDark) Color(0xFF0B1220) else Color(0xFFFFFFFF)
+                    val chipBg = if (isDark) Color.White.copy(alpha = 0.1f) else Color(0xFFF1F5F9)
                     val infoCardBorderColor = cardBorder.copy(alpha = if (isDark) 0.34f else 0.28f)
+                    val statusBg = if (trip.isFinished) {
+                        Color(0xFF16A34A).copy(alpha = if (isDark) 0.25f else 0.14f)
+                    } else {
+                        Color(0xFFF59E0B).copy(alpha = if (isDark) 0.30f else 0.18f)
+                    }
+                    val statusColor = if (trip.isFinished) Color(0xFF16A34A) else Color(0xFFF59E0B)
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
                             .then(if (idx == 0) Modifier.onGloballyPositioned { firstTripRect = it.boundsInRoot() } else Modifier)
                             .clickable { onOpenTrip(trip) },
                         colors = CardDefaults.cardColors(containerColor = tripCardBg),
-                        border = BorderStroke(1.dp, cardBorder.copy(alpha = if (isDark) 0.78f else 0.5f)),
-                        shape = RoundedCornerShape(18.dp),
+                        border = BorderStroke(1.dp, cardBorder.copy(alpha = if (isDark) 0.34f else 0.22f)),
+                        shape = RoundedCornerShape(20.dp),
                         elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
                     ) {
                         Column(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
                             verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Row(
+                            Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .background(
-                                        if (isDark) Color.White.copy(alpha = 0.05f) else accentBlue.copy(alpha = 0.06f),
-                                        RoundedCornerShape(12.dp)
+                                        color = if (isDark) Color(0xFF0F172A) else Color(0xFFF8FAFC),
+                                        shape = RoundedCornerShape(14.dp)
                                     )
-                                    .border(1.dp, cardBorder.copy(alpha = if (isDark) 0.34f else 0.28f), RoundedCornerShape(12.dp))
-                                    .padding(horizontal = 10.dp, vertical = 9.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
+                                    .border(1.dp, cardBorder.copy(alpha = if (isDark) 0.34f else 0.26f), RoundedCornerShape(14.dp))
+                                    .padding(horizontal = 10.dp, vertical = 10.dp)
                             ) {
                                 Row(
-                                    modifier = Modifier.weight(1f),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(30.dp)
-                                            .background(accentBlue.copy(alpha = if (isDark) 0.24f else 0.14f), RoundedCornerShape(999.dp)),
-                                        contentAlignment = Alignment.Center
+                                    Row(
+                                        modifier = Modifier.weight(1f),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                                     ) {
-                                        Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = accentBlue, modifier = Modifier.size(16.dp))
+                                        Box(
+                                            modifier = Modifier
+                                                .size(32.dp)
+                                                .background(Color.White.copy(alpha = if (isDark) 0.14f else 0.7f), RoundedCornerShape(999.dp)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = accentBlue, modifier = Modifier.size(17.dp))
+                                        }
+                                        Text(
+                                            trip.name,
+                                            color = textPrimary,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 16.sp,
+                                            maxLines = 1,
+                                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                        )
                                     }
                                     Text(
-                                        trip.name,
+                                        currency.format(total),
                                         color = textPrimary,
                                         fontWeight = FontWeight.Bold,
-                                        fontSize = 16.sp,
-                                        maxLines = 1,
-                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                        fontSize = 14.sp,
+                                        modifier = Modifier
+                                            .background(chipBg, RoundedCornerShape(999.dp))
+                                            .padding(horizontal = 10.dp, vertical = 6.dp)
                                     )
                                 }
-                                Text(
-                                    currency.format(total),
-                                    color = textPrimary,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 14.sp,
-                                    modifier = Modifier
-                                        .background(chipBg, RoundedCornerShape(999.dp))
-                                        .padding(horizontal = 10.dp, vertical = 6.dp)
-                                )
                             }
 
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(chipBg, RoundedCornerShape(10.dp))
+                                    .border(1.dp, infoCardBorderColor, RoundedCornerShape(10.dp))
+                                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                if (trip.isFinished) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
                                     Text(
-                                        tr("Finalizada", "Finished"),
-                                        color = Color(0xFF16A34A),
+                                        if (trip.isFinished) tr("Finalizada", "Finished") else tr("Em andamento", "In progress"),
+                                        color = statusColor,
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.SemiBold,
                                         modifier = Modifier
-                                            .background(
-                                                Color(0xFF16A34A).copy(alpha = if (isDark) 0.22f else 0.12f),
-                                                RoundedCornerShape(999.dp)
-                                            )
+                                            .background(statusBg, RoundedCornerShape(999.dp))
                                             .padding(horizontal = 8.dp, vertical = 4.dp)
                                     )
-                                } else {
                                     Text(
-                                        tr("Em andamento", "In progress"),
-                                        color = accentBlue,
+                                        if (isEnglishUi()) {
+                                            "${trip.expenses.size} expenses"
+                                        } else {
+                                            "${trip.expenses.size} gastos"
+                                        },
+                                        color = textDim,
                                         fontSize = 11.sp,
-                                        fontWeight = FontWeight.SemiBold,
+                                        fontWeight = FontWeight.Medium,
                                         modifier = Modifier
-                                            .background(accentBlue.copy(alpha = if (isDark) 0.22f else 0.12f), RoundedCornerShape(999.dp))
+                                            .background(if (isDark) Color.White.copy(alpha = 0.08f) else Color.White, RoundedCornerShape(999.dp))
                                             .padding(horizontal = 8.dp, vertical = 4.dp)
                                     )
                                 }
-                                Text(
-                                    "${trip.expenses.size} gastos",
-                                    color = textDim,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    modifier = Modifier
-                                        .background(chipBg, RoundedCornerShape(999.dp))
-                                        .padding(horizontal = 8.dp, vertical = 4.dp)
-                                )
-                            }
 
-                            if (trip.location.isNotBlank() || trip.responsible.isNotBlank()) {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .background(chipBg, RoundedCornerShape(10.dp))
-                                        .border(1.dp, infoCardBorderColor, RoundedCornerShape(10.dp))
-                                        .padding(horizontal = 10.dp, vertical = 8.dp),
-                                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    if (trip.location.isNotBlank()) {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Icon(
-                                                Icons.Rounded.LocationOn,
-                                                contentDescription = null,
-                                                tint = textDim,
-                                                modifier = Modifier.size(15.dp)
-                                            )
-                                            Text(
-                                                "Local:",
-                                                color = textDim,
-                                                fontSize = 12.sp,
-                                                fontWeight = FontWeight.SemiBold
-                                            )
-                                            Text(
-                                                trip.location,
-                                                color = textDim,
-                                                fontSize = 12.sp,
-                                                maxLines = 1,
-                                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                                            )
-                                        }
+                                if (trip.location.isNotBlank()) {
+                                    HorizontalDivider(color = infoCardBorderColor.copy(alpha = if (isDark) 0.55f else 0.45f))
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            Icons.Rounded.LocationOn,
+                                            contentDescription = null,
+                                            tint = textDim,
+                                            modifier = Modifier.size(15.dp)
+                                        )
+                                        Text(
+                                            "Local:",
+                                            color = textDim,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                        Text(
+                                            trip.location,
+                                            color = textDim,
+                                            fontSize = 12.sp,
+                                            maxLines = 1,
+                                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                        )
                                     }
-                                    if (trip.responsible.isNotBlank()) {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Icon(
-                                                Icons.Rounded.Person,
-                                                contentDescription = null,
-                                                tint = textDim,
-                                                modifier = Modifier.size(15.dp)
-                                            )
-                                            Text(
-                                                "Responsavel:",
-                                                color = textDim,
-                                                fontSize = 12.sp,
-                                                fontWeight = FontWeight.SemiBold
-                                            )
-                                            Text(
-                                                trip.responsible,
-                                                color = textDim,
-                                                fontSize = 12.sp,
-                                                fontWeight = FontWeight.SemiBold,
-                                                maxLines = 1,
-                                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                                            )
-                                        }
+                                }
+                                if (trip.responsible.isNotBlank()) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            Icons.Rounded.Person,
+                                            contentDescription = null,
+                                            tint = textDim,
+                                            modifier = Modifier.size(15.dp)
+                                        )
+                                        Text(
+                                            "Responsavel:",
+                                            color = textDim,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                        Text(
+                                            trip.responsible,
+                                            color = textDim,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            maxLines = 1,
+                                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                        )
                                     }
                                 }
                             }
@@ -1920,7 +2130,7 @@ private fun TripsByTravelScreen(
                             ) {
                                 Icon(Icons.Default.ReceiptLong, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
                                 Spacer(Modifier.width(6.dp))
-                                Text("Ver gastos", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                                Text(tr("Ver gastos", "View expenses"), color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                             }
 
                             Row(
@@ -1962,46 +2172,58 @@ private fun TripsByTravelScreen(
         val tripToDelete = pendingDeleteTrip
         Dialog(onDismissRequest = { pendingDeleteTrip = null }) {
             Card(
+                shape = RoundedCornerShape(28.dp),
                 colors = CardDefaults.cardColors(containerColor = bg),
                 border = BorderStroke(1.dp, cardBorder),
-                shape = RoundedCornerShape(16.dp)
+                modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
-                    modifier = Modifier.fillMaxWidth().padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
+                    Icon(
+                        Icons.Rounded.Delete,
+                        contentDescription = null,
+                        tint = Color(0xFFEF4444),
+                        modifier = Modifier.size(48.dp)
+                    )
+                    Spacer(Modifier.height(16.dp))
                     Text(
                         tr("Excluir viagem", "Delete trip"),
-                        color = textPrimary,
+                        style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 18.sp
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
                     )
+                    Spacer(Modifier.height(12.dp))
                     Text(
                         if (isEnglishUi()) {
-                            "Are you sure you want to delete trip ${tripToDelete?.name?.let { "\"$it\"" } ?: ""}?"
+                            "This action cannot be undone. Trip ${tripToDelete?.name?.let { "\"$it\"" } ?: ""} and linked expenses will be removed."
                         } else {
-                            "Tem certeza que deseja apagar a viagem ${tripToDelete?.name?.let { "\"$it\"" } ?: ""}?"
+                            "Esta ação não pode ser desfeita. A viagem ${tripToDelete?.name?.let { "\"$it\"" } ?: ""} e os gastos vinculados serão removidos."
                         },
-                        color = textDim,
-                        fontSize = 14.sp
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
                     )
-                    Text(
-                        tr("Essa acao remove os gastos vinculados a ela.", "This action removes all linked expenses."),
-                        color = textDim,
-                        fontSize = 13.sp
-                    )
+                    Spacer(Modifier.height(24.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         OutlinedButton(
                             onClick = { pendingDeleteTrip = null },
-                            border = BorderStroke(1.dp, cardBorder),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = textPrimary)
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(
+                                1.dp,
+                                if (isDark) Color.White else cardBorder.copy(alpha = 0.75f)
+                            ),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = if (isDark) Color.White else textPrimary
+                            )
                         ) {
                             Text(tr("Cancelar", "Cancel"))
                         }
-                        Spacer(Modifier.width(8.dp))
                         Button(
                             onClick = {
                                 val tripId = tripToDelete?.id
@@ -2010,12 +2232,14 @@ private fun TripsByTravelScreen(
                                     onDeleteTrip(tripId)
                                 }
                             },
+                            modifier = Modifier.weight(1f),
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = Color(0xFFDC2626),
                                 contentColor = Color.White
-                            )
+                            ),
+                            shape = RoundedCornerShape(12.dp)
                         ) {
-                            Text(tr("Apagar", "Delete"))
+                            Text(tr("Apagar", "Delete"), fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -2383,7 +2607,7 @@ private fun CreateTripScreen(
                 }
                 OutlinedTextField(
                     value = pickupKm,
-                    onValueChange = { if (it.all(Char::isDigit)) pickupKm = it },
+                    onValueChange = { pickupKm = formatarKmCampo(it) },
                     label = { Text(tr("KM retirada do veículo", "Pickup mileage")) },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions(onDone = { keyboardController?.hide() }),
@@ -2423,7 +2647,7 @@ private fun CreateTripScreen(
                                 location.trim(),
                                 pickedBy.trim(),
                                 if (travelingAlone) emptyList() else parseParticipantEmails(participantEmailsRaw),
-                                pickupKm.trim(),
+                                limparFormatacaoKm(pickupKm),
                                 pickedBy.trim(),
                                 returnedBy.trim()
                             )
@@ -2467,7 +2691,30 @@ private fun EditTripScreen(
     var returnKm by remember(initialTrip.id) { mutableStateOf(initialTrip.returnKm) }
     var pickedBy by remember(initialTrip.id) { mutableStateOf(initialTrip.pickedBy) }
     var returnedBy by remember(initialTrip.id) { mutableStateOf(initialTrip.returnedBy) }
+    val accountDisplayName = remember {
+        val user = FirebaseAuth.getInstance().currentUser
+        user?.displayName?.trim()
+            ?.takeIf { it.isNotBlank() }
+            ?: user?.email?.substringBefore("@")?.trim()?.takeIf { it.isNotBlank() }
+            ?: "Eu mesmo"
+    }
+    var useAccountNameForReturnedBy by remember(initialTrip.id, accountDisplayName) {
+        mutableStateOf(
+            initialTrip.returnedBy.isNotBlank() &&
+                initialTrip.returnedBy.trim().equals(accountDisplayName, ignoreCase = true)
+        )
+    }
     val keyboardController = LocalSoftwareKeyboardController.current
+    val hasChanges =
+        tripName.trim() != initialTrip.name.trim() ||
+        location.trim() != initialTrip.location.trim() ||
+        responsible.trim() != initialTrip.responsible.trim() ||
+        parseParticipantEmails(participantEmailsRaw) != initialTrip.participantEmails ||
+        pickupKm.trim() != initialTrip.pickupKm.trim() ||
+        returnKm.trim() != initialTrip.returnKm.trim() ||
+        pickedBy.trim() != initialTrip.pickedBy.trim() ||
+        returnedBy.trim() != initialTrip.returnedBy.trim()
+    val canSave = hasChanges && tripName.trim().isNotBlank()
 
     Scaffold(containerColor = bg) { innerPadding ->
         Column(
@@ -2590,44 +2837,54 @@ private fun EditTripScreen(
                 shape = RoundedCornerShape(12.dp),
                 colors = outlinedFieldColors(bg, textPrimary, textDim, isDark),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = { keyboardController?.hide() })
+                keyboardActions = KeyboardActions(onDone = { keyboardController?.hide() }),
+                enabled = !useAccountNameForReturnedBy
             )
-
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                OutlinedButton(
-                    onClick = onBack,
-                    border = BorderStroke(1.dp, cardBorder),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = textPrimary),
-                    modifier = Modifier.weight(1f).height(50.dp),
-                    shape = RoundedCornerShape(14.dp)
-                ) {
-                    Text(tr("Cancelar", "Cancel"))
-                }
-                Button(
-                    onClick = {
-                        onSave(
-                            initialTrip.copy(
-                                name = tripName.trim().ifBlank { trNow("Minha viagem", "My trip") },
-                                location = location.trim(),
-                                responsible = responsible.trim(),
-                                participantEmails = parseParticipantEmails(participantEmailsRaw),
-                                pickupKm = pickupKm.trim(),
-                                returnKm = returnKm.trim(),
-                                pickedBy = pickedBy.trim(),
-                                returnedBy = returnedBy.trim()
-                            )
+                Checkbox(
+                    checked = useAccountNameForReturnedBy,
+                    onCheckedChange = { checked ->
+                        useAccountNameForReturnedBy = checked
+                        if (checked) {
+                            returnedBy = accountDisplayName
+                            keyboardController?.hide()
+                        }
+                    }
+                )
+                Text(tr("Eu mesmo", "Myself"), color = textDim, fontSize = 13.sp)
+            }
+
+            Button(
+                onClick = {
+                    onSave(
+                        initialTrip.copy(
+                            name = tripName.trim().ifBlank { trNow("Minha viagem", "My trip") },
+                            location = location.trim(),
+                            responsible = responsible.trim(),
+                            participantEmails = parseParticipantEmails(participantEmailsRaw),
+                            pickupKm = pickupKm.trim(),
+                            returnKm = returnKm.trim(),
+                            pickedBy = pickedBy.trim(),
+                            returnedBy = returnedBy.trim()
                         )
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = accentBlue, contentColor = Color.White),
-                    enabled = tripName.isNotBlank(),
-                    modifier = Modifier.weight(1f).height(50.dp),
-                    shape = RoundedCornerShape(14.dp)
-                ) {
-                    Text(tr("Salvar", "Save"), fontWeight = FontWeight.SemiBold)
-                }
+                    )
+                },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = accentBlue,
+                    contentColor = Color.White,
+                    disabledContainerColor = accentBlue.copy(alpha = 0.45f),
+                    disabledContentColor = Color.White.copy(alpha = 0.8f)
+                ),
+                enabled = canSave,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(50.dp),
+                shape = RoundedCornerShape(14.dp)
+            ) {
+                Text(tr("Salvar", "Save"), fontWeight = FontWeight.SemiBold)
             }
         }
     }
@@ -2683,6 +2940,8 @@ private fun AddTravelExpenseScreen(
     onCustomVehicleNameChange: (String) -> Unit,
     expenseLabel: String,
     onExpenseLabelChange: (String) -> Unit,
+    expensePlaceName: String,
+    onExpensePlaceNameChange: (String) -> Unit,
     expenseAmount: String,
     onExpenseAmountChange: (String) -> Unit,
     photoCount: Int,
@@ -2766,6 +3025,17 @@ private fun AddTravelExpenseScreen(
                 value = expenseLabel,
                 onValueChange = onExpenseLabelChange,
                 label = { Text(tr("Itens", "Items")) },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = outlinedFieldColors(bg, textPrimary, textDim, isDark),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { keyboardController?.hide() })
+            )
+
+            OutlinedTextField(
+                value = expensePlaceName,
+                onValueChange = onExpensePlaceNameChange,
+                label = { Text(tr("Local", "Place")) },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp),
                 colors = outlinedFieldColors(bg, textPrimary, textDim, isDark),
@@ -2889,12 +3159,43 @@ private fun AddTravelExpenseScreen(
 }
 
 @Composable
+private fun TravelMetricCard(
+    modifier: Modifier = Modifier,
+    title: String,
+    value: String,
+    subtitle: String,
+    isDark: Boolean,
+    textPrimary: Color,
+    textDim: Color,
+    cardBorder: Color,
+    accentBlue: Color
+) {
+    Card(
+        modifier = modifier,
+        colors = CardDefaults.cardColors(containerColor = if (isDark) Color(0xFF0A1427) else Color(0xFFF8FBFF)),
+        border = BorderStroke(1.dp, cardBorder.copy(alpha = if (isDark) 0.30f else 0.20f)),
+        shape = RoundedCornerShape(14.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text(title, color = textDim, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+            Text(value, color = textPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Text(subtitle, color = accentBlue.copy(alpha = if (isDark) 0.92f else 0.86f), fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+        }
+    }
+}
+
+@Composable
 private fun ExportActionButton(
     isDark: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val container = if (isDark) Color(0xFF1E293B) else Color(0xFFEFF6FF)
+    val container = if (isDark) Color(0xFF111827) else Color(0xFFEFF6FF)
     val border = if (isDark) Color(0xFF334155) else Color(0xFFBFDBFE)
     val content = if (isDark) Color(0xFFE2E8F0) else Color(0xFF1D4ED8)
 
@@ -2910,96 +3211,110 @@ private fun ExportActionButton(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        Icon(Icons.Default.Upload, contentDescription = tr("Exportar", "Export"), tint = content, modifier = Modifier.size(18.dp))
+        Icon(Icons.Default.PictureAsPdf, contentDescription = tr("Exportar", "Export"), tint = content, modifier = Modifier.size(18.dp))
+        Text(
+            tr("Exportar", "Export"),
+            color = content,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 13.sp
+        )
     }
 }
 
-private data class ExportOptionAction(
+private data class ExportPdfOptionAction(
     val label: String,
-    val icon: ImageVector,
     val onClick: () -> Unit
 )
 
 @Composable
-private fun ExportOptionsScreen(
+private fun ExportPdfOptionsDialog(
     bg: Color,
     textPrimary: Color,
-    textDim: Color,
     cardBorder: Color,
     accentBlue: Color,
-    subtitle: String,
-    actions: List<ExportOptionAction>,
-    isDark: Boolean,
-    onBack: () -> Unit
+    actions: List<ExportPdfOptionAction>,
+    onDismiss: () -> Unit
 ) {
-    BackHandler(onBack = onBack)
-    Scaffold(containerColor = bg) { innerPadding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .padding(horizontal = 16.dp, vertical = 10.dp)
-        ) {
-            IconButton(
-                onClick = onBack,
-                modifier = Modifier.align(Alignment.TopStart)
-            ) {
-                Icon(Icons.Default.ArrowBackIosNew, contentDescription = tr("Voltar", "Back"), tint = textPrimary)
-            }
+    val isDarkDialog = bg.luminance() < 0.5f
+    val dialogContainer = if (isDarkDialog) Color(0xFF070F1D) else Color(0xFFFFFFFF)
+    val iconContainer = accentBlue.copy(alpha = if (isDarkDialog) 0.24f else 0.14f)
+    val closeContainer = if (isDarkDialog) Color.Transparent else Color(0xFFF8FAFC)
+    val closeBorder = if (isDarkDialog) cardBorder.copy(alpha = 0.55f) else cardBorder.copy(alpha = 0.28f)
 
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            colors = CardDefaults.cardColors(containerColor = dialogContainer),
+            border = BorderStroke(1.dp, cardBorder),
+            shape = RoundedCornerShape(28.dp)
+        ) {
             Column(
                 modifier = Modifier
-                    .align(Alignment.TopCenter)
                     .fillMaxWidth()
-                    .padding(horizontal = 8.dp)
-                    .padding(top = 36.dp),
+                    .padding(horizontal = 24.dp, vertical = 24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 Box(
                     modifier = Modifier
-                        .size(54.dp)
-                        .background(
-                            color = accentBlue.copy(alpha = if (isDark) 0.16f else 0.12f),
-                            shape = RoundedCornerShape(18.dp)
-                        ),
+                        .size(72.dp)
+                        .background(iconContainer, RoundedCornerShape(22.dp)),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        Icons.Default.Upload,
+                        Icons.Default.PictureAsPdf,
                         contentDescription = null,
                         tint = accentBlue,
-                        modifier = Modifier.size(28.dp)
+                        modifier = Modifier.size(38.dp)
                     )
                 }
 
                 Text(
-                    tr("Exportar", "Export"),
+                    tr("Exportar em PDF", "Export as PDF"),
                     color = textPrimary,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 24.sp,
-                    modifier = Modifier.fillMaxWidth(),
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                )
-                Text(
-                    subtitle,
-                    color = textDim,
-                    fontSize = 13.sp,
-                    modifier = Modifier.fillMaxWidth(),
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    fontSize = 22.sp,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
                 )
 
                 actions.forEach { action ->
-                    OutlinedButton(
+                    Button(
                         onClick = action.onClick,
-                        border = BorderStroke(1.dp, cardBorder),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = textPrimary),
-                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = accentBlue,
+                            contentColor = Color.White
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(50.dp),
                         shape = RoundedCornerShape(12.dp)
                     ) {
-                        Icon(action.icon, contentDescription = null, tint = accentBlue, modifier = Modifier.size(18.dp))
+                        Icon(
+                            Icons.Default.PictureAsPdf,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
                         Spacer(Modifier.width(8.dp))
                         Text(action.label, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+
+                OutlinedButton(
+                    onClick = onDismiss,
+                    border = BorderStroke(1.dp, closeBorder),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = textPrimary),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(50.dp),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .background(closeContainer, RoundedCornerShape(8.dp))
+                            .padding(horizontal = 4.dp)
+                    ) {
+                        Text(tr("Fechar", "Close"))
                     }
                 }
             }
@@ -3137,63 +3452,258 @@ private fun TravelExpensesScreen(
 ) {
     val context = LocalContext.current
     val backIconTint = if (isDark) Color(0xFFE2E8F0) else Color.Black
-    var selectedPhotoUri by remember { mutableStateOf<Uri?>(null) }
     var editingExpenseId by remember { mutableStateOf<String?>(null) }
+    var editExpenseTitle by remember { mutableStateOf("") }
     var editExpenseLabel by remember { mutableStateOf("") }
     var editExpenseAmount by remember { mutableStateOf("") }
+    var editExpenseDiscount by remember { mutableStateOf("") }
     var editExpenseCategory by remember { mutableStateOf(categories.firstOrNull().orEmpty()) }
-    var showExportScreen by remember { mutableStateOf(false) }
+    var editOriginalTitle by remember { mutableStateOf("") }
+    var editOriginalLabel by remember { mutableStateOf("") }
+    var editOriginalCategory by remember { mutableStateOf("") }
+    var editOriginalAmount by remember { mutableStateOf(0.0) }
+    var editOriginalDiscount by remember { mutableStateOf(0.0) }
+    var showExportDialog by remember { mutableStateOf(false) }
     var showFinishDialog by remember { mutableStateOf(false) }
     var showReopenDialog by remember { mutableStateOf(false) }
-    var finishKm by remember(currentTripReturnKm) { mutableStateOf(currentTripReturnKm) }
+    var selectedExpenseDetails by remember { mutableStateOf<TravelExpense?>(null) }
+    var finishKm by remember(currentTripReturnKm) { mutableStateOf(formatarKmCampo(currentTripReturnKm)) }
     var finishDeliveredBy by remember(currentReturnedBy) { mutableStateOf(currentReturnedBy) }
+    val accountDisplayName = remember {
+        val user = FirebaseAuth.getInstance().currentUser
+        user?.displayName?.trim()
+            ?.takeIf { it.isNotBlank() }
+            ?: user?.email?.substringBefore("@")?.trim()?.takeIf { it.isNotBlank() }
+            ?: "Eu mesmo"
+    }
+    var useAccountNameForFinishDeliveredBy by remember(currentReturnedBy, accountDisplayName) {
+        mutableStateOf(
+            currentReturnedBy.isNotBlank() &&
+                currentReturnedBy.trim().equals(accountDisplayName, ignoreCase = true)
+        )
+    }
 
-    if (showExportScreen) {
-        ExportOptionsScreen(
+    if (selectedExpenseDetails != null) {
+        TravelExpenseDetailsScreen(
+            expense = selectedExpenseDetails!!,
+            canEdit = !isTripFinished,
+            isDark = isDark,
             bg = bg,
             textPrimary = textPrimary,
             textDim = textDim,
             cardBorder = cardBorder,
             accentBlue = accentBlue,
-            subtitle = tr("Exporte para compartilhar os registros desta viagem.", "Export to share this trip records."),
+            currency = currency,
+            onBack = { selectedExpenseDetails = null },
+            onEdit = { expense ->
+                editingExpenseId = expense.id
+                editExpenseTitle = expense.placeName
+                editExpenseLabel = expense.label
+                editExpenseAmount = "R$ ${formatarValorBr(expense.finalAmount())}"
+                editExpenseDiscount = "R$ ${formatarValorBr(expense.discountAmount)}"
+                editExpenseCategory = expense.category
+                editOriginalTitle = expense.placeName
+                editOriginalLabel = expense.label
+                editOriginalCategory = expense.category
+                editOriginalAmount = expense.finalAmount()
+                editOriginalDiscount = expense.discountAmount
+                selectedExpenseDetails = null
+            },
+            onDelete = { expense ->
+                expenses.removeAll { it.id == expense.id }
+                onPersistExpenses()
+                selectedExpenseDetails = null
+            }
+        )
+        return
+    }
+
+    if (editingExpenseId != null) {
+        var showEditCategoryDialog by remember { mutableStateOf(false) }
+        val parsedEditAmount = parseValorMonetario(editExpenseAmount)
+        val parsedEditDiscount = (parseValorMonetario(editExpenseDiscount) ?: 0.0).coerceAtLeast(0.0)
+        val hasChanges = editExpenseTitle.trim() != editOriginalTitle.trim() ||
+            editExpenseLabel.trim() != editOriginalLabel.trim() ||
+            editExpenseCategory != editOriginalCategory ||
+            (parsedEditAmount != null && kotlin.math.abs(parsedEditAmount - editOriginalAmount) > 0.0001) ||
+            kotlin.math.abs(parsedEditDiscount - editOriginalDiscount) > 0.0001
+        val canSave = hasChanges && parsedEditAmount != null && parsedEditAmount > 0.0
+        Scaffold(containerColor = bg) { innerPadding ->
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Start
+                ) {
+                    IconButton(onClick = { editingExpenseId = null }) {
+                        Icon(Icons.Default.ArrowBackIosNew, contentDescription = tr("Voltar", "Back"), tint = textPrimary)
+                    }
+                }
+
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(54.dp)
+                            .background(
+                                color = accentBlue.copy(alpha = if (isDark) 0.22f else 0.14f),
+                                shape = RoundedCornerShape(18.dp)
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Default.Edit,
+                            contentDescription = null,
+                            tint = accentBlue,
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
+                    Text(tr("Editar gasto", "Edit expense"), color = textPrimary, fontWeight = FontWeight.Bold, fontSize = 24.sp)
+                }
+
+                OutlinedTextField(
+                    value = editExpenseTitle,
+                    onValueChange = { editExpenseTitle = it },
+                    label = { Text(tr("Título", "Title")) },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = editExpenseLabel,
+                    onValueChange = { editExpenseLabel = it },
+                    label = { Text(tr("Itens", "Items")) },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = editExpenseAmount,
+                    onValueChange = { editExpenseAmount = it },
+                    label = { Text(tr("Valor Total", "Total Amount")) },
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = editExpenseDiscount,
+                    onValueChange = { editExpenseDiscount = it },
+                    label = { Text(tr("Desconto", "Discount")) },
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) { showEditCategoryDialog = true }
+                ) {
+                    OutlinedTextField(
+                        value = editExpenseCategory,
+                        onValueChange = {},
+                        readOnly = true,
+                        enabled = true,
+                        label = { Text(tr("Categoria", "Category")) },
+                        trailingIcon = {
+                            Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = textDim)
+                        },
+                        colors = outlinedFieldColors(bg, textPrimary, textDim, isDark),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
+                if (showEditCategoryDialog) {
+                    SelectionDialog(
+                        title = tr("Categoria", "Category"),
+                        bg = bg,
+                        cardBorder = cardBorder,
+                        textPrimary = textPrimary,
+                        onDismiss = { showEditCategoryDialog = false }
+                    ) {
+                        categories.forEach { item ->
+                            OutlinedButton(
+                                onClick = {
+                                    editExpenseCategory = item
+                                    showEditCategoryDialog = false
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                border = BorderStroke(1.dp, cardBorder),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = textPrimary)
+                            ) {
+                                Text(item)
+                            }
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(6.dp))
+                Button(
+                    onClick = {
+                        val amount = parseValorMonetario(editExpenseAmount)
+                        if (amount == null || amount <= 0.0) {
+                            Toast.makeText(context, trNow("Informe um valor valido.", "Enter a valid amount."), Toast.LENGTH_SHORT).show()
+                            return@Button
+                        }
+                        val discount = (parseValorMonetario(editExpenseDiscount) ?: 0.0).coerceAtLeast(0.0)
+                        val original = (amount + discount).coerceAtLeast(amount)
+                        val idx = expenses.indexOfFirst { it.id == editingExpenseId }
+                        if (idx >= 0) {
+                            expenses[idx] = expenses[idx].copy(
+                                placeName = editExpenseTitle.trim(),
+                                label = editExpenseLabel.ifBlank { editExpenseCategory },
+                                amount = amount,
+                                category = editExpenseCategory,
+                                originalAmount = original,
+                                discountAmount = discount
+                            )
+                            onPersistExpenses()
+                        }
+                        editingExpenseId = null
+                    },
+                    enabled = canSave,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = accentBlue,
+                        contentColor = Color.White,
+                        disabledContainerColor = accentBlue.copy(alpha = 0.45f),
+                        disabledContentColor = Color.White.copy(alpha = 0.78f)
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp),
+                    shape = RoundedCornerShape(13.dp)
+                ) {
+                    Text(tr("Salvar", "Save"), fontWeight = FontWeight.SemiBold)
+                }
+                Spacer(Modifier.height(10.dp))
+            }
+        }
+        return
+    }
+
+    if (showExportDialog) {
+        ExportPdfOptionsDialog(
+            bg = bg,
+            textPrimary = textPrimary,
+            cardBorder = cardBorder,
+            accentBlue = accentBlue,
             actions = listOf(
-                ExportOptionAction(
+                ExportPdfOptionAction(
                     label = tr("Exportar PDF desta viagem", "Export this trip PDF"),
-                    icon = Icons.Default.PictureAsPdf,
                     onClick = {
-                        showExportScreen = false
+                        showExportDialog = false
                         onExportPdf()
-                    }
-                ),
-                ExportOptionAction(
-                    label = tr("Exportar planilha desta viagem", "Export this trip spreadsheet"),
-                    icon = Icons.Default.ReceiptLong,
-                    onClick = {
-                        showExportScreen = false
-                        onExportSpreadsheetWithPhotos()
-                    }
-                ),
-                ExportOptionAction(
-                    label = tr("Exportar PDF de todas as viagens", "Export all trips PDF"),
-                    icon = Icons.Default.PictureAsPdf,
-                    onClick = {
-                        showExportScreen = false
-                        onExportAllTripsPdf()
-                    }
-                ),
-                ExportOptionAction(
-                    label = tr("Exportar planilha de todas", "Export all trips spreadsheet"),
-                    icon = Icons.Default.ReceiptLong,
-                    onClick = {
-                        showExportScreen = false
-                        onExportAllTripsSpreadsheet()
                     }
                 )
             ),
-            isDark = isDark,
-            onBack = { showExportScreen = false }
+            onDismiss = { showExportDialog = false }
         )
-        return
     }
 
     Scaffold(containerColor = bg) { innerPadding ->
@@ -3216,7 +3726,7 @@ private fun TravelExpensesScreen(
                 }
                 ExportActionButton(
                     isDark = isDark,
-                    onClick = { showExportScreen = true }
+                    onClick = { showExportDialog = true }
                 )
             }
 
@@ -3251,12 +3761,22 @@ private fun TravelExpensesScreen(
                     maxLines = 1,
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                 )
+                if (tripLocation.isNotBlank()) {
+                    Text(
+                        tripLocation,
+                        color = textDim,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                    )
+                }
             }
 
             if (isTripFinished) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = if (isDark) Color(0xFF0F172A) else Color(0xFFF8FAFC)),
+                    colors = CardDefaults.cardColors(containerColor = if (isDark) Color(0xFF111827) else Color(0xFFF8FAFC)),
                     border = BorderStroke(1.dp, cardBorder),
                     shape = RoundedCornerShape(14.dp)
                 ) {
@@ -3292,14 +3812,19 @@ private fun TravelExpensesScreen(
                     Spacer(Modifier.width(8.dp))
                     Text(tr("Adicionar gasto", "Add expense"), fontWeight = FontWeight.SemiBold)
                 }
-                OutlinedButton(
+                Button(
                     onClick = {
-                        finishKm = currentTripReturnKm
+                        finishKm = formatarKmCampo(currentTripReturnKm)
                         finishDeliveredBy = currentReturnedBy
+                        useAccountNameForFinishDeliveredBy =
+                            currentReturnedBy.isNotBlank() &&
+                                currentReturnedBy.trim().equals(accountDisplayName, ignoreCase = true)
                         showFinishDialog = true
                     },
-                    border = BorderStroke(1.dp, if (isDark) Color.White.copy(alpha = 0.14f) else Color.Black),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = textPrimary),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF16A34A),
+                        contentColor = Color.White
+                    ),
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.fillMaxWidth().height(46.dp)
                 ) {
@@ -3307,28 +3832,115 @@ private fun TravelExpensesScreen(
                 }
             }
 
+            val zone = ZoneId.systemDefault()
+            val startOfMonthMillis = LocalDate.now(zone)
+                .withDayOfMonth(1)
+                .atStartOfDay(zone)
+                .toInstant()
+                .toEpochMilli()
+            val totalMonth = expenses
+                .filter { it.createdAtMillis >= startOfMonthMillis }
+                .sumOf { it.finalAmount() }
+            val expensesCount = expenses.size
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                TravelMetricCard(
+                    modifier = Modifier.weight(1f),
+                    title = tr("Total esse mês", "This month total"),
+                    value = currency.format(totalMonth),
+                    subtitle = tr("gastos do mês atual", "current month expenses"),
+                    isDark = isDark,
+                    textPrimary = textPrimary,
+                    textDim = textDim,
+                    cardBorder = cardBorder,
+                    accentBlue = accentBlue
+                )
+                TravelMetricCard(
+                    modifier = Modifier.weight(1f),
+                    title = tr("Gastos registrados", "Registered expenses"),
+                    value = expensesCount.toString(),
+                    subtitle = tr("lançamentos na viagem", "expenses in this trip"),
+                    isDark = isDark,
+                    textPrimary = textPrimary,
+                    textDim = textDim,
+                    cardBorder = cardBorder,
+                    accentBlue = accentBlue
+                )
+            }
+
             if (expenses.isEmpty()) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = bg),
-                    border = BorderStroke(1.dp, cardBorder)
+                    colors = CardDefaults.cardColors(containerColor = if (isDark) Color(0xFF0B1220) else Color(0xFFF8FAFC)),
+                    border = BorderStroke(1.dp, cardBorder.copy(alpha = if (isDark) 0.64f else 0.42f)),
+                    shape = RoundedCornerShape(18.dp)
                 ) {
                     Column(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 26.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 18.dp, vertical = 24.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Icon(Icons.Default.Wallet, contentDescription = null, tint = textDim, modifier = Modifier.size(24.dp))
-                        Spacer(Modifier.height(8.dp))
-                        Text(tr("Nenhum gasto adicionado.", "No expense added."), color = textDim, fontSize = 12.sp)
+                        Box(
+                            modifier = Modifier
+                                .size(56.dp)
+                                .background(
+                                    accentBlue.copy(alpha = if (isDark) 0.24f else 0.14f),
+                                    RoundedCornerShape(16.dp)
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                Icons.Default.ReceiptLong,
+                                contentDescription = null,
+                                tint = accentBlue,
+                                modifier = Modifier.size(30.dp)
+                            )
+                        }
+                        Spacer(Modifier.height(12.dp))
+                        Text(
+                            tr("Nenhum gasto lançado", "No expenses added"),
+                            color = textPrimary,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            tr(
+                                "Toque em \"Adicionar gasto\" para registrar despesas desta viagem e acompanhar o total em tempo real.",
+                                "Tap \"Add expense\" to register this trip costs and track totals in real time."
+                            ),
+                            color = textDim,
+                            fontSize = 13.sp,
+                            lineHeight = 18.sp,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
                     }
                 }
             } else {
                 expenses.forEach { expense ->
-                    val expenseCardBg = if (isDark) Color(0xFF0F172A) else Color(0xFFF8FAFC)
-                    val productsPreview = buildProductsPreview(expense.label, 5)
-                    var showAllItems by remember(expense.id) { mutableStateOf(false) }
+                    val expenseCardBg = if (isDark) Color(0xFF111827) else Color(0xFFF8FAFC)
+                    val expenseDate = remember(expense.createdAtMillis) {
+                        SimpleDateFormat("dd/MM/yyyy • HH:mm", Locale("pt", "BR")).format(Date(expense.createdAtMillis))
+                    }
+                    val finalValue = expense.finalAmount()
+                    val placeTitle = remember(expense.id, expense.placeName, tripLocation, expense.label) {
+                        expense.placeName
+                            .ifBlank { tripLocation.trim() }
+                            .ifBlank { trNow("Local não informado", "Place not informed") }
+                    }
                     Card(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) {
+                                selectedExpenseDetails = expense
+                            },
                         colors = CardDefaults.cardColors(containerColor = expenseCardBg),
                         border = BorderStroke(1.dp, cardBorder),
                         shape = RoundedCornerShape(16.dp),
@@ -3343,86 +3955,60 @@ private fun TravelExpensesScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
+                                Row(
+                                    modifier = Modifier.weight(1f),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        Icons.Default.ReceiptLong,
+                                        contentDescription = null,
+                                        tint = accentBlue,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(
+                                        placeTitle,
+                                        color = textPrimary,
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                    )
+                                }
                                 Text(
-                                    expense.category,
-                                    color = accentBlue,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    modifier = Modifier
-                                        .background(accentBlue.copy(alpha = if (isDark) 0.22f else 0.14f), RoundedCornerShape(999.dp))
-                                        .padding(horizontal = 10.dp, vertical = 5.dp)
-                                )
-                                Text(currency.format(expense.amount), color = textPrimary, fontWeight = FontWeight.Bold)
-                            }
-
-                            HorizontalDivider(color = cardBorder)
-                            if (expense.vehicleName.isNotBlank()) {
-                                Text("${tr("Veiculo", "Vehicle")}: ${expense.vehicleName}", color = textDim, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                            }
-                            Text(
-                                if (showAllItems) expense.label else productsPreview.preview,
-                                color = textPrimary,
-                                fontWeight = FontWeight.Medium,
-                                fontSize = 14.sp
-                            )
-                            if (productsPreview.hiddenCount > 0) {
-                                Text(
-                                    if (showAllItems) tr("Ocultar itens", "Hide items") else if (isEnglishUi()) "+${productsPreview.hiddenCount} items" else "+${productsPreview.hiddenCount} itens",
-                                    color = accentBlue,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    modifier = Modifier.clickable(
-                                        interactionSource = remember { MutableInteractionSource() },
-                                        indication = null
-                                    ) {
-                                        showAllItems = !showAllItems
-                                    }
+                                    currency.format(finalValue),
+                                    color = Color(0xFF22C55E),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 17.sp
                                 )
                             }
 
                             Row(
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(
+                                        color = if (isDark) Color(0xFF0B1220) else Color.White,
+                                        shape = RoundedCornerShape(10.dp)
+                                    )
+                                    .border(1.dp, cardBorder.copy(alpha = if (isDark) 0.52f else 0.28f), RoundedCornerShape(10.dp))
+                                    .padding(horizontal = 10.dp, vertical = 8.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                if (expense.notePhotoUri != null) {
-                                    OutlinedButton(
-                                        onClick = {
-                                            selectedPhotoUri = expense.notePhotoUri
-                                        },
-                                        border = BorderStroke(0.8.dp, if (isDark) Color(0xFF334155) else Color.Black.copy(alpha = 0.7f)),
-                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = textPrimary),
-                                        shape = RoundedCornerShape(8.dp),
-                                        modifier = Modifier.height(42.dp)
-                                    ) {
-                                        Icon(Icons.Default.Image, contentDescription = tr("Ver foto da nota", "View receipt photo"), tint = textDim, modifier = Modifier.size(18.dp))
-                                        Spacer(Modifier.width(6.dp))
-                                        Text(tr("Ver foto da nota", "View receipt photo"), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                                    }
-                                }
-                                if (!isTripFinished) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        IconButton(
-                                            onClick = {
-                                                editingExpenseId = expense.id
-                                                editExpenseLabel = expense.label
-                                                editExpenseAmount = "R$ ${formatarValorBr(expense.amount)}"
-                                                editExpenseCategory = expense.category
-                                            }
-                                        ) {
-                                            Icon(Icons.Default.Edit, contentDescription = tr("Editar gasto", "Edit expense"), tint = accentBlue)
-                                        }
-                                        IconButton(
-                                            onClick = {
-                                                expenses.removeAll { it.id == expense.id }
-                                                onPersistExpenses()
-                                            }
-                                        ) {
-                                            Icon(Icons.Default.Delete, contentDescription = tr("Apagar gasto", "Delete expense"), tint = Color(0xFFDC2626))
-                                        }
-                                    }
-                                }
+                                Text(
+                                    expense.category,
+                                    color = if (isDark) textPrimary else accentBlue,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    expenseDate,
+                                    color = textDim,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
                             }
+
                         }
                     }
                 }
@@ -3445,7 +4031,7 @@ private fun TravelExpensesScreen(
                     Text(tr("Informe o KM final e quem entregou o veículo.", "Enter the final mileage and who delivered the vehicle."), color = textDim, fontSize = 14.sp)
                     OutlinedTextField(
                         value = finishKm,
-                        onValueChange = { if (it.all(Char::isDigit)) finishKm = it },
+                        onValueChange = { finishKm = formatarKmCampo(it) },
                         label = { Text(tr("KM final da viagem", "Final trip mileage")) },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier.fillMaxWidth()
@@ -3454,8 +4040,24 @@ private fun TravelExpensesScreen(
                         value = finishDeliveredBy,
                         onValueChange = { finishDeliveredBy = it },
                         label = { Text(tr("Quem entregou o veículo", "Who delivered the vehicle")) },
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !useAccountNameForFinishDeliveredBy
                     )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked = useAccountNameForFinishDeliveredBy,
+                            onCheckedChange = { checked ->
+                                useAccountNameForFinishDeliveredBy = checked
+                                if (checked) {
+                                    finishDeliveredBy = accountDisplayName
+                                }
+                            }
+                        )
+                        Text(tr("Eu mesmo", "Myself"), color = textDim, fontSize = 13.sp)
+                    }
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                         OutlinedButton(
                             onClick = { showFinishDialog = false },
@@ -3470,7 +4072,7 @@ private fun TravelExpensesScreen(
                                     return@Button
                                 }
                                 showFinishDialog = false
-                                onFinishTrip(finishKm.trim(), finishDeliveredBy.trim())
+                                onFinishTrip(limparFormatacaoKm(finishKm), finishDeliveredBy.trim())
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = accentBlue, contentColor = Color.White)
                         ) { Text(tr("Finalizar", "Finish")) }
@@ -3513,94 +4115,334 @@ private fun TravelExpensesScreen(
         }
     }
 
-    if (selectedPhotoUri != null) {
-        Dialog(onDismissRequest = { selectedPhotoUri = null }) {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = bg),
-                border = BorderStroke(1.dp, cardBorder),
-                shape = RoundedCornerShape(14.dp)
-            ) {
-                val bitmap = remember(selectedPhotoUri) {
-                    selectedPhotoUri?.let { uri ->
-                        runCatching {
-                            context.contentResolver.openInputStream(uri)?.use(BitmapFactory::decodeStream)?.let(::toPortraitBitmap)
-                        }.getOrNull()
+}
+
+@Composable
+private fun TravelExpenseDetailsScreen(
+    expense: TravelExpense,
+    canEdit: Boolean,
+    isDark: Boolean,
+    bg: Color,
+    textPrimary: Color,
+    textDim: Color,
+    cardBorder: Color,
+    accentBlue: Color,
+    currency: NumberFormat,
+    onBack: () -> Unit,
+    onEdit: (TravelExpense) -> Unit,
+    onDelete: (TravelExpense) -> Unit
+) {
+    val context = LocalContext.current
+    val items = remember(expense.id, expense.label) { parseExpenseItemLines(expense.label) }
+    val createdAt = remember(expense.createdAtMillis) {
+        SimpleDateFormat("dd/MM/yyyy HH:mm", Locale("pt", "BR")).format(Date(expense.createdAtMillis))
+    }
+    val finalValue = expense.finalAmount()
+    val cardBg = if (isDark) Color(0xFF0B1220) else Color(0xFFF8FAFC)
+    var showExpandedReceipt by remember(expense.id) { mutableStateOf(false) }
+    var showDeleteExpenseDialog by remember(expense.id) { mutableStateOf(false) }
+
+    BackHandler(onBack = onBack)
+    Scaffold(containerColor = bg) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.Default.ArrowBackIosNew, contentDescription = tr("Voltar", "Back"), tint = textPrimary)
+                    }
+                    if (canEdit) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(onClick = { onEdit(expense) }) {
+                                Icon(
+                                    Icons.Default.Edit,
+                                    contentDescription = tr("Editar gasto", "Edit expense"),
+                                    tint = accentBlue
+                                )
+                            }
+                            IconButton(onClick = { showDeleteExpenseDialog = true }) {
+                                Icon(
+                                    Icons.Default.Delete,
+                                    contentDescription = tr("Apagar gasto", "Delete expense"),
+                                    tint = Color(0xFFDC2626)
+                                )
+                            }
+                        }
+                    } else {
+                        Spacer(Modifier.width(48.dp))
                     }
                 }
-                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(tr("Foto da nota", "Receipt photo"), color = textPrimary, fontWeight = FontWeight.SemiBold)
-                    if (bitmap != null) {
-                        Image(
-                            bitmap = bitmap.asImageBitmap(),
-                            contentDescription = tr("Foto da nota", "Receipt photo"),
-                            contentScale = ContentScale.Fit,
-                            modifier = Modifier.fillMaxWidth().height(430.dp)
-                        )
-                    } else {
-                        Text(tr("Nao foi possivel carregar a foto.", "Could not load the photo."), color = textDim, fontSize = 12.sp)
+                Box(
+                    modifier = Modifier
+                        .size(58.dp)
+                        .align(Alignment.CenterHorizontally)
+                        .background(
+                            color = accentBlue.copy(alpha = if (isDark) 0.24f else 0.14f),
+                            shape = RoundedCornerShape(18.dp)
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Default.ReceiptLong,
+                        contentDescription = null,
+                        tint = accentBlue,
+                        modifier = Modifier.size(30.dp)
+                    )
+                }
+                Text(
+                    expense.placeName.ifBlank { tr("Detalhes do gasto", "Expense details") },
+                    color = textPrimary,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 20.sp,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Text(
+                    tr("Data: $createdAt", "Date: $createdAt"),
+                    color = textDim,
+                    fontSize = 13.sp,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Card(
+                        modifier = Modifier.weight(1f),
+                        colors = CardDefaults.cardColors(containerColor = cardBg),
+                        border = BorderStroke(1.dp, cardBorder),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Column(Modifier.padding(10.dp)) {
+                            Text(tr("Sem desconto", "Before discount"), color = textDim, fontSize = 11.sp)
+                            Text(currency.format(expense.originalAmount), color = textPrimary, fontWeight = FontWeight.Bold)
+                        }
                     }
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                        OutlinedButton(onClick = { selectedPhotoUri = null }) { Text(tr("Fechar", "Close")) }
+                    Card(
+                        modifier = Modifier.weight(1f),
+                        colors = CardDefaults.cardColors(containerColor = cardBg),
+                        border = BorderStroke(1.dp, cardBorder),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Column(Modifier.padding(10.dp)) {
+                            Text(tr("Desconto", "Discount"), color = textDim, fontSize = 11.sp)
+                            Text(currency.format(expense.discountAmount), color = Color(0xFF16A34A), fontWeight = FontWeight.Bold)
+                        }
                     }
+                }
+
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = accentBlue.copy(alpha = if (isDark) 0.16f else 0.10f)),
+                    border = BorderStroke(1.dp, accentBlue.copy(alpha = if (isDark) 0.55f else 0.25f)),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Column(Modifier.padding(12.dp)) {
+                        Text(tr("Valor final", "Final amount"), color = textDim, fontSize = 12.sp)
+                        Text(currency.format(finalValue), color = textPrimary, fontWeight = FontWeight.Bold, fontSize = 20.sp)
+                    }
+                }
+
+                Text(tr("Produtos", "Products"), color = textPrimary, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = cardBg),
+                    border = BorderStroke(1.dp, cardBorder),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        if (items.isEmpty()) {
+                            Text(tr("Sem itens detalhados.", "No detailed items."), color = textDim, fontSize = 12.sp)
+                        } else {
+                            items.forEachIndexed { idx, item ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        "${idx + 1}. ${item.name}",
+                                        color = textPrimary,
+                                        fontSize = 13.sp,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    Text(
+                                        item.value?.let { currency.format(it) } ?: "--",
+                                        color = textDim,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                                if (idx != items.lastIndex) HorizontalDivider(color = cardBorder.copy(alpha = 0.6f))
+                            }
+                        }
+                    }
+                }
+
+                if (expense.notePhotoUri != null) {
+                    val bitmap = remember(expense.notePhotoUri) {
+                        runCatching {
+                            context.contentResolver.openInputStream(expense.notePhotoUri)?.use(BitmapFactory::decodeStream)?.let(::toPortraitBitmap)
+                        }.getOrNull()
+                    }
+                    Text(tr("Imagem da nota", "Receipt image"), color = textPrimary, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = cardBg),
+                        border = BorderStroke(1.dp, cardBorder),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        if (bitmap != null) {
+                            Image(
+                                bitmap = bitmap.asImageBitmap(),
+                                contentDescription = tr("Nota fiscal", "Receipt"),
+                                contentScale = ContentScale.Fit,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(280.dp)
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null
+                                    ) { showExpandedReceipt = true }
+                            )
+                        } else {
+                            Text(
+                                tr("Não foi possível carregar a imagem da nota.", "Could not load receipt image."),
+                                color = textDim,
+                                fontSize = 12.sp,
+                                modifier = Modifier.padding(12.dp)
+                            )
+                        }
+                    }
+                }
+            }
+    }
+
+    if (showExpandedReceipt && expense.notePhotoUri != null) {
+        Dialog(onDismissRequest = { showExpandedReceipt = false }) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color.Black, RoundedCornerShape(16.dp))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) { showExpandedReceipt = false }
+                    .padding(8.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                val bitmap = remember(expense.notePhotoUri) {
+                    runCatching {
+                        context.contentResolver.openInputStream(expense.notePhotoUri)?.use(BitmapFactory::decodeStream)?.let(::toPortraitBitmap)
+                    }.getOrNull()
+                }
+                if (bitmap != null) {
+                    Image(
+                        bitmap = bitmap.asImageBitmap(),
+                        contentDescription = tr("Nota fiscal ampliada", "Expanded receipt"),
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(520.dp)
+                    )
                 }
             }
         }
     }
 
-    if (editingExpenseId != null) {
-        Dialog(onDismissRequest = { editingExpenseId = null }) {
-            Card(colors = CardDefaults.cardColors(containerColor = bg), border = BorderStroke(1.dp, cardBorder), shape = RoundedCornerShape(14.dp)) {
-                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(tr("Editar gasto", "Edit expense"), color = textPrimary, fontWeight = FontWeight.SemiBold)
-                    OutlinedTextField(value = editExpenseLabel, onValueChange = { editExpenseLabel = it }, label = { Text(tr("Itens", "Items")) }, modifier = Modifier.fillMaxWidth())
-                    OutlinedTextField(
-                        value = editExpenseAmount,
-                        onValueChange = { editExpenseAmount = it },
-                        label = { Text(tr("Valor Total", "Total Amount")) },
-                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    var showEditCategoryDialog by remember { mutableStateOf(false) }
-                    Box(modifier = Modifier.fillMaxWidth().clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { showEditCategoryDialog = true }) {
-                        OutlinedTextField(value = editExpenseCategory, onValueChange = {}, readOnly = true, enabled = false, label = { Text(tr("Categoria", "Category")) }, modifier = Modifier.fillMaxWidth())
+    if (showDeleteExpenseDialog) {
+        Dialog(onDismissRequest = { showDeleteExpenseDialog = false }) {
+            Card(
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = if (isDark) Color(0xFF0B1220) else Color.White),
+                border = BorderStroke(
+                    1.dp,
+                    if (isDark) Color.White.copy(alpha = 0.10f) else Color(0xFFCBD5E1)
+                ),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(20.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(80.dp)
+                            .background(Color(0xFFDC2626).copy(alpha = 0.15f), RoundedCornerShape(40.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Delete,
+                            contentDescription = null,
+                            tint = Color(0xFFDC2626),
+                            modifier = Modifier.size(40.dp)
+                        )
                     }
-                    if (showEditCategoryDialog) {
-                        Dialog(onDismissRequest = { showEditCategoryDialog = false }) {
-                            Card(colors = CardDefaults.cardColors(containerColor = bg), border = BorderStroke(1.dp, cardBorder), shape = RoundedCornerShape(14.dp)) {
-                                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Text(tr("Categoria", "Category"), color = textPrimary, fontWeight = FontWeight.SemiBold)
-                                    categories.forEach { item ->
-                                        OutlinedButton(onClick = { editExpenseCategory = item; showEditCategoryDialog = false }, modifier = Modifier.fillMaxWidth()) {
-                                            Text(item)
-                                        }
-                                    }
-                                }
-                            }
+
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            tr("Excluir gasto?", "Delete expense?"),
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = textPrimary
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            tr(
+                                "Tem certeza que deseja apagar este gasto?",
+                                "Are you sure you want to delete this expense?"
+                            ),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = textDim,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = { showDeleteExpenseDialog = false },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(50.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, Color(0xFFDC2626)),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFDC2626))
+                        ) {
+                            Text(tr("Cancelar", "Cancel"))
                         }
-                    }
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                        OutlinedButton(onClick = { editingExpenseId = null }) { Text(tr("Cancelar", "Cancel")) }
-                        Spacer(Modifier.width(8.dp))
+
                         Button(
                             onClick = {
-                                val amount = parseValorMonetario(editExpenseAmount)
-                                if (amount == null || amount <= 0.0) {
-                                    Toast.makeText(context, trNow("Informe um valor valido.", "Enter a valid amount."), Toast.LENGTH_SHORT).show()
-                                    return@Button
-                                }
-                                val idx = expenses.indexOfFirst { it.id == editingExpenseId }
-                                if (idx >= 0) {
-                                    expenses[idx] = expenses[idx].copy(
-                                        label = editExpenseLabel.ifBlank { editExpenseCategory },
-                                        amount = amount,
-                                        category = editExpenseCategory
-                                    )
-                                    onPersistExpenses()
-                                }
-                                editingExpenseId = null
+                                showDeleteExpenseDialog = false
+                                onDelete(expense)
                             },
-                            colors = ButtonDefaults.buttonColors(containerColor = accentBlue, contentColor = Color.White)
-                        ) { Text(tr("Salvar", "Save")) }
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(50.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626))
+                        ) {
+                            Text(tr("Apagar", "Delete"), fontWeight = FontWeight.Bold, color = Color.White)
+                        }
                     }
                 }
             }
@@ -3686,7 +4528,7 @@ private fun generateTripReportPdf(
         val contentWidth = 595f - margin * 2
         val pageWidth = 595
         var y = 72f
-        val totalGastos = expenses.sumOf { it.amount }
+        val totalGastos = expenses.sumOf { it.finalAmount() }
         val locationText = location.ifBlank { "-" }
         val responsibleText = responsible.ifBlank { "-" }
         val pickupKmText = pickupKm.ifBlank { "-" }
@@ -3769,7 +4611,7 @@ private fun generateTripReportPdf(
                 categoryPaint
             )
             val rightPaint = Paint(valueBoldPaint).apply { textAlign = Paint.Align.RIGHT }
-            canvas.drawText(currency.format(expense.amount), margin + contentWidth - 12f, textY, rightPaint)
+            canvas.drawText(currency.format(expense.finalAmount()), margin + contentWidth - 12f, textY, rightPaint)
             textY += 16f
             detailLines.forEach { line ->
                 if (textY > rowTop + rowHeight - 22f) return@forEach
@@ -3802,7 +4644,7 @@ private fun generateTripReportPdf(
             canvas.drawText("COMPROVANTE ${index + 1} - ${tripName.take(28)}", margin, 46f, titlePaint)
             canvas.drawText("Viagem: ${tripName.take(42)}", margin, 68f, subtitleInfoPaint)
             canvas.drawText("Categoria: ${expense.category}", margin, 86f, subtitleInfoPaint)
-            canvas.drawText("Valor: ${currency.format(expense.amount)}", margin, 104f, subtitleInfoPaint)
+            canvas.drawText("Valor: ${currency.format(expense.finalAmount())}", margin, 104f, subtitleInfoPaint)
             canvas.drawText(
                 "Descricao: ${expense.label.lineSequence().firstOrNull().orEmpty().take(70)}",
                 margin,
@@ -3938,7 +4780,7 @@ private fun generateAllTripsReportPdf(context: Context, trips: List<TravelTrip>)
             "Gerado em ${SimpleDateFormat("dd/MM/yyyy HH:mm", Locale("pt", "BR")).format(Date())}"
         )
 
-        val totalExpenses = reportTrips.sumOf { trip -> trip.expenses.sumOf { it.amount } }
+        val totalExpenses = reportTrips.sumOf { trip -> trip.expenses.sumOf { it.finalAmount() } }
         val totalLaunches = reportTrips.sumOf { it.expenses.size }
 
         val resumoRect = RectF(margin, y, margin + contentWidth, y + 98f)
@@ -3963,61 +4805,98 @@ private fun generateAllTripsReportPdf(context: Context, trips: List<TravelTrip>)
         }
 
         reportTrips.forEachIndexed { index, trip ->
-            val tripTotal = trip.expenses.sumOf { it.amount }
-                val sectionHeight = (136f + (trip.expenses.size * 32f)).coerceAtMost(420f)
+            val orderedTripExpenses = buildOrderedTripExpenses(trip.expenses)
+            val tripTotal = orderedTripExpenses.sumOf { it.finalAmount() }
+            val visibleExpenses = if (orderedTripExpenses.isEmpty()) 1 else orderedTripExpenses.size
+            val sectionHeight = (214f + (visibleExpenses * 30f)).coerceAtMost(640f)
             ensureSpace(sectionHeight + 18f)
 
             val tripRect = RectF(margin, y, margin + contentWidth, y + sectionHeight)
             canvas.drawRoundRect(tripRect, 12f, 12f, cardBgPaint)
             canvas.drawRoundRect(tripRect, 12f, 12f, cardStrokePaint)
 
-            var textY = y + 22f
-            canvas.drawText("${index + 1}. ${trip.name}", margin + 12f, textY, valueBoldPaint)
+            var textY = y + 26f
+            canvas.drawText("${index + 1}. ${trip.name.ifBlank { "Sem nome" }.take(38)}", margin + 14f, textY, valueBoldPaint)
             val rightPaint = Paint(valueBoldPaint).apply { textAlign = Paint.Align.RIGHT }
-            canvas.drawText(currency.format(tripTotal), margin + contentWidth - 12f, textY, rightPaint)
-            textY += 16f
-            val boldLabelPaint = Paint(smallPaint).apply {
-                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-                color = android.graphics.Color.BLACK
+            canvas.drawText(currency.format(tripTotal), margin + contentWidth - 14f, textY, rightPaint)
+            textY += 22f
+
+            val metaLabelPaint = Paint(labelPaint).apply {
+                textSize = 10.8f
+                color = android.graphics.Color.parseColor("#475569")
             }
-            canvas.drawText("Responsavel:", margin + 12f, textY, boldLabelPaint)
-            canvas.drawText(trip.responsible.ifBlank { "-" }.take(56), margin + 84f, textY, smallPaint)
-            textY += 12f
-            canvas.drawText("Local:", margin + 12f, textY, boldLabelPaint)
-            canvas.drawText(trip.location.ifBlank { "-" }.take(64), margin + 50f, textY, smallPaint)
-            textY += 12f
-            canvas.drawText("KM retirada:", margin + 12f, textY, boldLabelPaint)
-            canvas.drawText(trip.pickupKm.ifBlank { "-" }.take(18), margin + 84f, textY, smallPaint)
-            textY += 12f
-            canvas.drawText("KM entrega:", margin + 12f, textY, boldLabelPaint)
-            canvas.drawText(trip.returnKm.ifBlank { "-" }.take(18), margin + 80f, textY, smallPaint)
-            textY += 12f
-            canvas.drawText("Retirado por:", margin + 12f, textY, boldLabelPaint)
-            canvas.drawText(trip.pickedBy.ifBlank { "-" }.take(42), margin + 86f, textY, smallPaint)
-            textY += 12f
-            canvas.drawText("Entregue por:", margin + 12f, textY, boldLabelPaint)
-            canvas.drawText(trip.returnedBy.ifBlank { "-" }.take(42), margin + 86f, textY, smallPaint)
-            textY += 12f
-            canvas.drawText("${trip.expenses.size} gastos", margin + 12f, textY, smallPaint)
-            textY += 12f
+            val metaValuePaint = Paint(valuePaint).apply {
+                textSize = 11.6f
+                color = android.graphics.Color.parseColor("#0F172A")
+            }
+
+            fun drawMetaRow(label: String, value: String) {
+                canvas.drawText(label, margin + 14f, textY, metaLabelPaint)
+                canvas.drawText(value, margin + 122f, textY, metaValuePaint)
+                textY += 18f
+            }
+
+            drawMetaRow("Responsável:", trip.responsible.ifBlank { "-" }.take(56))
+            drawMetaRow("Local:", trip.location.ifBlank { "-" }.take(60))
+            drawMetaRow("KM retirada:", trip.pickupKm.ifBlank { "-" }.take(20))
+            drawMetaRow("KM entrega:", trip.returnKm.ifBlank { "-" }.take(20))
+            drawMetaRow("Retirado por:", trip.pickedBy.ifBlank { "-" }.take(44))
+            drawMetaRow("Entregue por:", trip.returnedBy.ifBlank { "-" }.take(44))
+            drawMetaRow("Lançamentos:", "${orderedTripExpenses.size}")
+
+            textY += 2f
             canvas.drawLine(margin + 12f, textY, margin + contentWidth - 12f, textY, dividerPaint)
             textY += 16f
 
-            if (trip.expenses.isEmpty()) {
-                canvas.drawText("Sem gastos cadastrados.", margin + 12f, textY, smallPaint)
+            if (orderedTripExpenses.isEmpty()) {
+                canvas.drawText("Sem gastos cadastrados.", margin + 14f, textY, smallPaint)
             } else {
-                trip.expenses.forEachIndexed { expenseIndex, expense ->
-                    if (textY > y + sectionHeight - 16f) return@forEachIndexed
-                    val firstLine = expense.label.lineSequence().firstOrNull().orEmpty()
-                    canvas.drawText("${expenseIndex + 1}. ${expense.category}", margin + 12f, textY, categoryPaint)
+                orderedTripExpenses.forEachIndexed { expenseIndex, expense ->
+                    if (textY > y + sectionHeight - 18f) return@forEachIndexed
+                    val firstLine = expense.label.lineSequence().firstOrNull().orEmpty().ifBlank { "-" }
+                    canvas.drawText("${expenseIndex + 1}. ${expense.category}", margin + 14f, textY, categoryPaint)
                     val amountPaint = Paint(valuePaint).apply { textAlign = Paint.Align.RIGHT }
-                    canvas.drawText(currency.format(expense.amount), margin + contentWidth - 12f, textY, amountPaint)
-                    textY += 12f
-                    canvas.drawText(firstLine.take(76), margin + 12f, textY, smallPaint)
+                    canvas.drawText(currency.format(expense.finalAmount()), margin + contentWidth - 14f, textY, amountPaint)
+                    textY += 14f
+                    canvas.drawText(firstLine.take(74), margin + 14f, textY, smallPaint)
                     textY += 16f
                 }
             }
             y += sectionHeight + 12f
+        }
+
+        // Páginas de comprovantes separadas por viagem no relatório geral.
+        reportTrips.forEach { trip ->
+            val tripPhotos = buildOrderedTripExpenses(trip.expenses).filter { it.notePhotoUri != null }
+            if (tripPhotos.isEmpty()) return@forEach
+
+            tripPhotos.forEachIndexed { photoIndex, expense ->
+                val photoUri = expense.notePhotoUri ?: return@forEachIndexed
+                val bitmap = runCatching {
+                    context.contentResolver.openInputStream(photoUri)?.use(BitmapFactory::decodeStream)
+                }.getOrNull() ?: return@forEachIndexed
+                val portraitBitmap = toPortraitBitmap(bitmap)
+
+                nextPage(
+                    "NOTAS DA VIAGEM",
+                    "${trip.name.ifBlank { "Sem nome" }.take(40)} • ${photoIndex + 1}/${tripPhotos.size}"
+                )
+
+                val subtitleInfoPaint = Paint(subtitlePaint).apply {
+                    color = android.graphics.Color.parseColor("#334155")
+                    textAlign = Paint.Align.LEFT
+                }
+                val imageTop = 206f
+                val imageHeight = 566f
+                val tripTitle = trip.name.ifBlank { "Sem nome" }
+                val expenseLine = expense.label.lineSequence().firstOrNull().orEmpty().ifBlank { "-" }
+                canvas.drawText("Viagem: ${tripTitle.take(56)}", margin, 116f, subtitleInfoPaint)
+                canvas.drawText("Categoria: ${expense.category.take(40)}", margin, 134f, subtitleInfoPaint)
+                canvas.drawText("Valor: ${currency.format(expense.finalAmount())}", margin, 152f, subtitleInfoPaint)
+                canvas.drawText("Item: ${expenseLine.take(70)}", margin, 170f, subtitleInfoPaint)
+                canvas.drawLine(margin, 192f, pageWidth - margin, 192f, dividerPaint)
+                drawBitmapFit(canvas, portraitBitmap, margin, imageTop, contentWidth, imageHeight)
+            }
         }
 
         document.finishPage(page)
@@ -4072,7 +4951,7 @@ private fun generateAllTripsSpreadsheet(context: Context, trips: List<TravelTrip
             reportTrips.forEach { trip ->
                 val orderedExpenses = buildOrderedTripExpenses(trip.expenses)
                 val participants = trip.participantEmails.joinToString(", ").ifBlank { "-" }
-                val totalAmount = orderedExpenses.sumOf { it.amount }
+                val totalAmount = orderedExpenses.sumOf { it.finalAmount() }
                 val usedVehicles = orderedExpenses
                     .map { it.vehicleName.trim() }
                     .filter { it.isNotBlank() }
@@ -4095,7 +4974,7 @@ private fun generateAllTripsSpreadsheet(context: Context, trips: List<TravelTrip
             }
         }
 
-        val grandTotal = reportTrips.sumOf { trip -> trip.expenses.sumOf { it.amount } }
+        val grandTotal = reportTrips.sumOf { trip -> trip.expenses.sumOf { it.finalAmount() } }
         appendLine("""<Row ss:Height="10"/>""")
         appendLine("""<Row><Cell ss:MergeAcross="4" ss:StyleID="TotalLabel"><Data ss:Type="String">TOTAL GERAL</Data></Cell><Cell ss:StyleID="TotalValue"><Data ss:Type="Number">${grandTotal.toSpreadsheetNumber()}</Data></Cell><Cell ss:StyleID="TotalLabel"><Data ss:Type="String">${reportTrips.size} viagens</Data></Cell></Row>""")
         appendLine("""</Table>""")
@@ -4273,7 +5152,7 @@ private fun buildExpenseSpreadsheetRows(expense: TravelExpense): List<Pair<Strin
         .firstOrNull { it.isNotBlank() && !it.startsWith("Total:", ignoreCase = true) }
         ?.ifBlank { expense.category }
         ?: expense.category
-    return listOf(fallbackLabel to expense.amount)
+    return listOf(fallbackLabel to expense.finalAmount())
 }
 
 private fun drawBitmapFit(
@@ -4318,7 +5197,7 @@ private fun generateTripReportSpreadsheet(
     val sanitizedTripName = tripName.tripFileSlug()
     val spreadsheetFile = File(context.cacheDir, "relatorio_${sanitizedTripName}.xls")
     val generatedAt = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale("pt", "BR")).format(Date())
-    val totalAmount = expenses.sumOf { it.amount }
+    val totalAmount = expenses.sumOf { it.finalAmount() }
     val orderedExpenses = buildOrderedTripExpenses(expenses)
     val spreadsheetContent = buildString {
         appendLine("""<?xml version="1.0"?>""")
@@ -4364,7 +5243,7 @@ private fun generateTripReportSpreadsheet(
                 <Cell ss:StyleID="CenterCell"><Data ss:Type="Number">${index + 1}</Data></Cell>
                 <Cell ss:StyleID="CenterCell"><Data ss:Type="String">${expense.category.spreadsheetXmlSafe()}</Data></Cell>
                 <Cell ss:StyleID="TextCell"><Data ss:Type="String">${expense.label.spreadsheetXmlSafe()}</Data></Cell>
-                <Cell ss:StyleID="MoneyCell"><Data ss:Type="Number">${expense.amount.toSpreadsheetNumber()}</Data></Cell>
+                <Cell ss:StyleID="MoneyCell"><Data ss:Type="Number">${expense.finalAmount().toSpreadsheetNumber()}</Data></Cell>
                 <Cell ss:StyleID="TextCell"><Data ss:Type="String">${expense.vehicleName.ifBlank { "-" }.spreadsheetXmlSafe()}</Data></Cell>
                 </Row>
                 """.trimIndent()

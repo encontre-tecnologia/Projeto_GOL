@@ -36,6 +36,7 @@ import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.Alignment
@@ -80,8 +81,6 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import com.google.android.gms.auth.api.signin.GoogleSignIn
-import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.firebase.auth.FirebaseAuth
 import coil.compose.AsyncImage
 import kotlinx.coroutines.Dispatchers
@@ -114,6 +113,9 @@ fun ManutencaoScreen(
     context: Context = LocalContext.current,
     openAondePareiOnStart: Boolean = false,
     onAondePareiStartConsumed: () -> Unit = {},
+    openReminderIdOnStart: String? = null,
+    openReminderCarIdOnStart: String? = null,
+    onReminderStartConsumed: () -> Unit = {},
     onLoaded: () -> Unit = {},
     onThemeModeChanged: (AppThemeMode) -> Unit = {}
 ) {
@@ -130,12 +132,12 @@ fun ManutencaoScreen(
     var notifiedLoaded by remember { mutableStateOf(false) }
 
     // CORES DO TEMA (Azul Premium)
-    val primaryDark = colorScheme.background
-    val surfaceDark = colorScheme.surface
-    val homeScreenBg = if (isDark) colorScheme.background else colorScheme.background
-    val fuelCardStart = if (isDark) colorScheme.surface else colorScheme.surface
-    val fuelCardEnd = if (isDark) colorScheme.background else colorScheme.background
-    val topBarDark = if (isDark) colorScheme.background else colorScheme.background
+    val primaryDark = if (isDark) Color.Black else colorScheme.background
+    val surfaceDark = if (isDark) Color(0xFF111827) else colorScheme.surface
+    val homeScreenBg = if (isDark) Color.Black else colorScheme.background
+    val fuelCardStart = if (isDark) Color(0xFF111827) else colorScheme.surface
+    val fuelCardEnd = if (isDark) Color(0xFF111827) else colorScheme.background
+    val topBarDark = if (isDark) Color.Black else colorScheme.background
     val accentBlue = colorScheme.primary
     val textLight = colorScheme.onSurface
     val textDim = colorScheme.onSurfaceVariant
@@ -258,6 +260,7 @@ fun ManutencaoScreen(
     var showFleetStockScreen by remember { mutableStateOf(false) }
     var showFaqScreen by remember { mutableStateOf(false) }
     var showVehicleGuideScreen by remember { mutableStateOf(false) }
+    var showEbookStoreScreen by remember { mutableStateOf(false) }
     
     val density = LocalDensity.current
     var showHomeTutorial by remember { mutableStateOf(false) }
@@ -311,6 +314,32 @@ fun ManutencaoScreen(
     var lembreteSelecionado by remember { mutableStateOf<Lembrete?>(null) }
     var showLembreteDetalhesScreen by remember { mutableStateOf(false) }
     var contatoDetalheSelecionado by remember { mutableStateOf<ContatoProfissional?>(null) }
+    LaunchedEffect(openReminderIdOnStart, isLoading, listaCarros, todosLembretes) {
+        val alvo = openReminderIdOnStart.orEmpty()
+        if (alvo.isBlank() || isLoading) return@LaunchedEffect
+
+        if (alvo.startsWith("PARKING_")) {
+            openReminderCarIdOnStart?.let { carroId ->
+                val idx = listaCarros.indexOfFirst { it.id == carroId }
+                if (idx >= 0) indiceCarroAtual = idx
+            }
+            showAondePareiScreen = true
+            onReminderStartConsumed()
+            return@LaunchedEffect
+        }
+
+        val lembrete = todosLembretes.firstOrNull { it.id == alvo }
+            ?: todosLembretes.firstOrNull { alvo.startsWith("${it.id}_") }
+
+        if (lembrete != null) {
+            val idx = listaCarros.indexOfFirst { it.id == lembrete.carroId }
+            if (idx >= 0) indiceCarroAtual = idx
+            lembreteSelecionado = lembrete
+            contatoDetalheSelecionado = listaContatos.find { it.id == lembrete.contatoId }
+            showLembreteDetalhesScreen = true
+        }
+        onReminderStartConsumed()
+    }
     var filtroTipo by remember { mutableStateOf<TipoManutencao?>(null) }
     var buscaTexto by remember { mutableStateOf("") }
 
@@ -472,7 +501,7 @@ fun ManutencaoScreen(
         val tiposAviso = tiposAvisoPorVeiculo(carroAtual.tipoVeiculo)
         val itensAviso = listOf(
             AvisoItem(
-                label = tr("Lembrar aonde estacionei", "Remember where I parked"),
+                label = tr("Lembrar aonde parei", "Remember where I parked"),
                 icon = Icons.Default.LocalParking,
                 color = accentBlue,
                 wide = true
@@ -504,10 +533,6 @@ fun ManutencaoScreen(
             surfaceDark = if (isDark) surfaceDark else colorScheme.surface,
             textLight = avisoTextPrimary,
             textDim = avisoTextDim,
-            onOpenVehicleGuide = {
-                showTipoAvisoDialog = false
-                showVehicleGuideScreen = true
-            },
             onDismiss = { showTipoAvisoDialog = false }
         )
         return
@@ -567,9 +592,9 @@ fun ManutencaoScreen(
         return
     }
     BackHandler(enabled = showPremiumHubScreen) { showPremiumHubScreen = false }
-    if (showPremiumHubScreen) {
+    if (showPremiumHubScreen && planTier != PlanTier.FREE) {
         PremiumHubScreen(
-            isPremium = planTier != PlanTier.FREE,
+            planTier = planTier,
             onDismiss = { showPremiumHubScreen = false },
             onOpenGuardian = {
                 showPremiumHubScreen = false
@@ -619,6 +644,17 @@ fun ManutencaoScreen(
     if (showFleetStockScreen) {
         PremiumFleetStockScreen(
             onDismiss = { showFleetStockScreen = false }
+        )
+        return
+    }
+    if (showPremiumHubScreen && planTier == PlanTier.FREE) {
+        showPremiumHubScreen = false
+        showPremiumBeneficiosScreen = true
+    }
+    BackHandler(enabled = showEbookStoreScreen) { showEbookStoreScreen = false }
+    if (showEbookStoreScreen) {
+        EbookStoreScreen(
+            onDismiss = { showEbookStoreScreen = false }
         )
         return
     }
@@ -728,29 +764,45 @@ fun ManutencaoScreen(
             title = tr("Termos de uso", "Terms of use"),
             icon = Icons.Default.Description,
             content = if (isEnglishUi()) """
-                1. Purpose: Zellu provides tools for vehicle registration and management, reminders, and related information.
+                1. Acceptance: by using Zellu, you agree to these Terms and the Privacy Policy.
 
-                2. Proper use: you agree to use the app lawfully and provide true, updated information under your responsibility.
+                2. Service scope: the app includes vehicle management, reminders, maintenance, trips, fleet, and stock features.
 
-                3. User responsibility: maintenance, purchase, sale, travel, and vehicle safety decisions are solely the user's responsibility.
+                3. Proper use: you must use the app lawfully, without fraud, abuse, or rights violations.
 
-                4. Limitation of liability: Zellu is a support tool and does not replace technical diagnosis, inspection, insurance, mechanical assistance, or professional guidance.
+                4. Account security: you are responsible for account data and access credentials.
 
-                5. Availability: features may be changed, fixed, suspended, or discontinued without prior notice when necessary.
+                5. Plans and billing: paid plans (such as Lite/Fleet) follow store/payment platform rules for renewal, cancellation, and refunds.
 
-                6. Jurisdiction: for disputes related to app usage, jurisdiction is Sao Carlos/SP, with no commercial address disclosed at this time.
+                6. Limitation: Zellu is a support tool and does not replace technical diagnosis, inspection, insurance, mechanical assistance, or professional advice.
+
+                7. Availability: features may be updated, fixed, suspended, or discontinued due to product evolution, security, or legal obligations.
+
+                8. Intellectual property: brand, software, layout, and content are legally protected.
+
+                9. Governing law and venue: Brazilian law applies, with venue in Sao Carlos/SP, except where mandatory law states otherwise.
+
+                10. Legal/support contact: guilhermedevsistemas@gmail.com
             """.trimIndent() else """
-                1. Objeto: o Zellu oferece recursos de cadastro e gerenciamento de veículos, lembretes e informações relacionadas.
+                1. Aceite: ao usar o Zellu, você concorda com estes Termos e com a Política de Privacidade.
 
-                2. Uso adequado: você se compromete a utilizar o app de forma lícita e a fornecer dados verdadeiros, atualizados e de sua responsabilidade.
+                2. Objeto: o app oferece gestão de veículos, lembretes, manutenções, viagens, frota e estoque.
 
-                3. Responsabilidade do usuário: decisões de manutenção, compra, venda, deslocamento e segurança do veículo são de responsabilidade exclusiva do usuário.
+                3. Uso adequado: você se compromete a usar o app de forma lícita, sem fraude, abuso técnico ou violação de direitos de terceiros.
 
-                4. Limitação de responsabilidade: o Zellu é ferramenta de apoio e não substitui diagnóstico técnico, vistoria, seguro, assistência mecânica ou orientação profissional.
+                4. Conta e segurança: você é responsável pelos dados da conta e pela guarda do acesso.
 
-                5. Disponibilidade: funcionalidades podem ser alteradas, corrigidas, suspensas ou descontinuadas sem aviso prévio, quando necessário.
+                5. Planos e cobrança: planos pagos (como Lite/Frota) seguem regras da loja/plataforma de pagamento para renovação, cancelamento e reembolso.
 
-                6. Foro: para dirimir eventuais conflitos relacionados ao uso do app, fica eleito o foro da comarca de Sao Carlos/SP, sem endereco comercial divulgado neste momento.
+                6. Limitação: o Zellu é ferramenta de apoio e não substitui diagnóstico técnico, vistoria, seguro, assistência mecânica ou orientação profissional.
+
+                7. Disponibilidade: funcionalidades podem ser alteradas, corrigidas, suspensas ou descontinuadas por evolução do produto, segurança ou obrigação legal.
+
+                8. Propriedade intelectual: marca, software, layout e conteúdo do app são protegidos por lei.
+
+                9. Legislação e foro: aplica-se a legislação brasileira, com foro da comarca de Sao Carlos/SP, salvo competência legal específica.
+
+                10. Contato legal e suporte: guilhermedevsistemas@gmail.com
             """.trimIndent(),
             onDismiss = { showTermsScreen = false }
         )
@@ -762,39 +814,53 @@ fun ManutencaoScreen(
             title = tr("Política de privacidade", "Privacy policy"),
             icon = Icons.Default.Lock,
             content = if (isEnglishUi()) """
-                1. Data processed: the app may process vehicle records, reminders, contacts, location, camera, and notifications according to the features you use.
+                1. Data processed: account data (name, e-mail, identifiers), vehicle records, reminders, contacts, trips, stock items, location, camera, notifications, and essential technical data.
 
-                2. Purpose: data is used to run app features, personalize your experience, and enable resources requested by the user.
+                2. Purposes: authentication, feature execution, security, abuse/fraud prevention, support, and continuous improvement.
 
-                3. LGPD (Law 13.709/2018): data processing follows necessity, purpose, adequacy, and transparency principles, with legal basis for service execution and consent where required.
+                3. Legal bases (LGPD): contract execution, consent where required, legitimate interest for security/stability, and legal/regulatory obligations.
 
-                4. Permissions: camera, location, and notifications are used only after consent and can be revoked at any time in device settings.
+                4. Permissions: camera, location, and notifications are used only with your authorization and can be revoked in device settings.
 
-                5. Sharing: Zellu does not sell personal data and uses information only for service operation and required technical integrations.
+                5. Sharing: we do not sell personal data. Data may be shared with technical operators/providers required for app operation and with authorities when legally required.
 
-                6. Data subject rights: you can request processing confirmation, access, correction, anonymization, deletion, and consent revocation under LGPD.
+                6. Storage and retention: data may be stored on device and cloud, for as long as necessary for service purposes and legal obligations.
 
-                7. Account/data deletion: when requested, personal data and linked records are removed, except mandatory legal retention.
+                7. Data subject rights: under LGPD, you can request confirmation, access, correction, anonymization, deletion, and consent revocation.
 
-                8. Privacy contact, data removal, questions and suggestions:
+                8. Account/data deletion: when requested, personal and linked records are removed, except mandatory legal retention.
+
+                9. International transfer: some providers may process data outside Brazil under appropriate safeguards.
+
+                10. Official privacy/support contact:
                 guilhermedevsistemas@gmail.com
+                Official pages:
+                https://account-deletion-site-eight.vercel.app/privacy-policy.html
+                https://account-deletion-site-eight.vercel.app/terms-of-use.html
             """.trimIndent() else """
-                1. Dados tratados: o app pode tratar dados de cadastro de veículos, lembretes, contatos, localização, câmera e notificações, conforme recursos utilizados por você.
+                1. Dados tratados: o app pode tratar dados de conta (nome, e-mail e identificadores), cadastro de veículos, lembretes, contatos, viagens, itens de estoque, localização, câmera, notificações e dados técnicos essenciais.
 
-                2. Finalidade: os dados são usados para executar funcionalidades do app, personalizar a experiência e permitir recursos solicitados pelo usuário.
+                2. Finalidades: autenticação, execução das funcionalidades, segurança, prevenção de abuso/fraude, suporte e melhoria contínua.
 
-                3. LGPD (Lei 13.709/2018): o tratamento de dados observa os princípios da necessidade, finalidade, adequação e transparência, com base legal aplicável para execução do serviço e consentimento quando exigido.
+                3. Bases legais (LGPD): execução de contrato, consentimento quando exigido, legítimo interesse para segurança/estabilidade e cumprimento de obrigação legal.
 
-                4. Permissões: câmera, localização e notificações somente são usadas após consentimento e podem ser revogadas a qualquer momento nas configurações do dispositivo.
+                4. Permissões: câmera, localização e notificações são usadas somente com autorização e podem ser revogadas a qualquer momento no dispositivo.
 
-                5. Compartilhamento: o Zellu não comercializa dados pessoais e utiliza informações apenas para operação do serviço e integrações técnicas necessárias.
+                5. Compartilhamento: não vendemos dados pessoais. Podemos compartilhar com operadores/provedores técnicos necessários ao funcionamento do app e com autoridades quando houver obrigação legal.
 
-                6. Direitos do titular: você pode solicitar confirmação de tratamento, acesso, correção, anonimização, exclusão e revogação do consentimento, nos termos da LGPD.
+                6. Retenção e armazenamento: parte dos dados pode ficar no dispositivo e parte em nuvem, pelo tempo necessário às finalidades e obrigações legais.
 
-                7. Exclusão de conta e dados: ao solicitar a exclusão da conta, os dados pessoais e registros vinculados serão removidos, observadas apenas retenções legais obrigatórias.
+                7. Direitos do titular: você pode solicitar confirmação de tratamento, acesso, correção, anonimização, exclusão e revogação do consentimento, nos termos da LGPD.
 
-                8. Contato de privacidade, remoção de dados, dúvidas e sugestões:
+                8. Exclusão de conta e dados: ao solicitar exclusão, removemos dados pessoais e registros vinculados, ressalvadas retenções legais obrigatórias.
+
+                9. Transferência internacional: alguns provedores podem processar dados fora do Brasil, com salvaguardas adequadas.
+
+                10. Contato oficial de privacidade, remoção de dados, dúvidas e suporte:
                 guilhermedevsistemas@gmail.com
+                Páginas oficiais:
+                https://account-deletion-site-eight.vercel.app/privacy-policy.html
+                https://account-deletion-site-eight.vercel.app/terms-of-use.html
             """.trimIndent(),
             onDismiss = { showPrivacyScreen = false }
         )
@@ -804,8 +870,8 @@ fun ManutencaoScreen(
     if (showPremiumBeneficiosScreen) {
         PremiumBeneficiosScreen(
             onDismiss = { showPremiumBeneficiosScreen = false },
-            onSubscribeNow = {
-                activity?.let { subscriptionManager.launchPurchaseFlow(it) }
+            onSubscribeNow = { plano ->
+                activity?.let { subscriptionManager.launchPurchaseFlow(it, plano) }
             }
         )
         return
@@ -814,7 +880,7 @@ fun ManutencaoScreen(
         AlertDialog(
             onDismissRequest = { showPremiumDialog = false },
             title = { Text("Recurso Premium", color = Color(0xFFF59E0B), fontWeight = FontWeight.Bold) },
-            text = { Text("Assine o Premium para usar OCR, PDF e backup automático.", color = Color(0xFFCBD5E1)) },
+            text = { Text("Agora temos 2 planos: Lite (R$ 10,50) para Viagens e Frota (R$ 29,90) com tudo, incluindo o sistema de estoque.", color = Color(0xFFCBD5E1)) },
             confirmButton = {
                 Button(
                     onClick = {
@@ -863,7 +929,7 @@ fun ManutencaoScreen(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
-                        "Desbloqueie o modo Viagens Premium para organizar gastos com mais controle e praticidade.",
+                        "Escolha entre Lite para Viagens ou Frota para liberar todos os recursos do app.",
                         color = premiumText,
                         fontWeight = FontWeight.Medium
                     )
@@ -871,9 +937,21 @@ fun ManutencaoScreen(
                         Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = Color(0xFFF59E0B))
                         Spacer(Modifier.width(8.dp))
                         Column {
-                            Text("Viagens Premium - R$ 9,90/mês", color = premiumTitle, fontWeight = FontWeight.Bold)
+                            Text("Lite - R$ 10,50/mês", color = premiumTitle, fontWeight = FontWeight.Bold)
                             Text(
-                                "Viagens ilimitadas, registro de gastos e relatorios para acompanhar custo por trajeto.",
+                                "Inclui somente Viagens: registro de gastos e relatórios por trajeto.",
+                                color = premiumSubtitle,
+                                fontSize = 13.sp
+                            )
+                        }
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Diamond, contentDescription = null, tint = Color(0xFFF59E0B))
+                        Spacer(Modifier.width(8.dp))
+                        Column {
+                            Text("Frota - R$ 29,90/mês", color = premiumTitle, fontWeight = FontWeight.Bold)
+                            Text(
+                                "Inclui tudo: Viagens + gestão completa de frota + sistema de estoque.",
                                 color = premiumSubtitle,
                                 fontSize = 13.sp
                             )
@@ -973,7 +1051,14 @@ fun ManutencaoScreen(
     }
     BackHandler(enabled = showFaqScreen) { showFaqScreen = false }
     if (showFaqScreen) {
-        HomeFaqScreen(onDismiss = { showFaqScreen = false })
+        HomeFaqScreen(
+            onDismiss = { showFaqScreen = false },
+            onOpenVehicleGuide = {
+                showFaqScreen = false
+                showVehicleGuideScreen = true
+                Toast.makeText(context, "Sucesso! Abrindo guia do veículo.", Toast.LENGTH_SHORT).show()
+            }
+        )
         return
     }
     BackHandler(enabled = showVehicleGuideScreen) { showVehicleGuideScreen = false }
@@ -1062,14 +1147,20 @@ fun ManutencaoScreen(
         drawerContent = {
             ModalDrawerSheet(
                 modifier = Modifier.width(300.dp),
-                drawerContainerColor = fuelCardEnd,
+                drawerContainerColor = if (isDark) Color.Black else fuelCardEnd,
                 drawerContentColor = textLight
             ) {
                 // Cabeçalho do Drawer com Gradiente
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(Brush.verticalGradient(listOf(fuelCardStart, fuelCardEnd)))
+                        .background(
+                            if (isDark) {
+                                Brush.verticalGradient(listOf(Color.Black, Color.Black))
+                            } else {
+                                Brush.verticalGradient(listOf(fuelCardStart, fuelCardEnd))
+                            }
+                        )
                         .padding(24.dp)
                 ) {
                     val fotoGoogle = FirebaseAuth.getInstance().currentUser?.photoUrl?.toString()
@@ -1083,7 +1174,7 @@ fun ManutencaoScreen(
                             },
                         shape = RoundedCornerShape(14.dp),
                         colors = CardDefaults.cardColors(
-                            containerColor = Color.White.copy(alpha = 0.08f)
+                            containerColor = if (isDark) Color(0xFF111827) else Color.White.copy(alpha = 0.08f)
                         ),
                         border = BorderStroke(1.dp, drawerItemBorderColor)
                     ) {
@@ -1162,12 +1253,21 @@ fun ManutencaoScreen(
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold
                     )
+                    if (planTier != PlanTier.FREE) {
+                        DrawerMenuItem(
+                            icon = Icons.Default.WorkspacePremium,
+                            label = stringResource(R.string.drawer_item_zellu_premium),
+                            highlighted = true
+                        ) {
+                            showPremiumHubScreen = true
+                            drawerScope.launch { drawerState.close() }
+                        }
+                    }
                     DrawerMenuItem(
-                        icon = Icons.Default.WorkspacePremium,
-                        label = stringResource(R.string.drawer_item_zellu_premium),
-                        highlighted = true
+                        icon = Icons.Default.AutoStories,
+                        label = stringResource(R.string.drawer_item_ebooks)
                     ) {
-                        showPremiumHubScreen = true
+                        showEbookStoreScreen = true
                         drawerScope.launch { drawerState.close() }
                     }
                     Spacer(Modifier.height(8.dp))
@@ -1198,28 +1298,7 @@ fun ManutencaoScreen(
                         drawerScope.launch { drawerState.close() }
                     }
 
-                    Spacer(modifier = Modifier.weight(1f))
-
-                    OutlinedButton(
-                        onClick = {
-                            FirebaseAuth.getInstance().signOut()
-                            GoogleSignIn.getClient(
-                                context,
-                                GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN).build()
-                            ).signOut()
-                            drawerScope.launch { drawerState.close() }
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 24.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFEF4444)),
-                        border = BorderStroke(1.dp, Color(0xFFEF4444).copy(0.5f))
-                    ) {
-                        Icon(Icons.Default.Logout, null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text(stringResource(R.string.drawer_item_sign_out), fontWeight = FontWeight.SemiBold)
-                    }
+                    Spacer(modifier = Modifier.height(12.dp))
                 }
             }
         }
@@ -1242,6 +1321,25 @@ fun ManutencaoScreen(
                     .fillMaxSize()
                     .verticalScroll(contentScrollState)
             ) {
+                    val topBarHideProgress by remember {
+                        derivedStateOf {
+                            (contentScrollState.value / 120f).coerceIn(0f, 1f)
+                        }
+                    }
+                    val topBarAnimatedProgress by animateFloatAsState(
+                        targetValue = topBarHideProgress,
+                        animationSpec = tween(durationMillis = 150),
+                        label = "home_top_bar_progress"
+                    )
+                    val topBarMaxOffsetPx = with(LocalDensity.current) { 18.dp.toPx() }
+                    val topBarAlpha = 1f - topBarAnimatedProgress
+                    val topBarTranslationY = -topBarMaxOffsetPx * topBarAnimatedProgress
+                    Box(
+                        modifier = Modifier.graphicsLayer {
+                            alpha = topBarAlpha
+                            translationY = topBarTranslationY
+                        }
+                    ) {
                     CenterAlignedTopAppBar(
                         title = {
                             Text(
@@ -1332,6 +1430,7 @@ fun ManutencaoScreen(
                         windowInsets = WindowInsets(0, 0, 0, 0),
                         colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = topBarDark)
                     )
+                    }
 
                     Spacer(Modifier.height(0.dp))
 
@@ -1422,20 +1521,187 @@ fun ManutencaoScreen(
     }
     if (showAvisosNotificacoesDialog) {
         BackHandler { showAvisosNotificacoesDialog = false }
+        var showConfirmarLimpezaNotificacoes by remember { mutableStateOf(false) }
+        val nomeCarroPorId = remember(listaCarros) {
+            listaCarros.associate { carro ->
+                val nome = carro.nome.ifBlank {
+                    listOf(carro.marca, carro.modelo).joinToString(" ").trim().ifBlank { "Veículo sem nome" }
+                }
+                carro.id to nome
+            }
+        }
+        val msgAvisoNaoEncontrado = tr(
+            "Não foi possível abrir este aviso. Ele pode ter sido removido.",
+            "Could not open this reminder. It may have been removed."
+        )
         AvisosNotificacoesScreen(
             notificacoes = notificacoesDisparadas,
             onClear = {
-                NotificacaoHelper.limparNotificacoesDisparadas(context)
-                notificacoesDisparadas = emptyList()
+                showConfirmarLimpezaNotificacoes = true
             },
             onRemove = { aviso ->
+                if (aviso.id.startsWith("PARKING_")) {
+                    val blockedMsg = if (Locale.getDefault().language.startsWith("en")) {
+                        "This ongoing parking reminder cannot be removed."
+                    } else {
+                        "O aviso de parada em andamento não pode ser removido."
+                    }
+                    Toast.makeText(context, blockedMsg, Toast.LENGTH_SHORT).show()
+                    return@AvisosNotificacoesScreen
+                }
                 NotificacaoHelper.removerNotificacaoDisparada(context, aviso.id, aviso.timestamp)
                 notificacoesDisparadas = notificacoesDisparadas.filterNot {
                     it.id == aviso.id && it.timestamp == aviso.timestamp
                 }
+                val removeMsg = if (Locale.getDefault().language.startsWith("en")) {
+                    "Notification deleted successfully."
+                } else {
+                    "Notificação apagada com sucesso."
+                }
+                Toast.makeText(
+                    context,
+                    removeMsg,
+                    Toast.LENGTH_SHORT
+                ).show()
+            },
+            resolveVehicleName = { aviso ->
+                aviso.carroId?.let { nomeCarroPorId[it] }
+                    ?: if (aviso.id.startsWith("PARKING_")) {
+                        nomeCarroPorId[carroAtual.id]
+                    } else {
+                        val lembreteRelacionado = todosLembretes.firstOrNull { it.id == aviso.id }
+                            ?: todosLembretes.firstOrNull { aviso.id.startsWith("${it.id}_") }
+                        lembreteRelacionado?.carroId?.let { nomeCarroPorId[it] }
+                    }
+            },
+            onOpen = { aviso ->
+                if (aviso.id.startsWith("PARKING_")) {
+                    aviso.carroId?.let { carroId ->
+                        val idx = listaCarros.indexOfFirst { it.id == carroId }
+                        if (idx >= 0) indiceCarroAtual = idx
+                    }
+                    showAvisosNotificacoesDialog = false
+                    showAondePareiScreen = true
+                    return@AvisosNotificacoesScreen
+                }
+
+                val lembrete = todosLembretes.firstOrNull { it.id == aviso.id }
+                    ?: todosLembretes.firstOrNull { aviso.id.startsWith("${it.id}_") }
+
+                if (lembrete != null) {
+                    val idx = listaCarros.indexOfFirst { it.id == lembrete.carroId }
+                    if (idx >= 0) indiceCarroAtual = idx
+                    lembreteSelecionado = lembrete
+                    contatoDetalheSelecionado = listaContatos.find { it.id == lembrete.contatoId }
+                    showAvisosNotificacoesDialog = false
+                    showLembreteDetalhesScreen = true
+                } else {
+                    Toast.makeText(context, msgAvisoNaoEncontrado, Toast.LENGTH_SHORT).show()
+                }
             },
             onDismiss = { showAvisosNotificacoesDialog = false }
         )
+
+        if (showConfirmarLimpezaNotificacoes) {
+            AlertDialog(
+                onDismissRequest = { showConfirmarLimpezaNotificacoes = false },
+                title = {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(52.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFFF59E0B).copy(alpha = if (isDark) 0.24f else 0.14f))
+                                .border(1.dp, Color(0xFFF59E0B).copy(alpha = 0.35f), CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CleaningServices,
+                                contentDescription = null,
+                                tint = Color(0xFFF59E0B),
+                                modifier = Modifier.size(27.dp)
+                            )
+                        }
+                        Text(
+                            text = tr("Limpar notificações?", "Clear notifications?"),
+                            color = Color(0xFFF8FAFC),
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                },
+                text = {
+                    Text(
+                        text = tr(
+                            "Quer mesmo apagar todas as notificações removíveis agora? O aviso de parada em andamento será mantido.",
+                            "Do you really want to clear all removable notifications now? The ongoing parking reminder will be kept."
+                        ),
+                        color = Color(0xFF94A3B8),
+                        textAlign = TextAlign.Center
+                    )
+                },
+                confirmButton = {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 2.dp),
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        OutlinedButton(
+                            onClick = { showConfirmarLimpezaNotificacoes = false },
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(1.dp, Color(0xFF334155)),
+                            modifier = Modifier.widthIn(min = 120.dp)
+                        ) {
+                            Text(tr("Cancelar", "Cancel"), color = Color(0xFFF8FAFC))
+                        }
+                        Spacer(Modifier.width(10.dp))
+                        Button(
+                            onClick = {
+                                showConfirmarLimpezaNotificacoes = false
+                                val avisosFixos = notificacoesDisparadas.filter { it.id.startsWith("PARKING_") }
+                                val avisosRemoviveis = notificacoesDisparadas.filterNot { it.id.startsWith("PARKING_") }
+
+                                avisosRemoviveis.forEach { aviso ->
+                                    NotificacaoHelper.removerNotificacaoDisparada(context, aviso.id, aviso.timestamp)
+                                }
+
+                                notificacoesDisparadas = avisosFixos
+
+                                val clearMsg = if (Locale.getDefault().language.startsWith("en")) {
+                                    if (avisosRemoviveis.isEmpty()) {
+                                        "No notifications to clear."
+                                    } else {
+                                        "Notifications cleared. Ongoing parking reminder was kept."
+                                    }
+                                } else {
+                                    if (avisosRemoviveis.isEmpty()) {
+                                        "Não há notificações para limpar."
+                                    } else {
+                                        "Todas as notificações foram limpadas."
+                                    }
+                                }
+                                Toast.makeText(context, clearMsg, Toast.LENGTH_SHORT).show()
+                            },
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF2563EB),
+                                contentColor = Color.White
+                            ),
+                            modifier = Modifier.widthIn(min = 140.dp)
+                        ) {
+                            Text(tr("Sim, limpar", "Yes, clear"), fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                },
+                dismissButton = {},
+                containerColor = Color(0xFF0F172A)
+            )
+        }
     }
 }
 
@@ -2217,10 +2483,10 @@ private fun LembreteDetalhesScreen(
     val context = LocalContext.current
     val colorScheme = MaterialTheme.colorScheme
     val isDark = colorScheme.background.luminance() < 0.5f
-    val appBarBg = colorScheme.surface
-    val screenBg = if (isDark) appBarBg else colorScheme.background
-    val cardBg = colorScheme.surface
-    val cardBorder = if (isDark) colorScheme.outline.copy(alpha = 0.45f) else Color(0xFFCBD5E1)
+    val appBarBg = if (isDark) Color.Black else colorScheme.surface
+    val screenBg = if (isDark) Color.Black else colorScheme.background
+    val cardBg = if (isDark) Color(0xFF111827) else colorScheme.surface
+    val cardBorder = if (isDark) Color(0xFF334155) else Color(0xFFCBD5E1)
     val textPrimary = colorScheme.onSurface
     val textSecondary = colorScheme.onSurfaceVariant
     val englishUi = isEnglishUi()
@@ -2785,7 +3051,8 @@ private fun LembreteDetalhesScreen(
                                     normalized.startsWith("total") ||
                                     normalized.contains("desconto") ||
                                     normalized.contains("valor final") ||
-                                    normalized.contains("valor a pagar")
+                                    normalized.contains("valor a pagar") ||
+                                    normalized.contains("troco")
                             }
                             fun valorAposDoisPontos(linha: String?): String? {
                                 if (linha.isNullOrBlank()) return null
@@ -3338,6 +3605,7 @@ private fun tiposAvisoPorVeiculo(tipoVeiculo: TipoVeiculo): List<TipoManutencao>
         TipoManutencao.FREIO,
         TipoManutencao.PNEU,
         TipoManutencao.TRANSMISSAO,
+        TipoManutencao.MECANICA,
         TipoManutencao.REVISAO,
         TipoManutencao.OUTROS
     )
@@ -3357,10 +3625,12 @@ private fun tiposAvisoPorVeiculo(tipoVeiculo: TipoVeiculo): List<TipoManutencao>
     )
     TipoVeiculo.VEICULO_ELETRICO -> listOf(
         TipoManutencao.BATERIA,
+        TipoManutencao.FREIO,
         TipoManutencao.LAVAGEM,
         TipoManutencao.VIDROS,
         TipoManutencao.PNEU,
         TipoManutencao.MECANICA,
+        TipoManutencao.FUNILARIA,
         TipoManutencao.REVISAO,
         TipoManutencao.LICENCIAMENTO,
         TipoManutencao.IPVA,
@@ -3369,22 +3639,55 @@ private fun tiposAvisoPorVeiculo(tipoVeiculo: TipoVeiculo): List<TipoManutencao>
     )
     TipoVeiculo.ONIBUS,
     TipoVeiculo.CAMINHAO,
+    TipoVeiculo.VAN,
+    TipoVeiculo.CAMINHONETE,
+    TipoVeiculo.FURGAO,
+    TipoVeiculo.HATCH,
+    TipoVeiculo.MOTORHOME -> listOf(
+        TipoManutencao.ABASTECIMENTO,
+        TipoManutencao.LAVAGEM,
+        TipoManutencao.OLEO,
+        TipoManutencao.FREIO,
+        TipoManutencao.VIDROS,
+        TipoManutencao.MECANICA,
+        TipoManutencao.FUNILARIA,
+        TipoManutencao.BATERIA,
+        TipoManutencao.PNEU,
+        TipoManutencao.REVISAO,
+        TipoManutencao.LICENCIAMENTO,
+        TipoManutencao.IPVA,
+        TipoManutencao.SEGURO,
+        TipoManutencao.OUTROS
+    )
     TipoVeiculo.TRATOR -> listOf(
         TipoManutencao.ABASTECIMENTO,
         TipoManutencao.LAVAGEM,
         TipoManutencao.OLEO,
-        TipoManutencao.VIDROS,
+        TipoManutencao.FREIO,
+        TipoManutencao.MECANICA,
+        TipoManutencao.BATERIA,
+        TipoManutencao.PNEU,
+        TipoManutencao.REVISAO,
+        TipoManutencao.OUTROS
+    )
+    TipoVeiculo.MOTO -> listOf(
+        TipoManutencao.ABASTECIMENTO,
+        TipoManutencao.LAVAGEM,
+        TipoManutencao.OLEO,
+        TipoManutencao.FREIO,
         TipoManutencao.MECANICA,
         TipoManutencao.BATERIA,
         TipoManutencao.PNEU,
         TipoManutencao.REVISAO,
         TipoManutencao.LICENCIAMENTO,
+        TipoManutencao.IPVA,
         TipoManutencao.SEGURO,
         TipoManutencao.OUTROS
     )
     TipoVeiculo.CARRETINHA -> listOf(
         TipoManutencao.LAVAGEM,
         TipoManutencao.PNEU,
+        TipoManutencao.MECANICA,
         TipoManutencao.LICENCIAMENTO,
         TipoManutencao.SEGURO,
         TipoManutencao.OUTROS
@@ -3507,232 +3810,312 @@ private fun AvisosNotificacoesScreen(
     notificacoes: List<NotificacaoDisparada>,
     onClear: () -> Unit,
     onRemove: (NotificacaoDisparada) -> Unit,
+    resolveVehicleName: (NotificacaoDisparada) -> String?,
+    onOpen: (NotificacaoDisparada) -> Unit,
     onDismiss: () -> Unit
 ) {
     val colorScheme = MaterialTheme.colorScheme
-    val isDark = colorScheme.background.luminance() < 0.5f
-    val dialogBg = if (isDark) Color(0xFF0F172A) else colorScheme.background
-    val cardBg = if (isDark) Color(0xFF111827) else colorScheme.surface
-    val cardBorder = if (isDark) Color(0xFF334155) else colorScheme.outlineVariant.copy(alpha = 0.8f)
-    val titleColor = colorScheme.onSurface
-    val textDim = colorScheme.onSurfaceVariant
-    val closeBorder = if (isDark) Color(0xFF334155) else colorScheme.outlineVariant
-    val closeText = colorScheme.onSurface
+    val dialogBg = Color.Black
+    val cardBg = Color(0xFF101A2D)
+    val cardBgSoft = Color(0xFF0C1524)
+    val cardBorder = Color(0xFF23324B)
+    val titleColor = Color(0xFFF8FAFC)
+    val textDim = Color(0xFF94A3B8)
+    val closeBorder = Color(0xFF334155)
+    val closeText = Color(0xFFF8FAFC)
 
     Surface(
         modifier = Modifier.fillMaxSize(),
         color = dialogBg
     ) {
-        Column(
+        LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
                 .navigationBarsPadding()
+                .padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            contentPadding = PaddingValues(vertical = 8.dp)
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                IconButton(
-                    onClick = onDismiss,
+            item("header") {
+                Box(
                     modifier = Modifier
-                        .size(40.dp)
-                        .align(Alignment.CenterStart)
+                        .fillMaxWidth()
+                        .padding(horizontal = 2.dp, vertical = 2.dp),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.ArrowBackIosNew,
-                        contentDescription = tr("Voltar", "Back"),
-                        tint = titleColor,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Box(
+                    IconButton(
+                        onClick = onDismiss,
                         modifier = Modifier
-                            .size(34.dp)
-                            .clip(CircleShape)
-                            .background(colorScheme.primary.copy(alpha = if (isDark) 0.24f else 0.14f)),
-                        contentAlignment = Alignment.Center
+                            .size(40.dp)
+                            .align(Alignment.CenterStart)
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Notifications,
-                            contentDescription = null,
-                            tint = colorScheme.primary,
-                            modifier = Modifier.size(20.dp)
+                            imageVector = Icons.Default.ArrowBackIosNew,
+                            contentDescription = tr("Voltar", "Back"),
+                            tint = titleColor,
+                            modifier = Modifier.size(18.dp)
                         )
                     }
-                    Text(
-                        text = tr("Notificações", "Notifications"),
-                        color = titleColor,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 17.sp
-                    )
-                }
-                if (notificacoes.isNotEmpty()) {
-                    OutlinedButton(
-                        onClick = onClear,
-                        modifier = Modifier.align(Alignment.CenterEnd),
-                        shape = RoundedCornerShape(10.dp),
-                        border = BorderStroke(1.dp, closeBorder),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            containerColor = if (isDark) Color(0xFF1E293B) else colorScheme.surface,
-                            contentColor = closeText
-                        )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text(tr("Limpar", "Clear"))
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(CircleShape)
+                                .background(colorScheme.primary.copy(alpha = 0.24f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Notifications,
+                                contentDescription = null,
+                                tint = colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Column {
+                            Text(
+                                text = tr("Notificações", "Notifications"),
+                                color = titleColor,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 18.sp
+                            )
+                            Text(
+                                text = tr(
+                                    "${notificacoes.size} aviso(s) recente(s)",
+                                    "${notificacoes.size} recent notification(s)"
+                                ),
+                                color = textDim,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+                    if (notificacoes.isNotEmpty()) {
+                        IconButton(
+                            onClick = onClear,
+                            modifier = Modifier
+                                .align(Alignment.CenterEnd)
+                                .size(38.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color(0xFF111827))
+                                .border(BorderStroke(1.dp, closeBorder), RoundedCornerShape(10.dp))
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CleaningServices,
+                                contentDescription = tr("Limpar notificações", "Clear notifications"),
+                                tint = closeText,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
                     }
                 }
             }
 
             if (notificacoes.isEmpty()) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f)
-                        .padding(horizontal = 20.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Notifications,
-                        contentDescription = null,
-                        tint = textDim,
-                        modifier = Modifier.size(42.dp)
-                    )
-                    Spacer(Modifier.height(10.dp))
-                    Text(
-                        tr("Tudo em dia por aqui", "Everything is up to date"),
-                        color = titleColor,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        tr("Quando houver novos avisos, eles aparecerão aqui.", "When there are new reminders, they will appear here."),
-                        color = textDim,
-                        fontSize = 13.sp,
-                        textAlign = TextAlign.Center
-                    )
+                item("empty_state") {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 20.dp, vertical = 80.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Notifications,
+                            contentDescription = null,
+                            tint = textDim,
+                            modifier = Modifier.size(42.dp)
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        Text(
+                            tr("Tudo em dia por aqui", "Everything is up to date"),
+                            color = titleColor,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            tr(
+                                "Quando um aviso disparar, ele aparece aqui para você acompanhar com calma.",
+                                "When a reminder is triggered, it will appear here so you can track it easily."
+                            ),
+                            color = textDim,
+                            fontSize = 13.sp,
+                            textAlign = TextAlign.Center
+                        )
+                    }
                 }
             } else {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    HorizontalDivider(
-                        modifier = Modifier.weight(1f),
-                        color = if (isDark) Color.White.copy(alpha = 0.16f) else colorScheme.outlineVariant,
-                        thickness = 1.dp
-                    )
-                    Text(
-                        text = tr("Veja suas notificações", "See your notifications"),
-                        color = textDim,
-                        fontSize = 12.sp,
-                        modifier = Modifier.padding(horizontal = 10.dp)
-                    )
-                    HorizontalDivider(
-                        modifier = Modifier.weight(1f),
-                        color = if (isDark) Color.White.copy(alpha = 0.16f) else colorScheme.outlineVariant,
-                        thickness = 1.dp
-                    )
-                }
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f)
-                        .padding(horizontal = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    contentPadding = PaddingValues(vertical = 8.dp)
-                ) {
-                    items(notificacoes, key = { "${it.id}_${it.timestamp}" }) { aviso ->
-                        val dismissState = rememberSwipeToDismissBoxState(
-                            confirmValueChange = { value ->
-                                if (aviso.id.startsWith("PARKING_")) {
-                                    return@rememberSwipeToDismissBoxState false
-                                }
-                                if (value != SwipeToDismissBoxValue.Settled) {
-                                    onRemove(aviso)
-                                }
-                                true
-                            }
-                        )
-                        SwipeToDismissBox(
-                            state = dismissState,
-                            enableDismissFromStartToEnd = true,
-                            enableDismissFromEndToStart = true,
-                            backgroundContent = {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .background(Color(0xFFDC2626))
-                                        .padding(horizontal = 14.dp),
-                                    contentAlignment = if (dismissState.dismissDirection == SwipeToDismissBoxValue.StartToEnd) {
-                                        Alignment.CenterStart
-                                    } else {
-                                        Alignment.CenterEnd
-                                    }
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Delete,
-                                        contentDescription = tr("Remover notificação", "Remove notification"),
-                                        tint = Color.White
-                                    )
-                                }
-                            }
+                item("hint_card") {
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        color = cardBgSoft,
+                        border = BorderStroke(1.dp, cardBorder)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Card(
-                                colors = CardDefaults.cardColors(containerColor = cardBg),
-                                border = BorderStroke(1.dp, cardBorder),
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.fillMaxWidth()
+                            Icon(
+                                imageVector = Icons.Default.Swipe,
+                                contentDescription = null,
+                                tint = textDim,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Text(
+                                text = tr("Deslize para apagar • toque para abrir detalhes", "Swipe to delete • tap to open details"),
+                                color = textDim,
+                                fontSize = 12.sp
+                            )
+                        }
+                    }
+                }
+
+                items(notificacoes, key = { "${it.id}_${it.timestamp}" }) { aviso ->
+                    val dismissState = rememberSwipeToDismissBoxState(
+                        confirmValueChange = { value ->
+                            if (aviso.id.startsWith("PARKING_")) {
+                                return@rememberSwipeToDismissBoxState false
+                            }
+                            if (value != SwipeToDismissBoxValue.Settled) {
+                                onRemove(aviso)
+                            }
+                            true
+                        }
+                    )
+                    SwipeToDismissBox(
+                        state = dismissState,
+                        enableDismissFromStartToEnd = true,
+                        enableDismissFromEndToStart = true,
+                        backgroundContent = {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(Color(0xFFDC2626))
+                                    .padding(horizontal = 14.dp),
+                                contentAlignment = if (dismissState.dismissDirection == SwipeToDismissBoxValue.StartToEnd) {
+                                    Alignment.CenterStart
+                                } else {
+                                    Alignment.CenterEnd
+                                }
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Delete,
+                                    contentDescription = tr("Remover notificação", "Remove notification"),
+                                    tint = Color.White
+                                )
+                            }
+                        }
+                    ) {
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = cardBg),
+                            border = BorderStroke(1.dp, cardBorder),
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onOpen(aviso) }
+                        ) {
+                            resolveVehicleName(aviso)
+                            val isParking = aviso.id.startsWith("PARKING_")
+                            val chipText = if (isParking) tr("Parada em andamento", "Parking active") else tr("Aviso", "Reminder")
+                            val chipColor = if (isParking) Color(0xFF22C55E) else colorScheme.primary
+                            val instante = runCatching {
+                                java.time.Instant.ofEpochMilli(aviso.timestamp)
+                                    .atZone(java.time.ZoneId.systemDefault())
+                                    .toLocalDateTime()
+                                    .format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy • HH:mm"))
+                            }.getOrDefault("--")
+
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
                                 Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(10.dp),
+                                    modifier = Modifier.fillMaxWidth(),
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Notifications,
-                                        contentDescription = null,
-                                        tint = colorScheme.primary,
-                                        modifier = Modifier.size(18.dp)
+                                    Box(
+                                        modifier = Modifier
+                                            .size(28.dp)
+                                            .clip(CircleShape)
+                                            .background(chipColor.copy(alpha = 0.18f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = if (isParking) Icons.Default.DirectionsCar else Icons.Default.NotificationsActive,
+                                            contentDescription = null,
+                                            tint = chipColor,
+                                            modifier = Modifier.size(15.dp)
+                                        )
+                                    }
+                                    Text(
+                                        aviso.titulo.ifBlank { tr("Notificação", "Notification") },
+                                        fontWeight = FontWeight.Bold,
+                                        color = titleColor,
+                                        fontSize = 15.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
                                     )
-                                    Column(modifier = Modifier.weight(1f)) {
+                                }
+
+                                Surface(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = cardBgSoft,
+                                    border = BorderStroke(1.dp, cardBorder)
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
                                         Text(
-                                            aviso.titulo.ifBlank { tr("Notificação", "Notification") },
+                                            text = chipText,
+                                            color = chipColor,
+                                            fontSize = 11.sp,
                                             fontWeight = FontWeight.SemiBold,
-                                            color = titleColor,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
                                         )
                                         Text(
-                                            aviso.descricao.ifBlank { tr("Sem descrição", "No description") },
-                                            color = textDim,
-                                            fontSize = 12.sp,
-                                            maxLines = 2,
-                                            overflow = TextOverflow.Ellipsis
+                                            text = "•",
+                                            color = textDim.copy(alpha = 0.8f),
+                                            fontSize = 11.sp
                                         )
-                                        val instante = runCatching {
-                                            java.time.Instant.ofEpochMilli(aviso.timestamp)
-                                                .atZone(java.time.ZoneId.systemDefault())
-                                                .toLocalDateTime()
-                                                .format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))
-                                        }.getOrDefault("--")
                                         Text(
-                                            instante,
+                                            text = instante,
                                             color = textDim,
                                             fontSize = 11.sp
                                         )
                                     }
+                                }
+
+                                Surface(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = cardBgSoft,
+                                    border = BorderStroke(1.dp, cardBorder.copy(alpha = 0.8f))
+                                ) {
+                                    Text(
+                                        text = aviso.descricao.ifBlank { tr("Sem descrição", "No description") },
+                                        color = textDim,
+                                        fontSize = 12.sp,
+                                        lineHeight = 18.sp,
+                                        maxLines = 4,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 9.dp)
+                                    )
                                 }
                             }
                         }
@@ -3740,10 +4123,10 @@ private fun AvisosNotificacoesScreen(
                 }
             }
 
+            item("bottom_spacer") { Spacer(Modifier.height(8.dp)) }
         }
     }
 }
-
 private data class AbastecimentoResumo(
     val ultimo: AbastecimentoEntry?,
     val proximaData: LocalDate?,
@@ -3910,22 +4293,7 @@ private fun VehicleBasicsGuideScreen(onDismiss: () -> Unit) {
     }
 
     Scaffold(
-        containerColor = pageBg,
-        topBar = {
-            Surface(color = pageBg) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .statusBarsPadding()
-                        .padding(start = 12.dp, end = 16.dp, top = 6.dp, bottom = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar", tint = textPrimary)
-                    }
-                }
-            }
-        }
+        containerColor = pageBg
     ) { innerPadding ->
         Column(
             modifier = Modifier
@@ -3935,7 +4303,17 @@ private fun VehicleBasicsGuideScreen(onDismiss: () -> Unit) {
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Spacer(Modifier.height(2.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .padding(start = 4.dp, end = 4.dp, top = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onDismiss) {
+                    Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar", tint = textPrimary)
+                }
+            }
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -4050,11 +4428,12 @@ private fun openExternalUrl(context: Context, url: String) {
 
 @Composable
 private fun HomeFaqScreen(
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onOpenVehicleGuide: () -> Unit
 ) {
     val colorScheme = MaterialTheme.colorScheme
     val isDark = colorScheme.background.luminance() < 0.5f
-    val background = if (isDark) colorScheme.background else colorScheme.background
+    val background = if (isDark) Color.Black else colorScheme.background
     val titleColor = colorScheme.onSurface
     val bodyColor = colorScheme.onSurfaceVariant
     val englishUi = isEnglishUi()
@@ -4062,25 +4441,25 @@ private fun HomeFaqScreen(
     val faqItems = remember {
         if (englishUi) {
             listOf(
-                "How do I create a new reminder?" to "Tap New reminder, choose the category, and follow the steps until finish. In the last step, review data before saving.",
-                "How do I add an expense to a trip?" to "Open the trip, tap Add expense, and fill category, items, amount, and vehicle. You can also use camera to scan invoice QR code.",
-                "The invoice QR code failed. What now?" to "Bring camera closer, avoid reflections, and try again. If it still fails, continue and fill data manually.",
-                "How do I finish a trip?" to "Inside the trip, tap Finish trip. After that, new expenses stay blocked until the trip is reopened.",
-                "How do I export trip data?" to "Inside the trip, use the send icon button to open export screen and generate the file you want.",
-                "How do I recover my data?" to "In Settings > Backup, use Restore backup on this device. After restoring, close and open the app again to reload everything.",
-                "Can I use it with a team?" to "The app works best with centralized management on a main device. To share with team, export trip files.",
-                "Where can I see fleet status?" to "In Zellu Premium, open Fleet Status to follow alerts, vehicle usage, and ongoing trips."
+                "How do I register a new vehicle?" to "Tap New vehicle, choose the type, then select brand and model. If names are loading, wait a moment and the list will appear.",
+                "Why can't I pick the vehicle name right away?" to "The app fetches names after the brand is selected. While loading, the field shows a loading message. Wait a few seconds and try again.",
+                "How do I create a reminder faster?" to "Tap New reminder, choose the category, review date, mileage and details, then save. You can also start from the camera flow when available.",
+                "Where can I see reminder notifications?" to "Use the bell in Home to open notifications history. You can remove single items or clear everything.",
+                "How do I add a service provider to a reminder?" to "Open the reminder details and tap Add provider. Fill name and phone, then save to link the contact.",
+                "Where is the vehicle guide now?" to "Open Frequently Asked Questions and use the Vehicle guide selector. It opens quick tips with practical videos.",
+                "How do I back up and restore my data?" to "Open Settings > Backup. Use restore on this device when needed and reopen the app after completion.",
+                "What changes in Premium?" to "Premium unlocks advanced modules like Fleet features, extra management tools, and expanded operational flows."
             )
         } else {
             listOf(
-                "Como criar um novo aviso?" to "Toque em Novo aviso, escolha a categoria e siga as etapas até concluir. Na última etapa, revise os dados antes de salvar.",
-                "Como adicionar gasto em uma viagem?" to "Abra a viagem, toque em Adicionar gasto e preencha categoria, itens, valor e veículo. Você também pode usar a câmera para scannear QR code da nota.",
-                "O QR code da nota não leu. E agora?" to "Aproxime a câmera, evite reflexo e tente novamente. Se ainda falhar, continue e preencha os dados manualmente.",
-                "Como finalizar uma viagem?" to "Dentro da viagem, toque em Finalizar viagem. Depois disso, novos gastos ficam bloqueados até a viagem ser reaberta.",
-                "Como exportar os dados da viagem?" to "Dentro da viagem, use o botão com ícone de enviar para abrir a tela de exportação e gerar o arquivo desejado.",
-                "Como recuperar meus dados?" to "Em Configurações > Bakup, use Restaurar backup neste aparelho. Depois da restauração, feche e abra o app novamente para recarregar tudo.",
-                "Posso usar em equipe?" to "O app funciona melhor com gestão centralizada em um aparelho principal. Para compartilhar com a equipe, exporte os arquivos da viagem.",
-                "Onde vejo o status da frota?" to "No Zellu Premium, abra Status da Frota para acompanhar alertas, uso dos veículos e viagens em andamento."
+                "Como cadastrar um novo veículo?" to "Toque em Novo veículo, escolha o tipo e depois selecione marca e modelo. Se os nomes estiverem carregando, aguarde alguns segundos.",
+                "Por que o nome do veículo não abre na hora?" to "O app busca os nomes após a escolha da marca. Enquanto carrega, o campo mostra mensagem de carregamento. Depois disso, a lista libera.",
+                "Como criar um aviso mais rápido?" to "Toque em Novo aviso, escolha a categoria, revise data, km e detalhes e finalize em salvar. Quando disponível, você também pode iniciar pela câmera.",
+                "Onde vejo as notificações dos avisos?" to "Use o sino na Home para abrir o histórico de notificações. Dá para remover individualmente ou limpar tudo.",
+                "Como adicionar um prestador no aviso?" to "Abra os detalhes do aviso e toque em Adicionar prestador. Preencha nome e telefone e salve para vincular o contato.",
+                "Onde ficou o guia do veículo?" to "Agora ele está em Dúvidas frequentes, no seletor Guia sobre o veículo. Lá você abre dicas rápidas com vídeos.",
+                "Como fazer backup e restaurar meus dados?" to "Vá em Configurações > Backup. Use Restaurar backup neste aparelho quando precisar e reabra o app após concluir.",
+                "O que muda no Premium?" to "O Premium libera módulos avançados como recursos de frota, ferramentas extras de gestão e fluxos operacionais expandidos."
             )
         }
     }
@@ -4149,7 +4528,58 @@ private fun HomeFaqScreen(
 
             Spacer(Modifier.height(12.dp))
 
-            Spacer(Modifier.height(2.dp))
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onOpenVehicleGuide() },
+                shape = RoundedCornerShape(14.dp),
+                color = if (isDark) Color(0xFF111827) else colorScheme.surface,
+                border = BorderStroke(1.dp, colorScheme.outlineVariant.copy(alpha = if (isDark) 0.5f else 0.75f))
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(colorScheme.primary.copy(alpha = if (isDark) 0.22f else 0.14f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.PlayCircle,
+                            contentDescription = null,
+                            tint = colorScheme.primary,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = tr("Guia sobre o veículo", "Vehicle guide"),
+                            color = titleColor,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp
+                        )
+                        Text(
+                            text = tr("Abra dicas rápidas com vídeos para cuidar melhor do seu veículo.", "Open quick video tips to take better care of your vehicle."),
+                            color = bodyColor,
+                            fontSize = 12.sp
+                        )
+                    }
+                    Icon(
+                        imageVector = Icons.Default.ArrowForwardIos,
+                        contentDescription = null,
+                        tint = bodyColor,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(10.dp))
 
             faqItems.forEachIndexed { index, (pergunta, resposta) ->
                 Surface(
@@ -4159,7 +4589,7 @@ private fun HomeFaqScreen(
                             expandedFaqIndex = if (expandedFaqIndex == index) -1 else index
                         },
                     shape = RoundedCornerShape(14.dp),
-                    color = if (isDark) colorScheme.surface else colorScheme.surface,
+                    color = if (isDark) Color(0xFF111827) else colorScheme.surface,
                     border = BorderStroke(1.dp, colorScheme.outlineVariant.copy(alpha = if (isDark) 0.5f else 0.75f))
                 ) {
                     Column(
@@ -4215,7 +4645,7 @@ private fun LegalInfoScreen(
 ) {
     val colorScheme = MaterialTheme.colorScheme
     val isDark = colorScheme.background.luminance() < 0.5f
-    val background = if (isDark) colorScheme.background else colorScheme.background
+    val background = if (isDark) Color.Black else colorScheme.background
     val titleColor = colorScheme.onSurface
     val bodyColor = colorScheme.onSurfaceVariant
 
@@ -4277,7 +4707,7 @@ private fun LegalInfoScreen(
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(24.dp),
-                color = if (isDark) colorScheme.surface else colorScheme.surface,
+                color = if (isDark) Color(0xFF111827) else colorScheme.surface,
                 border = BorderStroke(1.dp, colorScheme.outlineVariant.copy(alpha = if (isDark) 0.5f else 0.75f))
             ) {
                 Text(
@@ -4512,6 +4942,7 @@ fun corCategoria(tipo: TipoManutencao): Color = when (tipo) {
     TipoManutencao.SEGURO -> Color(0xFF10B981) // verde
     TipoManutencao.OUTROS -> Color(0xFF94A3B8)
 }
+
 
 
 

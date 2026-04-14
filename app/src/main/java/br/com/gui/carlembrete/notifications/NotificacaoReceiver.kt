@@ -1,6 +1,7 @@
 ﻿package br.com.gui.carlembrete
 
 import android.app.AlarmManager
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -34,13 +35,31 @@ data class NotificacaoDisparada(
 
 class NotificacaoReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action == ACTION_PARKING_NOTIFICATION_DISMISSED) {
+            restoreParkingOngoingNotificationIfNeeded(context, intent)
+            return
+        }
+
         val titulo = intent.getStringExtra(EXTRA_TITULO) ?: return
         val descricao = intent.getStringExtra(EXTRA_DESCRICAO) ?: ""
         val lembreteId = intent.getStringExtra(EXTRA_ID) ?: titulo
         val carroId = intent.getStringExtra(EXTRA_CARRO_ID)
+        val nomeVeiculo = carroId?.let { id ->
+            BancoDeDados.carregarCarros(context).orEmpty()
+                .firstOrNull { it.id == id }
+                ?.nome
+                ?.ifBlank { null }
+        }
+        val descricaoComContexto = if (!nomeVeiculo.isNullOrBlank()) {
+            "$descricao\n${trNow("Veículo", "Vehicle")}: $nomeVeiculo"
+        } else {
+            descricao
+        }
 
         val openIntent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra(EXTRA_OPEN_LEMBRETE_ID, lembreteId)
+            putExtra(EXTRA_OPEN_LEMBRETE_CARRO_ID, carroId)
         }
         val pendingIntent = PendingIntent.getActivity(
             context,
@@ -60,18 +79,30 @@ class NotificacaoReceiver : BroadcastReceiver() {
             return
         }
 
+        val tituloComContexto = if (!nomeVeiculo.isNullOrBlank()) {
+            "$titulo • $nomeVeiculo"
+        } else {
+            titulo
+        }
+
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(R.drawable.logonotificacao)
-            .setContentTitle(titulo)
-            .setContentText(descricao)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(descricao))
+            .setSmallIcon(R.drawable.ic_shield_notification)
+            .setContentTitle(tituloComContexto)
+            .setContentText(descricaoComContexto)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(descricaoComContexto))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
             .build()
 
         NotificationManagerCompat.from(context).notify(lembreteId.hashCode(), notification)
-        NotificacaoHelper.registrarNotificacaoDisparada(context, lembreteId, titulo, descricao, carroId)
+        NotificacaoHelper.registrarNotificacaoDisparada(
+            context = context,
+            id = lembreteId,
+            titulo = tituloComContexto,
+            descricao = descricaoComContexto,
+            carroId = carroId
+        )
 
         val isRollingStep = intent.getBooleanExtra(EXTRA_IS_ROLLING_STEP, false)
         Log.i(
@@ -108,6 +139,92 @@ class NotificacaoReceiver : BroadcastReceiver() {
         } else {
             processarRecorrenciaSeNecessario(context, lembreteId)
         }
+    }
+
+    private fun restoreParkingOngoingNotificationIfNeeded(context: Context, intent: Intent) {
+        if (!hasNotificationPermission(context)) return
+        if (AppPreferences.isParkingFinalized(context)) return
+
+        val location = AppPreferences.getParkedLocation(context) ?: return
+        val isBike = if (intent.hasExtra(EXTRA_PARKING_IS_BIKE)) {
+            intent.getBooleanExtra(EXTRA_PARKING_IS_BIKE, false)
+        } else {
+            inferBikeContextFromLastVehicle(context)
+        }
+
+        createParkingNotificationChannel(context)
+
+        val openIntent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            putExtra(EXTRA_OPEN_AONDE_PAREI, true)
+        }
+        val contentPendingIntent = PendingIntent.getActivity(
+            context,
+            90422,
+            openIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val deletePendingIntent = PendingIntent.getBroadcast(
+            context,
+            90423,
+            Intent(context, NotificacaoReceiver::class.java).apply {
+                action = ACTION_PARKING_NOTIFICATION_DISMISSED
+                putExtra(EXTRA_PARKING_IS_BIKE, isBike)
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val sinceText = java.text.SimpleDateFormat("dd/MM HH:mm", java.util.Locale("pt", "BR"))
+            .format(java.util.Date(location.timeMillis))
+        val title = if (isBike) trNow("Parada em andamento", "Stop in progress") else trNow("Estacionamento em andamento", "Parking in progress")
+        val tapText = if (isBike) trNow("Toque quando encontrar a bike.", "Tap when you find the bike.") else trNow("Toque quando encontrar o carro.", "Tap when you find the car.")
+        val finishText = if (isBike) trNow("\"Encontrei minha bike\"", "\"I found my bike\"") else trNow("\"Encontrei meu carro\"", "\"I found my car\"")
+
+        val notification = NotificationCompat.Builder(context, PARKING_NOTIFICATION_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_shield_notification)
+            .setContentTitle(title)
+            .setContentText("$tapText ${trNow("Desde", "Since")}: $sinceText")
+            .setStyle(
+                NotificationCompat.BigTextStyle().bigText(
+                    trNow("Local marcado com sucesso. Esta notificacao fica ativa ate voce tocar em $finishText no app.", "Location saved successfully. This notification stays active until you tap $finishText in the app.")
+                )
+            )
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setCategory(NotificationCompat.CATEGORY_STATUS)
+            .setOngoing(true)
+            .setAutoCancel(false)
+            .setOnlyAlertOnce(true)
+            .setContentIntent(contentPendingIntent)
+            .setDeleteIntent(deletePendingIntent)
+            .build()
+            .apply { flags = flags or Notification.FLAG_NO_CLEAR }
+
+        NotificationManagerCompat.from(context).notify(PARKING_NOTIFICATION_ID, notification)
+    }
+
+    private fun createParkingNotificationChannel(context: Context) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val manager = context.getSystemService(NotificationManager::class.java) ?: return
+        val channel = NotificationChannel(
+            PARKING_NOTIFICATION_CHANNEL_ID,
+            trNow("Estacionamento", "Parking"),
+            NotificationManager.IMPORTANCE_DEFAULT
+        ).apply {
+            description = trNow("Lembrete de estacionamento em andamento", "Parking in-progress reminder")
+            setShowBadge(false)
+        }
+        manager.createNotificationChannel(channel)
+    }
+
+    private fun hasNotificationPermission(context: Context): Boolean {
+        return Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            ContextCompat.checkSelfPermission(context, android.Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+    }
+
+    private fun inferBikeContextFromLastVehicle(context: Context): Boolean {
+        val lastVehicleId = AppPreferences.getLastSelectedCarId(context) ?: return false
+        val vehicle = BancoDeDados.carregarCarros(context).orEmpty().firstOrNull { it.id == lastVehicleId } ?: return false
+        return vehicle.tipoVeiculo == TipoVeiculo.BICICLETA || vehicle.tipoVeiculo == TipoVeiculo.BIKE_ELETRICA
     }
 
     private fun processarRecorrenciaSeNecessario(context: Context, lembreteId: String) {
@@ -168,6 +285,10 @@ class NotificacaoReceiver : BroadcastReceiver() {
     companion object {
         const val TAG_REPEAT = "ReminderRepeat"
         const val CHANNEL_ID = "lembretes_channel"
+        const val ACTION_PARKING_NOTIFICATION_DISMISSED = "br.com.gui.carlembrete.action.PARKING_NOTIFICATION_DISMISSED"
+        const val EXTRA_PARKING_IS_BIKE = "extra_parking_is_bike"
+        const val PARKING_NOTIFICATION_CHANNEL_ID = "parking_ongoing_channel"
+        const val PARKING_NOTIFICATION_ID = 90421
         const val EXTRA_ID = "extra_id"
         const val EXTRA_TITULO = "extra_titulo"
         const val EXTRA_DESCRICAO = "extra_descricao"

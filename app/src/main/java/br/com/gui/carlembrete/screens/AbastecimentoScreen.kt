@@ -44,8 +44,8 @@ import java.util.Locale
 fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
     val scheme = MaterialTheme.colorScheme
     val isDark = scheme.background.luminance() < 0.5f
-    val primaryDark = if (isDark) Color(0xFF0F172A) else scheme.background
-    val surfaceDark = if (isDark) Color(0xFF1E293B) else scheme.surface
+    val primaryDark = if (isDark) Color.Black else scheme.background
+    val surfaceDark = if (isDark) Color(0xFF111827) else scheme.surface
     val accentBlue = Color(0xFF3B82F6)
     val accentGreen = Color(0xFF34D399)
     val cardStroke = if (isDark) Color(0xFF1F2A44) else Color(0xFFCBD5E1)
@@ -102,8 +102,8 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
         unfocusedLabelColor = textDim,
         focusedLeadingIconColor = if (isDark) Color(0xFFCBD5F5) else Color(0xFF334155),
         unfocusedLeadingIconColor = textDim,
-        focusedContainerColor = if (isDark) Color(0xFF0F172A) else Color.White,
-        unfocusedContainerColor = if (isDark) Color(0xFF0F172A) else Color.White
+        focusedContainerColor = if (isDark) Color(0xFF111827) else Color.White,
+        unfocusedContainerColor = if (isDark) Color(0xFF111827) else Color.White
     )
 
     LaunchedEffect(Unit) {
