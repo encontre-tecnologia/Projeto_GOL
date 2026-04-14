@@ -137,7 +137,7 @@ fun EbookStoreScreen(
     }
 
     LazyVerticalGrid(
-        columns = GridCells.Adaptive(minSize = 160.dp),
+        columns = GridCells.Fixed(2),
         modifier = Modifier
             .fillMaxSize()
             .background(screenBg)
@@ -202,14 +202,6 @@ fun EbookStoreScreen(
                         color = textPrimary,
                         fontWeight = FontWeight.Bold,
                         fontSize = 19.sp,
-                        textAlign = TextAlign.Center
-                    )
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        text = "Conteudo pratico de mecanica para usar no dia a dia. Com uma compra unica voce libera os 4 eBooks no app.",
-                        color = textSecondary,
-                        fontSize = 13.sp,
-                        lineHeight = 19.sp,
                         textAlign = TextAlign.Center
                     )
                 }
