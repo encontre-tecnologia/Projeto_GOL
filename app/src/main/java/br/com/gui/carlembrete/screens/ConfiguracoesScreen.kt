@@ -1,5 +1,6 @@
 ﻿package br.com.gui.carlembrete
 
+import android.content.Context
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -79,6 +80,26 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 
+private fun Context.toBackupErrorMessage(action: BackupAction, err: Throwable): String {
+    val raw = err.message?.trim().orEmpty()
+    val normalized = raw.lowercase(Locale.ROOT)
+    val seemsGoogleKeyIssue =
+        normalized.contains("key error") ||
+            normalized.contains("developer_error") ||
+            normalized.contains("12500") ||
+            normalized.contains(" 10")
+
+    if (seemsGoogleKeyIssue) {
+        return "Falha de chave Google (SHA). Atualize o google-services.json com a assinatura da Play Store."
+    }
+
+    val fallback = if (raw.isBlank()) "-" else raw
+    return when (action) {
+        BackupAction.BACKUP -> getString(R.string.cfg_backup_send_failed, fallback)
+        BackupAction.RESTORE -> getString(R.string.cfg_backup_restore_failed, fallback)
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ConfiguracoesScreen(
@@ -154,7 +175,7 @@ fun ConfiguracoesScreen(
                 withContext(Dispatchers.Main) {
                     Toast.makeText(
                         context,
-                        context.getString(R.string.cfg_backup_send_failed, err.message ?: "-"),
+                        context.toBackupErrorMessage(BackupAction.BACKUP, err),
                         Toast.LENGTH_LONG
                     ).show()
                 }
@@ -197,7 +218,7 @@ fun ConfiguracoesScreen(
                 withContext(Dispatchers.Main) {
                     Toast.makeText(
                         context,
-                        context.getString(R.string.cfg_backup_restore_failed, err.message ?: "-"),
+                        context.toBackupErrorMessage(BackupAction.RESTORE, err),
                         Toast.LENGTH_LONG
                     ).show()
                 }
@@ -618,3 +639,4 @@ private fun ThemeModeOptionButton(
         Text(label, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
     }
 }
+
