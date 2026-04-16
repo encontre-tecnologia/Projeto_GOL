@@ -110,7 +110,19 @@ jobs:
         env:
           GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
         run: |
-          printf '%s' "${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON}" > /tmp/google-play-service-account.json
+          # Accept raw JSON or base64-encoded JSON in the same secret.
+          if echo "${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON}" | jq -e . >/dev/null 2>&1; then
+            printf '%s' "${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON}" > /tmp/google-play-service-account.json
+          else
+            printf '%s' "${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON}" | base64 --decode > /tmp/google-play-service-account.json
+          fi
+
+          # Validate service account key structure before calling fastlane.
+          jq -e '.type == "service_account" and (.client_email|type=="string") and (.private_key|type=="string")' \
+            /tmp/google-play-service-account.json >/dev/null || {
+            echo "ERRO: GOOGLE_PLAY_SERVICE_ACCOUNT_JSON invalido. Use o JSON de chave de conta de servico (type=service_account)."
+            exit 1
+          }
 
           fastlane supply \
             --aab "app/build/outputs/bundle/release/app-release.aab" \
