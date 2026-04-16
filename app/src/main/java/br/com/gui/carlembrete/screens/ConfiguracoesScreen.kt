@@ -127,6 +127,7 @@ fun ConfiguracoesScreen(
         GoogleSignIn.getClient(
             context,
             GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+                .requestIdToken(context.getString(R.string.default_web_client_id))
                 .requestEmail()
                 .requestScopes(driveScope)
                 .build()
