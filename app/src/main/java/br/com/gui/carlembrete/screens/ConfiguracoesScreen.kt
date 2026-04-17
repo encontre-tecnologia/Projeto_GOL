@@ -1,6 +1,8 @@
 ﻿package br.com.gui.carlembrete
 
 import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -77,8 +79,36 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
+import java.security.MessageDigest
 import java.util.Locale
 import java.util.concurrent.TimeUnit
+
+private fun ByteArray.toHexColon(): String = joinToString(":") { "%02x".format(it) }
+
+private fun Context.currentSigningSha1(): String? {
+    return runCatching {
+        val pkgInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            packageManager.getPackageInfo(packageName, PackageManager.GET_SIGNING_CERTIFICATES)
+        } else {
+            @Suppress("DEPRECATION")
+            packageManager.getPackageInfo(packageName, PackageManager.GET_SIGNATURES)
+        }
+        val signatureBytes = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            val info = pkgInfo.signingInfo ?: return@runCatching null
+            val signatures = if (info.hasMultipleSigners()) {
+                info.apkContentsSigners
+            } else {
+                info.signingCertificateHistory
+            }
+            signatures.firstOrNull()?.toByteArray()
+        } else {
+            @Suppress("DEPRECATION")
+            pkgInfo.signatures?.firstOrNull()?.toByteArray()
+        } ?: return@runCatching null
+
+        MessageDigest.getInstance("SHA1").digest(signatureBytes).toHexColon()
+    }.getOrNull()
+}
 
 private fun Context.toBackupErrorMessage(action: BackupAction, err: Throwable): String {
     val raw = err.message?.trim().orEmpty()
@@ -90,7 +120,12 @@ private fun Context.toBackupErrorMessage(action: BackupAction, err: Throwable): 
             normalized.contains(" 10")
 
     if (seemsGoogleKeyIssue) {
-        return "Falha de chave Google (SHA). Atualize o google-services.json com a assinatura da Play Store."
+        val sha = currentSigningSha1()
+        return if (sha.isNullOrBlank()) {
+            "Falha de chave Google (SHA). Atualize o google-services.json com a assinatura da Play Store."
+        } else {
+            "Falha de chave Google (SHA). SHA atual desta build: $sha"
+        }
     }
 
     val fallback = if (raw.isBlank()) "-" else raw
@@ -248,13 +283,24 @@ fun ConfiguracoesScreen(
                 BackupAction.RESTORE -> recuperarBackup(account)
                 null -> {}
             }
-        } catch (_: ApiException) {
-            Toast.makeText(context, context.getString(R.string.cfg_google_auth_failed), Toast.LENGTH_SHORT).show()
+        } catch (e: ApiException) {
+            val msg = if (e.statusCode == 10) {
+                val sha = context.currentSigningSha1()
+                if (sha.isNullOrBlank()) {
+                    "Falha ao autenticar com Google (código 10). Verifique SHA no Firebase."
+                } else {
+                    "Falha ao autenticar com Google (código 10). SHA desta build: $sha"
+                }
+            } else {
+                context.getString(R.string.cfg_google_auth_failed)
+            }
+            Log.e("Backup", "Google auth failed. status=${e.statusCode}", e)
+            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
             backupInProgressAction = null
-    } finally {
-        pendingBackupAction = null
+        } finally {
+            pendingBackupAction = null
+        }
     }
-}
 
 
     fun executarBackup(action: BackupAction) {
