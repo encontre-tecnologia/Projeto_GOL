@@ -113,18 +113,22 @@ private fun Context.currentSigningSha1(): String? {
 private fun Context.toBackupErrorMessage(action: BackupAction, err: Throwable): String {
     val raw = err.message?.trim().orEmpty()
     val normalized = raw.lowercase(Locale.ROOT)
+    val hasCode10 = Regex("""\b(code|status)\s*[:=]?\s*10\b""").containsMatchIn(normalized)
     val seemsGoogleKeyIssue =
         normalized.contains("key error") ||
             normalized.contains("developer_error") ||
             normalized.contains("12500") ||
-            normalized.contains(" 10")
+            hasCode10
 
     if (seemsGoogleKeyIssue) {
         val sha = currentSigningSha1()
-        return if (sha.isNullOrBlank()) {
+        return if (sha.isNullOrBlank() && raw.isBlank()) {
             "Falha de chave Google (SHA). Atualize o google-services.json com a assinatura da Play Store."
+        } else if (sha.isNullOrBlank()) {
+            "Falha de chave Google (SHA). Detalhe: $raw"
         } else {
-            "Falha de chave Google (SHA). SHA atual desta build: $sha"
+            val detalhe = if (raw.isBlank()) "" else " Detalhe: $raw"
+            "Falha de chave Google (SHA). SHA atual desta build: $sha.$detalhe"
         }
     }
 
