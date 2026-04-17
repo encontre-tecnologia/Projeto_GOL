@@ -27,3 +27,12 @@
     static final long serialVersionUID;
     !static !transient <fields>;
 }
+
+# Google API Client / Drive SDK relies on reflection for JSON parsing.
+# Keep these classes in release to avoid "key error" with obfuscated models.
+-keep class com.google.api.client.** { *; }
+-keep class com.google.api.services.drive.** { *; }
+-keep class com.google.api.client.googleapis.extensions.android.gms.auth.** { *; }
+-keep class com.google.api.client.json.gson.** { *; }
+-dontwarn com.google.api.client.**
+-dontwarn com.google.api.services.drive.**
