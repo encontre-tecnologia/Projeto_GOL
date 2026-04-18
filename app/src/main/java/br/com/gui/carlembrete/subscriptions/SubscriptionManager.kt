@@ -16,20 +16,36 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
 class SubscriptionManager(context: Context) : PurchasesUpdatedListener {
-    private val billingClient: BillingClient = BillingClient.newBuilder(context)
+    private val appContext = context.applicationContext
+    private val billingClient: BillingClient = BillingClient.newBuilder(appContext)
         .setListener(this)
         .enablePendingPurchases()
         .build()
 
     private val productDetailsById = mutableMapOf<String, ProductDetails>()
     private val offerTokenByProductId = mutableMapOf<String, String>()
+    private var billingTier: PlanTier = PlanTier.FREE
 
     private val _planTier = MutableStateFlow(PlanTier.FREE)
     val planTier: StateFlow<PlanTier> = _planTier
     private val _isSubscribed = MutableStateFlow(false)
     val isSubscribed: StateFlow<Boolean> = _isSubscribed
 
+    fun refreshLocalEntitlements() {
+        applyEffectiveEntitlements()
+    }
+
+    private fun applyEffectiveEntitlements() {
+        val override = isAdminPremiumOverrideEnabled(appContext)
+        val effective = if (override && billingTier == PlanTier.FREE) PlanTier.FROTA else billingTier
+        _planTier.value = effective
+        _isSubscribed.value = effective != PlanTier.FREE
+        val planLabel = if (effective != PlanTier.FREE) "premium" else "free"
+        AdminUsersSync.syncCurrentUser(plan = planLabel)
+    }
+
     fun connect() {
+        applyEffectiveEntitlements()
         billingClient.startConnection(object : BillingClientStateListener {
             override fun onBillingSetupFinished(billingResult: BillingResult) {
                 if (billingResult.responseCode == BillingClient.BillingResponseCode.OK) {
@@ -155,13 +171,40 @@ class SubscriptionManager(context: Context) : PurchasesUpdatedListener {
                 }
             }
         }
-        _planTier.value = tier
-        _isSubscribed.value = tier != PlanTier.FREE
+        billingTier = tier
+        applyEffectiveEntitlements()
     }
 
     companion object {
         const val SUBSCRIPTION_LITE_PRODUCT_ID = "zellu_lite"
         const val SUBSCRIPTION_FROTA_PRODUCT_ID = "zellu_frota"
+        private const val ADMIN_PREFS = "admin_mode_prefs"
+        private const val KEY_ADMIN_OVERRIDE = "admin_premium_override"
+        private const val KEY_ADMIN_EBOOK_OVERRIDE = "admin_ebook_override"
+
+        fun setAdminPremiumOverride(context: Context, enabled: Boolean) {
+            context.applicationContext
+                .getSharedPreferences(ADMIN_PREFS, Context.MODE_PRIVATE)
+                .edit().putBoolean(KEY_ADMIN_OVERRIDE, enabled).apply()
+        }
+
+        fun isAdminPremiumOverrideEnabled(context: Context): Boolean {
+            return context.applicationContext
+                .getSharedPreferences(ADMIN_PREFS, Context.MODE_PRIVATE)
+                .getBoolean(KEY_ADMIN_OVERRIDE, false)
+        }
+
+        fun setAdminEbookOverride(context: Context, enabled: Boolean) {
+            context.applicationContext
+                .getSharedPreferences(ADMIN_PREFS, Context.MODE_PRIVATE)
+                .edit().putBoolean(KEY_ADMIN_EBOOK_OVERRIDE, enabled).apply()
+        }
+
+        fun isAdminEbookOverrideEnabled(context: Context): Boolean {
+            return context.applicationContext
+                .getSharedPreferences(ADMIN_PREFS, Context.MODE_PRIVATE)
+                .getBoolean(KEY_ADMIN_EBOOK_OVERRIDE, false)
+        }
     }
 }
 

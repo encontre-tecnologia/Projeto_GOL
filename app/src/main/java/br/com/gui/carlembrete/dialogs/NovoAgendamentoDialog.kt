@@ -178,6 +178,7 @@ fun NovoAgendamentoDialog(
     onAutoCameraConsumida: () -> Unit = {},
     onAddContato: (ContatoProfissional) -> Unit = {},
     initialTipo: TipoManutencao = TipoManutencao.OLEO,
+    initialRegistroServico: Boolean? = null,
     planTier: PlanTier,
     onRequestPremium: () -> Unit,
     onOpenVehicleGuide: () -> Unit = {}
@@ -249,7 +250,6 @@ fun NovoAgendamentoDialog(
     var fotoCaminho by remember { mutableStateOf<String?>(null) }
     var horaNotificacao by remember { mutableStateOf("09:00") }
     var dataAviso by remember { mutableStateOf(LocalDate.now().format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))) }
-    var dataAvisoEscolhidaManualmente by remember { mutableStateOf(false) }
     var frequenciaLembreteKey by remember { mutableStateOf("NONE") }
     var repetirAteDesativar by remember { mutableStateOf(false) }
     var intervaloDiasPersonalizado by remember { mutableStateOf("1") }
@@ -259,8 +259,14 @@ fun NovoAgendamentoDialog(
     val isInitialPosto = initialTipo == TipoManutencao.ABASTECIMENTO
     var avisoPersonalizado by remember { mutableStateOf(false) }
     var etapaAtual by remember { mutableStateOf(1) }
-    var fluxoCadastro by remember {
-        mutableStateOf<FluxoCadastroAviso?>(null)
+    var fluxoCadastro by remember(initialRegistroServico) {
+        mutableStateOf(
+            when (initialRegistroServico) {
+                true -> FluxoCadastroAviso.REGISTRAR_SERVICO
+                false -> FluxoCadastroAviso.CRIAR_LEMBRETE
+                null -> FluxoCadastroAviso.CRIAR_LEMBRETE
+            }
+        )
     }
     val isFluxoPosto = tipoSelecionado == TipoManutencao.ABASTECIMENTO
     val isRegistroServico = fluxoCadastro == FluxoCadastroAviso.REGISTRAR_SERVICO
@@ -911,10 +917,10 @@ fun NovoAgendamentoDialog(
         val kmAtualBase = kmAtualBaseForcado ?: (kmBase.toIntOrNull() ?: 0)
         if (kmAtualBase > carroAtual.kmAtual) onUpdateKmCarro(kmAtualBase)
         val recorrenciaConfig = recorrenciaSelecionadaConfig()
-        val dataAvisoStr = if (!isRegistroServico && recorrenciaConfig != null) {
-            dataHojeFormatada()
-        } else {
-            dataAviso
+        val dataAvisoStr = when {
+            isRegistroServico -> data
+            !isRegistroServico && recorrenciaConfig != null -> dataHojeFormatada()
+            else -> dataAviso
         }
         if (dataAviso != dataAvisoStr) {
             dataAviso = dataAvisoStr
@@ -1037,7 +1043,6 @@ fun NovoAgendamentoDialog(
                 Toast.makeText(context, "Registro salvo no historico de abastecimento.", Toast.LENGTH_SHORT).show()
             } else if (isRegistroServico) {
                 onConfirm(marcarLembreteComoRealizado(novoLembrete))
-                Toast.makeText(context, trNow("Serviço registrado no histórico.", "Service recorded in history."), Toast.LENGTH_SHORT).show()
             } else {
                 NotificacaoHelper.agendarNotificacao(appContext, novoLembrete, horaNotificacao)
                 if (tipoPermiteFrequencia(novoLembrete.tipo)) {
@@ -1839,12 +1844,10 @@ fun NovoAgendamentoDialog(
     val valorTotalManual = valorInput.replace(",", ".").toDoubleOrNull()
     val valorTotalValido = valorTotalManual != null && valorTotalManual > 0.0
     val quantidadeManualValida = quantidadeManualInput.toIntOrNull()?.let { it > 0 } == true
-    val fluxoSelecionado = isFluxoPosto || fluxoCadastro != null
     val podeAvancarEtapa1 = if (isModoLista && listaItensDetectados.isNotEmpty()) {
         true
     } else {
-        fluxoSelecionado &&
-            tituloAviso.isNotBlank() &&
+        tituloAviso.isNotBlank() &&
             descricao.isNotBlank() &&
             valorTotalValido &&
             quantidadeManualValida
@@ -1959,7 +1962,7 @@ fun NovoAgendamentoDialog(
                     TextButton(
                         onClick = {
                             showKmSugeridoDialog = false
-                            etapaAtual = if (isRegistroServico) 1 else 2
+                            etapaAtual = 2
                         },
                         modifier = Modifier.fillMaxWidth()
                     ) { Text("Editar KM manualmente", color = textPrimary) }
@@ -1992,6 +1995,9 @@ fun NovoAgendamentoDialog(
     fun dataItemValida(dataTexto: String): Boolean = runCatching {
         LocalDate.parse(dataTexto, dataFormatter)
     }.isSuccess
+    fun parseDataOrNull(dataTexto: String): LocalDate? = runCatching {
+        LocalDate.parse(dataTexto, dataFormatter)
+    }.getOrNull()
     val totalItensModoSeparado = listaItensDetectados.size
     val itensCompletosModoSeparado = if (qrModoSeparado && totalItensModoSeparado > 0) {
         listaItensDetectados.count { item ->
@@ -2007,7 +2013,18 @@ fun NovoAgendamentoDialog(
         0
     }
     val podeAvancarEtapa3 = !qrModoSeparado || totalItensModoSeparado == 0 || itensCompletosModoSeparado == totalItensModoSeparado
-    val podeAvancarEtapa2 = dataAvisoEscolhidaManualmente && dataItemValida(dataAviso)
+    val dataServicoSelecionada = parseDataOrNull(data)
+    val dataAvisoSelecionada = parseDataOrNull(dataAviso)
+    val dataAvisoMesmoDiaDoServico = !isRegistroServico &&
+        dataServicoSelecionada != null &&
+        dataAvisoSelecionada != null &&
+        dataAvisoSelecionada.isEqual(dataServicoSelecionada)
+
+    val podeAvancarEtapa2 = if (isRegistroServico) {
+        dataItemValida(data)
+    } else {
+        dataItemValida(dataAviso) && !dataAvisoMesmoDiaDoServico
+    }
     val textoBotaoEtapa1 = tr("Avançar", "Continue")
     val textoBotaoSalvar = if (isFluxoPosto) {
         tr("Cadastrar abastecimento", "Register fuel")
@@ -2025,7 +2042,7 @@ fun NovoAgendamentoDialog(
     fun etapaAnteriorAtual(etapa: Int): Int = when {
         !deveExibirEtapaModoCriacao && etapa == 4 -> 2
         isFluxoPosto && etapa == 4 -> 1
-        isRegistroServico && etapa == 4 -> 1
+        isRegistroServico && etapa == 4 -> 2
         etapa > 1 -> etapa - 1
         else -> 1
     }
@@ -2054,7 +2071,13 @@ fun NovoAgendamentoDialog(
                     1 -> Unit
                     2 -> {
                         Button(
-                            onClick = { etapaAtual = if (deveExibirEtapaModoCriacao) 3 else 4 },
+                            onClick = {
+                                etapaAtual = when {
+                                    isRegistroServico -> 4
+                                    deveExibirEtapaModoCriacao -> 3
+                                    else -> 4
+                                }
+                            },
                             enabled = podeAvancarEtapa2,
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = nextActionBlue,
@@ -2171,73 +2194,6 @@ fun NovoAgendamentoDialog(
                             )
                         }
                         Spacer(Modifier.height(14.dp))
-                        if (!isFluxoPosto) {
-                            Surface(
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(12.dp),
-                                color = if (isDark) Color(0xFF0F172A) else Color(0xFFF8FAFC),
-                                border = BorderStroke(1.dp, cardBorder)
-                            ) {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(12.dp),
-                                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                                ) {
-                                    Text(
-                                        tr("Esse aviso já aconteceu ou vai acontecer?", "Did this reminder already happen or will it happen?"),
-                                        color = textPrimary,
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        OutlinedButton(
-                                            onClick = {
-                                                fluxoCadastro = FluxoCadastroAviso.CRIAR_LEMBRETE
-                                            },
-                                            modifier = Modifier
-                                                .weight(1f)
-                                                .height(46.dp),
-                                            shape = RoundedCornerShape(12.dp),
-                                            border = BorderStroke(
-                                                1.dp,
-                                                if (fluxoCadastro == FluxoCadastroAviso.CRIAR_LEMBRETE) accentBlue else cardBorder
-                                            ),
-                                            colors = ButtonDefaults.outlinedButtonColors(
-                                                containerColor = if (fluxoCadastro == FluxoCadastroAviso.CRIAR_LEMBRETE) accentBlue else Color.Transparent,
-                                                contentColor = if (fluxoCadastro == FluxoCadastroAviso.CRIAR_LEMBRETE) Color.White else textPrimary
-                                            )
-                                        ) {
-                                            Text(tr("Vai acontecer", "Will happen"), fontWeight = FontWeight.SemiBold)
-                                        }
-                                        OutlinedButton(
-                                            onClick = {
-                                                fluxoCadastro = FluxoCadastroAviso.REGISTRAR_SERVICO
-                                                frequenciaLembreteKey = "NONE"
-                                                repetirAteDesativar = false
-                                            },
-                                            modifier = Modifier
-                                                .weight(1f)
-                                                .height(46.dp),
-                                            shape = RoundedCornerShape(12.dp),
-                                            border = BorderStroke(
-                                                1.dp,
-                                                if (fluxoCadastro == FluxoCadastroAviso.REGISTRAR_SERVICO) accentBlue else cardBorder
-                                            ),
-                                            colors = ButtonDefaults.outlinedButtonColors(
-                                                containerColor = if (fluxoCadastro == FluxoCadastroAviso.REGISTRAR_SERVICO) accentBlue else Color.Transparent,
-                                                contentColor = if (fluxoCadastro == FluxoCadastroAviso.REGISTRAR_SERVICO) Color.White else textPrimary
-                                            )
-                                        ) {
-                                            Text(tr("Já aconteceu", "Already happened"), fontWeight = FontWeight.SemiBold)
-                                        }
-                                    }
-                                }
-                            }
-                        }
                         if (categoriaPermiteEscanearNota(tipoSelecionado)) {
                             Button(
                                 onClick = {
@@ -2275,14 +2231,21 @@ fun NovoAgendamentoDialog(
                                     border = BorderStroke(1.dp, cardBorder),
                                     colors = ButtonDefaults.outlinedButtonColors(contentColor = textPrimary)
                                 ) {
-                                    Text(tr("Cadastro manual", "Manual entry"), fontWeight = FontWeight.SemiBold)
+                                    Text(tr("Mudar para cadastro manual", "Switch to manual entry"), fontWeight = FontWeight.SemiBold)
                                 }
                             }
                         }
                         OutlinedTextField(
                             value = tituloAviso,
                             onValueChange = { tituloAviso = it },
-                            label = { Text(tr("Título do aviso *", "Reminder title *")) },
+                            label = {
+                                Text(
+                                    when {
+                                        isRegistroServico -> tr("Título do serviço *", "Service title *")
+                                        else -> tr("Título do aviso *", "Reminder title *")
+                                    }
+                                )
+                            },
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(12.dp)
@@ -2293,7 +2256,14 @@ fun NovoAgendamentoDialog(
                                 selection = TextRange(descricao.length)
                             ),
                             onValueChange = { descricao = it.text },
-                            label = { Text(tr("Descrição do aviso", "Reminder description")) },
+                            label = {
+                                Text(
+                                    when {
+                                        isRegistroServico -> tr("Descrição do serviço", "Service description")
+                                        else -> tr("Descrição do aviso", "Reminder description")
+                                    }
+                                )
+                            },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .heightIn(max = 280.dp)
@@ -2463,7 +2433,7 @@ fun NovoAgendamentoDialog(
                             onClick = {
                                 etapaAtual = when {
                                     isFluxoPosto -> 4
-                                    isRegistroServico -> 4
+                                    isRegistroServico -> 2
                                     else -> 2
                                 }
                             },
@@ -2508,18 +2478,27 @@ fun NovoAgendamentoDialog(
                             }
                             Spacer(Modifier.height(6.dp))
                             Text(
-                                if (exigeEstadoUf) tr("Estado e data", "State and date") else tr("Quilometragem e data", "Mileage and date"),
+                                if (exigeEstadoUf) {
+                                    tr("Estado e data", "State and date")
+                                } else if (isRegistroServico) {
+                                    tr("KM e data do serviço", "Mileage and service date")
+                                } else {
+                                    tr("KM e data do lembrete", "Mileage and reminder date")
+                                },
                                 color = textPrimary,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 25.sp
                             )
                         }
-                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
                             if (exigeEstadoUf) {
                                 ExposedDropdownMenuBox(
                                     expanded = menuUfExpanded,
                                     onExpandedChange = { menuUfExpanded = !menuUfExpanded },
-                                    modifier = Modifier.weight(1f)
+                                    modifier = Modifier.fillMaxWidth()
                                 ) {
                                     OutlinedTextField(
                                         value = estadoUfSelecionado,
@@ -2555,7 +2534,7 @@ fun NovoAgendamentoDialog(
                                     value = formatarKmCampo(kmBase),
                                     onValueChange = { kmBase = it.filter(Char::isDigit) },
                                     label = { Text(tr("KM Atual", "Current mileage")) },
-                                    modifier = Modifier.weight(1f),
+                                    modifier = Modifier.fillMaxWidth(),
                                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                     trailingIcon = {
                                         Icon(
@@ -2572,7 +2551,7 @@ fun NovoAgendamentoDialog(
                                 onValueChange = {},
                                 label = { Text(tr("Data do servico", "Service date")) },
                                 readOnly = true,
-                                modifier = Modifier.weight(1f),
+                                modifier = Modifier.fillMaxWidth(),
                                 trailingIcon = {
                                     IconButton(onClick = {
                                         abrirDatePicker(data) {
@@ -2590,183 +2569,197 @@ fun NovoAgendamentoDialog(
                                 shape = RoundedCornerShape(12.dp)
                             )
                         }
-                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            OutlinedTextField(
-                                value = dataAviso,
-                                onValueChange = {},
-                                label = { Text(if (qrModoSeparado) tr("Data padrão", "Default date") else tr("Data do lembrete", "Reminder date")) },
-                                readOnly = true,
-                                modifier = Modifier.weight(1f),
-                                trailingIcon = {
-                                    IconButton(onClick = {
-                                        abrirDatePicker(dataAviso) {
-                                            dataAviso = it
-                                            avisoPersonalizado = true
-                                            dataAvisoEscolhidaManualmente = true
-                                        }
-                                    }) {
-                                        Icon(Icons.Default.Event, contentDescription = null)
-                                    }
-                                },
-                                singleLine = true,
-                                shape = RoundedCornerShape(12.dp)
-                            )
-                            OutlinedTextField(
-                                value = horaNotificacao,
-                                onValueChange = {},
-                                label = { Text(tr("Hora do lembrete", "Reminder time")) },
-                                readOnly = true,
-                                modifier = Modifier.weight(1f),
-                                trailingIcon = {
-                                    IconButton(onClick = {
-                                        abrirTimePicker(horaNotificacao) { selecionada ->
-                                            horaNotificacao = selecionada
-                                        }
-                                    }) {
-                                        Icon(Icons.Default.Schedule, contentDescription = null)
-                                    }
-                                },
-                                singleLine = true,
-                                shape = RoundedCornerShape(12.dp)
-                            )
-                        }
-                        if (!dataAvisoEscolhidaManualmente) {
-                            Text(
-                                text = tr("Selecione a data do lembrete para continuar.", "Select the reminder date to continue."),
-                                color = Color(0xFFEF4444),
-                                fontSize = 12.sp,
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        }
-                        val mostrarFrequencia = if (qrModoSeparado && listaItensDetectados.isNotEmpty()) {
-                            listaItensDetectados.any { item ->
-                                val tipoItem = itemTipoOverrides[item.id] ?: tipoSelecionado
-                                tipoPermiteFrequencia(tipoItem)
-                            }
-                        } else {
-                            tipoPermiteFrequencia(tipoSelecionado)
-                        }
-                        if (mostrarFrequencia) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .clickable(
-                                        interactionSource = remember { MutableInteractionSource() },
-                                        indication = null
-                                    ) {
-                                        val novoValor = !repetirAteDesativar
-                                        repetirAteDesativar = novoValor
-                                        if (novoValor) {
-                                            if (frequenciaLembreteKey == "NONE") {
-                                                frequenciaLembreteKey = "DAY"
-                                            }
-                                            aplicarPrimeiroAvisoAgoraSeRecorrente()
-                                        } else {
-                                            frequenciaLembreteKey = "NONE"
-                                            menuFrequenciaExpanded = false
-                                        }
-                                    }
-                                    .padding(vertical = 2.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                        if (!isRegistroServico) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
-                                Checkbox(
-                                    checked = repetirAteDesativar,
-                                    onCheckedChange = { marcado ->
-                                        repetirAteDesativar = marcado
-                                        if (marcado) {
-                                            if (frequenciaLembreteKey == "NONE") {
-                                                frequenciaLembreteKey = "DAY"
+                                OutlinedTextField(
+                                    value = dataAviso,
+                                    onValueChange = {},
+                                    label = { Text(if (qrModoSeparado) tr("Data padrão", "Default date") else tr("Data do lembrete", "Reminder date")) },
+                                    readOnly = true,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    trailingIcon = {
+                                        IconButton(onClick = {
+                                            abrirDatePicker(dataAviso) {
+                                                dataAviso = it
+                                                avisoPersonalizado = true
                                             }
-                                            aplicarPrimeiroAvisoAgoraSeRecorrente()
-                                        } else {
-                                            frequenciaLembreteKey = "NONE"
-                                            menuFrequenciaExpanded = false
+                                        }) {
+                                            Icon(Icons.Default.Event, contentDescription = null)
                                         }
-                                    }
+                                    },
+                                    singleLine = true,
+                                    shape = RoundedCornerShape(12.dp)
                                 )
-                                Text(
-                                    text = tr("Repetir este aviso", "Repeat this reminder"),
-                                    color = textPrimary,
-                                    fontWeight = FontWeight.SemiBold
+                                OutlinedTextField(
+                                    value = horaNotificacao,
+                                    onValueChange = {},
+                                    label = { Text(tr("Hora do lembrete", "Reminder time")) },
+                                    readOnly = true,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    trailingIcon = {
+                                        IconButton(onClick = {
+                                            abrirTimePicker(horaNotificacao) { selecionada ->
+                                                horaNotificacao = selecionada
+                                            }
+                                        }) {
+                                            Icon(Icons.Default.Schedule, contentDescription = null)
+                                        }
+                                    },
+                                    singleLine = true,
+                                    shape = RoundedCornerShape(12.dp)
                                 )
                             }
-                            if (repetirAteDesativar) {
-                                ExposedDropdownMenuBox(
-                                    expanded = menuFrequenciaExpanded,
-                                    onExpandedChange = { menuFrequenciaExpanded = !menuFrequenciaExpanded },
+                            if (!dataItemValida(dataAviso)) {
+                                Text(
+                                    text = tr("Selecione a data do lembrete para continuar.", "Select the reminder date to continue."),
+                                    color = Color(0xFFEF4444),
+                                    fontSize = 12.sp,
                                     modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    OutlinedTextField(
-                                        value = descricaoFrequenciaSelecionada(),
-                                        onValueChange = {},
-                                        readOnly = true,
-                                        label = { Text(tr("Frequência do lembrete", "Reminder frequency")) },
-                                        modifier = Modifier
-                                            .menuAnchor()
-                                            .fillMaxWidth(),
-                                        trailingIcon = {
-                                            ExposedDropdownMenuDefaults.TrailingIcon(expanded = menuFrequenciaExpanded)
-                                        },
-                                        singleLine = true,
-                                        shape = RoundedCornerShape(12.dp)
-                                    )
-                                    ExposedDropdownMenu(
-                                        expanded = menuFrequenciaExpanded,
-                                        onDismissRequest = { menuFrequenciaExpanded = false }
-                                    ) {
-                                        val opcoes = listOf(
-                                            "DAY" to tr("Dias", "Days"),
-                                            "MONTH" to tr("Meses", "Months"),
-                                            "YEAR" to tr("Anos", "Years")
-                                        )
-                                        opcoes.forEach { (key, label) ->
-                                            DropdownMenuItem(
-                                                text = { Text(label) },
-                                                onClick = {
-                                                    frequenciaLembreteKey = key
-                                                    aplicarPrimeiroAvisoAgoraSeRecorrente()
-                                                    menuFrequenciaExpanded = false
+                                )
+                            } else if (dataAvisoMesmoDiaDoServico) {
+                                Text(
+                                    text = tr(
+                                        "A data do lembrete não pode ser igual à data do serviço.",
+                                        "Reminder date cannot be the same as service date."
+                                    ),
+                                    color = Color(0xFFEF4444),
+                                    fontSize = 12.sp,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                            val mostrarFrequencia = if (qrModoSeparado && listaItensDetectados.isNotEmpty()) {
+                                listaItensDetectados.any { item ->
+                                    val tipoItem = itemTipoOverrides[item.id] ?: tipoSelecionado
+                                    tipoPermiteFrequencia(tipoItem)
+                                }
+                            } else {
+                                tipoPermiteFrequencia(tipoSelecionado)
+                            }
+                            if (mostrarFrequencia) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .clickable(
+                                            interactionSource = remember { MutableInteractionSource() },
+                                            indication = null
+                                        ) {
+                                            val novoValor = !repetirAteDesativar
+                                            repetirAteDesativar = novoValor
+                                            if (novoValor) {
+                                                if (frequenciaLembreteKey == "NONE") {
+                                                    frequenciaLembreteKey = "DAY"
                                                 }
+                                                aplicarPrimeiroAvisoAgoraSeRecorrente()
+                                            } else {
+                                                frequenciaLembreteKey = "NONE"
+                                                menuFrequenciaExpanded = false
+                                            }
+                                        }
+                                        .padding(vertical = 2.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Checkbox(
+                                        checked = repetirAteDesativar,
+                                        onCheckedChange = { marcado ->
+                                            repetirAteDesativar = marcado
+                                            if (marcado) {
+                                                if (frequenciaLembreteKey == "NONE") {
+                                                    frequenciaLembreteKey = "DAY"
+                                                }
+                                                aplicarPrimeiroAvisoAgoraSeRecorrente()
+                                            } else {
+                                                frequenciaLembreteKey = "NONE"
+                                                menuFrequenciaExpanded = false
+                                            }
+                                        }
+                                    )
+                                    Text(
+                                        text = tr("Repetir este aviso", "Repeat this reminder"),
+                                        color = textPrimary,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                                if (repetirAteDesativar) {
+                                    ExposedDropdownMenuBox(
+                                        expanded = menuFrequenciaExpanded,
+                                        onExpandedChange = { menuFrequenciaExpanded = !menuFrequenciaExpanded },
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        OutlinedTextField(
+                                            value = descricaoFrequenciaSelecionada(),
+                                            onValueChange = {},
+                                            readOnly = true,
+                                            label = { Text(tr("Frequência do lembrete", "Reminder frequency")) },
+                                            modifier = Modifier
+                                                .menuAnchor()
+                                                .fillMaxWidth(),
+                                            trailingIcon = {
+                                                ExposedDropdownMenuDefaults.TrailingIcon(expanded = menuFrequenciaExpanded)
+                                            },
+                                            singleLine = true,
+                                            shape = RoundedCornerShape(12.dp)
+                                        )
+                                        ExposedDropdownMenu(
+                                            expanded = menuFrequenciaExpanded,
+                                            onDismissRequest = { menuFrequenciaExpanded = false }
+                                        ) {
+                                            val opcoes = listOf(
+                                                "DAY" to tr("Dias", "Days"),
+                                                "MONTH" to tr("Meses", "Months"),
+                                                "YEAR" to tr("Anos", "Years")
                                             )
+                                            opcoes.forEach { (key, label) ->
+                                                DropdownMenuItem(
+                                                    text = { Text(label) },
+                                                    onClick = {
+                                                        frequenciaLembreteKey = key
+                                                        aplicarPrimeiroAvisoAgoraSeRecorrente()
+                                                        menuFrequenciaExpanded = false
+                                                    }
+                                                )
+                                            }
                                         }
                                     }
-                                }
-                                if (
-                                    frequenciaLembreteKey == "DAY" ||
-                                    frequenciaLembreteKey == "MONTH" ||
-                                    frequenciaLembreteKey == "YEAR"
-                                ) {
-                                    OutlinedTextField(
-                                        value = intervaloAtualTexto(),
-                                        onValueChange = { atualizarIntervaloAtual(it) },
-                                        label = { Text(tr("Repetir a cada", "Repeat every")) },
-                                        modifier = Modifier.fillMaxWidth(),
-                                        keyboardOptions = KeyboardOptions(
-                                            keyboardType = KeyboardType.Number,
-                                            imeAction = ImeAction.Done
-                                        ),
-                                        suffix = {
-                                            Text(
-                                                when (frequenciaLembreteKey) {
-                                                    "DAY" -> tr("dia(s)", "day(s)")
-                                                    "MONTH" -> tr("mês(es)", "month(s)")
-                                                    else -> tr("ano(s)", "year(s)")
-                                                }
-                                            )
-                                        },
-                                        supportingText = {
-                                            Text(
-                                                when (frequenciaLembreteKey) {
-                                                    "DAY" -> tr("Informe de 1 a 31 dias.", "Enter from 1 to 31 days.")
-                                                    "MONTH" -> tr("Informe de 1 a 12 meses.", "Enter from 1 to 12 months.")
-                                                    else -> tr("Informe de 1 a 10 anos (12 meses = 1 ano).", "Enter from 1 to 10 years (12 months = 1 year).")
-                                                }
-                                            )
-                                        },
-                                        singleLine = true,
-                                        shape = RoundedCornerShape(12.dp)
-                                    )
+                                    if (
+                                        frequenciaLembreteKey == "DAY" ||
+                                        frequenciaLembreteKey == "MONTH" ||
+                                        frequenciaLembreteKey == "YEAR"
+                                    ) {
+                                        OutlinedTextField(
+                                            value = intervaloAtualTexto(),
+                                            onValueChange = { atualizarIntervaloAtual(it) },
+                                            label = { Text(tr("Repetir a cada", "Repeat every")) },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            keyboardOptions = KeyboardOptions(
+                                                keyboardType = KeyboardType.Number,
+                                                imeAction = ImeAction.Done
+                                            ),
+                                            suffix = {
+                                                Text(
+                                                    when (frequenciaLembreteKey) {
+                                                        "DAY" -> tr("dia(s)", "day(s)")
+                                                        "MONTH" -> tr("mês(es)", "month(s)")
+                                                        else -> tr("ano(s)", "year(s)")
+                                                    }
+                                                )
+                                            },
+                                            supportingText = {
+                                                Text(
+                                                    when (frequenciaLembreteKey) {
+                                                        "DAY" -> tr("Informe de 1 a 31 dias.", "Enter from 1 to 31 days.")
+                                                        "MONTH" -> tr("Informe de 1 a 12 meses.", "Enter from 1 to 12 months.")
+                                                        else -> tr("Informe de 1 a 10 anos (12 meses = 1 ano).", "Enter from 1 to 10 years (12 months = 1 year).")
+                                                    }
+                                                )
+                                            },
+                                            singleLine = true,
+                                            shape = RoundedCornerShape(12.dp)
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -3422,6 +3415,7 @@ fun NovoAgendamentoDialog(
                             contatoSelecionado = contatoSelecionado,
                             cidadeAtual = cidadeAtual,
                             ufAtual = ufAtual,
+                            isRegistroServico = isRegistroServico,
                             repetirAteDesativar = repetirAteDesativar,
                             descricaoRepeticao = descricaoFrequenciaSelecionada(),
                             mostrarResumoSimplificadoPosto = isFluxoPosto,

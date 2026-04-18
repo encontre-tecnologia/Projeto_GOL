@@ -31,7 +31,10 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -93,6 +96,9 @@ fun CarroInfoCard(
     onOpenFuelHistory: () -> Unit,
     showFuelHistoryAction: Boolean = false,
     onNovoLembrete: () -> Unit,
+    onEditButtonPositioned: (Rect) -> Unit = {},
+    onReportButtonPositioned: (Rect) -> Unit = {},
+    onNewReminderButtonPositioned: (Rect) -> Unit = {},
     nomeMantedor: String,
     textLight: Color,
     accentBlue: Color,
@@ -243,13 +249,17 @@ fun CarroInfoCard(
                     ActionGlassButton(
                         icon = Icons.Rounded.Edit,
                         label = tr("Editar", "Edit"),
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier
+                            .weight(1f)
+                            .onGloballyPositioned { onEditButtonPositioned(it.boundsInRoot()) },
                         onClick = onEditCar
                     )
                     ActionGlassButton(
                         icon = Icons.Rounded.Description,
                         label = tr("Relatorio", "Report"),
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier
+                            .weight(1f)
+                            .onGloballyPositioned { onReportButtonPositioned(it.boundsInRoot()) },
                         onClick = onOpenRelatorio
                     )
                 }
@@ -260,6 +270,7 @@ fun CarroInfoCard(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(56.dp)
+                        .onGloballyPositioned { onNewReminderButtonPositioned(it.boundsInRoot()) }
                         .shadow(10.dp, RoundedCornerShape(16.dp), spotColor = palette.accent.copy(alpha = 0.30f)),
                     shape = RoundedCornerShape(16.dp),
                     colors = ButtonDefaults.buttonColors(

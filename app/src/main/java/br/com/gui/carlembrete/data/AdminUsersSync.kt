@@ -11,6 +11,89 @@ private const val TAG_ADMIN_SYNC = "AdminUsersSync"
 object AdminUsersSync {
     private val firestore by lazy { FirebaseFirestore.getInstance() }
 
+    fun syncVehicles(vehicles: List<CarroInfo>) {
+        val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
+        val names = vehicles.map { "${it.nome} ${it.modelo}".trim() }
+        firestore.collection("admin_users").document(uid)
+            .set(
+                mapOf(
+                    "vehiclesTotal" to vehicles.size,
+                    "vehicleNames" to names,
+                    "updatedAt" to FieldValue.serverTimestamp()
+                ),
+                SetOptions.merge()
+            )
+            .addOnFailureListener { Log.w(TAG_ADMIN_SYNC, "Falha ao sincronizar veículos", it) }
+    }
+
+    fun incrementRemindersTotal(amount: Int = 1) {
+        if (amount <= 0) return
+        val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
+        firestore.collection("admin_users").document(uid)
+            .set(mapOf("remindersTotal" to FieldValue.increment(amount.toLong())), SetOptions.merge())
+            .addOnFailureListener { Log.w(TAG_ADMIN_SYNC, "Falha ao incrementar remindersTotal", it) }
+    }
+
+    fun checkAnnouncement(context: android.content.Context, onShow: (title: String, description: String) -> Unit) {
+        firestore.collection("admin_announcements").document("current")
+            .get()
+            .addOnSuccessListener { doc ->
+                if (!doc.exists()) return@addOnSuccessListener
+                if (doc.getBoolean("active") != true) return@addOnSuccessListener
+                val id = doc.getString("id") ?: return@addOnSuccessListener
+                val title = doc.getString("title") ?: return@addOnSuccessListener
+                val description = doc.getString("description") ?: return@addOnSuccessListener
+                val expiresAt = doc.getLong("expiresAt")
+                val now = System.currentTimeMillis()
+                if (expiresAt != null) {
+                    if (now > expiresAt) return@addOnSuccessListener // prazo encerrado
+                    onShow(title, description) // mostra sempre até expirar
+                } else {
+                    val prefs = context.getSharedPreferences("admin_announcements", android.content.Context.MODE_PRIVATE)
+                    if (prefs.getString("last_seen_id", null) == id) return@addOnSuccessListener
+                    prefs.edit().putString("last_seen_id", id).apply()
+                    onShow(title, description) // mostra só uma vez
+                }
+            }
+            .addOnFailureListener { Log.w(TAG_ADMIN_SYNC, "Falha ao verificar anúncio", it) }
+    }
+
+    fun applyRemoteAdminOverride(
+        getCurrentOverride: () -> Boolean,
+        setOverride: (Boolean) -> Unit,
+        onChanged: () -> Unit = {}
+    ) {
+        val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
+        firestore.collection("admin_users").document(uid)
+            .get()
+            .addOnSuccessListener { doc ->
+                val remote = doc.getBoolean("adminPremiumOverride") ?: false
+                if (remote != getCurrentOverride()) {
+                    setOverride(remote)
+                    onChanged()
+                }
+            }
+            .addOnFailureListener { Log.w(TAG_ADMIN_SYNC, "Falha ao ler adminPremiumOverride", it) }
+    }
+
+    fun applyRemoteEbookOverride(
+        getCurrentOverride: () -> Boolean,
+        setOverride: (Boolean) -> Unit,
+        onChanged: () -> Unit = {}
+    ) {
+        val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
+        firestore.collection("admin_users").document(uid)
+            .get()
+            .addOnSuccessListener { doc ->
+                val remote = doc.getBoolean("adminEbookOverride") ?: false
+                if (remote != getCurrentOverride()) {
+                    setOverride(remote)
+                    onChanged()
+                }
+            }
+            .addOnFailureListener { Log.w(TAG_ADMIN_SYNC, "Falha ao ler adminEbookOverride", it) }
+    }
+
     fun syncCurrentUser(plan: String? = null) {
         val user = FirebaseAuth.getInstance().currentUser ?: return
         val userDoc = firestore.collection("admin_users").document(user.uid)
@@ -23,7 +106,6 @@ object AdminUsersSync {
                     "displayName" to (user.displayName ?: ""),
                     "email" to (user.email ?: ""),
                     "providerIds" to user.providerData.mapNotNull { it.providerId }.distinct(),
-                    "lastAccess" to FieldValue.serverTimestamp(),
                     "updatedAt" to FieldValue.serverTimestamp()
                 )
 

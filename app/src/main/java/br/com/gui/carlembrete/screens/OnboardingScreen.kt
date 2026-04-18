@@ -455,6 +455,7 @@ fun OnboardingScreen(
                         val atualizada = (frotaTemporaria + novoCarro).take(maxVehicles)
                         frotaTemporaria = atualizada
                         scope.launch(Dispatchers.IO) { BancoDeDados.salvarCarros(context, atualizada) }
+                        AdminUsersSync.syncVehicles(atualizada)
                         if (atualizada.size == 1) {
                             showOutroVeiculoDialog = true
                         } else {
@@ -1158,6 +1159,7 @@ fun OnboardingScreen(
                                 }
                                 val listaSalvar = listaFinal
                                 scope.launch(Dispatchers.IO) { BancoDeDados.salvarCarros(context, listaSalvar) }
+                                AdminUsersSync.syncVehicles(listaSalvar)
                                 step = 6
                             },
                             modifier = Modifier.fillMaxWidth().height(50.dp),

@@ -7,71 +7,38 @@ import android.content.ContextWrapper
 import android.content.Intent
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBackIosNew
-import androidx.compose.material.icons.filled.AutoStories
-import androidx.compose.material.icons.filled.Bolt
-import androidx.compose.material.icons.filled.LocalOffer
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.PictureAsPdf
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import coil.compose.AsyncImage
-import com.android.billingclient.api.BillingClient
-import com.android.billingclient.api.BillingClientStateListener
-import com.android.billingclient.api.BillingFlowParams
-import com.android.billingclient.api.BillingResult
-import com.android.billingclient.api.QueryPurchasesParams
-import com.android.billingclient.api.ProductDetails
-import com.android.billingclient.api.Purchase
-import com.android.billingclient.api.PurchasesUpdatedListener
-import com.android.billingclient.api.QueryProductDetailsParams
-import com.android.billingclient.api.AcknowledgePurchaseParams
-import androidx.compose.runtime.collectAsState
-import java.io.File
-import java.io.FileOutputStream
+import com.android.billingclient.api.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import java.io.File
+import java.io.FileOutputStream
 
 private const val EBOOK_BUNDLE_PRODUCT_ID = "zellu_ebooks_bundle"
 
@@ -83,56 +50,41 @@ private data class EbookUi(
 )
 
 @Composable
-fun EbookStoreScreen(
-    onDismiss: () -> Unit
-) {
+fun EbookStoreScreen(onDismiss: () -> Unit) {
     val context = LocalContext.current
     val bundleBilling = remember { EbookBundleBillingManager(context.applicationContext) }
-    val isBundleUnlocked by bundleBilling.isBundleUnlocked.collectAsState(initial = false)
+    val isBundlePurchased by bundleBilling.isBundleUnlocked.collectAsState(initial = false)
+    var ebookOverrideVersion by remember { mutableStateOf(0) }
+    val isBundleUnlocked = remember(isBundlePurchased, ebookOverrideVersion) {
+        isBundlePurchased || SubscriptionManager.isAdminEbookOverrideEnabled(context)
+    }
+
     DisposableEffect(Unit) {
         bundleBilling.connect()
+        AdminUsersSync.applyRemoteEbookOverride(
+            getCurrentOverride = { SubscriptionManager.isAdminEbookOverrideEnabled(context) },
+            setOverride = { enabled -> SubscriptionManager.setAdminEbookOverride(context, enabled) },
+            onChanged = { ebookOverrideVersion++ }
+        )
         onDispose { bundleBilling.disconnect() }
     }
 
     val colorScheme = MaterialTheme.colorScheme
     val isDark = colorScheme.background.luminance() < 0.5f
 
-    val screenBg = if (isDark) Color.Black else Color(0xFFF3F6FB)
-    val cardBg = if (isDark) Color(0xFF111827) else Color.White
-    val border = if (isDark) Color(0xFF1F2937) else Color(0xFFD7E3F4)
-    val textPrimary = if (isDark) Color(0xFFF8FAFC) else Color(0xFF0F172A)
-    val textSecondary = if (isDark) Color(0xFF94A3B8) else Color(0xFF475569)
-    val badgeBg = if (isDark) Color(0xFF1E3A8A).copy(alpha = 0.4f) else Color(0xFFDBEAFE)
-    val badgeText = if (isDark) Color(0xFF93C5FD) else Color(0xFF1D4ED8)
-    val buyBlue = Color(0xFF3F83F8)
-    val bundlePrice = "R$ 19,90"
+    // Cores Refinadas
+    val screenBg = if (isDark) Color.Black else Color(0xFFF8FAFC)
+    val cardBg = if (isDark) Color(0xFF2B3545) else Color.White
+    val accentBlue = Color(0xFF3B82F6)
+    val textPrimary = if (isDark) Color.White else Color(0xFF1E293B)
+    val textSecondary = if (isDark) Color(0xFF94A3B8) else Color(0xFF64748B)
 
     val ebooks = remember {
         listOf(
-            EbookUi(
-                titulo = "Carro Sempre Novo",
-                subtitulo = "Cuidados essenciais pra manter o carro redondo",
-                capaAsset = "ebooks/covers/carro_sempre_novo.png",
-                pdfAsset = "ebooks/pdfs/carro_sempre_novo.pdf"
-            ),
-            EbookUi(
-                titulo = "Dona da Oficina",
-                subtitulo = "Guia pratico de mecanica para mulheres",
-                capaAsset = "ebooks/covers/dona_da_oficina.png",
-                pdfAsset = "ebooks/pdfs/dona_da_oficina.pdf"
-            ),
-            EbookUi(
-                titulo = "Independencia na Estrada",
-                subtitulo = "Autonomia no dia a dia com linguagem simples",
-                capaAsset = "ebooks/covers/independencia_na_estrada.png",
-                pdfAsset = "ebooks/pdfs/independencia_na_estrada.pdf"
-            ),
-            EbookUi(
-                titulo = "Manual Tatico Auto",
-                subtitulo = "Checklist estrategico pra nao ficar na mao",
-                capaAsset = "ebooks/covers/manual_tatico_sobrevivencia_automotiva.png",
-                pdfAsset = "ebooks/pdfs/manual_tatico_sobrevivencia_automotiva.pdf"
-            )
+            EbookUi("Carro Sempre Novo", "Manutenção preventiva essencial", "ebooks/covers/carro_sempre_novo.png", "ebooks/pdfs/carro_sempre_novo.pdf"),
+            EbookUi("Dona da Oficina", "Mecânica para o público feminino", "ebooks/covers/dona_da_oficina.png", "ebooks/pdfs/dona_da_oficina.pdf"),
+            EbookUi("Independência na Estrada", "Autonomia total em viagens", "ebooks/covers/independencia_na_estrada.png", "ebooks/pdfs/independencia_na_estrada.pdf"),
+            EbookUi("Manual Tático Auto", "Checklist de sobrevivência", "ebooks/covers/manual_tatico_sobrevivencia_automotiva.png", "ebooks/pdfs/manual_tatico_sobrevivencia_automotiva.pdf")
         )
     }
 
@@ -140,268 +92,169 @@ fun EbookStoreScreen(
         columns = GridCells.Fixed(2),
         modifier = Modifier
             .fillMaxSize()
-            .background(screenBg)
-            .padding(horizontal = 16.dp),
-        contentPadding = PaddingValues(bottom = 24.dp, top = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
+            .background(screenBg),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+        horizontalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-            item(span = { GridItemSpan(maxLineSpan) }) {
+        // --- HEADER ---
+        item(span = { GridItemSpan(maxLineSpan) }) {
+            Column(
+                modifier = Modifier
+                    .statusBarsPadding()
+                    .fillMaxWidth()
+            ) {
+                IconButton(onClick = onDismiss) {
+                    Icon(
+                        Icons.Default.ArrowBackIosNew,
+                        contentDescription = null,
+                        tint = textPrimary,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+                Spacer(Modifier.height(6.dp))
                 Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .statusBarsPadding()
-                        .padding(top = 4.dp)
-                ) {
-                    Text(
-                        text = "Biblioteca Zellu",
-                        color = textPrimary,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 22.sp,
-                        modifier = Modifier.align(Alignment.Center)
-                    )
-                    IconButton(
-                        onClick = onDismiss,
-                        modifier = Modifier.align(Alignment.CenterStart)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.ArrowBackIosNew,
-                            contentDescription = "Voltar",
-                            tint = textPrimary
-                        )
-                    }
-                }
-            }
-
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 10.dp, bottom = 6.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(54.dp)
-                            .background(
-                                color = if (isDark) Color(0xFF1E293B) else Color(0xFFE2E8F0),
-                                shape = RoundedCornerShape(99.dp)
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.AutoStories,
-                            contentDescription = null,
-                            tint = if (isDark) Color(0xFF93C5FD) else Color(0xFF1D4ED8),
-                            modifier = Modifier.size(28.dp)
-                        )
-                    }
-                    Spacer(Modifier.height(10.dp))
-                    Text(
-                        text = "Colecao Premium Zellu",
-                        color = textPrimary,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 19.sp,
-                        textAlign = TextAlign.Center
-                    )
-                }
-            }
-
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                Card(
                     modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = cardBg),
-                    shape = RoundedCornerShape(18.dp),
-                    border = BorderStroke(1.dp, border)
+                    contentAlignment = Alignment.Center
                 ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(14.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(44.dp)
-                                    .background(
-                                        color = badgeBg,
-                                        shape = RoundedCornerShape(12.dp)
-                                    ),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.LocalOffer,
-                                    contentDescription = null,
-                                    tint = badgeText,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                            }
-                            Spacer(Modifier.size(10.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "Colecao com os 4 eBooks",
-                                    color = textPrimary,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 16.sp
-                                )
-                                Text(
-                                    text = "Acesso total aos 4 eBooks por $bundlePrice",
-                                    color = textSecondary,
-                                    fontSize = 13.sp
-                                )
-                                Text(
-                                    text = if (isBundleUnlocked) "Compra confirmada: acesso liberado" else "Compra unica para liberar todos os PDFs",
-                                    color = if (isBundleUnlocked) Color(0xFF22C55E) else textSecondary,
-                                    fontSize = 12.sp
-                                )
-                            }
-                        }
-                        Spacer(Modifier.height(12.dp))
-                        Button(
-                            onClick = {
-                                val activity = context.findActivity()
-                                if (activity == null) {
-                                    android.widget.Toast.makeText(
-                                        context,
-                                        "Nao foi possivel iniciar a compra agora.",
-                                        android.widget.Toast.LENGTH_SHORT
-                                    ).show()
-                                } else {
-                                    bundleBilling.launchBundlePurchase(
-                                        activity = activity,
-                                        onUnavailable = {
-                                            android.widget.Toast.makeText(
-                                                context,
-                                                "Produto nao encontrado. Crie e ative no Play Console com ID: $EBOOK_BUNDLE_PRODUCT_ID",
-                                                android.widget.Toast.LENGTH_LONG
-                                            ).show()
-                                        }
-                                    )
-                                }
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = buyBlue, contentColor = Color.White)
-                        ) {
-                            Icon(Icons.Default.Bolt, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.size(6.dp))
-                            Text(if (isBundleUnlocked) "Ja liberado" else "LIBERAR AGORA POR $bundlePrice")
-                        }
-                    }
-                }
-            }
-
-            items(ebooks) { ebook ->
-                val cardModifier = if (isBundleUnlocked) {
-                    Modifier
-                        .fillMaxWidth()
-                        .clickable { openPdfFromAssets(context, ebook.pdfAsset, ebook.titulo) }
-                } else {
-                    Modifier.fillMaxWidth()
-                }
-                Card(
-                    modifier = cardModifier,
-                    colors = CardDefaults.cardColors(containerColor = cardBg),
-                    shape = RoundedCornerShape(16.dp),
-                    border = BorderStroke(1.dp, border)
-                ) {
-                    AsyncImage(
-                        model = "file:///android_asset/${ebook.capaAsset}",
-                        contentDescription = ebook.titulo,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .aspectRatio(0.73f)
+                    Icon(
+                        imageVector = Icons.Default.MenuBook,
+                        contentDescription = null,
+                        tint = accentBlue,
+                        modifier = Modifier.size(38.dp)
                     )
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 10.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = ebook.titulo,
-                                color = textPrimary,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 14.sp,
-                                lineHeight = 19.sp,
-                                modifier = Modifier.weight(1f)
-                            )
-                            Card(
-                                shape = RoundedCornerShape(999.dp),
-                                colors = CardDefaults.cardColors(containerColor = badgeBg)
-                            ) {
-                                Text(
-                                    text = "eBook",
-                                    color = badgeText,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 10.sp,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                )
-                            }
-                        }
-
-                        Text(
-                            text = ebook.subtitulo,
-                            color = textSecondary,
-                            fontSize = 12.sp,
-                            lineHeight = 17.sp
-                        )
-
-                        OutlinedButton(
-                            onClick = { openPdfFromAssets(context, ebook.pdfAsset, ebook.titulo) },
-                            enabled = isBundleUnlocked,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(44.dp),
-                            shape = RoundedCornerShape(10.dp),
-                            border = BorderStroke(1.dp, border),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
-                        ) {
-                            Icon(
-                                imageVector = if (isBundleUnlocked) Icons.Default.PictureAsPdf else Icons.Default.Lock,
-                                contentDescription = null,
-                                tint = textSecondary,
-                                modifier = Modifier.size(15.dp)
-                            )
-                            Spacer(Modifier.size(6.dp))
-                            Text(
-                                text = if (isBundleUnlocked) "Abrir PDF" else "Compre para liberar PDF",
-                                color = textSecondary,
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = 12.sp
-                            )
-                        }
-                    }
                 }
-            }
-
-            item(span = { GridItemSpan(maxLineSpan) }) {
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    text = "Dica: para venda real, crie no Play Console um produto INAPP com ID $EBOOK_BUNDLE_PRODUCT_ID.",
-                    color = textSecondary,
-                    fontSize = 12.sp,
+                    "Zellu Biblioteca",
+                    color = textPrimary,
+                    fontSize = 32.sp,
+                    fontWeight = FontWeight.Black,
                     textAlign = TextAlign.Center,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp)
+                    modifier = Modifier.fillMaxWidth()
                 )
+                Spacer(Modifier.height(2.dp))
             }
+        }
+
+        // --- BUNDLE CARD (Destaque) ---
+        item(span = { GridItemSpan(maxLineSpan) }) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = if (isDark) Color(0xFF2563EB) else Color(0xFF2563EB))
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Surface(color = Color.White.copy(alpha = 0.2f), shape = RoundedCornerShape(12.dp)) {
+                            Icon(Icons.Default.AutoStories, contentDescription = null, tint = Color.White, modifier = Modifier.padding(8.dp))
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Text("Combo Completo", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        "Desbloqueie todos os 4 guias agora e tenha acesso vitalício ao conhecimento automotivo.",
+                        color = Color.White.copy(alpha = 0.9f),
+                        fontSize = 14.sp
+                    )
+                    Spacer(Modifier.height(20.dp))
+                    Button(
+                        onClick = {
+                            val activity = context.findActivity()
+                            if (activity != null) {
+                                bundleBilling.launchBundlePurchase(activity) {
+                                    android.widget.Toast.makeText(context, "Produto não configurado", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color(0xFF2563EB)),
+                        shape = RoundedCornerShape(12.dp),
+                        elevation = ButtonDefaults.buttonElevation(defaultElevation = 4.dp)
+                    ) {
+                        Icon(Icons.Default.Bolt, modifier = Modifier.size(18.dp), contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text(if (isBundleUnlocked) "CONTEÚDO LIBERADO" else "LIBERAR TUDO POR R$ 19,90", fontWeight = FontWeight.Black)
+                    }
+                }
+            }
+        }
+
+        // --- LISTA DE EBOOKS ---
+        items(ebooks) { ebook ->
+            val isLocked = !isBundleUnlocked
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(cardBg)
+                    .border(
+                        width = 1.dp,
+                        color = if (isDark) Color.White.copy(alpha = 0.14f) else Color.Black.copy(alpha = 0.12f),
+                        shape = RoundedCornerShape(20.dp)
+                    )
+                    .clickable(enabled = !isLocked) { openPdfFromAssets(context, ebook.pdfAsset, ebook.titulo) }
+            ) {
+                Box {
+                    AsyncImage(
+                        model = "file:///android_asset/${ebook.capaAsset}",
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .aspectRatio(0.8f)
+                    )
+
+                    if (isLocked) {
+                        Box(
+                            modifier = Modifier
+                                .matchParentSize()
+                                .background(Color.Black.copy(alpha = 0.4f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.Lock, contentDescription = null, tint = Color.White, modifier = Modifier.size(32.dp))
+                        }
+                    }
+                }
+
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text(
+                        text = ebook.titulo,
+                        color = textPrimary,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = ebook.subtitulo,
+                        color = textSecondary,
+                        fontSize = 11.sp,
+                        maxLines = 2,
+                        lineHeight = 14.sp,
+                        modifier = Modifier.height(30.dp)
+                    )
+                    Spacer(Modifier.height(8.dp))
+
+                    if (!isLocked) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.PictureAsPdf, contentDescription = null, tint = accentBlue, modifier = Modifier.size(14.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Ler agora", color = accentBlue, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
+// --- BILLING MANAGER (Simplificado para o exemplo) ---
 private class EbookBundleBillingManager(private val appContext: Context) : PurchasesUpdatedListener {
     private val billingClient: BillingClient = BillingClient.newBuilder(appContext)
-        .setListener(this)
-        .enablePendingPurchases()
-        .build()
+        .setListener(this).enablePendingPurchases().build()
 
     private var bundleProductDetails: ProductDetails? = null
     private val _isBundleUnlocked = MutableStateFlow(false)
@@ -410,116 +263,54 @@ private class EbookBundleBillingManager(private val appContext: Context) : Purch
     fun connect() {
         if (billingClient.isReady) return
         billingClient.startConnection(object : BillingClientStateListener {
-            override fun onBillingSetupFinished(billingResult: BillingResult) {
-                if (billingResult.responseCode == BillingClient.BillingResponseCode.OK) {
+            override fun onBillingSetupFinished(res: BillingResult) {
+                if (res.responseCode == BillingClient.BillingResponseCode.OK) {
                     queryBundleProduct()
                     refreshPurchaseState()
                 }
             }
-
-            override fun onBillingServiceDisconnected() {
-                bundleProductDetails = null
-            }
+            override fun onBillingServiceDisconnected() {}
         })
     }
 
-    fun disconnect() {
-        if (billingClient.isReady) billingClient.endConnection()
-    }
+    fun disconnect() = if (billingClient.isReady) billingClient.endConnection() else Unit
 
     fun launchBundlePurchase(activity: Activity, onUnavailable: () -> Unit) {
-        if (!billingClient.isReady) {
-            onUnavailable()
-            connect()
-            return
-        }
-
         val details = bundleProductDetails
-        if (details == null) {
-            onUnavailable()
-            queryBundleProduct()
-            return
-        }
-
+        if (details == null) { onUnavailable(); return }
         val params = BillingFlowParams.newBuilder()
-            .setProductDetailsParamsList(
-                listOf(
-                    BillingFlowParams.ProductDetailsParams.newBuilder()
-                        .setProductDetails(details)
-                        .build()
-                )
-            )
+            .setProductDetailsParamsList(listOf(BillingFlowParams.ProductDetailsParams.newBuilder().setProductDetails(details).build()))
             .build()
-
         billingClient.launchBillingFlow(activity, params)
     }
 
-    override fun onPurchasesUpdated(
-        billingResult: BillingResult,
-        purchases: MutableList<Purchase>?
-    ) {
-        if (billingResult.responseCode == BillingClient.BillingResponseCode.OK && !purchases.isNullOrEmpty()) {
-            handlePurchases(purchases)
-            android.widget.Toast.makeText(
-                appContext,
-                "Compra iniciada!",
-                android.widget.Toast.LENGTH_SHORT
-            ).show()
-        }
+    override fun onPurchasesUpdated(res: BillingResult, purchases: MutableList<Purchase>?) {
+        if (res.responseCode == BillingClient.BillingResponseCode.OK && purchases != null) handlePurchases(purchases)
     }
 
     private fun refreshPurchaseState() {
-        if (!billingClient.isReady) return
-        val params = QueryPurchasesParams.newBuilder()
-            .setProductType(BillingClient.ProductType.INAPP)
-            .build()
-        billingClient.queryPurchasesAsync(params) { _, purchases ->
+        billingClient.queryPurchasesAsync(QueryPurchasesParams.newBuilder().setProductType(BillingClient.ProductType.INAPP).build()) { _, purchases ->
             handlePurchases(purchases)
         }
     }
 
     private fun handlePurchases(purchases: List<Purchase>) {
-        var unlocked = false
-        purchases.forEach { purchase ->
-            if (
-                purchase.purchaseState == Purchase.PurchaseState.PURCHASED &&
-                purchase.products.contains(EBOOK_BUNDLE_PRODUCT_ID)
-            ) {
-                unlocked = true
-                if (!purchase.isAcknowledged) {
-                    val acknowledgeParams = AcknowledgePurchaseParams.newBuilder()
-                        .setPurchaseToken(purchase.purchaseToken)
-                        .build()
-                    billingClient.acknowledgePurchase(acknowledgeParams) { }
-                }
-            }
-        }
+        val unlocked = purchases.any { it.purchaseState == Purchase.PurchaseState.PURCHASED && it.products.contains(EBOOK_BUNDLE_PRODUCT_ID) }
         _isBundleUnlocked.value = unlocked
+        purchases.forEach { if (it.purchaseState == Purchase.PurchaseState.PURCHASED && !it.isAcknowledged) {
+            billingClient.acknowledgePurchase(AcknowledgePurchaseParams.newBuilder().setPurchaseToken(it.purchaseToken).build()) {}
+        }}
     }
 
     private fun queryBundleProduct() {
-        val params = QueryProductDetailsParams.newBuilder()
-            .setProductList(
-                listOf(
-                    QueryProductDetailsParams.Product.newBuilder()
-                        .setProductId(EBOOK_BUNDLE_PRODUCT_ID)
-                        .setProductType(BillingClient.ProductType.INAPP)
-                        .build()
-                )
-            )
-            .build()
-
-        billingClient.queryProductDetailsAsync(params) { billingResult, detailsList ->
-            bundleProductDetails =
-                if (billingResult.responseCode == BillingClient.BillingResponseCode.OK) {
-                    detailsList.firstOrNull()
-                } else {
-                    null
-                }
-        }
+        val query = QueryProductDetailsParams.newBuilder().setProductList(listOf(
+            QueryProductDetailsParams.Product.newBuilder().setProductId(EBOOK_BUNDLE_PRODUCT_ID).setProductType(BillingClient.ProductType.INAPP).build()
+        )).build()
+        billingClient.queryProductDetailsAsync(query) { _, details -> bundleProductDetails = details.firstOrNull() }
     }
 }
 
+// --- HELPERS ---
 private fun Context.findActivity(): Activity? = when (this) {
     is Activity -> this
     is ContextWrapper -> baseContext.findActivity()
@@ -530,49 +321,14 @@ private fun openPdfFromAssets(context: Context, assetPath: String, ebookTitle: S
     runCatching {
         val safeName = assetPath.substringAfterLast("/")
         val targetFile = File(context.cacheDir, safeName)
-        context.assets.open(assetPath).use { input ->
-            FileOutputStream(targetFile).use { out -> input.copyTo(out) }
-        }
-
-        val uri = FileProvider.getUriForFile(
-            context,
-            "${context.packageName}.fileprovider",
-            targetFile
-        )
-
-        val openIntent = Intent(Intent.ACTION_VIEW).apply {
+        context.assets.open(assetPath).use { input -> FileOutputStream(targetFile).use { out -> input.copyTo(out) } }
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", targetFile)
+        val intent = Intent(Intent.ACTION_VIEW).apply {
             setDataAndType(uri, "application/pdf")
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
         }
-        context.startActivity(openIntent)
+        context.startActivity(intent)
     }.onFailure {
-        runCatching {
-            val safeName = assetPath.substringAfterLast("/")
-            val targetFile = File(context.cacheDir, safeName)
-            if (targetFile.exists()) {
-                val uri = FileProvider.getUriForFile(
-                    context,
-                    "${context.packageName}.fileprovider",
-                    targetFile
-                )
-                val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                    type = "application/pdf"
-                    putExtra(Intent.EXTRA_STREAM, uri)
-                    putExtra(Intent.EXTRA_SUBJECT, ebookTitle)
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-                context.startActivity(Intent.createChooser(shareIntent, "Compartilhar PDF"))
-            } else {
-                throw ActivityNotFoundException("Arquivo PDF nao encontrado")
-            }
-        }.onFailure {
-            android.widget.Toast.makeText(
-                context,
-                "Nao foi possivel abrir o PDF agora.",
-                android.widget.Toast.LENGTH_SHORT
-            ).show()
-        }
+        android.widget.Toast.makeText(context, "Erro ao abrir PDF", android.widget.Toast.LENGTH_SHORT).show()
     }
 }

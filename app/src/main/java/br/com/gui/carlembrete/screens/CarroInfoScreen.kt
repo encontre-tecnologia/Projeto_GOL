@@ -18,6 +18,7 @@ import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
@@ -29,6 +30,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
@@ -58,6 +61,7 @@ fun CarroInfoScreen(
     carro: CarroInfo,
     lembretes: List<Lembrete>,
     isPremium: Boolean,
+    autoScrollToCompletedMaintenance: Boolean = false,
     onDismiss: () -> Unit
 ) {
     val scheme = MaterialTheme.colorScheme
@@ -230,6 +234,8 @@ fun CarroInfoScreen(
         (fatorBase * fatorBatidas * fatorTempo).coerceIn(0.60, 1.08)
     }
     val valorVendaSugerido = valorFipeNumerico?.let { it * fatorVendaSugerido }
+    val contentScrollState = rememberScrollState()
+    var completedMaintenanceSectionTop by remember { mutableFloatStateOf(0f) }
 
     LaunchedEffect(carro.id, carro.marca, carro.modelo, carro.tipoVeiculo) {
         if (!suportaFipe) {
@@ -240,6 +246,14 @@ fun CarroInfoScreen(
         carregandoPrecoFipe = true
         precoTabelaFipe = withContext(Dispatchers.IO) { buscarPrecoFipeVeiculo(context, carro) }
         carregandoPrecoFipe = false
+    }
+
+    LaunchedEffect(autoScrollToCompletedMaintenance, completedMaintenanceSectionTop) {
+        if (!autoScrollToCompletedMaintenance) return@LaunchedEffect
+        if (completedMaintenanceSectionTop <= 0f) return@LaunchedEffect
+        delay(180)
+        val target = (completedMaintenanceSectionTop - 120f).coerceAtLeast(0f).toInt()
+        contentScrollState.animateScrollTo(target)
     }
 
     if (showHistoricoConsumo) {
@@ -258,7 +272,7 @@ fun CarroInfoScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(contentScrollState)
                 .padding(bottom = 24.dp)
         ) {
             // --- TOP BAR ---
@@ -526,7 +540,10 @@ fun CarroInfoScreen(
 
                 // Histórico Recente
                 ContentSection(
-                    title = tr("Manutenções Realizadas", "Completed Maintenance"),
+                    modifier = Modifier.onGloballyPositioned { coords ->
+                        completedMaintenanceSectionTop = coords.positionInParent().y
+                    },
+                    title = tr("Registros cadastrados", "Saved records"),
                     icon = Icons.Outlined.History,
                     cardColor = cardColor,
                     titleColor = textLight,
@@ -536,7 +553,7 @@ fun CarroInfoScreen(
                     if (historicoManutencoes.isEmpty()) {
                         EmptyTableStateCard(
                             icon = Icons.Outlined.History,
-                            title = tr("Sem manutenções realizadas", "No completed maintenance yet"),
+                            title = tr("Sem registros cadastrados", "No saved records yet"),
                             message = tr(
                                 "Quando você concluir um serviço, ele vai aparecer aqui com data e valor.",
                                 "When you complete a service, it will appear here with date and amount."
@@ -638,7 +655,7 @@ fun CarroInfoScreen(
                 }
 
                 ContentSection(
-                    title = tr("Manutenções Futuras", "Upcoming Maintenance"),
+                    title = tr("Avisos cadastrados", "Saved reminders"),
                     icon = Icons.Default.Event,
                     cardColor = cardColor,
                     titleColor = textLight,

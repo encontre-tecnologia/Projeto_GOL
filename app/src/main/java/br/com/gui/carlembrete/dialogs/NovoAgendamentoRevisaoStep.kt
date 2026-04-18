@@ -63,6 +63,7 @@ fun EtapaRevisaoAvisoContent(
     contatoSelecionado: ContatoProfissional?,
     cidadeAtual: String?,
     ufAtual: String?,
+    isRegistroServico: Boolean,
     repetirAteDesativar: Boolean,
     descricaoRepeticao: String,
     mostrarResumoSimplificadoPosto: Boolean,
@@ -72,8 +73,8 @@ fun EtapaRevisaoAvisoContent(
     val scheme = MaterialTheme.colorScheme
     val bgCard = if (isDark) Color(0xFF111827) else scheme.surface
     val borderColor = if (isDark) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.10f)
-    val headerBg = if (isDark) Color(0xFF0F172A) else scheme.surface
     val itemBg = if (isDark) Color(0xFF0B1220) else scheme.surface
+    val headerBg = itemBg
     val bodyBg = if (isDark) itemBg else scheme.background
     val avisos = if (isModoLista && listaItensDetectados.isNotEmpty()) {
         listaItensDetectados.flatMap { item ->
@@ -87,11 +88,12 @@ fun EtapaRevisaoAvisoContent(
                     categoria = if (tipo == TipoManutencao.ABASTECIMENTO) tr("Posto", "Fuel") else tipo.label,
                     tipo = tipo,
                     km = kmBase.ifBlank { tr("Nao informado", "Not informed") },
-                    hora = horaNotificacao.ifBlank { tr("Nao informado", "Not informed") },
+                    hora = if (isRegistroServico) "" else horaNotificacao.ifBlank { tr("Nao informado", "Not informed") },
                     valor = "R$ ${itemValorOverrides[item.id] ?: item.valor.formatResumo()}",
-                    dataAviso = itemDataAvisoOverrides[item.id] ?: dataAviso,
+                    dataAviso = if (isRegistroServico) "" else (itemDataAvisoOverrides[item.id] ?: dataAviso),
                     dataServico = data.ifBlank { tr("Nao informado", "Not informed") },
-                    repeticao = if (repetirAteDesativar) tr("Sim", "Yes") + " (${descricaoRepeticao})" else tr("Nao", "No")
+                    repeticao = if (isRegistroServico) "" else if (repetirAteDesativar) tr("Sim", "Yes") + " (${descricaoRepeticao})" else tr("Nao", "No"),
+                    isRegistroServico = isRegistroServico
                 )
             }
         }
@@ -104,11 +106,12 @@ fun EtapaRevisaoAvisoContent(
                 categoria = tituloCategoria,
                 tipo = tipoSelecionado,
                 km = kmBase.ifBlank { tr("Nao informado", "Not informed") },
-                hora = horaNotificacao.ifBlank { tr("Nao informado", "Not informed") },
+                hora = if (isRegistroServico) "" else horaNotificacao.ifBlank { tr("Nao informado", "Not informed") },
                 valor = if (valorInput.isBlank()) tr("Nao informado", "Not informed") else "R$ $valorInput",
-                dataAviso = dataAviso.ifBlank { tr("Nao informado", "Not informed") },
+                dataAviso = if (isRegistroServico) "" else dataAviso.ifBlank { tr("Nao informado", "Not informed") },
                 dataServico = data.ifBlank { tr("Nao informado", "Not informed") },
-                repeticao = if (repetirAteDesativar) tr("Sim", "Yes") + " (${descricaoRepeticao})" else tr("Nao", "No")
+                repeticao = if (isRegistroServico) "" else if (repetirAteDesativar) tr("Sim", "Yes") + " (${descricaoRepeticao})" else tr("Nao", "No"),
+                isRegistroServico = isRegistroServico
             )
         )
     }
@@ -130,7 +133,12 @@ fun EtapaRevisaoAvisoContent(
             Icon(Icons.Rounded.FactCheck, contentDescription = null, tint = accentBlue, modifier = Modifier.size(30.dp))
         }
         Spacer(Modifier.height(6.dp))
-        Text(tr("Revisar aviso", "Review reminder"), color = textPrimary, fontWeight = FontWeight.Bold, fontSize = 25.sp)
+        Text(
+            text = if (isRegistroServico) tr("Revisar serviço", "Review service") else tr("Revisar aviso", "Review reminder"),
+            color = textPrimary,
+            fontWeight = FontWeight.Bold,
+            fontSize = 25.sp
+        )
     }
 
     Column(
@@ -262,7 +270,8 @@ private data class AvisoResumoUi(
     val valor: String,
     val dataAviso: String,
     val dataServico: String,
-    val repeticao: String
+    val repeticao: String,
+    val isRegistroServico: Boolean
 )
 
 private fun Double.formatResumo(): String = if (this == 0.0) {
@@ -358,24 +367,30 @@ private fun AvisoResumoCard(
                 ) {
                     ResumoTagGridItem(tr("Categoria", "Category"), aviso.categoria, textPrimary, textSecondary, itemBg, borderColor)
                     ResumoTagKmGridItem(aviso.km, textPrimary, textSecondary, itemBg, borderColor)
-                    ResumoTagGridItem(tr("Hora", "Time"), aviso.hora, textPrimary, textSecondary, itemBg, borderColor)
+                    if (!aviso.isRegistroServico) {
+                        ResumoTagGridItem(tr("Hora", "Time"), aviso.hora, textPrimary, textSecondary, itemBg, borderColor)
+                    }
                 }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     ResumoTagGridItem(tr("Valor", "Amount"), aviso.valor, textPrimary, textSecondary, itemBg, borderColor)
-                    ResumoTagGridItem(tr("Aviso", "Reminder"), aviso.dataAviso, textPrimary, textSecondary, itemBg, borderColor)
-                    ResumoTagGridItem(tr("Servico", "Service"), aviso.dataServico, textPrimary, textSecondary, itemBg, borderColor)
+                    ResumoTagGridItem(tr("Data do serviço", "Service date"), aviso.dataServico, textPrimary, textSecondary, itemBg, borderColor)
+                    if (!aviso.isRegistroServico) {
+                        ResumoTagGridItem(tr("Aviso", "Reminder"), aviso.dataAviso, textPrimary, textSecondary, itemBg, borderColor)
+                    }
                 }
-                ResumoLinhaCompacta(
-                    titulo = tr("Repeticao", "Repeat"),
-                    valor = aviso.repeticao,
-                    textPrimary = textPrimary,
-                    textSecondary = textSecondary,
-                    itemBg = itemBg,
-                    borderColor = borderColor
-                )
+                if (!aviso.isRegistroServico) {
+                    ResumoLinhaCompacta(
+                        titulo = tr("Repeticao", "Repeat"),
+                        valor = aviso.repeticao,
+                        textPrimary = textPrimary,
+                        textSecondary = textSecondary,
+                        itemBg = itemBg,
+                        borderColor = borderColor
+                    )
+                }
             }
         }
     }
