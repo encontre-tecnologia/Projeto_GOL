@@ -1421,6 +1421,7 @@ fun ManutencaoScreen(
                 if (
                     hadNoReminderBefore &&
                     novo.tipo != TipoManutencao.ABASTECIMENTO &&
+                    isLembreteRealizado(novo) &&
                     shouldShowReportMiniTutorial(context)
                 ) {
                     showReportMiniTutorial = true
@@ -1442,6 +1443,7 @@ fun ManutencaoScreen(
                 if (
                     hadNoReminderBefore &&
                     novosLembretes.any { it.tipo != TipoManutencao.ABASTECIMENTO } &&
+                    novosLembretes.any { isLembreteRealizado(it) } &&
                     shouldShowReportMiniTutorial(context)
                 ) {
                     showReportMiniTutorial = true
