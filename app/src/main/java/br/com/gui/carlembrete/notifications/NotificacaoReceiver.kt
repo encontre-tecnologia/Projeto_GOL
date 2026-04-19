@@ -9,6 +9,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
+import android.content.res.Configuration
 import android.content.pm.PackageManager
 import android.os.Build
 import android.util.Log
@@ -91,6 +92,7 @@ class NotificacaoReceiver : BroadcastReceiver() {
 
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_shield_notification)
+            .setColor(NotificacaoHelper.notificationAccentColor(context))
             .setContentTitle(tituloComContexto)
             .setContentText(descricaoComContexto)
             .setStyle(NotificationCompat.BigTextStyle().bigText(descricaoComContexto))
@@ -186,6 +188,7 @@ class NotificacaoReceiver : BroadcastReceiver() {
 
         val notification = NotificationCompat.Builder(context, PARKING_NOTIFICATION_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_shield_notification)
+            .setColor(NotificacaoHelper.notificationAccentColor(context))
             .setContentTitle(title)
             .setContentText("$tapText ${trNow("Desde", "Since")}: $sinceText")
             .setStyle(
@@ -328,6 +331,11 @@ object NotificacaoHelper {
     )
     private val etapasAntesDoVencimento = listOf(5, 0)
     private const val MAX_ALERTAS_POS_VENCIMENTO = 365
+
+    fun notificationAccentColor(context: Context): Int {
+        val nightMode = context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK
+        return if (nightMode == Configuration.UI_MODE_NIGHT_YES) 0xFFFFFFFF.toInt() else 0xFF2563EB.toInt()
+    }
 
     private fun podeUsarAlarmeExato(alarmManager: AlarmManager): Boolean {
         return Build.VERSION.SDK_INT < Build.VERSION_CODES.S || alarmManager.canScheduleExactAlarms()

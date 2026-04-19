@@ -23,6 +23,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.*
@@ -493,6 +494,8 @@ fun ManutencaoScreen(
     val subscriptionManager = remember { SubscriptionManager(context) }
     val planTier by subscriptionManager.planTier.collectAsState()
     val isSubscribed by subscriptionManager.isSubscribed.collectAsState()
+    val maxVehiclesCurrentPlan by remember(planTier) { mutableIntStateOf(vehicleLimitForPlan(planTier)) }
+    val planNameCurrent by remember(planTier) { mutableStateOf(planNameLabel(planTier)) }
     var showPremiumDialog by remember { mutableStateOf(false) }
     var showPremiumInfo by remember { mutableStateOf(false) }
     var showPremiumBeneficiosScreen by remember { mutableStateOf(false) }
@@ -510,6 +513,7 @@ fun ManutencaoScreen(
         AdminUsersSync.applyRemoteAdminOverride(
             getCurrentOverride = { SubscriptionManager.isAdminPremiumOverrideEnabled(context) },
             setOverride = { enabled -> SubscriptionManager.setAdminPremiumOverride(context, enabled) },
+            setPlan = { plan -> SubscriptionManager.setAdminPremiumOverridePlan(context, plan) },
             onChanged = { subscriptionManager.refreshLocalEntitlements() }
         )
         onDispose { subscriptionManager.disconnect() }
@@ -565,6 +569,14 @@ fun ManutencaoScreen(
         NovoCarroScreenPrimeiroFluxoComVoltar(
             onDismiss = { showAddCarScreen = false },
             onSalvar = { novoCarro ->
+                if (listaCarros.size >= maxVehiclesCurrentPlan) {
+                    Toast.makeText(
+                        context,
+                        "Limite do plano $planNameCurrent: $maxVehiclesCurrentPlan veiculos.",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    return@NovoCarroScreenPrimeiroFluxoComVoltar
+                }
                 listaCarros = listaCarros + novoCarro
                 indiceCarroAtual = listaCarros.lastIndex
                 showAddCarScreen = false
@@ -836,7 +848,7 @@ fun ManutencaoScreen(
                     "Aviso Zellu",
                     "Teste de notificaÃ§Ã£o enviado com sucesso."
                 )
-                Toast.makeText(context, "NotificaÃ§Ã£o enviada!", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "Notificação enviada!", Toast.LENGTH_SHORT).show()
             }
         )
     }
@@ -1074,23 +1086,23 @@ fun ManutencaoScreen(
 
                 10. Legal/support contact: guilhermedevsistemas@gmail.com
             """.trimIndent() else """
-                1. Aceite: ao usar o Zellu, vocÃª concorda com estes Termos e com a PolÃ­tica de Privacidade.
+                1. Aceite: ao usar o Zellu, você concorda com estes Termos e com a Política de Privacidade.
 
-                2. Objeto: o app oferece gestÃ£o de veÃ­culos, lembretes, manutenÃ§Ãµes, viagens, frota e estoque.
+                2. Objeto: o app oferece gestão de veículos, lembretes, manutenções, viagens, frota e estoque.
 
-                3. Uso adequado: vocÃª se compromete a usar o app de forma lÃ­cita, sem fraude, abuso tÃ©cnico ou violaÃ§Ã£o de direitos de terceiros.
+                3. Uso adequado: você se compromete a usar o app de forma lícita, sem fraude, abuso técnico ou violação de direitos de terceiros.
 
-                4. Conta e seguranÃ§a: vocÃª Ã© responsÃ¡vel pelos dados da conta e pela guarda do acesso.
+                4. Conta e segurança: você é responsável pelos dados da conta e pela guarda do acesso.
 
-                5. Planos e cobranÃ§a: planos pagos (como Lite/Frota) seguem regras da loja/plataforma de pagamento para renovaÃ§Ã£o, cancelamento e reembolso.
+                5. Planos e cobrança: planos pagos (como Lite/Frota) seguem regras da loja/plataforma de pagamento para renovação, cancelamento e reembolso.
 
-                6. LimitaÃ§Ã£o: o Zellu Ã© ferramenta de apoio e nÃ£o substitui diagnÃ³stico tÃ©cnico, vistoria, seguro, assistÃªncia mecÃ¢nica ou orientaÃ§Ã£o profissional.
+                6. Limitação: o Zellu é ferramenta de apoio e não substitui diagnóstico técnico, vistoria, seguro, assistência mecânica ou orientação profissional.
 
-                7. Disponibilidade: funcionalidades podem ser alteradas, corrigidas, suspensas ou descontinuadas por evoluÃ§Ã£o do produto, seguranÃ§a ou obrigaÃ§Ã£o legal.
+                7. Disponibilidade: funcionalidades podem ser alteradas, corrigidas, suspensas ou descontinuadas por evolução do produto, segurança ou obrigação legal.
 
-                8. Propriedade intelectual: marca, software, layout e conteÃºdo do app sÃ£o protegidos por lei.
+                8. Propriedade intelectual: marca, software, layout e conteúdo do app são protegidos por lei.
 
-                9. LegislaÃ§Ã£o e foro: aplica-se a legislaÃ§Ã£o brasileira, com foro da comarca de Sao Carlos/SP, salvo competÃªncia legal especÃ­fica.
+                9. Legislação e foro: aplica-se a legislação brasileira, com foro da comarca de São Carlos/SP, salvo competência legal específica.
 
                 10. Contato legal e suporte: guilhermedevsistemas@gmail.com
             """.trimIndent(),
@@ -1101,7 +1113,7 @@ fun ManutencaoScreen(
     BackHandler(enabled = showPrivacyScreen) { showPrivacyScreen = false }
     if (showPrivacyScreen) {
         LegalInfoScreen(
-            title = tr("PolÃ­tica de privacidade", "Privacy policy"),
+            title = tr("Política de privacidade", "Privacy policy"),
             icon = Icons.Default.Lock,
             content = if (isEnglishUi()) """
                 1. Data processed: account data (name, e-mail, identifiers), vehicle records, reminders, contacts, trips, stock items, location, camera, notifications, and essential technical data.
@@ -1128,27 +1140,27 @@ fun ManutencaoScreen(
                 https://account-deletion-site-eight.vercel.app/privacy-policy.html
                 https://account-deletion-site-eight.vercel.app/terms-of-use.html
             """.trimIndent() else """
-                1. Dados tratados: o app pode tratar dados de conta (nome, e-mail e identificadores), cadastro de veÃ­culos, lembretes, contatos, viagens, itens de estoque, localizaÃ§Ã£o, cÃ¢mera, notificaÃ§Ãµes e dados tÃ©cnicos essenciais.
+                1. Dados tratados: o app pode tratar dados de conta (nome, e-mail e identificadores), cadastro de veículos, lembretes, contatos, viagens, itens de estoque, localização, câmera, notificações e dados técnicos essenciais.
 
-                2. Finalidades: autenticaÃ§Ã£o, execuÃ§Ã£o das funcionalidades, seguranÃ§a, prevenÃ§Ã£o de abuso/fraude, suporte e melhoria contÃ­nua.
+                2. Finalidades: autenticação, execução das funcionalidades, segurança, prevenção de abuso/fraude, suporte e melhoria contínua.
 
-                3. Bases legais (LGPD): execuÃ§Ã£o de contrato, consentimento quando exigido, legÃ­timo interesse para seguranÃ§a/estabilidade e cumprimento de obrigaÃ§Ã£o legal.
+                3. Bases legais (LGPD): execução de contrato, consentimento quando exigido, legítimo interesse para segurança/estabilidade e cumprimento de obrigação legal.
 
-                4. PermissÃµes: cÃ¢mera, localizaÃ§Ã£o e notificaÃ§Ãµes sÃ£o usadas somente com autorizaÃ§Ã£o e podem ser revogadas a qualquer momento no dispositivo.
+                4. Permissões: câmera, localização e notificações são usadas somente com autorização e podem ser revogadas a qualquer momento no dispositivo.
 
-                5. Compartilhamento: nÃ£o vendemos dados pessoais. Podemos compartilhar com operadores/provedores tÃ©cnicos necessÃ¡rios ao funcionamento do app e com autoridades quando houver obrigaÃ§Ã£o legal.
+                5. Compartilhamento: não vendemos dados pessoais. Podemos compartilhar com operadores/provedores técnicos necessários ao funcionamento do app e com autoridades quando houver obrigação legal.
 
-                6. RetenÃ§Ã£o e armazenamento: parte dos dados pode ficar no dispositivo e parte em nuvem, pelo tempo necessÃ¡rio Ã s finalidades e obrigaÃ§Ãµes legais.
+                6. Retenção e armazenamento: parte dos dados pode ficar no dispositivo e parte em nuvem, pelo tempo necessário às finalidades e obrigações legais.
 
-                7. Direitos do titular: vocÃª pode solicitar confirmaÃ§Ã£o de tratamento, acesso, correÃ§Ã£o, anonimizaÃ§Ã£o, exclusÃ£o e revogaÃ§Ã£o do consentimento, nos termos da LGPD.
+                7. Direitos do titular: você pode solicitar confirmação de tratamento, acesso, correção, anonimização, exclusão e revogação do consentimento, nos termos da LGPD.
 
-                8. ExclusÃ£o de conta e dados: ao solicitar exclusÃ£o, removemos dados pessoais e registros vinculados, ressalvadas retenÃ§Ãµes legais obrigatÃ³rias.
+                8. Exclusão de conta e dados: ao solicitar exclusão, removemos dados pessoais e registros vinculados, ressalvadas retenções legais obrigatórias.
 
-                9. TransferÃªncia internacional: alguns provedores podem processar dados fora do Brasil, com salvaguardas adequadas.
+                9. Transferência internacional: alguns provedores podem processar dados fora do Brasil, com salvaguardas adequadas.
 
-                10. Contato oficial de privacidade, remoÃ§Ã£o de dados, dÃºvidas e suporte:
+                10. Contato oficial de privacidade, remoção de dados, dúvidas e suporte:
                 guilhermedevsistemas@gmail.com
-                PÃ¡ginas oficiais:
+                Páginas oficiais:
                 https://account-deletion-site-eight.vercel.app/privacy-policy.html
                 https://account-deletion-site-eight.vercel.app/terms-of-use.html
             """.trimIndent(),
@@ -1187,7 +1199,7 @@ fun ManutencaoScreen(
                     onClick = { showPremiumDialog = false },
                     border = BorderStroke(1.dp, Color(0xFFF59E0B))
                 ) {
-                    Text("Agora nÃ£o", color = Color(0xFFF59E0B))
+                    Text("Agora não", color = Color(0xFFF59E0B))
                 }
             },
             containerColor = Color(0xFF0F172A)
@@ -1265,7 +1277,7 @@ fun ManutencaoScreen(
                     onClick = { showPremiumInfo = false },
                     border = BorderStroke(1.dp, premiumBorder)
                 ) {
-                    Text("Agora nÃ£o", color = premiumTitle)
+                    Text("Agora não", color = premiumTitle)
                 }
             },
             containerColor = premiumDialogBg
@@ -1451,7 +1463,7 @@ fun ManutencaoScreen(
         return
     }
 
-    // detalhes agora abrem em tela dedicada (nÃ£o em diÃ¡logo)
+    // detalhes agora abrem em tela dedicada (não em diÃ¡logo)
 
     // ----------------- DRAWER (MENU LATERAL) -----------------
     ModalNavigationDrawer(
@@ -1562,6 +1574,14 @@ fun ManutencaoScreen(
                         drawerScope.launch { drawerState.close() }
                     }
                     DrawerMenuItem(Icons.Default.AddCircle, stringResource(R.string.drawer_item_add_vehicle)) {
+                        if (listaCarros.size >= maxVehiclesCurrentPlan) {
+                            Toast.makeText(
+                                context,
+                                "Limite do plano $planNameCurrent: $maxVehiclesCurrentPlan veiculos.",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                            return@DrawerMenuItem
+                        }
                         showAddCarScreen = true
                         drawerScope.launch { drawerState.close() }
                     }
@@ -1749,7 +1769,7 @@ fun ManutencaoScreen(
                                         ) {
                                             Icon(
                                                 imageVector = Icons.Default.NotificationsNone,
-                                                contentDescription = tr("NotificaÃ§Ãµes dos avisos", "Reminder notifications"),
+                                                contentDescription = tr("Notificações dos avisos", "Reminder notifications"),
                                                 tint = textLight
                                             )
                                         }
@@ -1894,7 +1914,7 @@ fun ManutencaoScreen(
                 }
                 val tutorialHeaderTitle = when (targetKey) {
                     "menu" -> "Menu principal"
-                    "notifications" -> "NotificaÃ§Ãµes"
+                    "notifications" -> "Notificações"
                     "help" -> "Ajuda guiada"
                     "premium" -> "Premium"
                     "car" -> "Card do veÃ­culo"
@@ -1958,17 +1978,17 @@ fun ManutencaoScreen(
         val nomeCarroPorId = remember(listaCarros) {
             listaCarros.associate { carro ->
                 val nome = carro.nome.ifBlank {
-                    listOf(carro.marca, carro.modelo).joinToString(" ").trim().ifBlank { "VeÃ­culo sem nome" }
+                    listOf(carro.marca, carro.modelo).joinToString(" ").trim().ifBlank { "Veículo sem nome" }
                 }
                 carro.id to nome
             }
         }
         val msgAvisoNaoEncontrado = tr(
-            "NÃ£o foi possÃ­vel abrir este aviso. Ele pode ter sido removido.",
+            "Não foi possível abrir este aviso. Ele pode ter sido removido.",
             "Could not open this reminder. It may have been removed."
         )
         val msgAvisoInformativo = tr(
-            "Esta notificaÃ§Ã£o Ã© apenas informativa e nÃ£o abre tela.",
+            "Esta notificação é apenas informativa e não abre tela.",
             "This notification is informational only and cannot be opened."
         )
         AvisosNotificacoesScreen(
@@ -1981,7 +2001,7 @@ fun ManutencaoScreen(
                     val blockedMsg = if (Locale.getDefault().language.startsWith("en")) {
                         "This ongoing parking reminder cannot be removed."
                     } else {
-                        "O aviso de parada em andamento nÃ£o pode ser removido."
+                        "O aviso de parada em andamento não pode ser removido."
                     }
                     Toast.makeText(context, blockedMsg, Toast.LENGTH_SHORT).show()
                     return@AvisosNotificacoesScreen
@@ -1993,7 +2013,7 @@ fun ManutencaoScreen(
                 val removeMsg = if (Locale.getDefault().language.startsWith("en")) {
                     "Notification deleted successfully."
                 } else {
-                    "NotificaÃ§Ã£o apagada com sucesso."
+                    "Notificação apagada com sucesso."
                 }
                 Toast.makeText(
                     context,
@@ -2076,7 +2096,7 @@ fun ManutencaoScreen(
                             )
                         }
                         Text(
-                            text = tr("Limpar notificaÃ§Ãµes?", "Clear notifications?"),
+                            text = tr("Limpar notificações?", "Clear notifications?"),
                             color = Color(0xFFF8FAFC),
                             fontWeight = FontWeight.Bold,
                             textAlign = TextAlign.Center
@@ -2086,7 +2106,7 @@ fun ManutencaoScreen(
                 text = {
                     Text(
                         text = tr(
-                            "Quer mesmo apagar todas as notificaÃ§Ãµes removÃ­veis agora? O aviso de parada em andamento serÃ¡ mantido.",
+                            "Quer mesmo apagar todas as notificações removíveis agora? O aviso de parada em andamento será mantido.",
                             "Do you really want to clear all removable notifications now? The ongoing parking reminder will be kept."
                         ),
                         color = Color(0xFF94A3B8),
@@ -2129,9 +2149,9 @@ fun ManutencaoScreen(
                                     }
                                 } else {
                                     if (avisosRemoviveis.isEmpty()) {
-                                        "NÃ£o hÃ¡ notificaÃ§Ãµes para limpar."
+                                        "Não há notificações para limpar."
                                     } else {
-                                        "Todas as notificaÃ§Ãµes foram limpadas."
+                                        "Todas as notificações foram limpadas."
                                     }
                                 }
                                 Toast.makeText(context, clearMsg, Toast.LENGTH_SHORT).show()
@@ -3201,7 +3221,7 @@ private fun LembreteDetalhesScreen(
         } else {
             val base = dataBaseLembrete
             if (base == null) {
-                tr("NÃ£o definido", "Not set")
+                tr("Não definido", "Not set")
             } else if (tipoPermiteRepeticao && repetirAviso) {
                 val intervalo = (recorrenciaIntervaloTexto.toIntOrNull() ?: 1).coerceAtLeast(1)
                 val proximaData = when (recorrenciaUnit) {
@@ -3430,7 +3450,7 @@ private fun LembreteDetalhesScreen(
                             OutlinedTextField(
                                 value = descricaoEdicao,
                                 onValueChange = { descricaoEdicao = it },
-                                label = { Text(tr("DescriÃ§Ã£o do aviso", "Reminder description")) },
+                                label = { Text(tr("Descrição do aviso", "Reminder description")) },
                                 modifier = Modifier.fillMaxWidth(),
                                 minLines = 3,
                                 maxLines = 8
@@ -3590,7 +3610,7 @@ private fun LembreteDetalhesScreen(
                                 }
                             }
                         } else {
-                            val descricaoAviso = lembrete.peca.ifBlank { tr("Sem descriÃ§Ã£o informada.", "No description provided.") }
+                            val descricaoAviso = lembrete.peca.ifBlank { tr("Sem descrição informada.", "No description provided.") }
                             val linhasDescricao = descricaoAviso
                                 .lines()
                                 .map { it.trim() }
@@ -3659,12 +3679,12 @@ private fun LembreteDetalhesScreen(
                                 add(tr("PrÃ³ximo lembrete", "Next reminder") to proximoLembreteTexto)
                                 add(tr("Status", "Status") to statusDetalhe)
                                 add(tr("VeÃ­culo", "Vehicle") to carro.nome)
-                                add(tr("Hora", "Time") to lembrete.horaAviso.ifBlank { tr("NÃ£o definida", "Not set") })
+                                add(tr("Hora", "Time") to lembrete.horaAviso.ifBlank { tr("Não definida", "Not set") })
                                 add(tr("RepetiÃ§Ã£o", "Repeat") to descricaoRecorrenciaAtual)
                                 add(
                                     tr("Prestador", "Provider") to (
                                         contato?.let { "${it.nome} (${it.tipoServico})" }
-                                            ?: tr("NÃ£o definido", "Not set")
+                                            ?: tr("Não definido", "Not set")
                                     )
                                 )
                             }
@@ -3688,7 +3708,7 @@ private fun LembreteDetalhesScreen(
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Text(
-                                            text = tr("DescriÃ§Ã£o do aviso", "Reminder description"),
+                                            text = tr("Descrição do aviso", "Reminder description"),
                                             color = textSecondary,
                                             fontSize = 12.sp,
                                             fontWeight = FontWeight.SemiBold,
@@ -4022,7 +4042,7 @@ private fun LembreteDetalhesScreen(
             text = {
                 Text(
                     text = tr(
-                        "Se vocÃª continuar, este aviso serÃ¡ encerrado de vez, mesmo que tenha repetiÃ§Ã£o ativa. VocÃª poderÃ¡ criar outro depois, se quiser.",
+                        "Se vocÃª continuar, este aviso será encerrado de vez, mesmo que tenha repetiÃ§Ã£o ativa. VocÃª poderÃ¡ criar outro depois, se quiser.",
                         "If you continue, this reminder will be permanently closed even if recurrence is active. You can create another one later if needed."
                     ),
                     color = textSecondary
@@ -4365,103 +4385,75 @@ private fun AvisosNotificacoesScreen(
     onOpen: (NotificacaoDisparada) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val colorScheme = MaterialTheme.colorScheme
-    val isDark = colorScheme.background.luminance() < 0.5f
-    val dialogBg = if (isDark) Color.Black else Color(0xFFF1F5F9)
-    val cardBg = if (isDark) Color(0xFF101A2D) else Color(0xFFFFFFFF)
-    val cardBgSoft = if (isDark) Color(0xFF0C1524) else Color(0xFFF8FAFC)
-    val cardBorder = if (isDark) Color(0xFF23324B) else Color(0xFFD6E0EF)
+    val isDark = isSystemInDarkTheme()
+    val screenBg = if (isDark) Color(0xFF020917) else Color(0xFFF8FAFC)
+    val cardBg = if (isDark) Color(0xFF0D1B2E) else Color.White
+    val cardBgSoft = if (isDark) Color(0xFF0A1628) else Color(0xFFF1F5F9)
+    val cardBorder = if (isDark) Color(0xFF1E3A5F) else Color(0xFFCBD5E1)
     val titleColor = if (isDark) Color(0xFFF8FAFC) else Color(0xFF0F172A)
-    val textDim = if (isDark) Color(0xFF94A3B8) else Color(0xFF475569)
-    val closeBorder = if (isDark) Color(0xFF334155) else Color(0xFFCBD5E1)
-    val closeText = if (isDark) Color(0xFFF8FAFC) else Color(0xFF0F172A)
-    val closeBg = if (isDark) Color(0xFF111827) else Color(0xFFFFFFFF)
+    val textDim = if (isDark) Color(0xFF64748B) else Color(0xFF64748B)
+    val textSub = if (isDark) Color(0xFF94A3B8) else Color(0xFF334155)
+    val clearBg = if (isDark) Color(0xFF3B1A1A) else Color(0xFFFEE2E2)
+    val clearIconTint = if (isDark) Color(0xFFFC8181) else Color(0xFFDC2626)
+    val accentBlue = Color(0xFF60A5FA)
+    val secondaryChipBg = if (isDark) Color(0xFF1E293B) else Color(0xFFE2E8F0)
+    val chevronTint = if (isDark) Color(0xFF94A3B8) else Color(0xFF64748B)
 
-    Surface(
-        modifier = Modifier.fillMaxSize(),
-        color = dialogBg
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(screenBg)
     ) {
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
                 .navigationBarsPadding()
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            contentPadding = PaddingValues(vertical = 8.dp)
+                .padding(horizontal = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(vertical = 12.dp)
         ) {
             item("header") {
-                Box(
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 2.dp, vertical = 2.dp),
-                    contentAlignment = Alignment.Center
+                        .padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(
-                        onClick = onDismiss,
-                        modifier = Modifier
-                            .size(40.dp)
-                            .align(Alignment.CenterStart)
-                    ) {
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(40.dp)) {
                         Icon(
                             imageVector = Icons.Default.ArrowBackIosNew,
                             contentDescription = tr("Voltar", "Back"),
                             tint = titleColor,
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(20.dp)
                         )
                     }
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
+                    Spacer(Modifier.weight(1f))
+                    Text(
+                        text = tr("Notificações", "Notifications"),
+                        color = titleColor,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 22.sp
+                    )
+                    Spacer(Modifier.weight(1f))
+                    if (notificacoes.isNotEmpty()) {
                         Box(
                             modifier = Modifier
-                                .size(34.dp)
-                                .clip(CircleShape)
-                                .background(colorScheme.primary.copy(alpha = 0.24f)),
+                                .size(40.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(clearBg)
+                                .clickable { onClear() },
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Notifications,
-                                contentDescription = null,
-                                tint = colorScheme.primary,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                        Column {
-                            Text(
-                                text = tr("NotificaÃ§Ãµes", "Notifications"),
-                                color = titleColor,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 18.sp
-                            )
-                            Text(
-                                text = tr(
-                                    "${notificacoes.size} aviso(s) recente(s)",
-                                    "${notificacoes.size} recent notification(s)"
-                                ),
-                                color = textDim,
-                                fontSize = 11.sp
-                            )
-                        }
-                    }
-                    if (notificacoes.isNotEmpty()) {
-                        IconButton(
-                            onClick = onClear,
-                            modifier = Modifier
-                                .align(Alignment.CenterEnd)
-                                .size(38.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(closeBg)
-                                .border(BorderStroke(1.dp, closeBorder), RoundedCornerShape(10.dp))
-                        ) {
-                            Icon(
                                 imageVector = Icons.Default.CleaningServices,
-                                contentDescription = tr("Limpar notificaÃ§Ãµes", "Clear notifications"),
-                                tint = closeText,
-                                modifier = Modifier.size(20.dp)
+                                contentDescription = tr("Limpar notificações", "Clear notifications"),
+                                tint = clearIconTint,
+                                modifier = Modifier.size(18.dp)
                             )
                         }
+                    } else {
+                        Spacer(Modifier.size(40.dp))
                     }
                 }
             }
@@ -4471,68 +4463,73 @@ private fun AvisosNotificacoesScreen(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 20.dp, vertical = 80.dp),
+                            .padding(horizontal = 16.dp, vertical = 100.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Notifications,
-                            contentDescription = null,
-                            tint = textDim,
-                            modifier = Modifier.size(42.dp)
-                        )
-                        Spacer(Modifier.height(10.dp))
+                        Box(
+                            modifier = Modifier
+                                .size(80.dp)
+                                .clip(CircleShape)
+                                .background(if (isDark) Color(0xFF1E3A5F) else Color(0xFFE2E8F0)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.NotificationsActive,
+                                contentDescription = null,
+                                tint = accentBlue,
+                                modifier = Modifier.size(38.dp)
+                            )
+                        }
+                        Spacer(Modifier.height(20.dp))
                         Text(
                             tr("Tudo em dia por aqui", "Everything is up to date"),
                             color = titleColor,
-                            fontWeight = FontWeight.SemiBold
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 18.sp
                         )
-                        Spacer(Modifier.height(6.dp))
+                        Spacer(Modifier.height(8.dp))
                         Text(
                             tr(
-                                "Quando um aviso disparar, ele aparece aqui para vocÃª acompanhar com calma.",
-                                "When a reminder is triggered, it will appear here so you can track it easily."
+                                "Quando um aviso disparar, ele aparece aqui para você acompanhar com calma.",
+                                "When a reminder is triggered, it will appear here."
                             ),
                             color = textDim,
-                            fontSize = 13.sp,
-                            textAlign = TextAlign.Center
+                            fontSize = 14.sp,
+                            textAlign = TextAlign.Center,
+                            lineHeight = 20.sp
                         )
                     }
                 }
             } else {
                 item("hint_card") {
-                    Surface(
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 4.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        color = cardBgSoft,
-                        border = BorderStroke(1.dp, cardBorder)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(cardBgSoft)
+                            .border(BorderStroke(1.dp, cardBorder), RoundedCornerShape(12.dp))
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Swipe,
-                                contentDescription = null,
-                                tint = textDim,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Text(
-                                text = tr("Deslize para apagar • apenas avisos com detalhe abrem tela", "Swipe to delete • only detailed reminders can be opened"),
-                                color = textDim,
-                                fontSize = 12.sp
-                            )
-                        }
+                        Icon(
+                            imageVector = Icons.Default.Swipe,
+                            contentDescription = null,
+                            tint = accentBlue,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = tr("Deslize para apagar um aviso", "Swipe to delete a notification"),
+                            color = textSub,
+                            fontSize = 12.sp
+                        )
                     }
                 }
 
                 items(notificacoes, key = { "${it.id}_${it.timestamp}" }) { aviso ->
                     val canOpen = canOpenNotification(aviso)
+                    val vehicleName = resolveVehicleName(aviso)
                     val dismissState = rememberSwipeToDismissBoxState(
                         confirmValueChange = { value ->
                             if (aviso.id.startsWith("PARKING_")) {
@@ -4552,135 +4549,135 @@ private fun AvisosNotificacoesScreen(
                             Box(
                                 modifier = Modifier
                                     .fillMaxSize()
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .background(Color(0xFFDC2626))
-                                    .padding(horizontal = 14.dp),
-                                contentAlignment = if (dismissState.dismissDirection == SwipeToDismissBoxValue.StartToEnd) {
-                                    Alignment.CenterStart
-                                } else {
-                                    Alignment.CenterEnd
-                                }
+                                    .clip(RoundedCornerShape(18.dp))
+                                    .background(
+                                        Brush.horizontalGradient(
+                                            if (dismissState.dismissDirection == SwipeToDismissBoxValue.StartToEnd)
+                                                listOf(Color(0xFFDC2626), Color(0xFFEF4444))
+                                            else
+                                                listOf(Color(0xFFEF4444), Color(0xFFDC2626))
+                                        )
+                                    )
+                                    .padding(horizontal = 20.dp),
+                                contentAlignment = if (dismissState.dismissDirection == SwipeToDismissBoxValue.StartToEnd)
+                                    Alignment.CenterStart else Alignment.CenterEnd
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.Delete,
-                                    contentDescription = tr("Remover notificaÃ§Ã£o", "Remove notification"),
-                                    tint = Color.White
-                                )
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Icon(Icons.Default.Delete, contentDescription = null, tint = Color.White, modifier = Modifier.size(22.dp))
+                                    Text(tr("Apagar", "Delete"), color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+                                }
                             }
                         }
                     ) {
-                        Card(
-                            colors = CardDefaults.cardColors(containerColor = cardBg),
-                            border = BorderStroke(1.dp, cardBorder),
-                            shape = RoundedCornerShape(14.dp),
+                        val isParking = aviso.id.startsWith("PARKING_")
+                        val chipColor = when {
+                            isParking -> Color(0xFF22C55E)
+                            canOpen -> Color(0xFF60A5FA)
+                            else -> Color(0xFFA78BFA)
+                        }
+                        val chipLabel = when {
+                            isParking -> tr("Estacionamento", "Parking")
+                            canOpen -> tr("Aviso", "Reminder")
+                            else -> tr("Informativo", "Info")
+                        }
+                        val notifIcon = when {
+                            isParking -> Icons.Default.DirectionsCar
+                            else -> Icons.Default.NotificationsActive
+                        }
+                        val instante = runCatching {
+                            java.time.Instant.ofEpochMilli(aviso.timestamp)
+                                .atZone(java.time.ZoneId.systemDefault())
+                                .toLocalDateTime()
+                                .format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy • HH:mm"))
+                        }.getOrDefault("--")
+
+                        Column(
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .clip(RoundedCornerShape(18.dp))
+                                .background(cardBg)
+                                .border(BorderStroke(1.dp, cardBorder), RoundedCornerShape(18.dp))
                                 .clickable(enabled = canOpen) { onOpen(aviso) }
+                                .padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            resolveVehicleName(aviso)
-                            val isParking = aviso.id.startsWith("PARKING_")
-                            val chipText = when {
-                                isParking -> tr("Parada em andamento", "Parking active")
-                                canOpen -> tr("Aviso", "Reminder")
-                                else -> tr("Informativa", "Informational")
-                            }
-                            val chipColor = if (isParking) Color(0xFF22C55E) else colorScheme.primary
-                            val instante = runCatching {
-                                java.time.Instant.ofEpochMilli(aviso.timestamp)
-                                    .atZone(java.time.ZoneId.systemDefault())
-                                    .toLocalDateTime()
-                                    .format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy â€¢ HH:mm"))
-                            }.getOrDefault("--")
-
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(12.dp),
-                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                Box(
+                                    modifier = Modifier
+                                        .size(46.dp)
+                                        .clip(RoundedCornerShape(14.dp))
+                                        .background(chipColor.copy(alpha = 0.15f)),
+                                    contentAlignment = Alignment.Center
                                 ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(28.dp)
-                                            .clip(CircleShape)
-                                            .background(chipColor.copy(alpha = 0.18f)),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(
-                                            imageVector = if (isParking) Icons.Default.DirectionsCar else Icons.Default.NotificationsActive,
-                                            contentDescription = null,
-                                            tint = chipColor,
-                                            modifier = Modifier.size(15.dp)
-                                        )
-                                    }
+                                    Icon(
+                                        imageVector = notifIcon,
+                                        contentDescription = null,
+                                        tint = chipColor,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                }
+                                Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        aviso.titulo.ifBlank { tr("NotificaÃ§Ã£o", "Notification") },
+                                        aviso.titulo.ifBlank { tr("Notificação", "Notification") },
                                         fontWeight = FontWeight.Bold,
                                         color = titleColor,
                                         fontSize = 15.sp,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
-                                    Spacer(modifier = Modifier.weight(1f))
-                                    Icon(
-                                        imageVector = if (canOpen) Icons.Default.KeyboardArrowRight else Icons.Default.Lock,
-                                        contentDescription = null,
-                                        tint = textDim,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-
-                                Surface(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = cardBgSoft,
-                                    border = BorderStroke(1.dp, cardBorder)
-                                ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 10.dp, vertical = 8.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        Text(
-                                            text = chipText,
-                                            color = chipColor,
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                        )
-                                        Text(
-                                            text = "â€¢",
-                                            color = textDim.copy(alpha = 0.8f),
-                                            fontSize = 11.sp
-                                        )
-                                        Text(
-                                            text = instante,
-                                            color = textDim,
-                                            fontSize = 11.sp
-                                        )
-                                    }
-                                }
-
-                                Surface(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = cardBgSoft,
-                                    border = BorderStroke(1.dp, cardBorder.copy(alpha = 0.8f))
-                                ) {
+                                    Spacer(Modifier.height(2.dp))
                                     Text(
-                                        text = aviso.descricao.ifBlank { tr("Sem descriÃ§Ã£o", "No description") },
+                                        instante,
                                         color = textDim,
-                                        fontSize = 12.sp,
-                                        lineHeight = 18.sp,
-                                        maxLines = 4,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 9.dp)
+                                        fontSize = 11.sp
                                     )
+                                }
+                                if (canOpen) {
+                                    Icon(
+                                        imageVector = Icons.Default.KeyboardArrowRight,
+                                        contentDescription = null,
+                                        tint = chevronTint,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+
+                            if (aviso.descricao.isNotBlank()) {
+                                Text(
+                                    text = aviso.descricao,
+                                    color = textSub,
+                                    fontSize = 13.sp,
+                                    lineHeight = 19.sp,
+                                    maxLines = 4,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(chipColor.copy(alpha = 0.12f))
+                                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                                ) {
+                                    Text(chipLabel, color = chipColor, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                }
+                                if (!vehicleName.isNullOrBlank()) {
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(secondaryChipBg)
+                                            .padding(horizontal = 10.dp, vertical = 4.dp)
+                                    ) {
+                                        Text(vehicleName, color = textSub, fontSize = 11.sp)
+                                    }
                                 }
                             }
                         }
@@ -4987,7 +4984,7 @@ private fun openExternalUrl(context: Context, url: String) {
         }
         context.startActivity(intent)
     }.onFailure {
-        Toast.makeText(context, "NÃ£o foi possÃ­vel abrir o vÃ­deo", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, "Não foi possível abrir o vÃ­deo", Toast.LENGTH_SHORT).show()
     }
 }
 
@@ -5018,7 +5015,7 @@ private fun HomeFaqScreen(
         } else {
             listOf(
                 "Como cadastrar um novo veÃ­culo?" to "Toque em Novo veÃ­culo, escolha o tipo e depois selecione marca e modelo. Se os nomes estiverem carregando, aguarde alguns segundos.",
-                "Por que o nome do veÃ­culo nÃ£o abre na hora?" to "O app busca os nomes apÃ³s a escolha da marca. Enquanto carrega, o campo mostra mensagem de carregamento. Depois disso, a lista libera.",
+                "Por que o nome do veÃ­culo não abre na hora?" to "O app busca os nomes apÃ³s a escolha da marca. Enquanto carrega, o campo mostra mensagem de carregamento. Depois disso, a lista libera.",
                 "Como criar um aviso mais rÃ¡pido?" to "Toque em Novo aviso, escolha a categoria, revise data, km e detalhes e finalize em salvar. Quando disponÃ­vel, vocÃª tambÃ©m pode iniciar pela cÃ¢mera.",
                 "Onde vejo as notificaÃ§Ãµes dos avisos?" to "Use o sino na Home para abrir o histÃ³rico de notificaÃ§Ãµes. DÃ¡ para remover individualmente ou limpar tudo.",
                 "Como adicionar um prestador no aviso?" to "Abra os detalhes do aviso e toque em Adicionar prestador. Preencha nome e telefone e salve para vincular o contato.",
@@ -5507,6 +5504,7 @@ fun corCategoria(tipo: TipoManutencao): Color = when (tipo) {
     TipoManutencao.SEGURO -> Color(0xFF10B981) // verde
     TipoManutencao.OUTROS -> Color(0xFF94A3B8)
 }
+
 
 
 

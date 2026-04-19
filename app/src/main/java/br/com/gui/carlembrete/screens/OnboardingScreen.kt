@@ -252,7 +252,7 @@ fun OnboardingScreen(
     BackHandler(enabled = previousStep != null) {
         step = previousStep ?: step
     }
-    val maxVehicles = 3
+    val maxVehicles = vehicleLimitForPlan(PlanTier.FREE)
     val termosUsoTexto = remember {
         """
         1. Aceite: ao usar o Zellu, você concorda com estes Termos e com a Política de Privacidade.
@@ -450,7 +450,7 @@ fun OnboardingScreen(
                 onboardingVehicleNumber = (frotaTemporaria.size + 1).coerceAtMost(maxVehicles),
                 onSalvar = { novoCarro ->
                     if (frotaTemporaria.size >= maxVehicles) {
-                        Toast.makeText(context, "Limite de veículos do plano grátis atingido.", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, "Limite do plano Gratis: $maxVehicles veiculos.", Toast.LENGTH_SHORT).show()
                     } else {
                         val atualizada = (frotaTemporaria + novoCarro).take(maxVehicles)
                         frotaTemporaria = atualizada
@@ -481,7 +481,7 @@ fun OnboardingScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(if (currentStep == 6) 0.dp else 24.dp)
+                    .padding(if (currentStep in listOf(5, 6, 9)) 0.dp else 24.dp)
             ) {
                 when (currentStep) {
                     1 -> {
@@ -575,108 +575,141 @@ fun OnboardingScreen(
                         }
                     }
                     5 -> {
-                        LazyColumn(
+                        Column(
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .fillMaxHeight()
-                                .statusBarsPadding(),
-                            contentPadding = PaddingValues(top = 24.dp, bottom = 12.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                                .fillMaxSize()
+                                .navigationBarsPadding()
                         ) {
-                            item {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(bottom = 12.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Security,
-                                        contentDescription = null,
-                                        tint = Color(0xFF93C5FD),
-                                        modifier = Modifier.size(56.dp)
+                            // Colored header strip
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(
+                                        Brush.verticalGradient(
+                                            listOf(Color(0xFF1D4ED8), Color(0xFF1E3A5F))
+                                        )
+                                    )
+                                    .padding(horizontal = 24.dp, vertical = 28.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(64.dp)
+                                            .clip(CircleShape)
+                                            .background(Color.White.copy(alpha = 0.15f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Security,
+                                            contentDescription = null,
+                                            tint = Color.White,
+                                            modifier = Modifier.size(34.dp)
+                                        )
+                                    }
+                                    Spacer(Modifier.height(12.dp))
+                                    Text(
+                                        "Permissões necessárias",
+                                        fontSize = 22.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White
+                                    )
+                                    Spacer(Modifier.height(4.dp))
+                                    Text(
+                                        "Conceda os acessos para usar todos os recursos do Zellu.",
+                                        color = Color.White.copy(alpha = 0.75f),
+                                        textAlign = TextAlign.Center,
+                                        fontSize = 13.sp,
+                                        lineHeight = 18.sp
                                     )
                                 }
                             }
-                            item {
-                                Text(
-                                    "Permissões do App",
-                                    style = MaterialTheme.typography.headlineMedium,
-                                    color = Color.White,
-                                    fontWeight = FontWeight.Bold,
-                                    textAlign = TextAlign.Center,
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                            }
-                            item { Spacer(Modifier.height(10.dp)) }
-                            item {
-                                Text(
-                                    "Permita os acessos para receber lembretes e usar todos os recursos do Zellu.",
-                                    color = Color(0xFFBFDBFE),
-                                    textAlign = TextAlign.Center,
-                                    fontSize = 14.sp,
-                                    lineHeight = 18.sp,
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                            }
-                            item { Spacer(Modifier.height(16.dp)) }
-                            items(permissionItems) { item ->
-                                val granted = permissionStatus[item.permission] == true
-                                Card(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    colors = CardDefaults.cardColors(containerColor = onboardingCardBg),
-                                    border = BorderStroke(
-                                        1.dp,
-                                        if (granted) Color(0xFF22C55E) else Color(0xFFEF4444)
-                                    ),
-                                    shape = RoundedCornerShape(14.dp)
-                                ) {
+                            // Permission cards
+                            LazyColumn(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxWidth(),
+                                contentPadding = PaddingValues(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                items(permissionItems) { item ->
+                                    val granted = permissionStatus[item.permission] == true
+                                    val iconTint = when (item.permission) {
+                                        Manifest.permission.CAMERA -> Color(0xFF60A5FA)
+                                        Manifest.permission.ACCESS_FINE_LOCATION -> Color(0xFF34D399)
+                                        Manifest.permission.POST_NOTIFICATIONS -> Color(0xFFFBBF24)
+                                        else -> Color(0xFF94A3B8)
+                                    }
+                                    val iconBg = when (item.permission) {
+                                        Manifest.permission.CAMERA -> Color(0xFF1E3A5F)
+                                        Manifest.permission.ACCESS_FINE_LOCATION -> Color(0xFF064E3B)
+                                        Manifest.permission.POST_NOTIFICATIONS -> Color(0xFF78350F)
+                                        else -> Color(0xFF1E293B)
+                                    }
                                     Column(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .padding(12.dp),
-                                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                                            .clip(RoundedCornerShape(16.dp))
+                                            .background(Color(0xFF1E293B))
+                                            .border(
+                                                1.dp,
+                                                if (granted) Color(0xFF22C55E) else Color(0xFF334155),
+                                                RoundedCornerShape(16.dp)
+                                            )
+                                            .padding(16.dp)
                                     ) {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(52.dp)
+                                                    .clip(RoundedCornerShape(14.dp))
+                                                    .background(iconBg),
+                                                contentAlignment = Alignment.Center
                                             ) {
                                                 Icon(
                                                     imageVector = permissionIconFor(item.permission),
                                                     contentDescription = null,
-                                                    tint = Color.White,
-                                                    modifier = Modifier.size(18.dp)
-                                                )
-                                                Text(
-                                                    item.title,
-                                                    color = Color.White,
-                                                    fontWeight = FontWeight.Bold
+                                                    tint = iconTint,
+                                                    modifier = Modifier.size(26.dp)
                                                 )
                                             }
-                                            Text(
-                                                if (granted) "Permitido" else "Pendente",
-                                                color = if (granted) Color(0xFF86EFAC) else Color(0xFFFCA5A5),
-                                                fontSize = 12.sp,
-                                                fontWeight = FontWeight.SemiBold
-                                            )
+                                            Spacer(Modifier.width(14.dp))
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Text(item.title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                                                    if (granted) {
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .clip(RoundedCornerShape(20.dp))
+                                                                .background(Color(0xFF166534))
+                                                                .padding(horizontal = 8.dp, vertical = 3.dp)
+                                                        ) {
+                                                            Text("Permitido", color = Color(0xFF4ADE80), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                        }
+                                                    } else {
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .clip(RoundedCornerShape(20.dp))
+                                                                .background(Color(0xFF7F1D1D))
+                                                                .padding(horizontal = 8.dp, vertical = 3.dp)
+                                                        ) {
+                                                            Text("Pendente", color = Color(0xFFFCA5A5), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                        }
+                                                    }
+                                                }
+                                                Spacer(Modifier.height(2.dp))
+                                                Text(item.reason, color = Color(0xFF94A3B8), fontSize = 12.sp)
+                                            }
                                         }
-                                        Text(
-                                            item.reason,
-                                            color = Color(0xFFBFDBFE),
-                                            fontSize = 12.sp
-                                        )
                                         if (!granted) {
+                                            Spacer(Modifier.height(12.dp))
                                             Button(
                                                 onClick = {
-                                                    Log.d(
-                                                        TAG_ONBOARDING_PERMISSIONS,
-                                                        "click Permitir -> permission='${item.permission}' required=${isRuntimePermissionRequired(item.permission)} currentGranted=${permissionStatus[item.permission] == true}"
-                                                    )
+                                                    Log.d(TAG_ONBOARDING_PERMISSIONS, "click Permitir -> permission='${item.permission}'")
                                                     if (item.permission == Manifest.permission.POST_NOTIFICATIONS) {
                                                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
                                                             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
@@ -693,47 +726,52 @@ fun OnboardingScreen(
                                                             ActivityCompat.shouldShowRequestPermissionRationale(it, item.permission)
                                                         } ?: false
                                                         if (wasRequested && !shouldShowRationale) {
-                                                            Log.d(TAG_ONBOARDING_PERMISSIONS, "open app settings for '${item.permission}'")
                                                             openAppPermissionSettings(context)
                                                         } else {
                                                             requestedPermissionOnce[item.permission] = true
-                                                            Log.d(TAG_ONBOARDING_PERMISSIONS, "request runtime '${item.permission}'")
                                                             permissionLauncher.launch(arrayOf(item.permission))
                                                         }
                                                     } else {
-                                                        Log.d(TAG_ONBOARDING_PERMISSIONS, "permission '${item.permission}' does not require runtime request")
                                                         refreshPermissionStatus()
                                                     }
                                                 },
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .height(46.dp),
+                                                modifier = Modifier.fillMaxWidth().height(42.dp),
                                                 colors = ButtonDefaults.buttonColors(
-                                                    containerColor = Color(0xFF3B82F6),
+                                                    containerColor = Color(0xFF2563EB),
                                                     contentColor = Color.White
                                                 ),
                                                 shape = RoundedCornerShape(10.dp)
                                             ) {
-                                                Text("Permitir")
+                                                Text("Permitir acesso", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                                             }
                                         }
                                     }
                                 }
                             }
-                            item { Spacer(Modifier.height(4.dp)) }
-                            item {
+                            // Bottom CTA
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                            ) {
                                 Button(
                                     onClick = { step = 7 },
                                     enabled = allRequiredPermissionsGranted,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(56.dp),
-                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier.fillMaxWidth().height(54.dp),
+                                    shape = RoundedCornerShape(14.dp),
                                     colors = ButtonDefaults.buttonColors(
-                                        containerColor = if (allRequiredPermissionsGranted) Color(0xFF2563EB) else Color(0xFF475569),
-                                        contentColor = Color.White
+                                        containerColor = Color(0xFF2563EB),
+                                        contentColor = Color.White,
+                                        disabledContainerColor = Color(0xFF1E293B),
+                                        disabledContentColor = Color(0xFF475569)
                                     )
-                                ) { Text("Próximo", fontSize = 19.sp) }
+                                ) {
+                                    Text(
+                                        if (allRequiredPermissionsGranted) "Continuar" else "Conceda os acessos acima",
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
                             }
                         }
                     }
@@ -741,96 +779,118 @@ fun OnboardingScreen(
                         val notifGranted = permissionStatus[Manifest.permission.POST_NOTIFICATIONS] == true
                         Column(
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .fillMaxHeight()
-                                .padding(top = 28.dp)
+                                .fillMaxSize()
+                                .navigationBarsPadding(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Box(
+                            // Top content
+                            Column(
                                 modifier = Modifier
+                                    .weight(1f)
                                     .fillMaxWidth()
-                                    .padding(bottom = 12.dp),
-                                contentAlignment = Alignment.Center
+                                    .padding(horizontal = 28.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.Notifications,
-                                    contentDescription = null,
-                                    tint = Color(0xFF93C5FD),
-                                    modifier = Modifier.size(56.dp)
+                                Text(
+                                    "Notificações",
+                                    fontSize = 42.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White,
+                                    textAlign = TextAlign.Center,
+                                    letterSpacing = (-1).sp
                                 )
-                            }
-                            Text(
-                                "Notificações",
-                                style = MaterialTheme.typography.headlineMedium,
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                            Spacer(Modifier.height(10.dp))
-                            Text(
-                                "Ative as notificações para receber lembretes, avisos de manutenção e alertas importantes do Zellu.",
-                                color = Color(0xFFBFDBFE),
-                                textAlign = TextAlign.Center,
-                                lineHeight = 20.sp,
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                            Spacer(Modifier.height(20.dp))
-                            Card(
-                                modifier = Modifier.fillMaxWidth(),
-                                colors = CardDefaults.cardColors(containerColor = onboardingCardBg),
-                                border = BorderStroke(1.dp, if (notifGranted) Color(0xFF22C55E) else Color(0xFFEF4444)),
-                                shape = RoundedCornerShape(14.dp)
-                            ) {
+                                Spacer(Modifier.height(8.dp))
+                                Text(
+                                    "Ative para receber lembretes, avisos de manutenção e alertas importantes do Zellu.",
+                                    color = Color(0xFF64748B),
+                                    textAlign = TextAlign.Center,
+                                    fontSize = 14.sp,
+                                    lineHeight = 20.sp
+                                )
+                                Spacer(Modifier.height(28.dp))
+                                // Status card
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(14.dp),
+                                        .clip(RoundedCornerShape(16.dp))
+                                        .background(Color(0xFF1E293B))
+                                        .border(
+                                            1.dp,
+                                            if (notifGranted) Color(0xFF22C55E) else Color(0xFF334155),
+                                            RoundedCornerShape(16.dp)
+                                        )
+                                        .padding(16.dp),
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text("Status", color = Color.White, fontWeight = FontWeight.Bold)
+                                    Column {
+                                        Text("Notificações do app", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                                    }
+                                    if (notifGranted) {
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(20.dp))
+                                                .background(Color(0xFF166534))
+                                                .padding(horizontal = 10.dp, vertical = 4.dp)
+                                        ) {
+                                            Text("Permitido", color = Color(0xFF4ADE80), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    } else {
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(20.dp))
+                                                .background(Color(0xFF7F1D1D))
+                                                .padding(horizontal = 10.dp, vertical = 4.dp)
+                                        ) {
+                                            Text("Pendente", color = Color(0xFFFCA5A5), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                }
+                                if (!notifGranted) {
+                                    Spacer(Modifier.height(12.dp))
+                                    Button(
+                                        onClick = {
+                                            Log.d(TAG_ONBOARDING_PERMISSIONS, "click Permitir na tela dedicada de notificações")
+                                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                                                ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                                            ) {
+                                                requestedPermissionOnce[Manifest.permission.POST_NOTIFICATIONS] = true
+                                                permissionLauncher.launch(arrayOf(Manifest.permission.POST_NOTIFICATIONS))
+                                            } else {
+                                                openAppNotificationSettings(context)
+                                            }
+                                        },
+                                        modifier = Modifier.fillMaxWidth().height(50.dp),
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = Color(0xFF2563EB),
+                                            contentColor = Color.White
+                                        ),
+                                        shape = RoundedCornerShape(14.dp)
+                                    ) {
+                                        Text("Permitir notificações", fontWeight = FontWeight.SemiBold)
+                                    }
+                                }
+                            }
+                            // Bottom
+                            Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp)) {
+                                Button(
+                                    onClick = { step = 5 },
+                                    modifier = Modifier.fillMaxWidth().height(54.dp),
+                                    shape = RoundedCornerShape(14.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = if (notifGranted) Color(0xFF2563EB) else Color(0xFF1E293B),
+                                        contentColor = if (notifGranted) Color.White else Color(0xFF475569)
+                                    )
+                                ) {
                                     Text(
-                                        if (notifGranted) "Permitido" else "Pendente",
-                                        color = if (notifGranted) Color(0xFF86EFAC) else Color(0xFFFCA5A5),
-                                        fontSize = 12.sp,
+                                        if (notifGranted) "Voltar para permissões" else "Voltar",
+                                        fontSize = 16.sp,
                                         fontWeight = FontWeight.SemiBold
                                     )
                                 }
                             }
-                            Spacer(Modifier.height(14.dp))
-                            Button(
-                                onClick = {
-                                    Log.d(TAG_ONBOARDING_PERMISSIONS, "click Permitir na tela dedicada de notificações")
-                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                                        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-                                    ) {
-                                        requestedPermissionOnce[Manifest.permission.POST_NOTIFICATIONS] = true
-                                        permissionLauncher.launch(arrayOf(Manifest.permission.POST_NOTIFICATIONS))
-                                    } else {
-                                        openAppNotificationSettings(context)
-                                    }
-                                },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(50.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = Color(0xFF3B82F6),
-                                    contentColor = Color.White
-                                ),
-                                shape = RoundedCornerShape(10.dp)
-                            ) { Text("Permitir notificações") }
-                            Spacer(Modifier.weight(1f))
-                            Button(
-                                onClick = { step = 5 },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(56.dp),
-                                shape = RoundedCornerShape(10.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = if (notifGranted) Color(0xFF60A5FA) else Color(0xFF475569),
-                                    contentColor = Color.White
-                                )
-                            ) { Text(if (notifGranted) "Voltar para permissões" else "Voltar", fontSize = 18.sp) }
                         }
                     }
                     7 -> {
@@ -1113,7 +1173,7 @@ fun OnboardingScreen(
                         OutlinedButton(
                             onClick = {
                                 if (frotaTemporaria.size >= maxVehicles) {
-                                    Toast.makeText(context, "Limite de veÃ­culos do plano grÃ¡tis atingido.", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, "Limite do plano Gratis: $maxVehicles veiculos.", Toast.LENGTH_SHORT).show()
                                     return@OutlinedButton
                                 }
                                 if (carroNome.isNotBlank() && carroModeloUnico.isNotBlank()) {
@@ -1150,7 +1210,7 @@ fun OnboardingScreen(
                                     listaFinal = listaFinal + ultimo
                                 }
                                 if (listaFinal.size > maxVehicles) {
-                                    Toast.makeText(context, "Limite de veÃ­culos do plano grÃ¡tis atingido.", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, "Limite do plano Gratis: $maxVehicles veiculos.", Toast.LENGTH_SHORT).show()
                                     listaFinal = listaFinal.take(maxVehicles)
                                 }
                                 if (listaFinal.isEmpty()) {

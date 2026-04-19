@@ -228,6 +228,7 @@ private fun OnboardingNovoCarroScreenContent(
     var quemUsaOpcao by remember { mutableStateOf("Selecione") }
     var quemUsaExpanded by remember { mutableStateOf(false) }
     var kmAtualStr by remember { mutableStateOf("0") }
+    var bikeSemKm by remember { mutableStateOf(false) }
     var tipoSelecionado by remember { mutableStateOf<TipoVeiculo?>(null) }
     var corSelecionada by remember { mutableStateOf<Int?>(null) }
     var vezesBatido by remember { mutableStateOf<Int?>(null) }
@@ -300,12 +301,13 @@ private fun OnboardingNovoCarroScreenContent(
     val erroModelo = etapaCadastro == 1 && tentouAvancarEtapa1 && modelo.isBlank()
     val erroAno = etapaCadastro == 1 && !tipoSemAno && tentouAvancarEtapa1 && (anoSelecionado.isBlank() || !anoValido)
     val erroCor = etapaCadastro == 1 && tentouAvancarEtapa1 && corSelecionada == null
-    val erroKm = etapaCadastro == 2 && !isBikeTypeGlobal && tentouSalvarEtapa2 && kmAtualStr.filter(Char::isDigit).isEmpty()
+    val usarControleKm = !isBikeTypeGlobal || !bikeSemKm
+    val erroKm = etapaCadastro == 2 && usarControleKm && tentouSalvarEtapa2 && kmAtualStr.filter(Char::isDigit).isEmpty()
     val etapa2Valida = proprietario.isNotBlank() &&
             quemUsaOpcao != "Selecione" &&
             (isBikeTypeGlobal || vezesBatido != null) &&
             tempoComVeiculo.isNotBlank() &&
-            (isBikeTypeGlobal || kmAtualStr.filter(Char::isDigit).isNotEmpty())
+            (!usarControleKm || kmAtualStr.filter(Char::isDigit).isNotEmpty())
     val erroQuemUsa = etapaCadastro == 2 && tentouSalvarEtapa2 && quemUsaOpcao == "Selecione"
     val erroProprietario = etapaCadastro == 2 && tentouSalvarEtapa2 && proprietario.isBlank()
     val erroBatidas = etapaCadastro == 2 && !isBikeTypeGlobal && tentouSalvarEtapa2 && vezesBatido == null
@@ -326,6 +328,7 @@ private fun OnboardingNovoCarroScreenContent(
             quemUsaOpcao = "Selecione"
             quemUsaExpanded = false
             kmAtualStr = "0"
+            bikeSemKm = false
             corSelecionada = null
             vezesBatido = null
             tempoComVeiculo = ""
@@ -1409,21 +1412,40 @@ private fun OnboardingNovoCarroScreenContent(
                     }
 
                     if (etapaCadastro == 2) {
-                        if (!isBikeTypeGlobal) {
-                            OutlinedTextField(
-                                value = kmAtualStr,
-                                onValueChange = { kmAtualStr = formatarKmTextoOnboarding(it) },
-                                isError = erroKm,
-                                label = { Text("KM Atual (Painel)") },
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                singleLine = true,
-                                colors = selectorFieldColorsWithState(
-                                    filled = kmAtualStr.filter(Char::isDigit).isNotEmpty(),
-                                    isError = erroKm
-                                ),
+                        OutlinedTextField(
+                            value = kmAtualStr,
+                            onValueChange = { kmAtualStr = formatarKmTextoOnboarding(it) },
+                            enabled = usarControleKm,
+                            isError = erroKm,
+                            label = { Text(if (isBikeTypeGlobal) "KM da bike" else "KM Atual (Painel)") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                            colors = selectorFieldColorsWithState(
+                                filled = kmAtualStr.filter(Char::isDigit).isNotEmpty(),
+                                isError = erroKm
+                            ),
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(14.dp)
+                        )
+
+                        if (isBikeTypeGlobal) {
+                            Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(14.dp)
-                            )
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Checkbox(
+                                    checked = bikeSemKm,
+                                    onCheckedChange = { checked ->
+                                        bikeSemKm = checked
+                                        if (checked) kmAtualStr = "0"
+                                    }
+                                )
+                                Text(
+                                    text = "Minha bike não possui KM",
+                                    color = textSecondary,
+                                    fontSize = 13.sp
+                                )
+                            }
                         }
 
                         ExposedDropdownMenuBox(
@@ -1635,7 +1657,8 @@ private fun OnboardingNovoCarroScreenContent(
                                             modelo = combinarModeloAno(modelo, anoSelecionado),
                                             proprietario = proprietario,
                                             corArgb = corSelecionada ?: carroBase.corArgb,
-                                            kmAtual = kmAtualStr.filter(Char::isDigit).toIntOrNull() ?: 0,
+                                            kmAtual = if (isBikeTypeGlobal && bikeSemKm) 0 else (kmAtualStr.filter(Char::isDigit).toIntOrNull() ?: 0),
+                                            semControleKm = isBikeTypeGlobal && bikeSemKm,
                                             tipoVeiculo = tipoSelecionado!!,
                                             vezesBatido = vezesBatido,
                                             tempoComVeiculo = tempoComVeiculo
@@ -1719,7 +1742,8 @@ private fun OnboardingNovoCarroScreenContent(
                                             modelo = combinarModeloAno(modelo, anoSelecionado),
                                             proprietario = proprietario,
                                             corArgb = corSelecionada ?: carroBase.corArgb,
-                                            kmAtual = kmAtualStr.filter(Char::isDigit).toIntOrNull() ?: 0,
+                                            kmAtual = if (isBikeTypeGlobal && bikeSemKm) 0 else (kmAtualStr.filter(Char::isDigit).toIntOrNull() ?: 0),
+                                            semControleKm = isBikeTypeGlobal && bikeSemKm,
                                             tipoVeiculo = tipoSelecionado!!,
                                             vezesBatido = vezesBatido,
                                             tempoComVeiculo = tempoComVeiculo
@@ -1996,4 +2020,5 @@ private fun formatarKmTextoOnboarding(texto: String): String {
     val value = (digits.toLongOrNull() ?: 0L).coerceAtMost(Int.MAX_VALUE.toLong())
     return NumberFormat.getIntegerInstance(Locale("pt", "BR")).format(value)
 }
+
 

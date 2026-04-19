@@ -961,6 +961,7 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
             .setContentTitle("Anjo da Guarda")
             .setContentText(text)
             .setSmallIcon(R.drawable.ic_shield_notification)
+            .setColor(NotificacaoHelper.notificationAccentColor(this))
             .setOngoing(true)
             .build()
     }
@@ -987,6 +988,7 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
             .setContentTitle("Anjo da Guarda")
             .setContentText(text)
             .setSmallIcon(R.drawable.ic_shield_notification)
+            .setColor(NotificacaoHelper.notificationAccentColor(this))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .build()

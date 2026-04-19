@@ -1,4 +1,4 @@
-package br.com.gui.carlembrete
+﻿package br.com.gui.carlembrete
 
 import android.app.Activity
 import android.content.ActivityNotFoundException
@@ -161,6 +161,14 @@ fun EbookStoreScreen(onDismiss: () -> Unit) {
                     Spacer(Modifier.height(20.dp))
                     Button(
                         onClick = {
+                            if (isBundleUnlocked) {
+                                android.widget.Toast.makeText(
+                                    context,
+                                    "Conteúdo já liberado nesta conta.",
+                                    android.widget.Toast.LENGTH_SHORT
+                                ).show()
+                                return@Button
+                            }
                             val activity = context.findActivity()
                             if (activity != null) {
                                 bundleBilling.launchBundlePurchase(activity) {
@@ -332,3 +340,4 @@ private fun openPdfFromAssets(context: Context, assetPath: String, ebookTitle: S
         android.widget.Toast.makeText(context, "Erro ao abrir PDF", android.widget.Toast.LENGTH_SHORT).show()
     }
 }
+

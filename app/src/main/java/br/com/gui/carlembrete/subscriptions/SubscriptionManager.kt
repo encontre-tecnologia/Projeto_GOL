@@ -37,11 +37,15 @@ class SubscriptionManager(context: Context) : PurchasesUpdatedListener {
 
     private fun applyEffectiveEntitlements() {
         val override = isAdminPremiumOverrideEnabled(appContext)
-        val effective = if (override && billingTier == PlanTier.FREE) PlanTier.FROTA else billingTier
+        val effective = if (override && billingTier == PlanTier.FREE)
+            getAdminPremiumOverrideTier(appContext)
+        else
+            billingTier
         _planTier.value = effective
         _isSubscribed.value = effective != PlanTier.FREE
         val planLabel = if (effective != PlanTier.FREE) "premium" else "free"
-        AdminUsersSync.syncCurrentUser(plan = planLabel)
+        val tierLabel = effective.name // "FREE", "LITE", "FROTA", "ENTERPRISE"
+        AdminUsersSync.syncCurrentUser(plan = planLabel, tierName = tierLabel)
     }
 
     fun connect() {
@@ -71,7 +75,10 @@ class SubscriptionManager(context: Context) : PurchasesUpdatedListener {
         plan: SubscriptionPlan = SubscriptionPlan.FROTA
     ) {
         val targetProductId = plan.productId
-        val details = productDetailsById[targetProductId] ?: productDetailsById.values.firstOrNull() ?: return
+        val details = productDetailsById[targetProductId] ?: run {
+            Log.w("Billing", "Produto de assinatura indisponivel no Billing: $targetProductId")
+            return
+        }
         val offerToken = offerTokenByProductId[targetProductId]
             ?: offerTokenByProductId[details.productId]
             ?: run {
@@ -94,7 +101,8 @@ class SubscriptionManager(context: Context) : PurchasesUpdatedListener {
     private fun queryProduct() {
         val productIds = listOf(
             SubscriptionPlan.LITE.productId,
-            SubscriptionPlan.FROTA.productId
+            SubscriptionPlan.FROTA.productId,
+            SubscriptionPlan.ENTERPRISE.productId
         )
         val params = QueryProductDetailsParams.newBuilder()
             .setProductList(
@@ -156,9 +164,15 @@ class SubscriptionManager(context: Context) : PurchasesUpdatedListener {
         var tier = PlanTier.FREE
         for (purchase in purchases) {
             if (purchase.purchaseState == Purchase.PurchaseState.PURCHASED &&
-                purchase.products.any { it == SubscriptionPlan.LITE.productId || it == SubscriptionPlan.FROTA.productId }
+                purchase.products.any {
+                    it == SubscriptionPlan.LITE.productId ||
+                        it == SubscriptionPlan.FROTA.productId ||
+                        it == SubscriptionPlan.ENTERPRISE.productId
+                }
             ) {
-                if (purchase.products.contains(SubscriptionPlan.FROTA.productId)) {
+                if (purchase.products.contains(SubscriptionPlan.ENTERPRISE.productId)) {
+                    tier = PlanTier.ENTERPRISE
+                } else if (purchase.products.contains(SubscriptionPlan.FROTA.productId)) {
                     tier = PlanTier.FROTA
                 } else if (tier == PlanTier.FREE && purchase.products.contains(SubscriptionPlan.LITE.productId)) {
                     tier = PlanTier.LITE
@@ -178,8 +192,10 @@ class SubscriptionManager(context: Context) : PurchasesUpdatedListener {
     companion object {
         const val SUBSCRIPTION_LITE_PRODUCT_ID = "zellu_lite"
         const val SUBSCRIPTION_FROTA_PRODUCT_ID = "zellu_frota"
+        const val SUBSCRIPTION_ENTERPRISE_PRODUCT_ID = "zellu_enterprise"
         private const val ADMIN_PREFS = "admin_mode_prefs"
         private const val KEY_ADMIN_OVERRIDE = "admin_premium_override"
+        private const val KEY_ADMIN_OVERRIDE_PLAN = "admin_premium_override_plan"
         private const val KEY_ADMIN_EBOOK_OVERRIDE = "admin_ebook_override"
 
         fun setAdminPremiumOverride(context: Context, enabled: Boolean) {
@@ -192,6 +208,26 @@ class SubscriptionManager(context: Context) : PurchasesUpdatedListener {
             return context.applicationContext
                 .getSharedPreferences(ADMIN_PREFS, Context.MODE_PRIVATE)
                 .getBoolean(KEY_ADMIN_OVERRIDE, false)
+        }
+
+        fun setAdminPremiumOverridePlan(context: Context, plan: String?) {
+            context.applicationContext
+                .getSharedPreferences(ADMIN_PREFS, Context.MODE_PRIVATE)
+                .edit().apply {
+                    if (plan != null) putString(KEY_ADMIN_OVERRIDE_PLAN, plan)
+                    else remove(KEY_ADMIN_OVERRIDE_PLAN)
+                }.apply()
+        }
+
+        fun getAdminPremiumOverrideTier(context: Context): PlanTier {
+            val plan = context.applicationContext
+                .getSharedPreferences(ADMIN_PREFS, Context.MODE_PRIVATE)
+                .getString(KEY_ADMIN_OVERRIDE_PLAN, null)
+            return when (plan?.uppercase()) {
+                "LITE" -> PlanTier.LITE
+                "ENTERPRISE" -> PlanTier.ENTERPRISE
+                else -> PlanTier.FROTA
+            }
         }
 
         fun setAdminEbookOverride(context: Context, enabled: Boolean) {
@@ -210,11 +246,27 @@ class SubscriptionManager(context: Context) : PurchasesUpdatedListener {
 
 enum class SubscriptionPlan(val productId: String) {
     LITE(SubscriptionManager.SUBSCRIPTION_LITE_PRODUCT_ID),
-    FROTA(SubscriptionManager.SUBSCRIPTION_FROTA_PRODUCT_ID)
+    FROTA(SubscriptionManager.SUBSCRIPTION_FROTA_PRODUCT_ID),
+    ENTERPRISE(SubscriptionManager.SUBSCRIPTION_ENTERPRISE_PRODUCT_ID)
 }
 
 enum class PlanTier(val productId: String) {
     FREE(""),
     LITE(SubscriptionManager.SUBSCRIPTION_LITE_PRODUCT_ID),
-    FROTA(SubscriptionManager.SUBSCRIPTION_FROTA_PRODUCT_ID)
+    FROTA(SubscriptionManager.SUBSCRIPTION_FROTA_PRODUCT_ID),
+    ENTERPRISE(SubscriptionManager.SUBSCRIPTION_ENTERPRISE_PRODUCT_ID)
+}
+
+fun vehicleLimitForPlan(planTier: PlanTier): Int = when (planTier) {
+    PlanTier.FREE -> 5
+    PlanTier.LITE -> 15
+    PlanTier.FROTA -> 50
+    PlanTier.ENTERPRISE -> 200
+}
+
+fun planNameLabel(planTier: PlanTier): String = when (planTier) {
+    PlanTier.FREE -> "Grátis"
+    PlanTier.LITE -> "Lite"
+    PlanTier.FROTA -> "Frota"
+    PlanTier.ENTERPRISE -> "Enterprise"
 }

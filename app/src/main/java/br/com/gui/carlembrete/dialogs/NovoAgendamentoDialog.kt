@@ -1003,7 +1003,7 @@ fun NovoAgendamentoDialog(
                 }
                 onMultiConfirm(resultado)
             } else if (valoresAbastecimento.any { it > 0.0 }) {
-                Toast.makeText(context, "Registro salvo no historico de abastecimento.", Toast.LENGTH_SHORT).show()
+                                                    Toast.makeText(context, "Salvo no historico.", Toast.LENGTH_SHORT).show()
             }
         } else if (tituloAviso.isNotBlank() && descricao.isNotBlank()) {
             val tituloLembrete = localServicoInput.ifBlank { qrNomeEstabelecimento.ifBlank { descricao } }
@@ -1040,7 +1040,7 @@ fun NovoAgendamentoDialog(
                     valores = listOf(novoLembrete.valor),
                     itensRegistrados = itensAbastecimento
                 )
-                Toast.makeText(context, "Registro salvo no historico de abastecimento.", Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(context, "Salvo no historico.", Toast.LENGTH_SHORT).show()
             } else if (isRegistroServico) {
                 onConfirm(marcarLembreteComoRealizado(novoLembrete))
             } else {
@@ -2194,7 +2194,7 @@ fun NovoAgendamentoDialog(
                             )
                         }
                         Spacer(Modifier.height(14.dp))
-                        if (categoriaPermiteEscanearNota(tipoSelecionado)) {
+                        if (categoriaPermiteEscanearNota(tipoSelecionado, carroAtual.tipoVeiculo)) {
                             Button(
                                 onClick = {
                                     usarCadastroManualPosScan = false
@@ -3587,7 +3587,11 @@ private fun tiposAvisoCadastroPorVeiculo(tipoVeiculo: TipoVeiculo): List<TipoMan
     )
 }
 
-private fun categoriaPermiteEscanearNota(tipo: TipoManutencao): Boolean = when (tipo) {
+private fun categoriaPermiteEscanearNota(tipo: TipoManutencao, tipoVeiculo: TipoVeiculo): Boolean {
+    if (tipoVeiculo == TipoVeiculo.BICICLETA || tipoVeiculo == TipoVeiculo.BIKE_ELETRICA) {
+        return true
+    }
+    return when (tipo) {
     TipoManutencao.ABASTECIMENTO,
     TipoManutencao.OLEO,
     TipoManutencao.FREIO,
@@ -3598,8 +3602,9 @@ private fun categoriaPermiteEscanearNota(tipo: TipoManutencao): Boolean = when (
     TipoManutencao.VIDROS,
     TipoManutencao.PNEU,
     TipoManutencao.REVISAO,
-    TipoManutencao.IPVA -> true
-    else -> false
+        TipoManutencao.IPVA -> true
+        else -> false
+    }
 }
 
 private fun detectarTipoInicialDoLembrete(

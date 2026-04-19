@@ -93,6 +93,7 @@ fun CarroInfoScreen(
     val view = LocalView.current
     var showHistoricoConsumo by remember { mutableStateOf(false) }
     val isBikeType = carro.tipoVeiculo == TipoVeiculo.BICICLETA || carro.tipoVeiculo == TipoVeiculo.BIKE_ELETRICA
+    val exibirKmNoPainel = !isBikeType || !carro.semControleKm
     val suportaFipe = remember(carro.tipoVeiculo) { tipoFipeParaRelatorio(carro.tipoVeiculo) != null }
 
     DisposableEffect(view, isDark) {
@@ -473,7 +474,7 @@ fun CarroInfoScreen(
                         if (valorVendaSugerido != null) Color(0xFF22C55E) else textDim
                     )
                 }
-                if (!isBikeType) {
+                if (exibirKmNoPainel) {
                     Divider(color = dividerColor)
                     InfoRowModern(tr("KM atual", "Current mileage"), kmAtualResumo, textDim, accentColor)
                 }

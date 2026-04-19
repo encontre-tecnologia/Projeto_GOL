@@ -408,6 +408,7 @@ class MainActivity : ComponentActivity() {
         if (firstOpen == 0L) editor.putLong(KEY_FIRST_OPEN_MS, now)
         editor.apply()
 
+        if (!ENABLE_STARTUP_ENGAGEMENT_NOTIFICATIONS) return
         if (!notificacoesPermitidas()) return
 
         val lastSimpleReminder = prefs.getLong(KEY_LAST_SIMPLE_REMINDER_MS, 0L)
@@ -468,6 +469,7 @@ class MainActivity : ComponentActivity() {
         private const val KEY_LAST_REVIEW_PROMPT_MS = "last_review_prompt_ms"
         private const val KEY_LAST_SIMPLE_REMINDER_MS = "last_simple_reminder_ms"
         private const val KEY_LAST_DUE_SOON_NOTIF_MS = "last_due_soon_notif_ms"
+        private const val ENABLE_STARTUP_ENGAGEMENT_NOTIFICATIONS = false
         private const val DAY_MS = 24L * 60L * 60L * 1000L
     }
 }
@@ -562,12 +564,18 @@ fun formatarMoeda(valor: Double): String = NumberFormat.getCurrencyInstance(Loca
 
 fun gerarResumoRelatorio(carro: CarroInfo, lembretes: List<Lembrete>, isPremium: Boolean): String {
     val builder = StringBuilder()
+    val isBike = carro.tipoVeiculo == TipoVeiculo.BICICLETA || carro.tipoVeiculo == TipoVeiculo.BIKE_ELETRICA
+    val exibirKm = !isBike || !carro.semControleKm
     builder.appendLine("Relatório do veículo")
     builder.appendLine("Nome: ${carro.nome}")
     builder.appendLine("Proprietário: ${carro.proprietario.ifBlank { "Não informado" }}")
     builder.appendLine("Marca: ${carro.marca.ifBlank { "Não informada" }}")
     builder.appendLine("Modelo: ${carro.modelo}")
-    builder.appendLine("Odômetro: ${if (carro.kmAtual > 0) "${carro.kmAtual} km" else "Não informado"}")
+    builder.appendLine(
+        "Odômetro: ${
+            if (!exibirKm) "Não aplicável" else if (carro.kmAtual > 0) "${carro.kmAtual} km" else "Não informado"
+        }"
+    )
     builder.appendLine()
     builder.appendLine("Avisos ativos: ${lembretes.size}")
     TipoManutencao.values().forEach { tipo ->
@@ -804,6 +812,7 @@ fun gerarPdfRelatorio(
         val vezesBatidoTexto = carro.vezesBatido?.toString() ?: "Nao informado"
         val tempoComVeiculoTexto = carro.tempoComVeiculo.ifBlank { "Nao informado" }
         val isBike = carro.tipoVeiculo == TipoVeiculo.BICICLETA || carro.tipoVeiculo == TipoVeiculo.BIKE_ELETRICA
+        val exibirKmBike = isBike && !carro.semControleKm
         val abastecimentosCarro = BancoDeDados.carregarAbastecimentos(context).filter { it.carroId == carro.id }
         val hoje = LocalDate.now()
         val litrosTotais = abastecimentosCarro.sumOf { it.litros.coerceAtLeast(0.0) }
@@ -829,7 +838,11 @@ fun gerarPdfRelatorio(
         }
 
         drawSectionTitle("IDENTIFICACAO")
-        val boxHeight = if (isBike) 150f else 180f
+        val boxHeight = if (isBike) {
+            if (exibirKmBike) 186f else 150f
+        } else {
+            180f
+        }
         ensureSpace(boxHeight)
         canvas.drawRect(marginX, y, marginX + contentWidth, y + boxHeight, cardBgPaint)
         canvas.drawRoundRect(android.graphics.RectF(marginX, y, marginX + contentWidth, y + boxHeight), 12f, 12f, cardBorderPaint)
@@ -845,7 +858,13 @@ fun gerarPdfRelatorio(
             drawKeyValue("Tipo", carro.tipoVeiculo.label, rightX, rowY + 42f)
             drawKeyValue("Proprietario", fit(proprietarioTexto, 30), leftX, rowY + 78f)
             val corTexto = corNomePorArgb(carro.corArgb)
-            drawKeyValue("Cor", corTexto, rightX, rowY + 78f)
+            if (exibirKmBike) {
+                val odometroTexto = if (carro.kmAtual > 0) "${carro.kmAtual} km" else "Nao informado"
+                drawKeyValue("Odometro", odometroTexto, leftX, rowY + 114f)
+                drawKeyValue("Cor", corTexto, rightX, rowY + 114f)
+            } else {
+                drawKeyValue("Cor", corTexto, rightX, rowY + 78f)
+            }
         } else {
             drawKeyValue("Motor", fit(carro.modelo.ifBlank { "-" }, 26), rightX, rowY)
             drawKeyValue("Marca", carro.marca.ifBlank { "-" }, leftX, rowY + 42f)
@@ -1213,7 +1232,9 @@ fun gerarPdfFinanceiro(
                 } else {
                     carro.modelo.ifBlank { "" }.let { if (it.isBlank()) "" else "Motor: $it" }
                 }
-                val kmTexto = if (carro.kmAtual > 0) "KM: ${carro.kmAtual}" else ""
+                val isBikeRow = carro.tipoVeiculo == TipoVeiculo.BICICLETA || carro.tipoVeiculo == TipoVeiculo.BIKE_ELETRICA
+                val exibirKmRow = !isBikeRow || !carro.semControleKm
+                val kmTexto = if (exibirKmRow && carro.kmAtual > 0) "KM: ${carro.kmAtual}" else ""
                 val combustivelTexto = if (gastoComb > 0.0) "Comb: ${formatarMoeda(gastoComb)}" else ""
                 val detalhes = listOf(carro.marca, detalheExtra, kmTexto, combustivelTexto)
                     .filter { it.isNotBlank() }

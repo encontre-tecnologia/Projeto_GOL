@@ -1,4 +1,4 @@
-package br.com.gui.carlembrete
+﻿package br.com.gui.carlembrete
 
 import android.util.Log
 import com.google.firebase.auth.FirebaseAuth
@@ -46,13 +46,13 @@ object AdminUsersSync {
                 val expiresAt = doc.getLong("expiresAt")
                 val now = System.currentTimeMillis()
                 if (expiresAt != null) {
-                    if (now > expiresAt) return@addOnSuccessListener // prazo encerrado
-                    onShow(title, description) // mostra sempre até expirar
+                    if (now > expiresAt) return@addOnSuccessListener
+                    onShow(title, description)
                 } else {
                     val prefs = context.getSharedPreferences("admin_announcements", android.content.Context.MODE_PRIVATE)
                     if (prefs.getString("last_seen_id", null) == id) return@addOnSuccessListener
                     prefs.edit().putString("last_seen_id", id).apply()
-                    onShow(title, description) // mostra só uma vez
+                    onShow(title, description)
                 }
             }
             .addOnFailureListener { Log.w(TAG_ADMIN_SYNC, "Falha ao verificar anúncio", it) }
@@ -61,6 +61,7 @@ object AdminUsersSync {
     fun applyRemoteAdminOverride(
         getCurrentOverride: () -> Boolean,
         setOverride: (Boolean) -> Unit,
+        setPlan: (String?) -> Unit = {},
         onChanged: () -> Unit = {}
     ) {
         val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
@@ -68,9 +69,13 @@ object AdminUsersSync {
             .get()
             .addOnSuccessListener { doc ->
                 val remote = doc.getBoolean("adminPremiumOverride") ?: false
+                val plan = doc.getString("adminPremiumPlan")
                 if (remote != getCurrentOverride()) {
                     setOverride(remote)
+                    setPlan(if (remote) plan else null)
                     onChanged()
+                } else if (remote) {
+                    setPlan(plan)
                 }
             }
             .addOnFailureListener { Log.w(TAG_ADMIN_SYNC, "Falha ao ler adminPremiumOverride", it) }
@@ -94,7 +99,7 @@ object AdminUsersSync {
             .addOnFailureListener { Log.w(TAG_ADMIN_SYNC, "Falha ao ler adminEbookOverride", it) }
     }
 
-    fun syncCurrentUser(plan: String? = null) {
+    fun syncCurrentUser(plan: String? = null, tierName: String? = null) {
         val user = FirebaseAuth.getInstance().currentUser ?: return
         val userDoc = firestore.collection("admin_users").document(user.uid)
 
@@ -119,6 +124,9 @@ object AdminUsersSync {
                     payload["tier"] = normalized
                     payload["isPremium"] = normalized == "premium"
                 }
+                if (!tierName.isNullOrBlank()) {
+                    payload["planTierName"] = tierName
+                }
 
                 userDoc.set(payload, SetOptions.merge())
                     .addOnFailureListener { error ->
@@ -129,5 +137,5 @@ object AdminUsersSync {
                 Log.w(TAG_ADMIN_SYNC, "Falha ao ler admin_users para sync", error)
             }
     }
-}
 
+}

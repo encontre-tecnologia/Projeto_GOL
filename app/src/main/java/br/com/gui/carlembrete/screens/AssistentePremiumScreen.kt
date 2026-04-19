@@ -1701,9 +1701,9 @@ private fun TripsByTravelScreen(
         } else {
             listOf(
                 "Exportar: toque aqui para abrir as opcoes de PDF e impressao." to "pdf",
-                "Imprimir geral: use no menu Exportar para abrir a impressÃ£o do relatÃ³rio completo de viagens." to "print",
-                "Novo gasto: toque no botÃ£o + para abrir o formulÃ¡rio e cadastrar uma despesa na viagem escolhida." to "add",
-                "Detalhes da viagem: toque em uma viagem para ver os gastos, editar informaÃ§Ãµes e excluir o que precisar." to "trip"
+                "Imprimir geral: use no menu Exportar para abrir a impressão do relatório completo de viagens." to "print",
+                "Novo gasto: toque no botão + para abrir o formulário e cadastrar uma despesa na viagem escolhida." to "add",
+                "Detalhes da viagem: toque em uma viagem para ver os gastos, editar informações e excluir o que precisar." to "trip"
             )
         }
     }
@@ -2402,9 +2402,14 @@ private fun TutorialSpotlightOverlay(
                 modifier = Modifier.padding(14.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Text("Guia rÃ¡pido", color = textPrimary, fontWeight = FontWeight.Bold)
+                Text("Guia rápido", color = textPrimary, fontWeight = FontWeight.Bold)
                 Text("Etapa $step de $total", color = textDim, fontSize = 12.sp)
-                Text(message, color = textPrimary, fontSize = 14.sp)
+                Text(
+                    message,
+                    color = textPrimary,
+                    fontSize = 14.sp,
+                    lineHeight = 20.sp
+                )
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
@@ -2416,7 +2421,7 @@ private fun TutorialSpotlightOverlay(
                         onClick = onNext,
                         colors = ButtonDefaults.buttonColors(containerColor = accentBlue, contentColor = Color.White)
                     ) {
-                        Text(if (step < total) "AvanÃ§ar" else "Finalizar")
+                        Text(if (step < total) "Avançar" else "Finalizar")
                     }
                 }
             }

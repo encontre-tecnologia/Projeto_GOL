@@ -162,6 +162,7 @@ internal fun NovoCarroScreenContent(
     var quemUsaOpcao by remember { mutableStateOf("Eu mesmo") }
     var quemUsaExpanded by remember { mutableStateOf(false) }
     var kmAtualStr by remember { mutableStateOf("0") }
+    var bikeSemKm by remember { mutableStateOf(false) }
     var tipoSelecionado by remember {
         mutableStateOf<TipoVeiculo?>(null)
     }
@@ -220,11 +221,12 @@ internal fun NovoCarroScreenContent(
     val erroModelo = etapaCadastro == 1 && tentouAvancarEtapa1 && modelo.isBlank()
     val erroAno = etapaCadastro == 1 && !tipoSemAno && tentouAvancarEtapa1 && anoObrigatorio && anoSelecionado.isBlank()
     val erroCor = etapaCadastro == 1 && tentouAvancarEtapa1 && corSelecionada == null
-    val erroKm = etapaCadastro == 2 && !isBikeTypeGlobal && tentouSalvarEtapa2 && kmAtualStr.filter(Char::isDigit).isEmpty()
+    val usarControleKm = !isBikeTypeGlobal || !bikeSemKm
+    val erroKm = etapaCadastro == 2 && usarControleKm && tentouSalvarEtapa2 && kmAtualStr.filter(Char::isDigit).isEmpty()
     val etapa2Valida = proprietario.isNotBlank() &&
         (isBikeTypeGlobal || vezesBatido != null) &&
         tempoComVeiculo.isNotBlank() &&
-        (isBikeTypeGlobal || kmAtualStr.filter(Char::isDigit).isNotEmpty())
+        (!usarControleKm || kmAtualStr.filter(Char::isDigit).isNotEmpty())
     val erroProprietario =
         (etapaCadastro == 2 && !isBikeTypeGlobal && tentouSalvarEtapa2 && proprietario.isBlank()) ||
         (etapaCadastro == 1 && isBikeTypeGlobal && tentouAvancarEtapa1 && proprietario.isBlank())
@@ -245,6 +247,7 @@ internal fun NovoCarroScreenContent(
             quemUsaOpcao = "Eu mesmo"
             quemUsaExpanded = false
             kmAtualStr = "0"
+            bikeSemKm = false
             corSelecionada = null
             vezesBatido = null
             tempoComVeiculo = ""
@@ -319,12 +322,12 @@ internal fun NovoCarroScreenContent(
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
-            putExtra(RecognizerIntent.EXTRA_PROMPT, "Diga o nome do veiculo")
+            putExtra(RecognizerIntent.EXTRA_PROMPT, "Diga o nome do veículo")
         }
         try {
             speechLauncher.launch(intent)
         } catch (_: Exception) {
-            Toast.makeText(context, "Voz indisponivel neste dispositivo", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Voz indisponível neste dispositivo", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -333,12 +336,12 @@ internal fun NovoCarroScreenContent(
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
-            putExtra(RecognizerIntent.EXTRA_PROMPT, "Diga o motor do veiculo")
+            putExtra(RecognizerIntent.EXTRA_PROMPT, "Diga o motor do veículo")
         }
         try {
             speechLauncher.launch(intent)
         } catch (_: Exception) {
-            Toast.makeText(context, "Voz indisponivel neste dispositivo", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Voz indisponível neste dispositivo", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -389,7 +392,7 @@ internal fun NovoCarroScreenContent(
                                     tentouAvancarEtapa1 = true
                                     if (isBikeTypeGlobal) {
                                         if (!etapaBikeValida || tipoSelecionado == null) {
-                                            Toast.makeText(context, trNow("Preencha os campos obrigatorios", "Fill in required fields"), Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(context, trNow("Preencha os campos obrigatórios", "Fill in required fields"), Toast.LENGTH_SHORT).show()
                                             return@Button
                                         }
                                         onSalvar(
@@ -399,8 +402,9 @@ internal fun NovoCarroScreenContent(
                                                 modelo = combinarModeloAno(modelo, anoSelecionado),
                                                 proprietario = proprietario,
                                                 corArgb = corSelecionada ?: carroBase.corArgb,
-                                                kmAtual = kmAtualStr.filter(Char::isDigit).toIntOrNull() ?: 0,
-                                                tipoVeiculo = tipoSelecionado!!,
+                                                kmAtual = if (isBikeTypeGlobal && bikeSemKm) 0 else (kmAtualStr.filter(Char::isDigit).toIntOrNull() ?: 0),
+                                            semControleKm = isBikeTypeGlobal && bikeSemKm,
+                                            tipoVeiculo = tipoSelecionado!!,
                                                 vezesBatido = null,
                                                 tempoComVeiculo = ""
                                             )
@@ -408,7 +412,7 @@ internal fun NovoCarroScreenContent(
                                         return@Button
                                     }
                                     if (!etapa1Valida) {
-                                        Toast.makeText(context, trNow("Preencha os campos obrigatorios", "Fill in required fields"), Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, trNow("Preencha os campos obrigatórios", "Fill in required fields"), Toast.LENGTH_SHORT).show()
                                         return@Button
                                     }
                                     etapaCadastro = 2
@@ -433,7 +437,7 @@ internal fun NovoCarroScreenContent(
                                 onClick = {
                                     tentouSalvarEtapa2 = true
                                     if (!etapa2Valida || tipoSelecionado == null) {
-                                        Toast.makeText(context, trNow("Preencha os campos obrigatorios", "Fill in required fields"), Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, trNow("Preencha os campos obrigatórios", "Fill in required fields"), Toast.LENGTH_SHORT).show()
                                         return@Button
                                     }
                                     onSalvar(
@@ -443,7 +447,8 @@ internal fun NovoCarroScreenContent(
                                             modelo = combinarModeloAno(modelo, anoSelecionado),
                                             proprietario = proprietario,
                                             corArgb = corSelecionada ?: carroBase.corArgb,
-                                            kmAtual = kmAtualStr.filter(Char::isDigit).toIntOrNull() ?: 0,
+                                            kmAtual = if (isBikeTypeGlobal && bikeSemKm) 0 else (kmAtualStr.filter(Char::isDigit).toIntOrNull() ?: 0),
+                                            semControleKm = isBikeTypeGlobal && bikeSemKm,
                                             tipoVeiculo = tipoSelecionado!!,
                                             vezesBatido = vezesBatido,
                                             tempoComVeiculo = tempoComVeiculo
@@ -592,7 +597,7 @@ internal fun NovoCarroScreenContent(
                             onValueChange = {},
                             readOnly = true,
                             isError = erroCor,
-                            label = { Text("Cor do veiculo") },
+                            label = { Text("Cor do veículo") },
                             placeholder = { Text("Selecione") },
                             modifier = Modifier
                                 .menuAnchor()
@@ -640,7 +645,7 @@ internal fun NovoCarroScreenContent(
                         val freeNameLabel = when (tipoSelecionado) {
                             TipoVeiculo.BICICLETA, TipoVeiculo.BIKE_ELETRICA -> "Nome da bike"
                             TipoVeiculo.MOTORHOME -> "Nome do motorhome"
-                            else -> "Nome do veiculo"
+                            else -> "Nome do veículo"
                         }
                         OutlinedTextField(
                             value = nome,
@@ -672,7 +677,7 @@ internal fun NovoCarroScreenContent(
                                 onValueChange = {},
                                 readOnly = true,
                                 isError = erroNome,
-                                label = { Text("Nome do veiculo") },
+                                label = { Text("Nome do veículo") },
                                 placeholder = { Text("Selecione") },
                                 singleLine = true,
                                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = showNomeDialog) },
@@ -700,7 +705,7 @@ internal fun NovoCarroScreenContent(
                                             .padding(16.dp)
                                     ) {
                                         Text(
-                                            text = "Selecione o nome do veiculo",
+                                    text = "Selecione o nome do veículo",
                                             color = textPrimary,
                                             style = MaterialTheme.typography.titleMedium,
                                             fontWeight = FontWeight.SemiBold,
@@ -931,17 +936,38 @@ internal fun NovoCarroScreenContent(
                     }
 
                     }
-                    if (etapaCadastro == 2 && !isBikeTypeGlobal) {
+                    if (etapaCadastro == 2) {
                         OutlinedTextField(
                             value = kmAtualStr,
                             onValueChange = { kmAtualStr = formatarKmTextoLocal(it) },
+                            enabled = usarControleKm,
                             isError = erroKm,
-                            label = { Text("KM Atual (Painel)") },
+                            label = { Text(if (isBikeTypeGlobal) "KM da bike" else "KM Atual (Painel)") },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                             singleLine = true,
                             colors = selectorFieldColors,
                             modifier = Modifier.fillMaxWidth()
                         )
+
+                        if (isBikeTypeGlobal) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Checkbox(
+                                    checked = bikeSemKm,
+                                    onCheckedChange = { checked ->
+                                        bikeSemKm = checked
+                                        if (checked) kmAtualStr = "0"
+                                    }
+                                )
+                                Text(
+                                    text = "Minha bike não possui KM",
+                                    color = textSecondary,
+                                    fontSize = 13.sp
+                                )
+                            }
+                        }
 
                         ExposedDropdownMenuBox(
                             expanded = quemUsaExpanded,
@@ -951,7 +977,7 @@ internal fun NovoCarroScreenContent(
                                 value = quemUsaOpcao,
                                 onValueChange = {},
                                 readOnly = true,
-                                label = { Text("Quem usa esse veiculo?") },
+                                label = { Text("Quem usa esse veículo?") },
                                 singleLine = true,
                                 modifier = Modifier
                                     .menuAnchor()
@@ -1050,7 +1076,7 @@ internal fun NovoCarroScreenContent(
                             onValueChange = {},
                             readOnly = true,
                             isError = erroTempo,
-                            label = { Text(if (isBikeTypeGlobal) "Tempo com a bike" else "Tempo com veiculo") },
+                            label = { Text(if (isBikeTypeGlobal) "Tempo com a bike" else "Tempo com veículo") },
                             placeholder = { Text("Selecione") },
                             singleLine = true,
                             modifier = Modifier
@@ -1097,7 +1123,7 @@ internal fun NovoCarroScreenContent(
                                     tentouAvancarEtapa1 = true
                                     if (isBikeTypeGlobal) {
                                         if (!etapaBikeValida || tipoSelecionado == null) {
-                                            Toast.makeText(context, trNow("Preencha os campos obrigatorios", "Fill in required fields"), Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(context, trNow("Preencha os campos obrigatórios", "Fill in required fields"), Toast.LENGTH_SHORT).show()
                                             return@Button
                                         }
                                         onSalvar(
@@ -1107,8 +1133,9 @@ internal fun NovoCarroScreenContent(
                                                 modelo = combinarModeloAno(modelo, anoSelecionado),
                                                 proprietario = proprietario,
                                                 corArgb = corSelecionada ?: carroBase.corArgb,
-                                                kmAtual = kmAtualStr.filter(Char::isDigit).toIntOrNull() ?: 0,
-                                                tipoVeiculo = tipoSelecionado!!,
+                                                kmAtual = if (isBikeTypeGlobal && bikeSemKm) 0 else (kmAtualStr.filter(Char::isDigit).toIntOrNull() ?: 0),
+                                            semControleKm = isBikeTypeGlobal && bikeSemKm,
+                                            tipoVeiculo = tipoSelecionado!!,
                                                 vezesBatido = null,
                                                 tempoComVeiculo = ""
                                             )
@@ -1116,7 +1143,7 @@ internal fun NovoCarroScreenContent(
                                         return@Button
                                     }
                                     if (!etapa1Valida) {
-                                        Toast.makeText(context, trNow("Preencha os campos obrigatorios", "Fill in required fields"), Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, trNow("Preencha os campos obrigatórios", "Fill in required fields"), Toast.LENGTH_SHORT).show()
                                         return@Button
                                     }
                                     etapaCadastro = 2
@@ -1141,7 +1168,7 @@ internal fun NovoCarroScreenContent(
                                 onClick = {
                                     tentouSalvarEtapa2 = true
                                     if (!etapa2Valida || tipoSelecionado == null) {
-                                        Toast.makeText(context, trNow("Preencha os campos obrigatorios", "Fill in required fields"), Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, trNow("Preencha os campos obrigatórios", "Fill in required fields"), Toast.LENGTH_SHORT).show()
                                         return@Button
                                     }
                                     onSalvar(
@@ -1151,7 +1178,8 @@ internal fun NovoCarroScreenContent(
                                             modelo = combinarModeloAno(modelo, anoSelecionado),
                                             proprietario = proprietario,
                                             corArgb = corSelecionada ?: carroBase.corArgb,
-                                            kmAtual = kmAtualStr.filter(Char::isDigit).toIntOrNull() ?: 0,
+                                            kmAtual = if (isBikeTypeGlobal && bikeSemKm) 0 else (kmAtualStr.filter(Char::isDigit).toIntOrNull() ?: 0),
+                                            semControleKm = isBikeTypeGlobal && bikeSemKm,
                                             tipoVeiculo = tipoSelecionado!!,
                                             vezesBatido = vezesBatido,
                                             tempoComVeiculo = tempoComVeiculo
@@ -1454,7 +1482,7 @@ internal fun NovoHeroCard() {
             Icon(Icons.Rounded.AddCircle, contentDescription = null, tint = scheme.primary, modifier = Modifier.size(26.dp))
         }
         Spacer(Modifier.height(12.dp))
-        Text("Novo veiculo", color = scheme.onBackground, fontWeight = FontWeight.Bold, fontSize = 24.sp)
+        Text("Novo veículo", color = scheme.onBackground, fontWeight = FontWeight.Bold, fontSize = 24.sp)
     }
 }
 
@@ -2103,6 +2131,9 @@ internal fun separarNomeEMotorModelo(
     val resto = tokens.drop(indiceTecnico).joinToString(" ").trim()
     return nome to resto
 }
+
+
+
 
 
 

@@ -1,6 +1,8 @@
 ﻿package br.com.gui.carlembrete
 
+import android.content.Intent
 import android.graphics.BitmapFactory
+import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -28,12 +30,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBackIosNew
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SearchOff
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -46,6 +50,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -60,9 +65,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
+import java.util.ArrayList
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -72,6 +79,7 @@ fun GaragemOverviewScreen(
     onSelecionar: (CarroInfo) -> Unit,
     onDismiss: () -> Unit,
     title: String = tr("Meus veículos", "My vehicles"),
+    exportButtonLabel: String = tr("Exportar", "Export"),
     showVehicleHealthSection: Boolean = true,
     onOpenReminderDetails: (Lembrete) -> Unit = {}
 ) {
@@ -91,6 +99,9 @@ fun GaragemOverviewScreen(
     val criticalLabel = if (isEnglish) "Critical" else "Crítica"
     val noHistoryLabel = if (isEnglish) "No history" else "Sem histórico"
     val notInformedLabel = if (isEnglish) "Not informed" else "Não informado"
+    val noReportsMessage = if (isEnglish) "No reports were generated." else "Nenhum relatório foi gerado."
+    val shareReportsTitle = if (isEnglish) "Share reports" else "Compartilhar relatórios"
+    val shareFallbackMessage = if (isEnglish) "Could not open sharing." else "Não foi possível abrir o compartilhamento."
     val searchFieldColors = OutlinedTextFieldDefaults.colors(
         focusedTextColor = textPrimary,
         unfocusedTextColor = textPrimary,
@@ -109,6 +120,39 @@ fun GaragemOverviewScreen(
     var todosLembretes by remember { mutableStateOf<List<Lembrete>>(emptyList()) }
     var filtroSaude by remember { mutableStateOf(allFilterLabel) }
     var lembretesVencidosDialogCarro by remember { mutableStateOf<CarroInfo?>(null) }
+    var exportandoRelatorios by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val onExportReports: () -> Unit = {
+        if (!exportandoRelatorios) {
+            scope.launch {
+                exportandoRelatorios = true
+                val uris = withContext(Dispatchers.IO) {
+                    exportarRelatoriosDaFrota(context, carros, todosLembretes)
+                }
+                exportandoRelatorios = false
+                if (uris.isNotEmpty()) {
+                    val abriuCompartilhamento = compartilharRelatoriosDaFrota(
+                        context = context,
+                        uris = uris,
+                        chooserTitle = shareReportsTitle
+                    )
+                    if (!abriuCompartilhamento) {
+                        Toast.makeText(
+                            context,
+                            shareFallbackMessage,
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                } else {
+                    Toast.makeText(
+                        context,
+                        noReportsMessage,
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }
+    }
     val garageHeaderImage = remember(context) {
         runCatching {
             context.assets.open("GarageZellu.png").use { input ->
@@ -194,25 +238,13 @@ fun GaragemOverviewScreen(
                     verticalArrangement = Arrangement.Top,
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 2.dp, bottom = 8.dp)
-                    ) {
-                        IconButton(
-                            onClick = onDismiss,
-                            modifier = Modifier
-                                .size(56.dp)
-                                .align(Alignment.CenterStart)
-                        ) {
-                            Icon(
-                                Icons.Default.ArrowBackIosNew,
-                                contentDescription = tr("Voltar", "Back"),
-                                tint = textPrimary,
-                                modifier = Modifier.size(26.dp)
-                            )
-                        }
-                    }
+                    GarageOverviewTopBar(
+                        textPrimary = textPrimary,
+                        exportandoRelatorios = exportandoRelatorios,
+                        exportButtonLabel = exportButtonLabel,
+                        onDismiss = onDismiss,
+                        onExport = onExportReports
+                    )
                     Spacer(Modifier.height(28.dp))
                     Text(tr("Nenhum veículo cadastrado", "No registered vehicles"), color = textDim)
                 }
@@ -225,25 +257,13 @@ fun GaragemOverviewScreen(
                     contentPadding = PaddingValues(start = 16.dp, top = 4.dp, end = 16.dp, bottom = 12.dp)
                 ) {
                     item {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 2.dp, bottom = 4.dp)
-                        ) {
-                            IconButton(
-                                onClick = onDismiss,
-                                modifier = Modifier
-                                    .size(56.dp)
-                                    .align(Alignment.CenterStart)
-                            ) {
-                                Icon(
-                                    Icons.Default.ArrowBackIosNew,
-                                    contentDescription = tr("Voltar", "Back"),
-                                    tint = textPrimary,
-                                    modifier = Modifier.size(26.dp)
-                                )
-                            }
-                        }
+                        GarageOverviewTopBar(
+                            textPrimary = textPrimary,
+                            exportandoRelatorios = exportandoRelatorios,
+                            exportButtonLabel = exportButtonLabel,
+                            onDismiss = onDismiss,
+                            onExport = onExportReports
+                        )
                     }
 
                     item {
@@ -612,6 +632,112 @@ fun GaragemOverviewScreen(
 }
 
 @Composable
+private fun GarageOverviewTopBar(
+    textPrimary: Color,
+    exportandoRelatorios: Boolean,
+    exportButtonLabel: String,
+    onDismiss: () -> Unit,
+    onExport: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 2.dp, bottom = 4.dp)
+    ) {
+        IconButton(
+            onClick = onDismiss,
+            modifier = Modifier
+                .size(56.dp)
+                .align(Alignment.CenterStart)
+        ) {
+            Icon(
+                Icons.Default.ArrowBackIosNew,
+                contentDescription = tr("Voltar", "Back"),
+                tint = textPrimary,
+                modifier = Modifier.size(26.dp)
+            )
+        }
+
+        TextButton(
+            onClick = onExport,
+            enabled = !exportandoRelatorios,
+            modifier = Modifier.align(Alignment.CenterEnd)
+        ) {
+            Icon(
+                Icons.Default.Share,
+                contentDescription = null,
+                tint = textPrimary,
+                modifier = Modifier.size(16.dp)
+            )
+            Spacer(Modifier.width(6.dp))
+            if (exportandoRelatorios) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(16.dp),
+                    strokeWidth = 2.dp,
+                    color = textPrimary
+                )
+                Spacer(Modifier.width(8.dp))
+            }
+            Text(
+                text = exportButtonLabel,
+                color = textPrimary,
+                fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
+
+private fun exportarRelatoriosDaFrota(
+    context: android.content.Context,
+    carros: List<CarroInfo>,
+    todosLembretes: List<Lembrete>
+): List<android.net.Uri> {
+    if (carros.isEmpty()) return emptyList()
+
+    val lembretesPorCarro = todosLembretes.groupBy { it.carroId }
+    val uris = mutableListOf<android.net.Uri>()
+
+    carros.forEach { carro ->
+        val lembretesDoCarro = lembretesPorCarro[carro.id].orEmpty()
+        val uri = gerarPdfRelatorio(
+            context = context,
+            carro = carro,
+            lembretes = lembretesDoCarro,
+            isPremium = true
+        )
+        if (uri != null) uris += uri
+    }
+
+    return uris
+}
+
+private fun compartilharRelatoriosDaFrota(
+    context: android.content.Context,
+    uris: List<android.net.Uri>,
+    chooserTitle: String
+): Boolean {
+    if (uris.isEmpty()) return false
+
+    val intent = if (uris.size == 1) {
+        Intent(Intent.ACTION_SEND).apply {
+            type = "application/pdf"
+            putExtra(Intent.EXTRA_STREAM, uris[0])
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+    } else {
+        Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+            type = "application/pdf"
+            putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(uris))
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+    }
+
+    return runCatching {
+        context.startActivity(Intent.createChooser(intent, chooserTitle))
+    }.isSuccess
+}
+
+@Composable
 fun VisaoGeralFrotaScreen(
     carros: List<CarroInfo>,
     onSelecionar: (CarroInfo) -> Unit,
@@ -623,6 +749,7 @@ fun VisaoGeralFrotaScreen(
         onSelecionar = onSelecionar,
         onDismiss = onDismiss,
         title = tr("Visão geral frota", "Fleet overview"),
+        exportButtonLabel = tr("Exportar e compartilhar", "Export and share"),
         showVehicleHealthSection = true,
         onOpenReminderDetails = onOpenReminderDetails
     )
@@ -643,5 +770,6 @@ private fun extrairAroDoModeloNoCard(modelo: String): String {
     val numeroSolto = Regex("\\b(\\d{1,2})\\b").find(texto)?.groupValues?.getOrNull(1)
     return numeroSolto ?: texto
 }
+
 
 
