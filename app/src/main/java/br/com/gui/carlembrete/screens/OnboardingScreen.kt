@@ -373,11 +373,18 @@ fun OnboardingScreen(
     if (showOutroVeiculoDialog) {
         val primaryColor = Color(0xFF3B82F6)
         val successColor = Color(0xFF10B981)
-        val secondaryColor = MaterialTheme.colorScheme.onSurfaceVariant
+        val dialogBg = if (isDark) Color(0xFF0B1220) else MaterialTheme.colorScheme.surface
+        val dialogBorder = if (isDark) Color.White.copy(alpha = 0.12f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f)
+        val titleColor = if (isDark) Color(0xFFE5E7EB) else MaterialTheme.colorScheme.onSurface
+        val secondaryColor = if (isDark) Color(0xFF94A3B8) else MaterialTheme.colorScheme.onSurfaceVariant
+        val outlineBtnBorder = if (isDark) Color(0xFFCBD5E1) else primaryColor
+        val outlineBtnText = if (isDark) Color(0xFFE2E8F0) else primaryColor
+        val primaryBtnColor = if (isDark) Color(0xFF2563EB) else Color(0xFF2563EB)
         Dialog(onDismissRequest = { showOutroVeiculoDialog = false }) {
             Card(
                 shape = RoundedCornerShape(24.dp),
-                colors = CardDefaults.cardColors(containerColor = if (isDark) Color(0xFF111827) else MaterialTheme.colorScheme.surface),
+                colors = CardDefaults.cardColors(containerColor = dialogBg),
+                border = BorderStroke(1.dp, dialogBorder),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
@@ -395,7 +402,12 @@ fun OnboardingScreen(
                     }
 
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("Veículo 1 cadastrado!", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                        Text(
+                            "Veículo 1 cadastrado!",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = titleColor
+                        )
                         Spacer(Modifier.height(4.dp))
                         Text(
                             "Deseja cadastrar outro veículo agora ou seguir para a próxima etapa?",
@@ -405,9 +417,9 @@ fun OnboardingScreen(
                         )
                     }
 
-                    Row(
+                    Column(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         OutlinedButton(
                             onClick = {
@@ -415,12 +427,17 @@ fun OnboardingScreen(
                                 onboardingVehicleFormSession += 1
                                 step = 4
                             },
-                            modifier = Modifier.weight(1f).height(50.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(54.dp),
                             shape = RoundedCornerShape(12.dp),
-                            border = BorderStroke(1.dp, Color.White),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
+                            border = BorderStroke(1.dp, outlineBtnBorder),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = Color.Transparent,
+                                contentColor = outlineBtnText
+                            )
                         ) {
-                            Text("Cadastrar", color = Color.White, fontWeight = FontWeight.Bold)
+                            Text("Cadastrar outro", color = outlineBtnText, fontWeight = FontWeight.Bold)
                         }
 
                         Button(
@@ -428,10 +445,12 @@ fun OnboardingScreen(
                                 showOutroVeiculoDialog = false
                                 step = 6
                             },
-                            modifier = Modifier.weight(1f).height(50.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(54.dp),
                             shape = RoundedCornerShape(12.dp),
                                 colors = ButtonDefaults.buttonColors(
-                                    containerColor = Color(0xFF2563EB),
+                                    containerColor = primaryBtnColor,
                                     contentColor = Color.White
                                 )
                         ) {
