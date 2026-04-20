@@ -43,8 +43,8 @@ android {
         applicationId = "br.com.gui.carlembrete"
         minSdk = 26
         targetSdk = 35
-        versionCode = ciVersionCode ?: 3
-        versionName = "1.0.2"
+        versionCode = ciVersionCode ?: 4
+        versionName = "1.0.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "FIPE_BASE_URL", "\"$fipeBaseUrl\"")

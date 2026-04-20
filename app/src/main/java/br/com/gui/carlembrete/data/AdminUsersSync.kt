@@ -11,16 +11,57 @@ private const val TAG_ADMIN_SYNC = "AdminUsersSync"
 object AdminUsersSync {
     private val firestore by lazy { FirebaseFirestore.getInstance() }
 
-    fun syncVehicles(vehicles: List<CarroInfo>) {
-        val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
+    private fun vehiclePayload(vehicles: List<CarroInfo>): Map<String, Any> {
         val names = vehicles.map { "${it.nome} ${it.modelo}".trim() }
+        val total = vehicles.size
+        return mapOf(
+            "vehiclesTotal" to total,
+            "veiculosTotal" to total,
+            "veiculosCadastrados" to total,
+            "vehicleNames" to names
+        )
+    }
+
+    private fun remindersPayload(reminders: List<Lembrete>): Map<String, Any> {
+        val total = reminders.size
+        val completed = reminders.count(::isLembreteRealizado)
+        val active = (total - completed).coerceAtLeast(0)
+        return mapOf(
+            "remindersTotal" to total,
+            "avisosTotal" to active,
+            "avisosCriados" to active,
+            "activeRemindersTotal" to active,
+            "recordsTotal" to completed,
+            "registrosTotal" to completed,
+            "registrosCriados" to completed,
+            "completedRemindersTotal" to completed
+        )
+    }
+
+    fun syncLocalOverview(context: android.content.Context) {
+        val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
+        val vehicles = BancoDeDados.carregarCarros(context).orEmpty()
+        val reminders = BancoDeDados.carregarLembretes(context)
+        val payload = mutableMapOf<String, Any>()
+        payload.putAll(vehiclePayload(vehicles))
+        payload.putAll(remindersPayload(reminders))
+        payload["updatedAt"] = FieldValue.serverTimestamp()
+
         firestore.collection("admin_users").document(uid)
             .set(
-                mapOf(
-                    "vehiclesTotal" to vehicles.size,
-                    "vehicleNames" to names,
-                    "updatedAt" to FieldValue.serverTimestamp()
-                ),
+                payload,
+                SetOptions.merge()
+            )
+            .addOnFailureListener { Log.w(TAG_ADMIN_SYNC, "Falha ao sincronizar visão geral local", it) }
+    }
+
+    fun syncVehicles(vehicles: List<CarroInfo>) {
+        val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
+        val payload = vehiclePayload(vehicles).toMutableMap()
+        payload["updatedAt"] = FieldValue.serverTimestamp()
+        firestore.collection("admin_users").document(uid)
+            .set(
+                payload,
                 SetOptions.merge()
             )
             .addOnFailureListener { Log.w(TAG_ADMIN_SYNC, "Falha ao sincronizar veículos", it) }
@@ -36,15 +77,28 @@ object AdminUsersSync {
 
     fun syncRemindersTotal(total: Int) {
         val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
+        val sanitizedTotal = total.coerceAtLeast(0)
         firestore.collection("admin_users").document(uid)
             .set(
                 mapOf(
-                    "remindersTotal" to total.coerceAtLeast(0),
+                    "remindersTotal" to sanitizedTotal,
+                    "avisosTotal" to sanitizedTotal,
+                    "avisosCriados" to sanitizedTotal,
+                    "activeRemindersTotal" to sanitizedTotal,
                     "updatedAt" to FieldValue.serverTimestamp()
                 ),
                 SetOptions.merge()
             )
             .addOnFailureListener { Log.w(TAG_ADMIN_SYNC, "Falha ao sincronizar remindersTotal", it) }
+    }
+
+    fun syncRemindersSnapshot(reminders: List<Lembrete>) {
+        val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
+        val payload = remindersPayload(reminders).toMutableMap()
+        payload["updatedAt"] = FieldValue.serverTimestamp()
+        firestore.collection("admin_users").document(uid)
+            .set(payload, SetOptions.merge())
+            .addOnFailureListener { Log.w(TAG_ADMIN_SYNC, "Falha ao sincronizar snapshot de lembretes", it) }
     }
 
     fun checkAnnouncement(context: android.content.Context, onShow: (title: String, description: String) -> Unit) {

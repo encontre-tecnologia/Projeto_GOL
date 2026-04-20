@@ -240,7 +240,7 @@ fun ManutencaoScreen(
 
     // PersistÃªncia automÃ¡tica ao alterar dados
     LaunchedEffect(listaCarros) {
-        if (!isLoading && listaCarros.isNotEmpty()) {
+        if (!isLoading) {
             withContext(Dispatchers.IO) { BancoDeDados.salvarCarros(context, listaCarros) }
             AdminUsersSync.syncVehicles(listaCarros)
         }
@@ -249,7 +249,7 @@ fun ManutencaoScreen(
     LaunchedEffect(todosLembretes) {
         if (!isLoading) {
             withContext(Dispatchers.IO) { BancoDeDados.salvarLembretes(context, todosLembretes) }
-            AdminUsersSync.syncRemindersTotal(todosLembretes.size)
+            AdminUsersSync.syncRemindersSnapshot(todosLembretes)
         }
     }
 

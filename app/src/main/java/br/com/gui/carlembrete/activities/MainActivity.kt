@@ -203,6 +203,7 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(usuario) {
                     if (usuario != null) {
                         delay(450)
+                        AdminUsersSync.syncLocalOverview(this@MainActivity)
                         AdminUsageMetrics.markAppOpen(this@MainActivity)
                         AdminUsersSync.checkAnnouncement(this@MainActivity) { title, description ->
                             announcementTitle = title
