@@ -1607,6 +1607,7 @@ private fun OnboardingNovoCarroScreenContent(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .navigationBarsPadding()
                             .padding(top = 4.dp, bottom = 12.dp)
                     ) {
                         if (etapaCadastro == 1) {
@@ -1684,6 +1685,7 @@ private fun OnboardingNovoCarroScreenContent(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .navigationBarsPadding()
                             .padding(top = 0.dp)
                     ) {
                         if (etapaCadastro == 1) {

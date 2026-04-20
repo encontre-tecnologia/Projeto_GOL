@@ -384,6 +384,7 @@ internal fun NovoCarroScreenContent(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .navigationBarsPadding()
                             .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 34.dp)
                     ) {
                         if (etapaCadastro == 1) {
@@ -1115,6 +1116,7 @@ internal fun NovoCarroScreenContent(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .navigationBarsPadding()
                             .offset(y = (-48).dp)
                     ) {
                         if (etapaCadastro == 1) {

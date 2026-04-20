@@ -520,9 +520,12 @@ fun OnboardingScreen(
                         }
 
                         Column(
-                            modifier = Modifier.fillMaxSize(),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .verticalScroll(rememberScrollState())
+                                .navigationBarsPadding()
+                                .padding(vertical = 20.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             AnimatedVisibility(
                                 visible = showOrbit,
@@ -574,7 +577,7 @@ fun OnboardingScreen(
                                 )
                             }
 
-                            Spacer(Modifier.height(48.dp))
+                            Spacer(Modifier.height(40.dp))
 
                             AnimatedVisibility(
                                 visible = showButton,
@@ -586,21 +589,26 @@ fun OnboardingScreen(
                             ) {
                                 Button(
                                     onClick = { step = 5 },
-                                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(56.dp),
                                     shape = RoundedCornerShape(10.dp),
                                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6))
                                 ) { Text("Vamos lá!", fontSize = 19.sp, color = Color.White) }
                             }
+                            Spacer(Modifier.height(16.dp))
                         }
                     }
                     5 -> {
-                        Column(
+                        LazyColumn(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .navigationBarsPadding()
+                                .navigationBarsPadding(),
+                            contentPadding = PaddingValues(bottom = 12.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            // Colored header strip
-                            Box(
+                            item {
+                                Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .background(
@@ -642,16 +650,9 @@ fun OnboardingScreen(
                                         lineHeight = 18.sp
                                     )
                                 }
+                                }
                             }
-                            // Permission cards
-                            LazyColumn(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .fillMaxWidth(),
-                                contentPadding = PaddingValues(16.dp),
-                                verticalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                items(permissionItems) { item ->
+                            items(permissionItems) { item ->
                                     val granted = permissionStatus[item.permission] == true
                                     val iconTint = when (item.permission) {
                                         Manifest.permission.CAMERA -> Color(0xFF60A5FA)
@@ -668,6 +669,7 @@ fun OnboardingScreen(
                                     Column(
                                         modifier = Modifier
                                             .fillMaxWidth()
+                                            .padding(horizontal = 16.dp)
                                             .clip(RoundedCornerShape(16.dp))
                                             .background(Color(0xFF1E293B))
                                             .border(
@@ -675,12 +677,12 @@ fun OnboardingScreen(
                                                 if (granted) Color(0xFF22C55E) else Color(0xFF334155),
                                                 RoundedCornerShape(16.dp)
                                             )
-                                            .padding(16.dp)
+                                            .padding(12.dp)
                                     ) {
                                         Row(verticalAlignment = Alignment.CenterVertically) {
                                             Box(
                                                 modifier = Modifier
-                                                    .size(52.dp)
+                                                    .size(46.dp)
                                                     .clip(RoundedCornerShape(14.dp))
                                                     .background(iconBg),
                                                 contentAlignment = Alignment.Center
@@ -689,10 +691,10 @@ fun OnboardingScreen(
                                                     imageVector = permissionIconFor(item.permission),
                                                     contentDescription = null,
                                                     tint = iconTint,
-                                                    modifier = Modifier.size(26.dp)
+                                                    modifier = Modifier.size(22.dp)
                                                 )
                                             }
-                                            Spacer(Modifier.width(14.dp))
+                                            Spacer(Modifier.width(10.dp))
                                             Column(modifier = Modifier.weight(1f)) {
                                                 Row(
                                                     modifier = Modifier.fillMaxWidth(),
@@ -725,7 +727,7 @@ fun OnboardingScreen(
                                             }
                                         }
                                         if (!granted) {
-                                            Spacer(Modifier.height(12.dp))
+                                            Spacer(Modifier.height(8.dp))
                                             Button(
                                                 onClick = {
                                                     Log.d(TAG_ONBOARDING_PERMISSIONS, "click Permitir -> permission='${item.permission}'")
@@ -754,21 +756,20 @@ fun OnboardingScreen(
                                                         refreshPermissionStatus()
                                                     }
                                                 },
-                                                modifier = Modifier.fillMaxWidth().height(42.dp),
+                                                modifier = Modifier.fillMaxWidth().height(38.dp),
                                                 colors = ButtonDefaults.buttonColors(
                                                     containerColor = Color(0xFF2563EB),
                                                     contentColor = Color.White
                                                 ),
                                                 shape = RoundedCornerShape(10.dp)
                                             ) {
-                                                Text("Permitir acesso", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                                                Text("Permitir acesso", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                                             }
                                         }
                                     }
-                                }
                             }
-                            // Bottom CTA
-                            Box(
+                            item {
+                                Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(horizontal = 16.dp, vertical = 12.dp)
@@ -791,6 +792,7 @@ fun OnboardingScreen(
                                         fontWeight = FontWeight.Bold
                                     )
                                 }
+                            }
                             }
                         }
                     }

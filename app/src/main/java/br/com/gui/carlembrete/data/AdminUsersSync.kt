@@ -34,6 +34,19 @@ object AdminUsersSync {
             .addOnFailureListener { Log.w(TAG_ADMIN_SYNC, "Falha ao incrementar remindersTotal", it) }
     }
 
+    fun syncRemindersTotal(total: Int) {
+        val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
+        firestore.collection("admin_users").document(uid)
+            .set(
+                mapOf(
+                    "remindersTotal" to total.coerceAtLeast(0),
+                    "updatedAt" to FieldValue.serverTimestamp()
+                ),
+                SetOptions.merge()
+            )
+            .addOnFailureListener { Log.w(TAG_ADMIN_SYNC, "Falha ao sincronizar remindersTotal", it) }
+    }
+
     fun checkAnnouncement(context: android.content.Context, onShow: (title: String, description: String) -> Unit) {
         firestore.collection("admin_announcements").document("current")
             .get()
