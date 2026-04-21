@@ -147,7 +147,7 @@ fun PremiumBeneficiosScreen(
                     tagBg = Color.Transparent,
                     tagTextColor = Color.Transparent,
                     isSelected = selectedPlan == SubscriptionPlan.LITE,
-                    description = tr("Módulo de viagens e custos por rota.", "Trip module with route cost tracking."),
+                    description = tr("Módulo de viagens com custos por rota.", "Trip module with route cost tracking."),
                     features = listOf(
                         tr("Registro de viagens", "Trip logging"),
                         tr("Controle de custos por rota", "Route cost tracking"),
@@ -170,7 +170,7 @@ fun PremiumBeneficiosScreen(
                     tagBg = Color(0xFFFFF3CC),
                     tagTextColor = Color(0xFF7A5900),
                     isSelected = selectedPlan == SubscriptionPlan.FROTA,
-                    description = tr("Viagens + gestão de frota + estoque.", "Trips + fleet management + stock."),
+                    description = tr("Viagens, gestão de frota e estoque.", "Trips, fleet management and stock."),
                     features = listOf(
                         tr("Tudo do plano Lite", "Everything from Lite"),
                         tr("Visão geral da frota", "Fleet overview"),
@@ -194,7 +194,7 @@ fun PremiumBeneficiosScreen(
                     tagBg = Color(0xFFE6FAFE),
                     tagTextColor = Color(0xFF0E7490),
                     isSelected = selectedPlan == SubscriptionPlan.ENTERPRISE,
-                    description = tr("Tudo do Frota com maior capacidade de veículos.", "Everything from Fleet with max vehicle capacity."),
+                    description = tr("Tudo do Frota com mais capacidade de veículos.", "Everything from Fleet with more vehicle capacity."),
                     features = listOf(
                         tr("Tudo do plano Frota", "Everything from Fleet"),
                         tr("Viagens e custos avançados", "Advanced trips and costs"),

@@ -1682,7 +1682,8 @@ private fun TripsByTravelScreen(
     val englishUi = isEnglishUi()
     val backIconTint = if (isDark) Color(0xFFE2E8F0) else Color.Black
     var pendingDeleteTrip by remember { mutableStateOf<TravelTrip?>(null) }
-    val shouldAutoStartTutorial = remember(context) { shouldAutoStartTripsTutorial(context) }
+    val tripsTutorialEnabled = false
+    val shouldAutoStartTutorial = false
     var showTutorial by remember { mutableStateOf(false) }
     var tutorialStep by remember { mutableStateOf(0) }
     var pdfButtonRect by remember { mutableStateOf<Rect?>(null) }
@@ -1707,8 +1708,8 @@ private fun TripsByTravelScreen(
             )
         }
     }
-    LaunchedEffect(shouldAutoStartTutorial) {
-        if (shouldAutoStartTutorial) {
+    LaunchedEffect(shouldAutoStartTutorial, tripsTutorialEnabled) {
+        if (tripsTutorialEnabled && shouldAutoStartTutorial) {
             tutorialStep = 0
             showTutorial = true
         }
@@ -2247,7 +2248,7 @@ private fun TripsByTravelScreen(
         }
     }
 
-    if (showTutorial) {
+    if (tripsTutorialEnabled && showTutorial) {
         val (message, targetKey) = tutorialSteps[tutorialStep]
         val targetRect = when (targetKey) {
             "pdf" -> pdfButtonRect

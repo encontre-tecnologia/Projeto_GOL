@@ -80,6 +80,7 @@ fun GaragemOverviewScreen(
     onDismiss: () -> Unit,
     title: String = tr("Meus veículos", "My vehicles"),
     exportButtonLabel: String = tr("Exportar", "Export"),
+    showExportButton: Boolean = false,
     showVehicleHealthSection: Boolean = true,
     onOpenReminderDetails: (Lembrete) -> Unit = {}
 ) {
@@ -241,6 +242,7 @@ fun GaragemOverviewScreen(
                     GarageOverviewTopBar(
                         textPrimary = textPrimary,
                         exportandoRelatorios = exportandoRelatorios,
+                        showExportButton = showExportButton,
                         exportButtonLabel = exportButtonLabel,
                         onDismiss = onDismiss,
                         onExport = onExportReports
@@ -260,6 +262,7 @@ fun GaragemOverviewScreen(
                         GarageOverviewTopBar(
                             textPrimary = textPrimary,
                             exportandoRelatorios = exportandoRelatorios,
+                            showExportButton = showExportButton,
                             exportButtonLabel = exportButtonLabel,
                             onDismiss = onDismiss,
                             onExport = onExportReports
@@ -635,6 +638,7 @@ fun GaragemOverviewScreen(
 private fun GarageOverviewTopBar(
     textPrimary: Color,
     exportandoRelatorios: Boolean,
+    showExportButton: Boolean,
     exportButtonLabel: String,
     onDismiss: () -> Unit,
     onExport: () -> Unit
@@ -658,31 +662,33 @@ private fun GarageOverviewTopBar(
             )
         }
 
-        TextButton(
-            onClick = onExport,
-            enabled = !exportandoRelatorios,
-            modifier = Modifier.align(Alignment.CenterEnd)
-        ) {
-            Icon(
-                Icons.Default.Share,
-                contentDescription = null,
-                tint = textPrimary,
-                modifier = Modifier.size(16.dp)
-            )
-            Spacer(Modifier.width(6.dp))
-            if (exportandoRelatorios) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(16.dp),
-                    strokeWidth = 2.dp,
-                    color = textPrimary
+        if (showExportButton) {
+            TextButton(
+                onClick = onExport,
+                enabled = !exportandoRelatorios,
+                modifier = Modifier.align(Alignment.CenterEnd)
+            ) {
+                Icon(
+                    Icons.Default.Share,
+                    contentDescription = null,
+                    tint = textPrimary,
+                    modifier = Modifier.size(16.dp)
                 )
-                Spacer(Modifier.width(8.dp))
+                Spacer(Modifier.width(6.dp))
+                if (exportandoRelatorios) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp,
+                        color = textPrimary
+                    )
+                    Spacer(Modifier.width(8.dp))
+                }
+                Text(
+                    text = exportButtonLabel,
+                    color = textPrimary,
+                    fontWeight = FontWeight.Bold
+                )
             }
-            Text(
-                text = exportButtonLabel,
-                color = textPrimary,
-                fontWeight = FontWeight.Bold
-            )
         }
     }
 }
@@ -750,6 +756,7 @@ fun VisaoGeralFrotaScreen(
         onDismiss = onDismiss,
         title = tr("Visão geral frota", "Fleet overview"),
         exportButtonLabel = tr("Exportar e compartilhar", "Export and share"),
+        showExportButton = true,
         showVehicleHealthSection = true,
         onOpenReminderDetails = onOpenReminderDetails
     )
