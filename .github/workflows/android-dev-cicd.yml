@@ -98,8 +98,7 @@ jobs:
 
       - name: Build signed release AAB
         run: |
-          BASE_CODE=$((2100000000 + $(date +%s)/60))
-          VERSION_CODE=$((BASE_CODE + ${{ github.run_attempt }} - 1))
+          VERSION_CODE=$(date +%Y%m%d%H)
           echo "Using VERSION_CODE=${VERSION_CODE}"
           VERSION_CODE=${VERSION_CODE} ./gradlew --no-daemon :app:bundleRelease
 

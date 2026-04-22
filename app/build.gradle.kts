@@ -8,6 +8,8 @@
 }
 
 import java.util.Properties
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 
 val localProps = Properties().apply {
     val file = rootProject.file("local.properties")
@@ -30,8 +32,10 @@ val releaseStorePassword = propOrEnv("RELEASE_STORE_PASSWORD")
 val releaseKeyAlias = propOrEnv("RELEASE_KEY_ALIAS")
 val releaseKeyPassword = propOrEnv("RELEASE_KEY_PASSWORD") ?: releaseStorePassword
 val explicitVersionCode = propOrEnv("VERSION_CODE")?.toIntOrNull()
-// Mantem crescimento monotônico global e acima da faixa historica (ex.: 2026042121).
-val fallbackVersionCode = (2_100_000_000L + (System.currentTimeMillis() / 60_000L)).toInt()
+// Formato seguro para Google Play: yyyyMMddHH (ex.: 2026042213), sempre < 2100000000.
+val fallbackVersionCode = LocalDateTime.now()
+    .format(DateTimeFormatter.ofPattern("yyyyMMddHH"))
+    .toInt()
 val isReleaseSigningReady = !releaseStoreFile.isNullOrBlank() &&
     !releaseStorePassword.isNullOrBlank() &&
     !releaseKeyAlias.isNullOrBlank() &&
