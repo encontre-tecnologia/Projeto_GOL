@@ -29,7 +29,9 @@ val releaseStoreFile = propOrEnv("RELEASE_STORE_FILE")
 val releaseStorePassword = propOrEnv("RELEASE_STORE_PASSWORD")
 val releaseKeyAlias = propOrEnv("RELEASE_KEY_ALIAS")
 val releaseKeyPassword = propOrEnv("RELEASE_KEY_PASSWORD") ?: releaseStorePassword
-val ciVersionCode = System.getenv("CI_VERSION_CODE")?.toIntOrNull()
+val explicitVersionCode = propOrEnv("VERSION_CODE")?.toIntOrNull()
+// Mantem crescimento monotônico global e acima da faixa historica (ex.: 2026042121).
+val fallbackVersionCode = (2_100_000_000L + (System.currentTimeMillis() / 60_000L)).toInt()
 val isReleaseSigningReady = !releaseStoreFile.isNullOrBlank() &&
     !releaseStorePassword.isNullOrBlank() &&
     !releaseKeyAlias.isNullOrBlank() &&
@@ -43,8 +45,8 @@ android {
         applicationId = "br.com.gui.carlembrete"
         minSdk = 26
         targetSdk = 35
-        versionCode = ciVersionCode ?: 4
-        versionName = "1.0.3"
+        versionCode = explicitVersionCode ?: fallbackVersionCode
+        versionName = "1.0.20260421.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "FIPE_BASE_URL", "\"$fipeBaseUrl\"")

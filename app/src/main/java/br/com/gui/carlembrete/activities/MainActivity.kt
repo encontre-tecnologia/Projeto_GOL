@@ -103,6 +103,7 @@ class MainActivity : ComponentActivity() {
         keepNativeSplashVisible = shouldHoldSplashForHomeData
         installSplashScreen().setKeepOnScreenCondition { keepNativeSplashVisible }
         super.onCreate(savedInstanceState)
+        InstallDiagnostics.logDetailedSnapshot(applicationContext, "MainActivity.onCreate")
         val startupAt = System.currentTimeMillis()
         Log.d(TAG_MAIN_STARTUP, "onCreate start")
         handleNavigationIntent(intent)

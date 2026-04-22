@@ -97,11 +97,11 @@ jobs:
           echo "RELEASE_KEY_PASSWORD=${RELEASE_KEY_PASSWORD}" >> "$GITHUB_ENV"
 
       - name: Build signed release AAB
-        env:
-          CI_VERSION_CODE: ${{ github.run_number }}
         run: |
-          echo "Using CI_VERSION_CODE=${CI_VERSION_CODE}"
-          ./gradlew --no-daemon :app:bundleRelease
+          BASE_CODE=$((2100000000 + $(date +%s)/60))
+          VERSION_CODE=$((BASE_CODE + ${{ github.run_attempt }} - 1))
+          echo "Using VERSION_CODE=${VERSION_CODE}"
+          VERSION_CODE=${VERSION_CODE} ./gradlew --no-daemon :app:bundleRelease
 
       - name: Verify AAB signature
         run: jarsigner -verify app/build/outputs/bundle/release/app-release.aab
