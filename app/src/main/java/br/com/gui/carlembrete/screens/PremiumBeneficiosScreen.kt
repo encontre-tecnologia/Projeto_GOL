@@ -1,4 +1,4 @@
-package br.com.gui.carlembrete
+﻿package br.com.gui.carlembrete
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -121,7 +121,7 @@ fun PremiumBeneficiosScreen(
             )
             Spacer(Modifier.height(4.dp))
             Text(
-                text = tr("7 dias grátis • cancele quando quiser", "7 free days • cancel anytime"),
+                text = tr("7 dias gratis • cancele quando quiser", "7 free days • cancel anytime"),
                 color = Color(0xFF34D399),
                 fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold,
@@ -147,11 +147,11 @@ fun PremiumBeneficiosScreen(
                     tagBg = Color.Transparent,
                     tagTextColor = Color.Transparent,
                     isSelected = selectedPlan == SubscriptionPlan.LITE,
-                    description = tr("Módulo de viagens com custos por rota.", "Trip module with route cost tracking."),
+                    description = tr("Modulo de viagens com custos por rota.", "Trip module with route cost tracking."),
                     features = listOf(
                         tr("Registro de viagens", "Trip logging"),
                         tr("Controle de custos por rota", "Route cost tracking"),
-                        tr("Histórico completo de viagens", "Full trip history")
+                        tr("Historico completo de viagens", "Full trip history")
                     ),
                     featureColor = Color(0xFF93C5FD),
                     onClick = {
@@ -170,12 +170,12 @@ fun PremiumBeneficiosScreen(
                     tagBg = Color(0xFFFFF3CC),
                     tagTextColor = Color(0xFF7A5900),
                     isSelected = selectedPlan == SubscriptionPlan.FROTA,
-                    description = tr("Viagens, gestão de frota e estoque.", "Trips, fleet management and stock."),
+                    description = tr("Viagens, gestao de frota e estoque.", "Trips, fleet management and stock."),
                     features = listOf(
                         tr("Tudo do plano Lite", "Everything from Lite"),
-                        tr("Visão geral da frota", "Fleet overview"),
+                        tr("Visao geral da frota", "Fleet overview"),
                         tr("Sistema de estoque completo", "Full stock system"),
-                        tr("Gestão avançada e relatórios", "Advanced management")
+                        tr("Gestao avancada e relatorios", "Advanced management")
                     ),
                     featureColor = PBGoldStart,
                     onClick = {
@@ -187,19 +187,19 @@ fun PremiumBeneficiosScreen(
                 PlanCard(
                     name = tr("Plano Enterprise", "Enterprise Plan"),
                     price = "59,90",
-                    tagLabel = tr("MÁXIMO", "MAX"),
+                    tagLabel = tr("MAXIMO", "MAX"),
                     nameColor = Color(0xFF22D3EE),
                     borderColorSelected = Color(0xFF22D3EE),
                     borderColorIdle = Color(0xFFBFEFF7),
                     tagBg = Color(0xFFE6FAFE),
                     tagTextColor = Color(0xFF0E7490),
                     isSelected = selectedPlan == SubscriptionPlan.ENTERPRISE,
-                    description = tr("Tudo do Frota com mais capacidade de veículos.", "Everything from Fleet with more vehicle capacity."),
+                    description = tr("Tudo do Frota com mais capacidade de veiculos.", "Everything from Fleet with more vehicle capacity."),
                     features = listOf(
                         tr("Tudo do plano Frota", "Everything from Fleet"),
-                        tr("Viagens e custos avançados", "Advanced trips and costs"),
-                        tr("Estoque para operação em escala", "Stock for large operations"),
-                        tr("Maior capacidade de veículos", "Highest vehicle capacity")
+                        tr("Viagens e custos avancados", "Advanced trips and costs"),
+                        tr("Estoque para operacao em escala", "Stock for large operations"),
+                        tr("Maior capacidade de veiculos", "Highest vehicle capacity")
                     ),
                     featureColor = Color(0xFF22D3EE),
                     onClick = {
@@ -225,9 +225,9 @@ fun PremiumBeneficiosScreen(
                 ) {
                     Text(
                         text = when (selectedPlan) {
-                            SubscriptionPlan.LITE -> tr("ASSINAR LITE • 7 DIAS GRÁTIS", "SUBSCRIBE LITE • 7 FREE DAYS")
-                            SubscriptionPlan.FROTA -> tr("ASSINAR FROTA • 7 DIAS GRÁTIS", "SUBSCRIBE FLEET • 7 FREE DAYS")
-                            SubscriptionPlan.ENTERPRISE -> tr("ASSINAR ENTERPRISE • 7 DIAS GRÁTIS", "SUBSCRIBE ENTERPRISE • 7 FREE DAYS")
+                            SubscriptionPlan.LITE -> tr("ASSINAR LITE • 7 DIAS GRATIS", "SUBSCRIBE LITE • 7 FREE DAYS")
+                            SubscriptionPlan.FROTA -> tr("ASSINAR FROTA • 7 DIAS GRATIS", "SUBSCRIBE FLEET • 7 FREE DAYS")
+                            SubscriptionPlan.ENTERPRISE -> tr("ASSINAR ENTERPRISE • 7 DIAS GRATIS", "SUBSCRIBE ENTERPRISE • 7 FREE DAYS")
                         },
                         fontWeight = FontWeight.Black,
                         fontSize = 14.sp,
@@ -239,7 +239,7 @@ fun PremiumBeneficiosScreen(
                 Spacer(Modifier.height(12.dp))
 
                 Text(
-                    text = tr("Renovação automática. Cancele a qualquer momento.", "Auto-renewal. Cancel anytime."),
+                    text = tr("Renovacao automatica. Cancele a qualquer momento.", "Auto-renewal. Cancel anytime."),
                     color = PBDimColor,
                     fontSize = 11.sp,
                     textAlign = TextAlign.Center,
@@ -306,7 +306,7 @@ private fun PlanCard(
                 },
                 color = PBTitleColor
             )
-            Text(tr("/mês", "/mo"), color = PBDimColor, fontSize = 13.sp, modifier = Modifier.padding(bottom = 6.dp))
+            Text(tr("/mes", "/mo"), color = PBDimColor, fontSize = 13.sp, modifier = Modifier.padding(bottom = 6.dp))
         }
 
         Text(description, color = PBSubColor, fontSize = 13.sp, lineHeight = 18.sp)

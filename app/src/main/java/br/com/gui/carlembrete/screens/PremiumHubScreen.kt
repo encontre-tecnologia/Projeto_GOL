@@ -1,4 +1,4 @@
-package br.com.gui.carlembrete
+Ôªøpackage br.com.gui.carlembrete
 
 import android.app.Activity
 import androidx.compose.foundation.BorderStroke
@@ -192,7 +192,7 @@ fun PremiumHubScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Text(
-                    tr("Recursos disponÌveis", "Available features"),
+                    tr("Recursos dispon√≠veis", "Available features"),
                     color = dimColor,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
@@ -204,7 +204,7 @@ fun PremiumHubScreen(
                     iconColor = Color(0xFFEA580C),
                     iconBg = Color(0xFFFDEEDB),
                     title = tr("Viagens", "Trips"),
-                    subtitle = tr("Registre rotas, despesas e histÛrico", "Log routes, expenses and history"),
+                    subtitle = tr("Registre rotas, despesas e hist√≥rico", "Log routes, expenses and history"),
                     onClick = onOpenAiAssistant,
                     cardBg = cardBg,
                     cardBorder = cardBorder,
@@ -218,8 +218,8 @@ fun PremiumHubScreen(
                         icon = Icons.Default.DirectionsCar,
                         iconColor = Color(0xFF0284C7),
                         iconBg = Color(0xFFE0F2FE),
-                        title = tr("Vis„o geral da frota", "Fleet overview"),
-                        subtitle = tr("Veja todos os veÌculos da garagem", "See all vehicles in the garage"),
+                        title = tr("Vis√£o geral da frota", "Fleet overview"),
+                        subtitle = tr("Veja todos os ve√≠culos da garagem", "See all vehicles in the garage"),
                         onClick = onOpenFleetOverview,
                         cardBg = cardBg,
                         cardBorder = cardBorder,
@@ -233,7 +233,7 @@ fun PremiumHubScreen(
                         iconColor = Color(0xFF7C3AED),
                         iconBg = Color(0xFFF3E8FF),
                         title = tr("Estoque da Frota", "Fleet Stock"),
-                        subtitle = tr("Gerencie itens, cÛdigo de barras e reposiÁ„o", "Manage items, barcode and replenishment"),
+                        subtitle = tr("Gerencie itens, c√≥digo de barras e reposi√ß√£o", "Manage items, barcode and replenishment"),
                         onClick = onOpenFleetStock,
                         cardBg = cardBg,
                         cardBorder = cardBorder,
@@ -271,7 +271,7 @@ fun PremiumHubScreen(
                                 textAlign = TextAlign.Center
                             )
                             Text(
-                                tr("7 dias gr·tis ï cancele quando quiser", "7 free days ï cancel anytime"),
+                                tr("7 dias gr√°tis ‚Ä¢ cancele quando quiser", "7 free days ‚Ä¢ cancel anytime"),
                                 color = freeCtaSub,
                                 fontSize = 12.sp,
                                 textAlign = TextAlign.Center
@@ -299,7 +299,7 @@ fun PremiumHubScreen(
                             mensagem = if (isEnglish)
                                 "Hi, I'm $userName and I need help with Zellu Premium."
                             else
-                                "Ol·, sou $userName e preciso de ajuda com o Zellu Premium."
+                                "Ol√°, sou $userName e preciso de ajuda com o Zellu Premium."
                         )
                     },
                 contentAlignment = Alignment.Center
