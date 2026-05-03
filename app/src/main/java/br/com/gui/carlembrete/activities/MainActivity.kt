@@ -161,6 +161,7 @@ class MainActivity : ComponentActivity() {
                 )
             }
 
+            FixedFontScale {
             CarLembreteTheme(themeMode = themeMode) {
                 val isDarkTheme = when (themeMode) {
                     AppThemeMode.SYSTEM -> isSystemInDarkTheme()
@@ -311,6 +312,7 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 }
+            }
             }
         }
     }

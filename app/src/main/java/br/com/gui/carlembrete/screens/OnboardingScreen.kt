@@ -91,7 +91,6 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
@@ -232,7 +231,7 @@ fun OnboardingScreen(
     var carroNome by remember { mutableStateOf("") }
     var carroMarca by remember { mutableStateOf("") }
     var carroModeloUnico by remember { mutableStateOf("") }
-    var carroKm by remember { mutableStateOf("0") }
+    var carroKm by remember { mutableStateOf("20.000") }
     var carroTipo by remember { mutableStateOf(TipoVeiculo.CARRO) }
     var frotaTemporaria by remember { mutableStateOf(listOf<CarroInfo>()) }
     var showOutroVeiculoDialog by remember { mutableStateOf(false) }
@@ -373,88 +372,105 @@ fun OnboardingScreen(
     if (showOutroVeiculoDialog) {
         val primaryColor = Color(0xFF3B82F6)
         val successColor = Color(0xFF10B981)
-        val dialogBg = if (isDark) Color(0xFF0B1220) else MaterialTheme.colorScheme.surface
-        val dialogBorder = if (isDark) Color.White.copy(alpha = 0.12f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f)
-        val titleColor = if (isDark) Color(0xFFE5E7EB) else MaterialTheme.colorScheme.onSurface
-        val secondaryColor = if (isDark) Color(0xFF94A3B8) else MaterialTheme.colorScheme.onSurfaceVariant
-        val outlineBtnBorder = if (isDark) Color(0xFFCBD5E1) else primaryColor
-        val outlineBtnText = if (isDark) Color(0xFFE2E8F0) else primaryColor
-        val primaryBtnColor = if (isDark) Color(0xFF2563EB) else Color(0xFF2563EB)
+        val dialogBg = Color.Black
+        val dialogBorder = Color.White.copy(alpha = 0.14f)
+        val titleColor = Color(0xFFE5E7EB)
+        val secondaryColor = Color(0xFF94A3B8)
+        val outlineBtnBorder = Color(0xFFCBD5E1)
+        val outlineBtnText = Color(0xFFE2E8F0)
+        val primaryBtnColor = Color(0xFF2563EB)
         Dialog(onDismissRequest = { showOutroVeiculoDialog = false }) {
-            Card(
-                shape = RoundedCornerShape(24.dp),
-                colors = CardDefaults.cardColors(containerColor = dialogBg),
-                border = BorderStroke(1.dp, dialogBorder),
-                modifier = Modifier.fillMaxWidth()
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .navigationBarsPadding(),
+                contentAlignment = Alignment.Center
             ) {
-                Column(
-                    modifier = Modifier.padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(20.dp)
+                Card(
+                    shape = RoundedCornerShape(24.dp),
+                    colors = CardDefaults.cardColors(containerColor = dialogBg),
+                    border = BorderStroke(1.dp, dialogBorder),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(80.dp)
-                            .background(successColor.copy(alpha = 0.15f), CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(Icons.Default.Check, null, tint = successColor, modifier = Modifier.size(40.dp))
-                    }
-
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            "Veículo 1 cadastrado!",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
-                            color = titleColor
-                        )
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            "Deseja cadastrar outro veículo agora ou seguir para a próxima etapa?",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = secondaryColor,
-                            textAlign = TextAlign.Center
-                        )
-                    }
-
                     Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                        modifier = Modifier.padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(20.dp)
                     ) {
-                        OutlinedButton(
-                            onClick = {
-                                showOutroVeiculoDialog = false
-                                onboardingVehicleFormSession += 1
-                                step = 4
-                            },
+                        Box(
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .height(54.dp),
-                            shape = RoundedCornerShape(12.dp),
-                            border = BorderStroke(1.dp, outlineBtnBorder),
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                containerColor = Color.Transparent,
-                                contentColor = outlineBtnText
-                            )
+                                .size(80.dp)
+                                .background(successColor.copy(alpha = 0.15f), CircleShape),
+                            contentAlignment = Alignment.Center
                         ) {
-                            Text("Cadastrar outro", color = outlineBtnText, fontWeight = FontWeight.Bold)
+                            Icon(Icons.Default.Check, null, tint = successColor, modifier = Modifier.size(40.dp))
                         }
 
-                        Button(
-                            onClick = {
-                                showOutroVeiculoDialog = false
-                                step = 6
-                            },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(54.dp),
-                            shape = RoundedCornerShape(12.dp),
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                "Veículo 1 cadastrado!",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = titleColor
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                "Deseja cadastrar outro veículo agora ou seguir para a próxima etapa?",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = secondaryColor,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = {
+                                    showOutroVeiculoDialog = false
+                                    onboardingVehicleFormSession += 1
+                                    step = 4
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(54.dp),
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(1.dp, outlineBtnBorder),
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    containerColor = Color.Transparent,
+                                    contentColor = outlineBtnText
+                                )
+                            ) {
+                                Text(
+                                    "Cadastrar outro",
+                                    color = outlineBtnText,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 16.sp
+                                )
+                            }
+
+                            Button(
+                                onClick = {
+                                    showOutroVeiculoDialog = false
+                                    step = 6
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(54.dp),
+                                shape = RoundedCornerShape(12.dp),
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = primaryBtnColor,
                                     contentColor = Color.White
                                 )
-                        ) {
-                            Text("Próximo", color = Color.White)
+                            ) {
+                                Text(
+                                    "Próximo",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 16.sp
+                                )
+                            }
                         }
                     }
                 }
@@ -519,259 +535,266 @@ fun OnboardingScreen(
                             showButton = true
                         }
 
-                        Column(
+                        Box(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .verticalScroll(rememberScrollState())
                                 .navigationBarsPadding()
-                                .padding(vertical = 20.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            AnimatedVisibility(
-                                visible = showOrbit,
-                                enter = fadeIn(animationSpec = tween(480)) +
-                                    scaleIn(
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .verticalScroll(rememberScrollState())
+                                    .padding(top = 20.dp, bottom = 108.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                AnimatedVisibility(
+                                    visible = showOrbit,
+                                    enter = fadeIn(animationSpec = tween(480)) +
+                                        scaleIn(
+                                            animationSpec = tween(480),
+                                            initialScale = 0.92f
+                                        ) +
+                                        slideInVertically(
                                         animationSpec = tween(480),
-                                        initialScale = 0.92f
-                                    ) +
-                                    slideInVertically(
-                                    animationSpec = tween(480),
-                                    initialOffsetY = { it / 6 }
-                                )
-                            ) { OnboardingWelcomeOrbit() }
+                                        initialOffsetY = { it / 6 }
+                                    )
+                                ) { OnboardingWelcomeOrbit() }
 
-                            Spacer(Modifier.height(32.dp))
+                                Spacer(Modifier.height(32.dp))
 
-                            AnimatedVisibility(
-                                visible = showTitle,
-                                enter = fadeIn(animationSpec = tween(420)) +
-                                    slideInVertically(
-                                    animationSpec = tween(420),
-                                    initialOffsetY = { it / 8 }
-                                )
-                            ) {
-                                Text(
-                                    "Bem-vindo ao Zellu",
-                                    style = MaterialTheme.typography.headlineLarge,
-                                    color = Color.White,
-                                    textAlign = TextAlign.Center,
-                                    fontWeight = FontWeight.Bold
-                                )
+                                AnimatedVisibility(
+                                    visible = showTitle,
+                                    enter = fadeIn(animationSpec = tween(420)) +
+                                        slideInVertically(
+                                        animationSpec = tween(420),
+                                        initialOffsetY = { it / 8 }
+                                    )
+                                ) {
+                                    Text(
+                                        "Bem-vindo ao Zellu",
+                                        style = MaterialTheme.typography.headlineLarge,
+                                        color = Color.White,
+                                        textAlign = TextAlign.Center,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+
+                                Spacer(Modifier.height(10.dp))
+
+                                AnimatedVisibility(
+                                    visible = showSubtitle,
+                                    enter = fadeIn(animationSpec = tween(400)) +
+                                        slideInVertically(
+                                        animationSpec = tween(400),
+                                        initialOffsetY = { it / 10 }
+                                    )
+                                ) {
+                                    Text(
+                                        "Organize sua garagem, cuide dos seus veículos e receba avisos no momento certo.",
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        color = Color(0xFFBFDBFE),
+                                        textAlign = TextAlign.Center
+                                    )
+                                }
                             }
 
-                            Spacer(Modifier.height(10.dp))
-
-                            AnimatedVisibility(
-                                visible = showSubtitle,
-                                enter = fadeIn(animationSpec = tween(400)) +
-                                    slideInVertically(
-                                    animationSpec = tween(400),
-                                    initialOffsetY = { it / 10 }
-                                )
+                            Box(
+                                modifier = Modifier.align(Alignment.BottomCenter)
                             ) {
-                                Text(
-                                    "Organize sua garagem, cuide dos seus veículos e receba avisos no momento certo.",
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = Color(0xFFBFDBFE),
-                                    textAlign = TextAlign.Center
-                                )
+                                androidx.compose.animation.AnimatedVisibility(
+                                    visible = showButton,
+                                    enter = fadeIn(animationSpec = tween(380)) +
+                                        slideInVertically(
+                                        animationSpec = tween(380),
+                                        initialOffsetY = { it / 12 }
+                                    )
+                                ) {
+                                    Button(
+                                        onClick = { step = 5 },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(56.dp),
+                                        shape = RoundedCornerShape(10.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6))
+                                    ) { Text("Vamos lá!", fontSize = 19.sp, color = Color.White) }
+                                }
                             }
-
-                            Spacer(Modifier.height(40.dp))
-
-                            AnimatedVisibility(
-                                visible = showButton,
-                                enter = fadeIn(animationSpec = tween(380)) +
-                                    slideInVertically(
-                                    animationSpec = tween(380),
-                                    initialOffsetY = { it / 12 }
-                                )
-                            ) {
-                                Button(
-                                    onClick = { step = 5 },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(56.dp),
-                                    shape = RoundedCornerShape(10.dp),
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6))
-                                ) { Text("Vamos lá!", fontSize = 19.sp, color = Color.White) }
-                            }
-                            Spacer(Modifier.height(16.dp))
                         }
                     }
                     5 -> {
-                        LazyColumn(
+                        Box(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .navigationBarsPadding(),
-                            contentPadding = PaddingValues(bottom = 12.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                                .navigationBarsPadding()
                         ) {
-                            item {
-                                Box(
+                            LazyColumn(
                                 modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(
-                                        Brush.verticalGradient(
-                                            listOf(Color(0xFF1D4ED8), Color(0xFF1E3A5F))
-                                        )
-                                    )
-                                    .padding(horizontal = 24.dp, vertical = 28.dp),
-                                contentAlignment = Alignment.Center
+                                    .fillMaxSize(),
+                                contentPadding = PaddingValues(bottom = 92.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                item {
                                     Box(
-                                        modifier = Modifier
-                                            .size(64.dp)
-                                            .clip(CircleShape)
-                                            .background(Color.White.copy(alpha = 0.15f)),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Security,
-                                            contentDescription = null,
-                                            tint = Color.White,
-                                            modifier = Modifier.size(34.dp)
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 24.dp, vertical = 28.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(64.dp)
+                                                .clip(CircleShape)
+                                                .background(Color.White.copy(alpha = 0.15f)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Security,
+                                                contentDescription = null,
+                                                tint = Color.White,
+                                                modifier = Modifier.size(34.dp)
+                                            )
+                                        }
+                                        Spacer(Modifier.height(12.dp))
+                                        Text(
+                                            "Permissões necessárias",
+                                            fontSize = 22.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White
+                                        )
+                                        Spacer(Modifier.height(4.dp))
+                                        Text(
+                                            "Conceda os acessos para usar todos os recursos do Zellu.",
+                                            color = Color.White.copy(alpha = 0.75f),
+                                            textAlign = TextAlign.Center,
+                                            fontSize = 13.sp,
+                                            lineHeight = 18.sp
                                         )
                                     }
-                                    Spacer(Modifier.height(12.dp))
-                                    Text(
-                                        "Permissões necessárias",
-                                        fontSize = 22.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color.White
-                                    )
-                                    Spacer(Modifier.height(4.dp))
-                                    Text(
-                                        "Conceda os acessos para usar todos os recursos do Zellu.",
-                                        color = Color.White.copy(alpha = 0.75f),
-                                        textAlign = TextAlign.Center,
-                                        fontSize = 13.sp,
-                                        lineHeight = 18.sp
-                                    )
-                                }
-                                }
-                            }
-                            items(permissionItems) { item ->
-                                    val granted = permissionStatus[item.permission] == true
-                                    val iconTint = when (item.permission) {
-                                        Manifest.permission.CAMERA -> Color(0xFF60A5FA)
-                                        Manifest.permission.ACCESS_FINE_LOCATION -> Color(0xFF34D399)
-                                        Manifest.permission.POST_NOTIFICATIONS -> Color(0xFFFBBF24)
-                                        else -> Color(0xFF94A3B8)
                                     }
-                                    val iconBg = when (item.permission) {
-                                        Manifest.permission.CAMERA -> Color(0xFF1E3A5F)
-                                        Manifest.permission.ACCESS_FINE_LOCATION -> Color(0xFF064E3B)
-                                        Manifest.permission.POST_NOTIFICATIONS -> Color(0xFF78350F)
-                                        else -> Color(0xFF1E293B)
-                                    }
-                                    Column(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 16.dp)
-                                            .clip(RoundedCornerShape(16.dp))
-                                            .background(Color(0xFF1E293B))
-                                            .border(
-                                                1.dp,
-                                                if (granted) Color(0xFF22C55E) else Color(0xFF334155),
-                                                RoundedCornerShape(16.dp)
-                                            )
-                                            .padding(12.dp)
-                                    ) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(46.dp)
-                                                    .clip(RoundedCornerShape(14.dp))
-                                                    .background(iconBg),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Icon(
-                                                    imageVector = permissionIconFor(item.permission),
-                                                    contentDescription = null,
-                                                    tint = iconTint,
-                                                    modifier = Modifier.size(22.dp)
+                                }
+                                items(permissionItems) { item ->
+                                        val granted = permissionStatus[item.permission] == true
+                                        val iconTint = when (item.permission) {
+                                            Manifest.permission.CAMERA -> Color(0xFF60A5FA)
+                                            Manifest.permission.ACCESS_FINE_LOCATION -> Color(0xFF34D399)
+                                            Manifest.permission.POST_NOTIFICATIONS -> Color(0xFFFBBF24)
+                                            else -> Color(0xFF94A3B8)
+                                        }
+                                        val iconBg = when (item.permission) {
+                                            Manifest.permission.CAMERA -> Color(0xFF1E3A5F)
+                                            Manifest.permission.ACCESS_FINE_LOCATION -> Color(0xFF064E3B)
+                                            Manifest.permission.POST_NOTIFICATIONS -> Color(0xFF78350F)
+                                            else -> Color(0xFF1E293B)
+                                        }
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 16.dp)
+                                                .clip(RoundedCornerShape(16.dp))
+                                                .background(Color(0xFF1E293B))
+                                                .border(
+                                                    1.dp,
+                                                    if (granted) Color(0xFF22C55E) else Color(0xFF334155),
+                                                    RoundedCornerShape(16.dp)
                                                 )
-                                            }
-                                            Spacer(Modifier.width(10.dp))
-                                            Column(modifier = Modifier.weight(1f)) {
-                                                Row(
-                                                    modifier = Modifier.fillMaxWidth(),
-                                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                                    verticalAlignment = Alignment.CenterVertically
+                                                .padding(12.dp)
+                                        ) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(46.dp)
+                                                        .clip(RoundedCornerShape(14.dp))
+                                                        .background(iconBg),
+                                                    contentAlignment = Alignment.Center
                                                 ) {
-                                                    Text(item.title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                                                    if (granted) {
-                                                        Box(
-                                                            modifier = Modifier
-                                                                .clip(RoundedCornerShape(20.dp))
-                                                                .background(Color(0xFF166534))
-                                                                .padding(horizontal = 8.dp, vertical = 3.dp)
-                                                        ) {
-                                                            Text("Permitido", color = Color(0xFF4ADE80), fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                                        }
-                                                    } else {
-                                                        Box(
-                                                            modifier = Modifier
-                                                                .clip(RoundedCornerShape(20.dp))
-                                                                .background(Color(0xFF7F1D1D))
-                                                                .padding(horizontal = 8.dp, vertical = 3.dp)
-                                                        ) {
-                                                            Text("Pendente", color = Color(0xFFFCA5A5), fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                                        }
-                                                    }
+                                                    Icon(
+                                                        imageVector = permissionIconFor(item.permission),
+                                                        contentDescription = null,
+                                                        tint = iconTint,
+                                                        modifier = Modifier.size(22.dp)
+                                                    )
                                                 }
-                                                Spacer(Modifier.height(2.dp))
-                                                Text(item.reason, color = Color(0xFF94A3B8), fontSize = 12.sp)
-                                            }
-                                        }
-                                        if (!granted) {
-                                            Spacer(Modifier.height(8.dp))
-                                            Button(
-                                                onClick = {
-                                                    Log.d(TAG_ONBOARDING_PERMISSIONS, "click Permitir -> permission='${item.permission}'")
-                                                    if (item.permission == Manifest.permission.POST_NOTIFICATIONS) {
-                                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                                                            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-                                                        ) {
-                                                            requestedPermissionOnce[Manifest.permission.POST_NOTIFICATIONS] = true
-                                                            permissionLauncher.launch(arrayOf(Manifest.permission.POST_NOTIFICATIONS))
+                                                Spacer(Modifier.width(10.dp))
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Row(
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                                        verticalAlignment = Alignment.CenterVertically
+                                                    ) {
+                                                        Text(item.title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                                                        if (granted) {
+                                                            Box(
+                                                                modifier = Modifier
+                                                                    .clip(RoundedCornerShape(20.dp))
+                                                                    .background(Color(0xFF166534))
+                                                                    .padding(horizontal = 8.dp, vertical = 3.dp)
+                                                            ) {
+                                                                Text("Permitido", color = Color(0xFF4ADE80), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                            }
                                                         } else {
-                                                            openAppNotificationSettings(context)
+                                                            Box(
+                                                                modifier = Modifier
+                                                                    .clip(RoundedCornerShape(20.dp))
+                                                                    .background(Color(0xFF7F1D1D))
+                                                                    .padding(horizontal = 8.dp, vertical = 3.dp)
+                                                            ) {
+                                                                Text("Pendente", color = Color(0xFFFCA5A5), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                            }
                                                         }
-                                                    } else if (isRuntimePermissionRequired(item.permission)) {
-                                                        val activity = context.findActivity()
-                                                        val wasRequested = requestedPermissionOnce[item.permission] == true
-                                                        val shouldShowRationale = activity?.let {
-                                                            ActivityCompat.shouldShowRequestPermissionRationale(it, item.permission)
-                                                        } ?: false
-                                                        if (wasRequested && !shouldShowRationale) {
-                                                            openAppPermissionSettings(context)
-                                                        } else {
-                                                            requestedPermissionOnce[item.permission] = true
-                                                            permissionLauncher.launch(arrayOf(item.permission))
-                                                        }
-                                                    } else {
-                                                        refreshPermissionStatus()
                                                     }
-                                                },
-                                                modifier = Modifier.fillMaxWidth().height(38.dp),
-                                                colors = ButtonDefaults.buttonColors(
-                                                    containerColor = Color(0xFF2563EB),
-                                                    contentColor = Color.White
-                                                ),
-                                                shape = RoundedCornerShape(10.dp)
-                                            ) {
-                                                Text("Permitir acesso", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                                                    Spacer(Modifier.height(2.dp))
+                                                    Text(item.reason, color = Color(0xFF94A3B8), fontSize = 12.sp)
+                                                }
+                                            }
+                                            if (!granted) {
+                                                Spacer(Modifier.height(8.dp))
+                                                Button(
+                                                    onClick = {
+                                                        Log.d(TAG_ONBOARDING_PERMISSIONS, "click Permitir -> permission='${item.permission}'")
+                                                        if (item.permission == Manifest.permission.POST_NOTIFICATIONS) {
+                                                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                                                                ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                                                            ) {
+                                                                requestedPermissionOnce[Manifest.permission.POST_NOTIFICATIONS] = true
+                                                                permissionLauncher.launch(arrayOf(Manifest.permission.POST_NOTIFICATIONS))
+                                                            } else {
+                                                                openAppNotificationSettings(context)
+                                                            }
+                                                        } else if (isRuntimePermissionRequired(item.permission)) {
+                                                            val activity = context.findActivity()
+                                                            val wasRequested = requestedPermissionOnce[item.permission] == true
+                                                            val shouldShowRationale = activity?.let {
+                                                                ActivityCompat.shouldShowRequestPermissionRationale(it, item.permission)
+                                                            } ?: false
+                                                            if (wasRequested && !shouldShowRationale) {
+                                                                openAppPermissionSettings(context)
+                                                            } else {
+                                                                requestedPermissionOnce[item.permission] = true
+                                                                permissionLauncher.launch(arrayOf(item.permission))
+                                                            }
+                                                        } else {
+                                                            refreshPermissionStatus()
+                                                        }
+                                                    },
+                                                    modifier = Modifier.fillMaxWidth().height(38.dp),
+                                                    colors = ButtonDefaults.buttonColors(
+                                                        containerColor = Color(0xFF2563EB),
+                                                        contentColor = Color.White
+                                                    ),
+                                                    shape = RoundedCornerShape(10.dp)
+                                                ) {
+                                                    Text("Permitir acesso", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                                                }
                                             }
                                         }
-                                    }
+                                }
                             }
-                            item {
-                                Box(
+                            Box(
                                 modifier = Modifier
+                                    .align(Alignment.BottomCenter)
                                     .fillMaxWidth()
+                                    .background(Color.Black)
                                     .padding(horizontal = 16.dp, vertical = 12.dp)
                             ) {
                                 Button(
@@ -788,11 +811,10 @@ fun OnboardingScreen(
                                 ) {
                                     Text(
                                         if (allRequiredPermissionsGranted) "Continuar" else "Conceda os acessos acima",
-                                        fontSize = 16.sp,
+                                        fontSize = 19.sp,
                                         fontWeight = FontWeight.Bold
                                     )
                                 }
-                            }
                             }
                         }
                     }
@@ -915,13 +937,17 @@ fun OnboardingScreen(
                         }
                     }
                     7 -> {
-                        LazyColumn(
+                        Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .fillMaxHeight(),
-                            verticalArrangement = Arrangement.spacedBy(14.dp),
-                            contentPadding = PaddingValues(bottom = 12.dp)
+                                .fillMaxHeight()
+                                .navigationBarsPadding()
                         ) {
+                            LazyColumn(
+                                modifier = Modifier.fillMaxSize(),
+                                verticalArrangement = Arrangement.spacedBy(14.dp),
+                                contentPadding = PaddingValues(bottom = 92.dp)
+                            ) {
                                 item {
                                 Box(
                                     modifier = Modifier
@@ -1045,6 +1071,29 @@ fun OnboardingScreen(
                                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                                         ) {
                                             Checkbox(
+                                                checked = aceitouTermos && aceitouPrivacidade,
+                                                onCheckedChange = {
+                                                    aceitouTermos = it
+                                                    aceitouPrivacidade = it
+                                                },
+                                                colors = CheckboxDefaults.colors(
+                                                    checkedColor = Color(0xFF22C55E),
+                                                    uncheckedColor = Color(0xFF94A3B8),
+                                                    checkmarkColor = Color.White
+                                                )
+                                            )
+                                            Text(
+                                                "Concordo com tudo.",
+                                                color = Color.White,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 15.sp
+                                            )
+                                        }
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                        ) {
+                                            Checkbox(
                                                 checked = aceitouTermos,
                                                 onCheckedChange = { aceitouTermos = it },
                                                 colors = CheckboxDefaults.colors(
@@ -1083,20 +1132,27 @@ fun OnboardingScreen(
                                     }
                                 }
                                 }
-                                item {
-                                Button(
-                                onClick = { step = 4 },
-                                enabled = aceitouTermos && aceitouPrivacidade,
+                            }
+                            Box(
                                 modifier = Modifier
+                                    .align(Alignment.BottomCenter)
                                     .fillMaxWidth()
-                                    .height(56.dp),
-                                shape = RoundedCornerShape(10.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = if (aceitouTermos && aceitouPrivacidade) Color(0xFF2563EB) else Color(0xFF475569),
-                                    contentColor = Color.White
-                                )
-                            ) { Text("Próximo", fontSize = 19.sp) }
-                                }
+                                    .background(Color.Black)
+                                    .padding(vertical = 12.dp)
+                            ) {
+                                Button(
+                                    onClick = { step = 4 },
+                                    enabled = aceitouTermos && aceitouPrivacidade,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(56.dp),
+                                    shape = RoundedCornerShape(10.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = if (aceitouTermos && aceitouPrivacidade) Color(0xFF2563EB) else Color(0xFF475569),
+                                        contentColor = Color.White
+                                    )
+                                ) { Text("Próximo", fontSize = 19.sp) }
+                            }
                         }
                     }
                     4 -> Unit
@@ -1179,7 +1235,9 @@ fun OnboardingScreen(
                         Spacer(Modifier.height(8.dp))
                         OutlinedTextField(
                             value = carroKm,
-                            onValueChange = { carroKm = it.filter(Char::isDigit).take(10) },
+                            onValueChange = {
+                                carroKm = it.filter(Char::isDigit).take(10)
+                            },
                             label = { Text("KM Atual") },
                             modifier = Modifier.fillMaxWidth(),
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -1202,14 +1260,14 @@ fun OnboardingScreen(
                                         nome = carroNome,
                                         modelo = carroModeloUnico,
                                         marca = carroMarca,
-                                        kmAtual = carroKm.toIntOrNull() ?: 0,
+                                        kmAtual = carroKm.filter(Char::isDigit).toIntOrNull() ?: 0,
                                         tipoVeiculo = carroTipo
                                     )
                                     frotaTemporaria = frotaTemporaria + novo
                                     carroNome = ""
                                     carroMarca = ""
                                     carroModeloUnico = ""
-                                    carroKm = "0"
+                                    carroKm = "20.000"
                                     carroTipo = TipoVeiculo.CARRO
                                 }
                             },
@@ -1225,7 +1283,7 @@ fun OnboardingScreen(
                                         nome = if(carroNome.isBlank()) carroTipo.label else carroNome,
                                         modelo = carroModeloUnico,
                                         marca = carroMarca,
-                                        kmAtual = carroKm.toIntOrNull() ?: 0,
+                                        kmAtual = carroKm.filter(Char::isDigit).toIntOrNull() ?: 0,
                                         tipoVeiculo = carroTipo
                                     )
                                     listaFinal = listaFinal + ultimo

@@ -65,6 +65,7 @@ fun OnboardingThanksScreen(onGoToHome: () -> Unit) {
     var showFeature1 by remember { mutableStateOf(false) }
     var showFeature2 by remember { mutableStateOf(false) }
     var showFeature3 by remember { mutableStateOf(false) }
+    var showFeature4 by remember { mutableStateOf(false) }
     var showButton by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
@@ -79,6 +80,8 @@ fun OnboardingThanksScreen(onGoToHome: () -> Unit) {
         showFeature2 = true
         delay(80)
         showFeature3 = true
+        delay(80)
+        showFeature4 = true
         delay(120)
         showButton = true
     }
@@ -128,19 +131,12 @@ fun OnboardingThanksScreen(onGoToHome: () -> Unit) {
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
-                .navigationBarsPadding()
-                .padding(horizontal = 28.dp),
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 28.dp)
+                .padding(top = 24.dp, bottom = 112.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Top
+            verticalArrangement = Arrangement.spacedBy(0.dp)
         ) {
-            Column(
-                modifier = Modifier
-                    .weight(1f, fill = true)
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState()),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(0.dp)
-            ) {
                 // Icon
                 AnimatedVisibility(
                     visible = showIcon,
@@ -220,8 +216,8 @@ fun OnboardingThanksScreen(onGoToHome: () -> Unit) {
                             icon = Icons.Default.NotificationsActive,
                             iconTint = Color(0xFF60A5FA),
                             iconBg = Color(0xFF1E3A5F),
-                            title = "Alertas Inteligentes",
-                            subtitle = "IPVA, CNH, revisões e muito mais."
+                            title = "Lembretes essenciais",
+                            subtitle = "Avisos de revisão, CNH, IPVA e manutenção."
                         )
                     }
                     AnimatedVisibility(
@@ -232,8 +228,8 @@ fun OnboardingThanksScreen(onGoToHome: () -> Unit) {
                             icon = Icons.Default.DirectionsCar,
                             iconTint = Color(0xFF34D399),
                             iconBg = Color(0xFF064E3B),
-                            title = "Controle de Gastos",
-                            subtitle = "Combustível, peças e serviços registrados."
+                            title = "Garagem grátis",
+                            subtitle = "Cadastre até 5 veículos sem assinatura."
                         )
                     }
                     AnimatedVisibility(
@@ -244,16 +240,34 @@ fun OnboardingThanksScreen(onGoToHome: () -> Unit) {
                             icon = Icons.Default.Star,
                             iconTint = Color(0xFFFBBF24),
                             iconBg = Color(0xFF451A03),
-                            title = "Valorização na Revenda",
-                            subtitle = "Histórico impecável para o seu carro."
+                            title = "Histórico organizado",
+                            subtitle = "Guarde KM, dados e registros básicos."
+                        )
+                    }
+                    AnimatedVisibility(
+                        visible = showFeature4,
+                        enter = fadeIn(tween(360)) + slideInVertically(tween(360)) { it / 6 }
+                    ) {
+                        ThanksFeatureRow(
+                            icon = Icons.Default.CalendarMonth,
+                            iconTint = Color(0xFFA78BFA),
+                            iconBg = Color(0xFF312E81),
+                            title = "Gastos no controle",
+                            subtitle = "Anote combustível, peças e serviços."
                         )
                     }
                 }
                 Spacer(Modifier.height(20.dp))
-            }
+        }
 
-            // CTA button
-            Column {
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .background(Color(0xFF020917))
+                .navigationBarsPadding()
+                .padding(horizontal = 28.dp, vertical = 12.dp)
+        ) {
                 AnimatedVisibility(
                     visible = showButton,
                     enter = fadeIn(tween(340)) + slideInVertically(tween(340)) { it / 8 }
@@ -281,8 +295,6 @@ fun OnboardingThanksScreen(onGoToHome: () -> Unit) {
                         )
                     }
                 }
-                Spacer(Modifier.height(8.dp))
-            }
         }
     }
 }

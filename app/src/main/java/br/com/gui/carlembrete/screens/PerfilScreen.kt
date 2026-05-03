@@ -186,13 +186,19 @@ fun PerfilScreen(
             Spacer(Modifier.height(8.dp))
 
             // Plan badge
-            val badgeColor = if (isPremium) Color(0xFFFBBF24) else AccentBlue
-            val badgeBg = if (isPremium) {
-                if (isDark) Color(0xFF451A03) else Color(0xFFFFF4D8)
-            } else {
-                if (isDark) Color(0xFF1E3A5F) else Color(0xFFEFF6FF)
+            val badgeLabel = planNameLabel(planTier)
+            val badgeColor = when (planTier) {
+                PlanTier.FREE -> AccentBlue
+                PlanTier.LITE -> Color(0xFF2563EB)
+                PlanTier.FROTA -> Color(0xFFFBBF24)
+                PlanTier.ENTERPRISE -> Color(0xFF06B6D4)
             }
-            val badgeLabel = if (isPremium) "Premium" else "Free"
+            val badgeBg = when (planTier) {
+                PlanTier.FREE -> if (isDark) Color(0xFF1E3A5F) else Color(0xFFEFF6FF)
+                PlanTier.LITE -> if (isDark) Color(0xFF172554) else Color(0xFFEAF2FF)
+                PlanTier.FROTA -> if (isDark) Color(0xFF451A03) else Color(0xFFFFF4D8)
+                PlanTier.ENTERPRISE -> if (isDark) Color(0xFF083344) else Color(0xFFE6FAFE)
+            }
             val badgeIcon = if (isPremium) Icons.Rounded.Star else Icons.Rounded.VerifiedUser
 
             Row(

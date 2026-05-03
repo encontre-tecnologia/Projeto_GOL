@@ -52,6 +52,8 @@ fun EtapaRevisaoAvisoContent(
     isModoLista: Boolean,
     listaItensDetectados: List<ItemDetectado>,
     quantidadeTotalItens: Int,
+    mostrarTotal: Boolean = true,
+    mostrarQuantidade: Boolean = true,
     kmBase: String,
     data: String,
     dataAviso: String,
@@ -85,11 +87,13 @@ fun EtapaRevisaoAvisoContent(
                     titulo = tituloLugar.ifBlank { tr("Aviso", "Reminder") },
                     descricaoItens = item.nome,
                     quantidadeResumo = if (repeticoes > 1) "$indice/$repeticoes" else "1",
+                    mostrarQuantidade = true,
                     categoria = if (tipo == TipoManutencao.ABASTECIMENTO) tr("Posto", "Fuel") else tipo.label,
                     tipo = tipo,
                     km = kmBase.ifBlank { tr("Nao informado", "Not informed") },
                     hora = if (isRegistroServico) "" else horaNotificacao.ifBlank { tr("Nao informado", "Not informed") },
                     valor = "R$ ${itemValorOverrides[item.id] ?: item.valor.formatResumo()}",
+                    mostrarValor = true,
                     dataAviso = if (isRegistroServico) "" else (itemDataAvisoOverrides[item.id] ?: dataAviso),
                     dataServico = data.ifBlank { tr("Nao informado", "Not informed") },
                     repeticao = if (isRegistroServico) "" else if (repetirAteDesativar) tr("Sim", "Yes") + " (${descricaoRepeticao})" else tr("Nao", "No"),
@@ -103,11 +107,13 @@ fun EtapaRevisaoAvisoContent(
                 titulo = tituloLugar.ifBlank { tr("Aviso", "Reminder") },
                 descricaoItens = descricao.ifBlank { tr("Sem descricao", "No description") },
                 quantidadeResumo = quantidadeTotalItens.coerceAtLeast(1).toString(),
+                mostrarQuantidade = mostrarQuantidade,
                 categoria = tituloCategoria,
                 tipo = tipoSelecionado,
                 km = kmBase.ifBlank { tr("Nao informado", "Not informed") },
                 hora = if (isRegistroServico) "" else horaNotificacao.ifBlank { tr("Nao informado", "Not informed") },
                 valor = if (valorInput.isBlank()) tr("Nao informado", "Not informed") else "R$ $valorInput",
+                mostrarValor = mostrarTotal,
                 dataAviso = if (isRegistroServico) "" else dataAviso.ifBlank { tr("Nao informado", "Not informed") },
                 dataServico = data.ifBlank { tr("Nao informado", "Not informed") },
                 repeticao = if (isRegistroServico) "" else if (repetirAteDesativar) tr("Sim", "Yes") + " (${descricaoRepeticao})" else tr("Nao", "No"),
@@ -228,31 +234,33 @@ private fun AvisoResumoCardPosto(
                 itemBg = if (bgCard.luminance() < 0.5f) Color(0xFF0B1220) else Color(0xFFF8FAFC),
                 borderColor = borderColor
             )
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
-                color = if (bgCard.luminance() < 0.5f) Color(0xFF0B1220) else Color(0xFFF8FAFC),
-                border = BorderStroke(1.dp, borderColor)
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+            if (aviso.mostrarValor) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    color = if (bgCard.luminance() < 0.5f) Color(0xFF0B1220) else Color(0xFFF8FAFC),
+                    border = BorderStroke(1.dp, borderColor)
                 ) {
-                    Text(
-                        tr("Valor", "Amount"),
-                        color = textSecondary,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Text(
-                        aviso.valor,
-                        color = Color(0xFF22C55E),
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold
-                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            tr("Valor", "Amount"),
+                            color = textSecondary,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            aviso.valor,
+                            color = Color(0xFF22C55E),
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
         }
@@ -263,11 +271,13 @@ private data class AvisoResumoUi(
     val titulo: String,
     val descricaoItens: String,
     val quantidadeResumo: String,
+    val mostrarQuantidade: Boolean,
     val categoria: String,
     val tipo: TipoManutencao,
     val km: String,
     val hora: String,
     val valor: String,
+    val mostrarValor: Boolean,
     val dataAviso: String,
     val dataServico: String,
     val repeticao: String,
@@ -353,14 +363,16 @@ private fun AvisoResumoCard(
                     itemBg = itemBg,
                     borderColor = borderColor
                 )
-                LinhaResumo(
-                    titulo = tr("Quantidade", "Quantity"),
-                    valor = aviso.quantidadeResumo,
-                    textPrimary = textPrimary,
-                    textSecondary = textSecondary,
-                    itemBg = itemBg,
-                    borderColor = borderColor
-                )
+                if (aviso.mostrarQuantidade) {
+                    LinhaResumo(
+                        titulo = tr("Quantidade", "Quantity"),
+                        valor = aviso.quantidadeResumo,
+                        textPrimary = textPrimary,
+                        textSecondary = textSecondary,
+                        itemBg = itemBg,
+                        borderColor = borderColor
+                    )
+                }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -375,7 +387,9 @@ private fun AvisoResumoCard(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    ResumoTagGridItem(tr("Valor", "Amount"), aviso.valor, textPrimary, textSecondary, itemBg, borderColor)
+                    if (aviso.mostrarValor) {
+                        ResumoTagGridItem(tr("Valor", "Amount"), aviso.valor, textPrimary, textSecondary, itemBg, borderColor)
+                    }
                     ResumoTagGridItem(tr("Data do serviço", "Service date"), aviso.dataServico, textPrimary, textSecondary, itemBg, borderColor)
                     if (!aviso.isRegistroServico) {
                         ResumoTagGridItem(tr("Aviso", "Reminder"), aviso.dataAviso, textPrimary, textSecondary, itemBg, borderColor)

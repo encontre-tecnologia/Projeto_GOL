@@ -100,7 +100,7 @@ enum class TipoVeiculo(val label: String, val icon: ImageVector) {
     CARRO("Sedan", Icons.Rounded.DirectionsCar),
     HATCH("Carro de passeio", Icons.Rounded.DirectionsCar),
     MOTO("Moto", Icons.Rounded.Motorcycle),
-    CAMINHONETE("Pickup", Icons.Rounded.LocalShipping),
+    CAMINHONETE("Pickup ou Caminhonete", Icons.Rounded.LocalShipping),
     FURGAO("Furgão", Icons.Rounded.LocalShipping),
     CAMINHAO("Caminhao leve/pesado", Icons.Rounded.LocalShipping),
     ONIBUS("Ônibus", Icons.Rounded.LocalShipping),
@@ -461,7 +461,7 @@ fun TipoVeiculoSelector(
 ) {
     val accent = Color(0xFF3B82F6)
     val tiposDisponiveis = remember {
-        TipoVeiculo.values().filter { it != TipoVeiculo.TRATOR && it != TipoVeiculo.CARRETINHA }
+        TipoVeiculo.values().filter { it != TipoVeiculo.TRATOR }
     }
     Row(
         modifier = modifier

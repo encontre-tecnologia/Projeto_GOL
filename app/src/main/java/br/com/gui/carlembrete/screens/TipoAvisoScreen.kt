@@ -73,6 +73,8 @@ data class AvisoItem(
 @Composable
 fun TipoAvisoScreen(
     itensAviso: List<AvisoItem>,
+    title: String = tr("O que vamos lembrar?", "What should we remember?"),
+    subtitle: String? = null,
     backgroundBrush: Brush,
     surfaceDark: Color,
     textLight: Color,
@@ -160,11 +162,22 @@ fun TipoAvisoScreen(
                             )
                         }
                         Text(
-                            tr("O que vamos lembrar?", "What should we remember?"),
+                            title,
                             color = textLight,
                             fontSize = 25.sp,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center
                         )
+                        subtitle?.let {
+                            Text(
+                                text = it,
+                                color = textDim,
+                                fontSize = 14.sp,
+                                lineHeight = 19.sp,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.padding(horizontal = 10.dp)
+                            )
+                        }
                     }
 
                     Column(

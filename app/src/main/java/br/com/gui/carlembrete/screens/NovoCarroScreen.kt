@@ -161,7 +161,7 @@ internal fun NovoCarroScreenContent(
     var proprietario by remember { mutableStateOf(nomeUsuarioLogado) }
     var quemUsaOpcao by remember { mutableStateOf("Eu mesmo") }
     var quemUsaExpanded by remember { mutableStateOf(false) }
-    var kmAtualStr by remember { mutableStateOf("0") }
+    var kmAtualStr by remember { mutableStateOf("20.000") }
     var bikeSemKm by remember { mutableStateOf(false) }
     var tipoSelecionado by remember {
         mutableStateOf<TipoVeiculo?>(null)
@@ -202,6 +202,8 @@ internal fun NovoCarroScreenContent(
     }
     val isBikeTypeGlobal =
         tipoSelecionado == TipoVeiculo.BICICLETA || tipoSelecionado == TipoVeiculo.BIKE_ELETRICA
+    val isCarretinhaType = tipoSelecionado == TipoVeiculo.CARRETINHA
+    val isKmOptionalType = isBikeTypeGlobal || isCarretinhaType
     val tipoSemAno =
         tipoSelecionado == TipoVeiculo.BICICLETA ||
             tipoSelecionado == TipoVeiculo.BIKE_ELETRICA
@@ -221,12 +223,11 @@ internal fun NovoCarroScreenContent(
     val erroModelo = etapaCadastro == 1 && tentouAvancarEtapa1 && modelo.isBlank()
     val erroAno = etapaCadastro == 1 && !tipoSemAno && tentouAvancarEtapa1 && anoObrigatorio && anoSelecionado.isBlank()
     val erroCor = etapaCadastro == 1 && tentouAvancarEtapa1 && corSelecionada == null
-    val usarControleKm = !isBikeTypeGlobal || !bikeSemKm
-    val erroKm = etapaCadastro == 2 && usarControleKm && tentouSalvarEtapa2 && kmAtualStr.filter(Char::isDigit).isEmpty()
+    val usarControleKm = !isKmOptionalType || !bikeSemKm
+    val erroKm = false
     val etapa2Valida = proprietario.isNotBlank() &&
         (isBikeTypeGlobal || vezesBatido != null) &&
-        tempoComVeiculo.isNotBlank() &&
-        (!usarControleKm || kmAtualStr.filter(Char::isDigit).isNotEmpty())
+        tempoComVeiculo.isNotBlank()
     val erroProprietario =
         (etapaCadastro == 2 && !isBikeTypeGlobal && tentouSalvarEtapa2 && proprietario.isBlank()) ||
         (etapaCadastro == 1 && isBikeTypeGlobal && tentouAvancarEtapa1 && proprietario.isBlank())
@@ -246,7 +247,7 @@ internal fun NovoCarroScreenContent(
             proprietario = nomeUsuarioLogado
             quemUsaOpcao = "Eu mesmo"
             quemUsaExpanded = false
-            kmAtualStr = "0"
+            kmAtualStr = "20.000"
             bikeSemKm = false
             corSelecionada = null
             vezesBatido = null
@@ -364,7 +365,7 @@ internal fun NovoCarroScreenContent(
         topBar = {
             if (!isOnboardingVariant) {
                 CenterAlignedTopAppBar(
-                    title = { Text(trNow("Adicione seus veículos", "Add your vehicles"), color = textPrimary, fontWeight = FontWeight.Bold) },
+                    title = { Text(if (isCarretinhaType) "Adicione sua carretinha" else trNow("Adicione seus veículos", "Add your vehicles"), color = textPrimary, fontWeight = FontWeight.Bold) },
                     navigationIcon = if (allowBackNavigation) {
                         {
                             IconButton(onClick = ::voltarTela) {
@@ -403,8 +404,8 @@ internal fun NovoCarroScreenContent(
                                                 modelo = combinarModeloAno(modelo, anoSelecionado),
                                                 proprietario = proprietario,
                                                 corArgb = corSelecionada ?: carroBase.corArgb,
-                                                kmAtual = if (isBikeTypeGlobal && bikeSemKm) 0 else (kmAtualStr.filter(Char::isDigit).toIntOrNull() ?: 0),
-                                            semControleKm = isBikeTypeGlobal && bikeSemKm,
+                                                kmAtual = if (isKmOptionalType && bikeSemKm) 0 else (kmAtualStr.filter(Char::isDigit).toIntOrNull() ?: 0),
+                                            semControleKm = isKmOptionalType && bikeSemKm,
                                             tipoVeiculo = tipoSelecionado!!,
                                                 vezesBatido = null,
                                                 tempoComVeiculo = ""
@@ -448,8 +449,8 @@ internal fun NovoCarroScreenContent(
                                             modelo = combinarModeloAno(modelo, anoSelecionado),
                                             proprietario = proprietario,
                                             corArgb = corSelecionada ?: carroBase.corArgb,
-                                            kmAtual = if (isBikeTypeGlobal && bikeSemKm) 0 else (kmAtualStr.filter(Char::isDigit).toIntOrNull() ?: 0),
-                                            semControleKm = isBikeTypeGlobal && bikeSemKm,
+                                            kmAtual = if (isKmOptionalType && bikeSemKm) 0 else (kmAtualStr.filter(Char::isDigit).toIntOrNull() ?: 0),
+                                            semControleKm = isKmOptionalType && bikeSemKm,
                                             tipoVeiculo = tipoSelecionado!!,
                                             vezesBatido = vezesBatido,
                                             tempoComVeiculo = tempoComVeiculo
@@ -489,7 +490,7 @@ internal fun NovoCarroScreenContent(
             ) {
                 if (isOnboardingVariant) {
                     Text(
-                        text = "Cadastre um Veículo",
+                        text = if (isCarretinhaType) "Cadastre uma carretinha" else "Cadastre um Veículo",
                         color = textPrimary,
                         fontSize = 22.sp,
                         fontWeight = FontWeight.Bold,
@@ -641,11 +642,13 @@ internal fun NovoCarroScreenContent(
                     val isFreeNameType =
                         tipoSelecionado == TipoVeiculo.BICICLETA ||
                             tipoSelecionado == TipoVeiculo.BIKE_ELETRICA ||
-                            tipoSelecionado == TipoVeiculo.MOTORHOME
+                            tipoSelecionado == TipoVeiculo.MOTORHOME ||
+                            tipoSelecionado == TipoVeiculo.CARRETINHA
                     if (isFreeNameType) {
                         val freeNameLabel = when (tipoSelecionado) {
                             TipoVeiculo.BICICLETA, TipoVeiculo.BIKE_ELETRICA -> "Nome da bike"
                             TipoVeiculo.MOTORHOME -> "Nome do motorhome"
+                            TipoVeiculo.CARRETINHA -> "Nome da carretinha"
                             else -> "Nome do veículo"
                         }
                         OutlinedTextField(
@@ -678,7 +681,7 @@ internal fun NovoCarroScreenContent(
                                 onValueChange = {},
                                 readOnly = true,
                                 isError = erroNome,
-                                label = { Text("Nome do veículo") },
+                                label = { Text(if (isCarretinhaType) "Nome da carretinha" else "Nome do veículo") },
                                 placeholder = { Text("Selecione") },
                                 singleLine = true,
                                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = showNomeDialog) },
@@ -706,7 +709,7 @@ internal fun NovoCarroScreenContent(
                                             .padding(16.dp)
                                     ) {
                                         Text(
-                                    text = "Selecione o nome do veículo",
+                                    text = if (isCarretinhaType) "Selecione o nome da carretinha" else "Selecione o nome do veículo",
                                             color = textPrimary,
                                             style = MaterialTheme.typography.titleMedium,
                                             fontWeight = FontWeight.SemiBold,
@@ -811,7 +814,16 @@ internal fun NovoCarroScreenContent(
                         }
                     }
 
-                    val motorLabel = if (tipoSelecionado == TipoVeiculo.BICICLETA) "Aro/Modelo" else "Motor/Modelo"
+                    val motorLabel = when (tipoSelecionado) {
+                        TipoVeiculo.BICICLETA, TipoVeiculo.BIKE_ELETRICA -> "Aro/modelo"
+                        TipoVeiculo.CARRETINHA -> "Modelo/versão da carretinha"
+                        else -> "Motor/versão"
+                    }
+                    val motorPlaceholder = when (tipoSelecionado) {
+                        TipoVeiculo.BICICLETA, TipoVeiculo.BIKE_ELETRICA -> "Ex: Aro 29"
+                        TipoVeiculo.CARRETINHA -> "Ex: baú, aberta, reboque leve"
+                        else -> "Ex: 1.0 Turbo, 1.6 Flex"
+                    }
                     OutlinedTextField(
                         value = modelo,
                         onValueChange = {
@@ -822,6 +834,7 @@ internal fun NovoCarroScreenContent(
                         },
                         isError = erroModelo,
                         label = { Text(motorLabel) },
+                        placeholder = { Text(motorPlaceholder) },
                         singleLine = true,
 
                         colors = selectorFieldColors,
@@ -843,8 +856,8 @@ internal fun NovoCarroScreenContent(
                                 onValueChange = { anoSelecionado = it.filter(Char::isDigit).take(4) },
                                 readOnly = false,
                                 isError = erroAno,
-                                label = { Text("Ano") },
-                                placeholder = { Text("Selecione ou digite") },
+                                label = { Text(if (isCarretinhaType) "Ano da carretinha" else "Ano do veículo") },
+                                placeholder = { Text("Ex: 2020") },
                                 keyboardOptions = KeyboardOptions(
                                     keyboardType = KeyboardType.Number,
                                     imeAction = ImeAction.Done
@@ -943,14 +956,22 @@ internal fun NovoCarroScreenContent(
                             onValueChange = { kmAtualStr = formatarKmTextoLocal(it) },
                             enabled = usarControleKm,
                             isError = erroKm,
-                            label = { Text(if (isBikeTypeGlobal) "KM da bike" else "KM Atual (Painel)") },
+                            label = {
+                                Text(
+                                    when {
+                                        isBikeTypeGlobal -> "KM da bike"
+                                        isCarretinhaType -> "KM da carretinha"
+                                        else -> "KM Atual (Painel)"
+                                    }
+                                )
+                            },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                             singleLine = true,
                             colors = selectorFieldColors,
                             modifier = Modifier.fillMaxWidth()
                         )
 
-                        if (isBikeTypeGlobal) {
+                        if (isKmOptionalType) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.CenterVertically
@@ -963,7 +984,7 @@ internal fun NovoCarroScreenContent(
                                     }
                                 )
                                 Text(
-                                    text = "Minha bike não possui KM",
+                                    text = if (isCarretinhaType) "Essa carretinha não possui KM" else "Minha bike não possui KM",
                                     color = textSecondary,
                                     fontSize = 13.sp
                                 )
@@ -1135,8 +1156,8 @@ internal fun NovoCarroScreenContent(
                                                 modelo = combinarModeloAno(modelo, anoSelecionado),
                                                 proprietario = proprietario,
                                                 corArgb = corSelecionada ?: carroBase.corArgb,
-                                                kmAtual = if (isBikeTypeGlobal && bikeSemKm) 0 else (kmAtualStr.filter(Char::isDigit).toIntOrNull() ?: 0),
-                                            semControleKm = isBikeTypeGlobal && bikeSemKm,
+                                                kmAtual = if (isKmOptionalType && bikeSemKm) 0 else (kmAtualStr.filter(Char::isDigit).toIntOrNull() ?: 0),
+                                            semControleKm = isKmOptionalType && bikeSemKm,
                                             tipoVeiculo = tipoSelecionado!!,
                                                 vezesBatido = null,
                                                 tempoComVeiculo = ""
@@ -1180,8 +1201,8 @@ internal fun NovoCarroScreenContent(
                                             modelo = combinarModeloAno(modelo, anoSelecionado),
                                             proprietario = proprietario,
                                             corArgb = corSelecionada ?: carroBase.corArgb,
-                                            kmAtual = if (isBikeTypeGlobal && bikeSemKm) 0 else (kmAtualStr.filter(Char::isDigit).toIntOrNull() ?: 0),
-                                            semControleKm = isBikeTypeGlobal && bikeSemKm,
+                                            kmAtual = if (isKmOptionalType && bikeSemKm) 0 else (kmAtualStr.filter(Char::isDigit).toIntOrNull() ?: 0),
+                                            semControleKm = isKmOptionalType && bikeSemKm,
                                             tipoVeiculo = tipoSelecionado!!,
                                             vezesBatido = vezesBatido,
                                             tempoComVeiculo = tempoComVeiculo

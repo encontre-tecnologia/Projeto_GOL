@@ -24,6 +24,7 @@ class OnboardingActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             var themeMode by remember { mutableStateOf(AppThemeMode.DARK) }
+            FixedFontScale {
             CarLembreteTheme(themeMode = themeMode) {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     OnboardingScreen(
@@ -35,6 +36,7 @@ class OnboardingActivity : ComponentActivity() {
                         }
                     )
                 }
+            }
             }
         }
     }

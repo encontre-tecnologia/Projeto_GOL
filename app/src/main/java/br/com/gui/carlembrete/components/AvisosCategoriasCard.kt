@@ -39,6 +39,7 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -746,8 +747,25 @@ private fun EmptyStateView(textColor: Color) {
             )
         }
         Spacer(Modifier.height(16.dp))
-        Text(tr("Tudo 100%!", "All set!"), color = palette.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-        Text(tr("Nenhum aviso nessa categoria.", "No reminders in this category."), color = textColor, fontSize = 13.sp)
+        Text(
+            text = tr("Nenhum aviso por aqui", "No reminders here"),
+            color = palette.textPrimary,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.Center
+        )
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = tr(
+                "Quando precisar acompanhar uma revisão, troca ou manutenção, toque em Novo Lembrete.",
+                "When you need to track a service, replacement, or maintenance, tap New Reminder."
+            ),
+            color = textColor,
+            fontSize = 13.sp,
+            lineHeight = 18.sp,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(horizontal = 22.dp)
+        )
     }
 }
 

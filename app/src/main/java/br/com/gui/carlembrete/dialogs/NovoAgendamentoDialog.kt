@@ -225,6 +225,8 @@ fun NovoAgendamentoDialog(
     }
     var valorInput by remember { mutableStateOf("") }
     var quantidadeManualInput by remember { mutableStateOf("1") }
+    var avisoSemTotal by remember { mutableStateOf(false) }
+    var avisoSemQuantidade by remember { mutableStateOf(false) }
     var tipoSelecionado by remember { mutableStateOf(initialTipo) }
     val anoAtual = remember { LocalDate.now().year }
     var contatosLista by remember { mutableStateOf(contatosDisponiveis) }
@@ -384,6 +386,8 @@ fun NovoAgendamentoDialog(
         qrValorDesconto = null
         qrValorFinalComDesconto = null
         qrFormaPagamento = null
+        avisoSemTotal = false
+        avisoSemQuantidade = false
     }
     fun aplicarDadosFinanceirosNotaScan(notaInfo: NotaQrInfo) {
         qrQuantidadeTotalItens = notaInfo.quantidadeTotalItens
@@ -391,6 +395,8 @@ fun NovoAgendamentoDialog(
         qrValorDesconto = notaInfo.valorDesconto
         qrValorFinalComDesconto = notaInfo.valorFinalComDesconto
         qrFormaPagamento = notaInfo.formaPagamento
+        avisoSemTotal = false
+        avisoSemQuantidade = false
         val valorPreferencial = notaInfo.valorFinalComDesconto ?: notaInfo.valorTotal ?: notaInfo.valorBruto
         if (valorPreferencial != null) {
             valorInput = String.format(Locale.US, "%.2f", valorPreferencial)
@@ -1007,19 +1013,20 @@ fun NovoAgendamentoDialog(
             }
         } else if (tituloAviso.isNotBlank() && descricao.isNotBlank()) {
             val tituloLembrete = localServicoInput.ifBlank { qrNomeEstabelecimento.ifBlank { descricao } }
-            val quantidadeManual = quantidadeManualInput.toIntOrNull()?.coerceAtLeast(1) ?: 1
-            val descricaoComQuantidade = if (qrQuantidadeTotalItens == null && quantidadeManual > 1) {
+            val quantidadeManual = if (avisoSemQuantidade) 1 else quantidadeManualInput.toIntOrNull()?.coerceAtLeast(1) ?: 1
+            val descricaoComQuantidade = if (!avisoSemQuantidade && qrQuantidadeTotalItens == null && quantidadeManual > 1) {
                 "${descricao.trim()} (Qtd: $quantidadeManual)"
             } else {
                 descricao.trim()
             }
+            val valorDoAviso = if (avisoSemTotal) 0.0 else valorInput.replace(",", ".").toDoubleOrNull() ?: 0.0
             val novoLembrete = Lembrete(
                 titulo = tituloAviso.trim().ifBlank { tituloLembrete },
                 peca = descricaoComQuantidade,
                 dataLimite = dataAvisoStr,
                 kmLimite = kmOuEstadoPorTipo(tipoSelecionado, kmAtualBase),
                 tipo = tipoSelecionado,
-                valor = valorInput.replace(",", ".").toDoubleOrNull() ?: 0.0,
+                valor = valorDoAviso,
                 carroId = "",
                 contatoId = contatoSelecionado?.id,
                 fotoPath = fotoCaminho,
@@ -1842,8 +1849,8 @@ fun NovoAgendamentoDialog(
     }
 
     val valorTotalManual = valorInput.replace(",", ".").toDoubleOrNull()
-    val valorTotalValido = valorTotalManual != null && valorTotalManual > 0.0
-    val quantidadeManualValida = quantidadeManualInput.toIntOrNull()?.let { it > 0 } == true
+    val valorTotalValido = avisoSemTotal || (valorTotalManual != null && valorTotalManual > 0.0)
+    val quantidadeManualValida = avisoSemQuantidade || (quantidadeManualInput.toIntOrNull()?.let { it > 0 } == true)
     val podeAvancarEtapa1 = if (isModoLista && listaItensDetectados.isNotEmpty()) {
         true
     } else {
@@ -2308,11 +2315,12 @@ fun NovoAgendamentoDialog(
 
                             if (!veioDeEscaneamento) {
                             OutlinedTextField(
-                                value = valorInput,
+                                value = if (avisoSemTotal) "" else valorInput,
                                 onValueChange = { novo ->
                                     valorInput = formatarValorMonetarioCampo(novo)
                                 },
-                                label = { Text("Total *") },
+                                enabled = !avisoSemTotal,
+                                label = { Text(if (avisoSemTotal) "Total" else "Total *") },
                                 prefix = { Text("R$") },
                                 modifier = Modifier.fillMaxWidth(),
                                 keyboardOptions = KeyboardOptions(
@@ -2327,10 +2335,34 @@ fun NovoAgendamentoDialog(
                                 ),
                                 shape = RoundedCornerShape(12.dp)
                             )
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        avisoSemTotal = !avisoSemTotal
+                                        if (avisoSemTotal) valorInput = ""
+                                    },
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Checkbox(
+                                    checked = avisoSemTotal,
+                                    onCheckedChange = { marcado ->
+                                        avisoSemTotal = marcado
+                                        if (marcado) valorInput = ""
+                                    }
+                                )
+                                Text(
+                                    text = "Este aviso não possui total",
+                                    color = textSecondary,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
                             OutlinedTextField(
-                                value = quantidadeManualInput,
+                                value = if (avisoSemQuantidade) "" else quantidadeManualInput,
                                 onValueChange = { quantidadeManualInput = it.filter(Char::isDigit).take(3) },
-                                label = { Text(tr("Quantidade *", "Quantity *")) },
+                                enabled = !avisoSemQuantidade,
+                                label = { Text(if (avisoSemQuantidade) tr("Quantidade", "Quantity") else tr("Quantidade *", "Quantity *")) },
                                 modifier = Modifier.fillMaxWidth(),
                                 keyboardOptions = KeyboardOptions(
                                     keyboardType = KeyboardType.Number,
@@ -2339,6 +2371,29 @@ fun NovoAgendamentoDialog(
                                 singleLine = true,
                                 shape = RoundedCornerShape(12.dp)
                             )
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        avisoSemQuantidade = !avisoSemQuantidade
+                                        if (avisoSemQuantidade) quantidadeManualInput = ""
+                                    },
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Checkbox(
+                                    checked = avisoSemQuantidade,
+                                    onCheckedChange = { marcado ->
+                                        avisoSemQuantidade = marcado
+                                        if (marcado) quantidadeManualInput = ""
+                                    }
+                                )
+                                Text(
+                                    text = "Este aviso não possui quantidade",
+                                    color = textSecondary,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
                             }
                             if (mostrarResumoNota) {
                                 Surface(
@@ -3404,6 +3459,8 @@ fun NovoAgendamentoDialog(
                             quantidadeTotalItens = qrQuantidadeTotalItens
                                 ?: listaItensDetectados.takeIf { it.isNotEmpty() }?.sumOf { it.quantidade.coerceAtLeast(1) }
                                 ?: (quantidadeManualInput.toIntOrNull()?.coerceAtLeast(1) ?: 1),
+                            mostrarTotal = !avisoSemTotal,
+                            mostrarQuantidade = !avisoSemQuantidade,
                             kmBase = kmBase,
                             data = data,
                             dataAviso = dataAviso,

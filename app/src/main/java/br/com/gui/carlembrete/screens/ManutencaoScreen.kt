@@ -645,6 +645,8 @@ fun ManutencaoScreen(
         ) {
             val popupBg = if (isDark) Color.Black else Color.White
             val popupBorder = if (isDark) Color(0xFF1F2937) else Color(0xFFE2E8F0)
+            val closeButtonBorder = if (isDark) Color.White else popupBorder
+            val closeButtonText = if (isDark) Color.White else Color(0xFF0F172A)
             val popupTextPrimary = if (isDark) Color(0xFFE2E8F0) else Color(0xFF0F172A)
             val popupTextSecondary = if (isDark) Color(0xFF94A3B8) else Color(0xFF475569)
 
@@ -715,6 +717,7 @@ fun ManutencaoScreen(
             Card(
                 modifier = Modifier
                     .fillMaxWidth(0.92f)
+                    .heightIn(min = 410.dp)
                     .wrapContentHeight(),
                 shape = RoundedCornerShape(22.dp),
                 colors = CardDefaults.cardColors(containerColor = popupBg),
@@ -723,8 +726,8 @@ fun ManutencaoScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                        .padding(horizontal = 16.dp, vertical = 20.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
                     Column(
                         modifier = Modifier.fillMaxWidth(),
@@ -754,7 +757,7 @@ fun ManutencaoScreen(
                             textAlign = TextAlign.Center
                         )
                         Text(
-                            text = "Como voce quer cadastrar?",
+                            text = "Como você quer cadastrar?",
                             color = popupTextSecondary,
                             fontSize = 13.sp,
                             textAlign = TextAlign.Center
@@ -763,8 +766,8 @@ fun ManutencaoScreen(
 
                     FluxoOptionCard(
                         icon = Icons.Default.CheckCircle,
-                        title = "Ja aconteceu",
-                        subtitle = "Registrar servico concluido no historico (sem lembrete futuro).",
+                        title = "Já aconteceu",
+                        subtitle = "Registrar serviço concluído no histórico (sem lembrete futuro).",
                         accent = Color(0xFF10B981),
                         onClick = {
                             fluxoInicialRegistroServico = true
@@ -785,19 +788,21 @@ fun ManutencaoScreen(
                         }
                     )
 
+                    Spacer(Modifier.height(8.dp))
+
                     OutlinedButton(
                         onClick = { showFluxoCadastroDialog = false },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(46.dp),
+                            .height(52.dp),
                         shape = RoundedCornerShape(12.dp),
-                        border = BorderStroke(1.dp, popupBorder),
+                        border = BorderStroke(1.dp, closeButtonBorder),
                         colors = ButtonDefaults.outlinedButtonColors(
                             containerColor = Color.Transparent,
-                            contentColor = popupTextSecondary
+                            contentColor = closeButtonText
                         )
                     ) {
-                        Text("Fechar", fontWeight = FontWeight.SemiBold)
+                        Text("Fechar", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                     }
                 }
             }
@@ -806,17 +811,23 @@ fun ManutencaoScreen(
     if (showTipoAvisoDialog) {
         val isBike = isBikeCategory(carroAtual.tipoVeiculo)
         val tiposAviso = tiposAvisoPorVeiculo(carroAtual.tipoVeiculo)
-        val itensAviso = listOf(
-            AvisoItem(
-                label = tr("Lembrar aonde parei", "Remember where I parked"),
-                icon = Icons.Default.LocalParking,
-                color = accentBlue,
-                wide = true
-            ) {
-                showTipoAvisoDialog = false
-                showAondePareiScreen = true
-            }
-        ) + tiposAviso.map { tipo ->
+        val isRegistroServico = fluxoInicialRegistroServico == true
+        val itensAondeParei = if (isRegistroServico) {
+            emptyList()
+        } else {
+            listOf(
+                AvisoItem(
+                    label = tr("Lembrar aonde parei", "Remember where I parked"),
+                    icon = Icons.Default.LocalParking,
+                    color = accentBlue,
+                    wide = true
+                ) {
+                    showTipoAvisoDialog = false
+                    showAondePareiScreen = true
+                }
+            )
+        }
+        val itensAviso = itensAondeParei + tiposAviso.map { tipo ->
             val label = if (isBike && tipo == TipoManutencao.REVISAO) tr("Peças", "Parts") else tipoManutencaoLabel(tipo)
             AvisoItem(
                 label,
@@ -836,6 +847,16 @@ fun ManutencaoScreen(
         val avisoTextDim = if (isDark) textDim else Color(0xFF475569)
         TipoAvisoScreen(
             itensAviso = itensAviso,
+            title = if (isRegistroServico) {
+                tr("O que foi feito?", "What was done?")
+            } else {
+                tr("O que vamos lembrar?", "What should we remember?")
+            },
+            subtitle = if (isRegistroServico) {
+                tr("Escolha a categoria do serviço que já aconteceu.", "Choose the category of the service that already happened.")
+            } else {
+                tr("Escolha a categoria do aviso futuro.", "Choose the category for the future reminder.")
+            },
             backgroundBrush = avisoBackground,
             surfaceDark = if (isDark) surfaceDark else colorScheme.surface,
             textLight = avisoTextPrimary,
@@ -1419,19 +1440,23 @@ fun ManutencaoScreen(
             },
             onConfirm = { novo ->
                 val hadNoReminderBefore = todosLembretes.none { it.tipo != TipoManutencao.ABASTECIMENTO }
-                todosLembretes = todosLembretes + novo.copy(carroId = carroAtual.id)
+                val novoNormalizado = if (fluxoInicialRegistroServico == true && !isLembreteRealizado(novo)) {
+                    marcarLembreteComoRealizado(novo)
+                } else {
+                    novo
+                }.copy(carroId = carroAtual.id)
+                todosLembretes = todosLembretes + novoNormalizado
                 AdminUsageMetrics.markReminderCreated()
                 showAddLembreteDialog = false
                 iniciarCameraProduto = false
                 if (
                     hadNoReminderBefore &&
-                    novo.tipo != TipoManutencao.ABASTECIMENTO &&
-                    isLembreteRealizado(novo) &&
-                    shouldShowReportMiniTutorial(context)
+                    novoNormalizado.tipo != TipoManutencao.ABASTECIMENTO &&
+                    isLembreteRealizado(novoNormalizado)
                 ) {
                     showReportMiniTutorial = true
                 }
-                val mensagem = if (isLembreteRealizado(novo)) {
+                val mensagem = if (isLembreteRealizado(novoNormalizado)) {
                     trNow("Serviço registrado no histórico.", "Service recorded in history.")
                 } else {
                     trNow("Aviso cadastrado com sucesso!", "Reminder saved successfully!")
@@ -1440,7 +1465,13 @@ fun ManutencaoScreen(
             },
             onMultiConfirm = { novosItens ->
                 val hadNoReminderBefore = todosLembretes.none { it.tipo != TipoManutencao.ABASTECIMENTO }
-                val novosLembretes = novosItens.map { it.copy(carroId = carroAtual.id) }
+                val novosLembretes = novosItens.map { item ->
+                    if (fluxoInicialRegistroServico == true && !isLembreteRealizado(item)) {
+                        marcarLembreteComoRealizado(item)
+                    } else {
+                        item
+                    }.copy(carroId = carroAtual.id)
+                }
                 todosLembretes = todosLembretes + novosLembretes
                 AdminUsageMetrics.markReminderCreated(novosLembretes.size)
                 showAddLembreteDialog = false
@@ -1448,8 +1479,7 @@ fun ManutencaoScreen(
                 if (
                     hadNoReminderBefore &&
                     novosLembretes.any { it.tipo != TipoManutencao.ABASTECIMENTO } &&
-                    novosLembretes.any { isLembreteRealizado(it) } &&
-                    shouldShowReportMiniTutorial(context)
+                    novosLembretes.any { isLembreteRealizado(it) }
                 ) {
                     showReportMiniTutorial = true
                 }
@@ -1945,8 +1975,13 @@ fun ManutencaoScreen(
                     accentBlue = accentBlue,
                     stepIcon = tutorialHeaderIcon,
                     stepTitle = tutorialHeaderTitle,
+                    isDark = isDark,
                     isVoiceMuted = isTutorialVoiceMuted,
                     onToggleVoice = { isTutorialVoiceMuted = !isTutorialVoiceMuted },
+                    onDismiss = {
+                        showHomeTutorial = false
+                        markHomeTutorialSeen(context)
+                    },
                     onNext = {
                         if (safeStep < homeTutorialSteps.lastIndex) {
                             homeTutorialStep = safeStep + 1
@@ -1960,15 +1995,20 @@ fun ManutencaoScreen(
             if (showReportMiniTutorial && !showHomeTutorial) {
                 HomeTutorialSpotlightOverlay(
                     targetRect = reportButtonRect,
-                    message = "Toque em Relatório para abrir a tela e ir direto em Registros cadastrados, onde fica o que você salvou.",
+                    message = "Esse serviço foi salvo como registro, não como aviso. Toque em Relatório para ver em Registros cadastrados tudo que já aconteceu com o veículo.",
                     step = 1,
                     total = 1,
                     targetCornerRadius = 14.dp,
                     accentBlue = accentBlue,
-                    stepIcon = Icons.Default.Description,
-                    stepTitle = "Abrir relatório",
+                    stepIcon = Icons.Default.FactCheck,
+                    stepTitle = "Registro no relatório",
+                    isDark = isDark,
                     isVoiceMuted = true,
                     onToggleVoice = {},
+                    onDismiss = {
+                        showReportMiniTutorial = false
+                        markReportMiniTutorialSeen(context)
+                    },
                     onNext = {
                         showReportMiniTutorial = false
                         markReportMiniTutorialSeen(context)
@@ -2359,14 +2399,26 @@ private fun HomeTutorialSpotlightOverlay(
     accentBlue: Color,
     stepIcon: ImageVector,
     stepTitle: String,
+    isDark: Boolean,
     isVoiceMuted: Boolean,
     onToggleVoice: () -> Unit,
+    onDismiss: () -> Unit,
     onNext: () -> Unit
 ) {
     val density = LocalDensity.current
     val cornerRadiusPx = with(density) { targetCornerRadius.toPx() }
     val strokeWidthPx = with(density) { 2.dp.toPx() }
     val inset = strokeWidthPx / 2f
+    val cardBg = if (isDark) Color(0xFF0B1220) else Color.White
+    val cardBorder = if (isDark) Color(0xFF334155) else Color(0xFFD1D5DB)
+    val gradientTop = if (isDark) Color(0xFF0F172A) else Color(0xFFFFFFFF)
+    val gradientBottom = if (isDark) Color(0xFF0B1220) else Color(0xFFF8FAFC)
+    val titleColor = if (isDark) Color(0xFFE2E8F0) else Color(0xFF111827)
+    val secondaryColor = if (isDark) Color(0xFF94A3B8) else Color(0xFF475569)
+    val messageBg = if (isDark) Color(0xFF111827) else Color(0xFFF8FAFC)
+    val exitBorder = if (isDark) Color(0xFF475569) else Color(0xFFCBD5E1)
+    val iconBg = if (isDark) Color(0xFF1D4ED8).copy(alpha = 0.2f) else accentBlue.copy(alpha = 0.12f)
+    val iconBorder = if (isDark) Color(0xFF3B82F6).copy(alpha = 0.45f) else accentBlue.copy(alpha = 0.36f)
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -2401,16 +2453,16 @@ private fun HomeTutorialSpotlightOverlay(
                 .padding(16.dp)
                 .heightIn(min = 220.dp),
             shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF0B1220)),
-            border = BorderStroke(1.dp, Color(0xFF334155))
+            colors = CardDefaults.cardColors(containerColor = cardBg),
+            border = BorderStroke(1.dp, cardBorder)
         ) {
             Column(
                 modifier = Modifier
                     .background(
                         Brush.verticalGradient(
                             colors = listOf(
-                                Color(0xFF0F172A),
-                                Color(0xFF0B1220)
+                                gradientTop,
+                                gradientBottom
                             )
                         )
                     )
@@ -2431,8 +2483,8 @@ private fun HomeTutorialSpotlightOverlay(
                             modifier = Modifier
                                 .size(30.dp)
                                 .clip(RoundedCornerShape(10.dp))
-                                .background(Color(0xFF1D4ED8).copy(alpha = 0.2f))
-                                .border(1.dp, Color(0xFF3B82F6).copy(alpha = 0.45f), RoundedCornerShape(10.dp)),
+                                .background(iconBg)
+                                .border(1.dp, iconBorder, RoundedCornerShape(10.dp)),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
@@ -2445,14 +2497,14 @@ private fun HomeTutorialSpotlightOverlay(
                         Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
                             Text(
                                 text = stepTitle,
-                                color = Color(0xFFE2E8F0),
+                                color = titleColor,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 18.sp,
                                 lineHeight = 18.sp
                             )
                             Text(
                                 text = "Etapa $step de $total",
-                                color = Color(0xFF94A3B8),
+                                color = secondaryColor,
                                 fontSize = 12.sp,
                                 lineHeight = 12.sp
                             )
@@ -2474,13 +2526,13 @@ private fun HomeTutorialSpotlightOverlay(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(top = 6.dp),
-                    color = Color(0xFF111827),
+                    color = messageBg,
                     shape = RoundedCornerShape(14.dp),
-                    border = BorderStroke(1.dp, Color(0xFF334155))
+                    border = BorderStroke(1.dp, cardBorder)
                 ) {
                     Text(
                         text = message,
-                        color = Color(0xFFE2E8F0),
+                        color = titleColor,
                         fontSize = 14.sp,
                         lineHeight = 21.sp,
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp)
@@ -2489,12 +2541,32 @@ private fun HomeTutorialSpotlightOverlay(
                 Spacer(modifier = Modifier.height(6.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(50.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        border = BorderStroke(1.dp, exitBorder),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = Color.Transparent,
+                            contentColor = titleColor
+                        )
+                    ) {
+                        Text(
+                            text = "Sair do tutorial",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1
+                        )
+                    }
                     Button(
                         onClick = onNext,
                         modifier = Modifier
-                            .widthIn(min = 170.dp)
+                            .weight(1f)
                             .height(50.dp),
                         shape = RoundedCornerShape(14.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = accentBlue, contentColor = Color.White)
