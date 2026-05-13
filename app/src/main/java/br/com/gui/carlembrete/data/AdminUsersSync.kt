@@ -4,6 +4,7 @@ import android.util.Log
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.SetOptions
 
 private const val TAG_ADMIN_SYNC = "AdminUsersSync"
@@ -18,9 +19,24 @@ object AdminUsersSync {
             "vehiclesTotal" to total,
             "veiculosTotal" to total,
             "veiculosCadastrados" to total,
-            "vehicleNames" to names
+            "vehicleNames" to names,
+            "carros" to vehicles.map(::vehicleSnapshotPayload)
         )
     }
+
+    private fun vehicleSnapshotPayload(vehicle: CarroInfo): Map<String, Any?> = mapOf(
+        "id" to vehicle.id,
+        "nome" to vehicle.nome,
+        "modelo" to vehicle.modelo,
+        "marca" to vehicle.marca,
+        "proprietario" to vehicle.proprietario,
+        "corArgb" to vehicle.corArgb,
+        "kmAtual" to vehicle.kmAtual,
+        "semControleKm" to vehicle.semControleKm,
+        "tipoVeiculo" to vehicle.tipoVeiculo.name,
+        "vezesBatido" to vehicle.vezesBatido,
+        "tempoComVeiculo" to vehicle.tempoComVeiculo
+    )
 
     private fun remindersPayload(reminders: List<Lembrete>): Map<String, Any> {
         val total = reminders.size
@@ -34,17 +50,44 @@ object AdminUsersSync {
             "recordsTotal" to completed,
             "registrosTotal" to completed,
             "registrosCriados" to completed,
-            "completedRemindersTotal" to completed
+            "completedRemindersTotal" to completed,
+            "lembretes" to reminders.map(::reminderSnapshotPayload)
         )
     }
+
+    private fun reminderSnapshotPayload(reminder: Lembrete): Map<String, Any?> = mapOf(
+        "id" to reminder.id,
+        "carroId" to reminder.carroId,
+        "titulo" to reminder.titulo,
+        "peca" to reminder.peca,
+        "dataLimite" to reminder.dataLimite,
+        "kmLimite" to reminder.kmLimite,
+        "tipo" to reminder.tipo.name,
+        "valor" to reminder.valor
+    )
+
+    private fun fuelPayload(items: List<Abastecimento>): Map<String, Any> = mapOf(
+        "abastecimentos" to items.map(::fuelSnapshotPayload)
+    )
+
+    private fun fuelSnapshotPayload(item: Abastecimento): Map<String, Any?> = mapOf(
+        "id" to item.id,
+        "carroId" to item.carroId,
+        "data" to item.data,
+        "precoLitro" to item.precoLitro,
+        "valorPago" to item.valorPago,
+        "litros" to item.litros
+    )
 
     fun syncLocalOverview(context: android.content.Context) {
         val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
         val vehicles = BancoDeDados.carregarCarros(context).orEmpty()
         val reminders = BancoDeDados.carregarLembretes(context)
+        val fuelRecords = BancoDeDados.carregarAbastecimentos(context)
         val payload = mutableMapOf<String, Any>()
         payload.putAll(vehiclePayload(vehicles))
         payload.putAll(remindersPayload(reminders))
+        payload.putAll(fuelPayload(fuelRecords))
         payload["updatedAt"] = FieldValue.serverTimestamp()
 
         firestore.collection("admin_users").document(uid)
@@ -101,6 +144,15 @@ object AdminUsersSync {
             .addOnFailureListener { Log.w(TAG_ADMIN_SYNC, "Falha ao sincronizar snapshot de lembretes", it) }
     }
 
+    fun syncFuelSnapshot(items: List<Abastecimento>) {
+        val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
+        val payload = fuelPayload(items).toMutableMap()
+        payload["updatedAt"] = FieldValue.serverTimestamp()
+        firestore.collection("admin_users").document(uid)
+            .set(payload, SetOptions.merge())
+            .addOnFailureListener { Log.w(TAG_ADMIN_SYNC, "Falha ao sincronizar abastecimentos", it) }
+    }
+
     fun checkAnnouncement(context: android.content.Context, onShow: (title: String, description: String) -> Unit) {
         firestore.collection("admin_announcements").document("current")
             .get()
@@ -146,6 +198,42 @@ object AdminUsersSync {
                 }
             }
             .addOnFailureListener { Log.w(TAG_ADMIN_SYNC, "Falha ao ler adminPremiumOverride", it) }
+    }
+
+    fun listenReminderLimitOverride(onChanged: (Int?) -> Unit): ListenerRegistration? {
+        val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return null
+        val userDoc = firestore.collection("admin_users").document(uid)
+        val controlsDoc = userDoc.collection("controls").document("admin")
+
+        fun readLegacyLimitOnce() {
+            userDoc.get()
+                .addOnSuccessListener { snapshot ->
+                    val legacyLimit = snapshot
+                        ?.getLong("adminReminderLimitOverride")
+                        ?.toInt()
+                        ?.takeIf { it > 0 }
+                    onChanged(legacyLimit)
+                }
+                .addOnFailureListener { Log.w(TAG_ADMIN_SYNC, "Falha ao ler limite admin legado de avisos", it) }
+        }
+
+        return controlsDoc
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    Log.w(TAG_ADMIN_SYNC, "Falha ao ouvir limite admin de avisos", error)
+                    readLegacyLimitOnce()
+                    return@addSnapshotListener
+                }
+                if (snapshot?.exists() != true) {
+                    readLegacyLimitOnce()
+                    return@addSnapshotListener
+                }
+                val remoteLimit = snapshot
+                    .getLong("adminReminderLimitOverride")
+                    ?.toInt()
+                    ?.takeIf { it > 0 }
+                onChanged(remoteLimit)
+            }
     }
 
     fun applyRemoteEbookOverride(

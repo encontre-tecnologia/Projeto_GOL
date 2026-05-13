@@ -7,6 +7,7 @@ import com.android.billingclient.api.BillingClient
 import com.android.billingclient.api.BillingClientStateListener
 import com.android.billingclient.api.BillingFlowParams
 import com.android.billingclient.api.BillingResult
+import com.android.billingclient.api.PendingPurchasesParams
 import com.android.billingclient.api.ProductDetails
 import com.android.billingclient.api.QueryProductDetailsParams
 import com.android.billingclient.api.Purchase
@@ -19,7 +20,11 @@ class SubscriptionManager(context: Context) : PurchasesUpdatedListener {
     private val appContext = context.applicationContext
     private val billingClient: BillingClient = BillingClient.newBuilder(appContext)
         .setListener(this)
-        .enablePendingPurchases()
+        .enablePendingPurchases(
+            PendingPurchasesParams.newBuilder()
+                .enableOneTimeProducts()
+                .build()
+        )
         .build()
 
     private val productDetailsById = mutableMapOf<String, ProductDetails>()
@@ -114,7 +119,7 @@ class SubscriptionManager(context: Context) : PurchasesUpdatedListener {
                 }
             )
             .build()
-        billingClient.queryProductDetailsAsync(params) { billingResult, detailsList ->
+        billingClient.queryProductDetailsAsync(params) { billingResult, result ->
             if (billingResult.responseCode != BillingClient.BillingResponseCode.OK) {
                 productDetailsById.clear()
                 offerTokenByProductId.clear()
@@ -125,7 +130,7 @@ class SubscriptionManager(context: Context) : PurchasesUpdatedListener {
             productDetailsById.clear()
             offerTokenByProductId.clear()
 
-            detailsList.forEach { details ->
+            result.productDetailsList.forEach { details ->
                 val offerToken = details.subscriptionOfferDetails
                     ?.firstOrNull()
                     ?.offerToken
@@ -262,6 +267,34 @@ fun vehicleLimitForPlan(planTier: PlanTier): Int = when (planTier) {
     PlanTier.LITE -> 15
     PlanTier.FROTA -> 50
     PlanTier.ENTERPRISE -> 200
+}
+
+fun reminderLimitForPlan(planTier: PlanTier): Int = when (planTier) {
+    PlanTier.FREE -> 5
+    PlanTier.LITE -> 50
+    PlanTier.FROTA -> 300
+    PlanTier.ENTERPRISE -> Int.MAX_VALUE
+}
+
+fun effectiveReminderLimitForPlan(planTier: PlanTier, adminOverride: Int?): Int {
+    val baseLimit = reminderLimitForPlan(planTier)
+    val overrideLimit = adminOverride?.takeIf { it > 0 } ?: return baseLimit
+    if (baseLimit == Int.MAX_VALUE) return baseLimit
+    return maxOf(baseLimit, overrideLimit)
+}
+
+fun fuelRecordLimitForPlan(planTier: PlanTier): Int = when (planTier) {
+    PlanTier.FREE -> 20
+    PlanTier.LITE -> 150
+    PlanTier.FROTA -> 300
+    PlanTier.ENTERPRISE -> Int.MAX_VALUE
+}
+
+fun scannerLimitForPlan(planTier: PlanTier): Int = when (planTier) {
+    PlanTier.FREE -> 3
+    PlanTier.LITE -> 30
+    PlanTier.FROTA -> 200
+    PlanTier.ENTERPRISE -> Int.MAX_VALUE
 }
 
 fun planNameLabel(planTier: PlanTier): String = when (planTier) {

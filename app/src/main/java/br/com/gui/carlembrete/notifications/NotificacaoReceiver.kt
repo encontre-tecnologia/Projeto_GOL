@@ -323,6 +323,8 @@ object NotificacaoHelper {
     private const val REC_PREFIX_INTERVAL = "rec_interval_"
     private const val PREFS_HISTORY_KEY = "historico_disparadas_v1"
     private const val HISTORY_LIMIT = 100
+    private const val PAST_TRIGGER_GRACE_MS = 60_000L
+    private const val IMMEDIATE_TRIGGER_DELAY_MS = 5_000L
     private val dateFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
     private val tiposAvisoEtapas = setOf(
         TipoManutencao.SEGURO,
@@ -543,7 +545,25 @@ object NotificacaoHelper {
         carroId: String?,
         referencia: LocalDate = LocalDate.now()
     ) {
-        val dataAlerta = calcularProximaDataEtapa(dataVencimento, referencia) ?: return
+        var referenciaAtual = referencia
+        var dataAlerta = calcularProximaDataEtapa(dataVencimento, referenciaAtual) ?: return
+        val now = System.currentTimeMillis()
+        var tentativas = 0
+        while (tentativas <= MAX_ALERTAS_POS_VENCIMENTO + etapasAntesDoVencimento.size) {
+            val trigger = calcularMillis(dataAlerta.format(dateFormatter), hora)
+            if (trigger == null || trigger > now) break
+            referenciaAtual = dataAlerta.plusDays(1)
+            dataAlerta = calcularProximaDataEtapa(dataVencimento, referenciaAtual) ?: return
+            tentativas++
+        }
+        val triggerDaEtapa = calcularMillis(dataAlerta.format(dateFormatter), hora)
+        if (triggerDaEtapa != null && triggerDaEtapa <= now) {
+            Log.w(
+                TAG_NOTIF,
+                "etapa ignorada por estar no passado baseId=$baseReminderId vencimento=${dataVencimento.format(dateFormatter)} dataAlerta=${dataAlerta.format(dateFormatter)} hora=$hora"
+            )
+            return
+        }
         val idEtapa = idEtapaPorData(baseReminderId, dataVencimento, dataAlerta) ?: return
         val diasAntes = java.time.temporal.ChronoUnit.DAYS.between(dataAlerta, dataVencimento).toInt()
         val diasAtraso = java.time.temporal.ChronoUnit.DAYS.between(dataVencimento, dataAlerta).toInt()
@@ -587,23 +607,8 @@ object NotificacaoHelper {
         tituloBase: String? = null,
         tipoLabel: String? = null
     ) {
-        val triggerAt = calcularMillis(data, hora) ?: return
         val now = System.currentTimeMillis()
-        var triggerAtFinal = triggerAt
-        if (triggerAtFinal <= now) {
-            val atrasoMs = now - triggerAtFinal
-            val dataSelecionada = runCatching { LocalDate.parse(data, dateFormatter) }.getOrNull()
-            if (dataSelecionada == LocalDate.now()) {
-                triggerAtFinal = now + 5_000L
-                Log.w(TAG_NOTIF, "horario do dia ja passou; disparo imediato em ~5s id=$id data=$data hora=$hora")
-            } else if (atrasoMs <= 60_000L) {
-                triggerAtFinal = now + 5_000L
-                Log.w(TAG_NOTIF, "trigger ajustado para proximo instante (atraso=${atrasoMs}ms) id=$id data=$data hora=$hora")
-            } else {
-                Log.w(TAG_NOTIF, "trigger descartado por estar no passado id=$id data=$data hora=$hora atrasoMs=$atrasoMs")
-                return
-            }
-        }
+        val triggerAtFinal = calcularTriggerFuturo(context, id, data, hora, isRollingStep, now) ?: return
 
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
         salvarHora(context, id, hora)
@@ -629,6 +634,64 @@ object NotificacaoHelper {
         )
         Log.d(TAG_NOTIF, "agendar id=$id data=$data hora=$hora triggerAt=$triggerAtFinal now=$now")
         agendarAlarmManager(context, alarmManager, triggerAtFinal, pendingIntent)
+    }
+
+    private fun calcularTriggerFuturo(
+        context: Context,
+        id: String,
+        data: String,
+        hora: String,
+        isRollingStep: Boolean,
+        now: Long
+    ): Long? {
+        val triggerAt = calcularMillis(data, hora) ?: return null
+        if (triggerAt > now) return triggerAt
+
+        val atrasoMs = now - triggerAt
+        if (!isRollingStep && atrasoMs in 0..PAST_TRIGGER_GRACE_MS) {
+            Log.w(
+                TAG_NOTIF,
+                "trigger ajustado para disparo imediato id=$id data=$data hora=$hora atrasoMs=$atrasoMs"
+            )
+            return now + IMMEDIATE_TRIGGER_DELAY_MS
+        }
+
+        val recorrencia = if (isRollingStep) null else obterRecorrencia(context, id)
+        val proximoTrigger = recorrencia?.let { calcularProximoTriggerRecorrente(data, hora, it, now) }
+        if (proximoTrigger != null) {
+            Log.w(
+                TAG_NOTIF,
+                "trigger no passado; recorrencia agendada para proxima ocorrencia id=$id data=$data hora=$hora atrasoMs=$atrasoMs"
+            )
+            return proximoTrigger
+        }
+
+        Log.w(
+            TAG_NOTIF,
+            "trigger ignorado por estar no passado id=$id data=$data hora=$hora atrasoMs=$atrasoMs"
+        )
+        return null
+    }
+
+    private fun calcularProximoTriggerRecorrente(
+        data: String,
+        hora: String,
+        recorrencia: RecorrenciaConfig,
+        now: Long
+    ): Long? {
+        var proximaData = runCatching { LocalDate.parse(data, dateFormatter) }.getOrNull() ?: return null
+        repeat(500) {
+            proximaData = when (recorrencia.unit) {
+                REC_UNIT_DAY -> proximaData.plusDays(recorrencia.interval.toLong())
+                REC_UNIT_WEEK -> proximaData.plusWeeks(recorrencia.interval.toLong())
+                REC_UNIT_MONTH -> proximaData.plusMonths(recorrencia.interval.toLong())
+                REC_UNIT_YEAR -> proximaData.plusYears(recorrencia.interval.toLong())
+                else -> return null
+            }
+            val trigger = calcularMillis(proximaData.format(dateFormatter), hora) ?: return null
+            if (trigger > now) return trigger
+        }
+        return null
     }
 
     private fun cancelarNotificacoesEmEtapas(context: Context, lembreteId: String) {
