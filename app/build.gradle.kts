@@ -43,7 +43,7 @@ val isReleaseSigningReady = !releaseStoreFile.isNullOrBlank() &&
 
 android {
     namespace = "br.com.gui.carlembrete"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "br.com.gui.carlembrete"
@@ -155,13 +155,13 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.test.manifest)
 
     // CÃ¢mera (CameraX)
-    implementation("androidx.camera:camera-camera2:1.3.1")
-    implementation("androidx.camera:camera-lifecycle:1.3.1")
-    implementation("androidx.camera:camera-view:1.3.1")
+    implementation("androidx.camera:camera-camera2:1.6.1")
+    implementation("androidx.camera:camera-lifecycle:1.6.1")
+    implementation("androidx.camera:camera-view:1.6.1")
     implementation("com.google.guava:guava:31.1-android")
 
     // InteligÃªncia Artificial (Google ML Kit - OCR)
-    implementation("com.google.android.gms:play-services-mlkit-text-recognition:19.0.0")
+    implementation("com.google.android.gms:play-services-mlkit-text-recognition:19.0.1")
     implementation("com.google.mlkit:barcode-scanning:17.3.0")
     implementation("org.jsoup:jsoup:1.15.4")
 
@@ -175,7 +175,7 @@ dependencies {
     implementation("com.google.firebase:firebase-firestore-ktx")
 
     // Google Play Billing
-    implementation("com.android.billingclient:billing-ktx:6.1.0")
+    implementation("com.android.billingclient:billing:8.3.0")
     implementation("com.google.android.play:review-ktx:2.0.2")
     implementation("com.google.android.play:app-update-ktx:2.1.0")
 
