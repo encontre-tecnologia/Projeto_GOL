@@ -220,9 +220,11 @@ private fun isPermissionGrantedNow(context: Context, permission: String): Boolea
 @Composable
 fun OnboardingScreen(
     onFinish: () -> Unit,
-    onThemeModeChanged: (AppThemeMode) -> Unit = {}
+    onThemeModeChanged: (AppThemeMode) -> Unit = {},
+    initialStep: Int = 1,
+    requireVehicleSetup: Boolean = true
 ) {
-    var step by remember { mutableIntStateOf(1) }
+    var step by remember { mutableIntStateOf(initialStep) }
     val context = LocalContext.current
     val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val onboardingBg = if (isDark) Color.Black else Color(0xFF0F2A4A)
@@ -1141,7 +1143,7 @@ fun OnboardingScreen(
                                     .padding(vertical = 12.dp)
                             ) {
                                 Button(
-                                    onClick = { step = 4 },
+                                    onClick = { step = if (requireVehicleSetup) 4 else 6 },
                                     enabled = aceitouTermos && aceitouPrivacidade,
                                     modifier = Modifier
                                         .fillMaxWidth()

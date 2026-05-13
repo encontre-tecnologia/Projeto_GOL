@@ -7,12 +7,6 @@ import android.net.NetworkCapabilities
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -25,7 +19,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -57,6 +50,8 @@ import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.android.gms.auth.api.signin.GoogleSignInStatusCodes
 import com.google.android.gms.common.api.ApiException
+import com.google.android.gms.common.api.Scope
+import com.google.api.services.drive.DriveScopes
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
 import kotlinx.coroutines.delay
@@ -74,6 +69,7 @@ fun AuthScreen(onSignedIn: () -> Unit) {
         GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
             .requestIdToken(context.getString(R.string.default_web_client_id))
             .requestEmail()
+            .requestScopes(Scope(DriveScopes.DRIVE_APPDATA))
             .build()
     }
     val googleSignInClient = remember { GoogleSignIn.getClient(context, gso) }
@@ -140,93 +136,11 @@ fun AuthScreen(onSignedIn: () -> Unit) {
         }
     }
 
-    // Animated gradient blobs
-    val infiniteTransition = rememberInfiniteTransition(label = "bg")
-    val blob1Offset by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(6000, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "blob1"
-    )
-    val blob2Offset by infiniteTransition.animateFloat(
-        initialValue = 1f,
-        targetValue = 0f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(8000, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "blob2"
-    )
-    val blob3Offset by infiniteTransition.animateFloat(
-        initialValue = 0.3f,
-        targetValue = 0.8f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(7000, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "blob3"
-    )
-
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF020917))
+            .background(Color.Black)
     ) {
-        // Animated blob 1 — blue, top-right
-        Box(
-            modifier = Modifier
-                .size(320.dp)
-                .offset(
-                    x = (120 + blob1Offset * 60).dp,
-                    y = (-60 + blob1Offset * 80).dp
-                )
-                .background(
-                    Brush.radialGradient(
-                        colors = listOf(
-                            Color(0xFF3B82F6).copy(alpha = 0.28f),
-                            Color.Transparent
-                        )
-                    )
-                )
-        )
-        // Animated blob 2 — indigo, bottom-left
-        Box(
-            modifier = Modifier
-                .size(280.dp)
-                .offset(
-                    x = (-80 + blob2Offset * 60).dp,
-                    y = (420 + blob2Offset * 80).dp
-                )
-                .background(
-                    Brush.radialGradient(
-                        colors = listOf(
-                            Color(0xFF6366F1).copy(alpha = 0.22f),
-                            Color.Transparent
-                        )
-                    )
-                )
-        )
-        // Animated blob 3 — cyan, center
-        Box(
-            modifier = Modifier
-                .size(200.dp)
-                .offset(
-                    x = (60 + blob3Offset * 40).dp,
-                    y = (200 + blob3Offset * 120).dp
-                )
-                .background(
-                    Brush.radialGradient(
-                        colors = listOf(
-                            Color(0xFF0EA5E9).copy(alpha = 0.14f),
-                            Color.Transparent
-                        )
-                    )
-                )
-        )
-
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -298,7 +212,7 @@ fun AuthScreen(onSignedIn: () -> Unit) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(
-                        color = Color(0xFF0D1B2E),
+                        color = Color(0xFF080808),
                         shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
                     )
                     .border(

@@ -179,6 +179,8 @@ class MainActivity : ComponentActivity() {
                         AppPreferences.needsOnboarding(this@MainActivity)
                     )
                 }
+                var showPostLoginBackupCheck by remember { mutableStateOf(false) }
+                var restoredBackupOnboardingFlow by remember { mutableStateOf(false) }
                 LaunchedEffect(isDarkTheme, usuario) {
                     val insetsController = WindowInsetsControllerCompat(window, window.decorView)
                     if (usuario == null) {
@@ -226,20 +228,38 @@ class MainActivity : ComponentActivity() {
                             onSignedIn = {
                                 usuario = auth.currentUser
                                 showOnboarding = AppPreferences.needsOnboarding(this@MainActivity)
+                                showPostLoginBackupCheck = true
                             }
                         )
                     } else {
                         Box(modifier = Modifier.fillMaxSize()) {
-                            if (showOnboarding) {
+                            if (showPostLoginBackupCheck) {
+                                keepNativeSplashVisible = false
+                                PostLoginDriveBackupScreen(
+                                    onContinueWithoutRestore = {
+                                        showPostLoginBackupCheck = false
+                                        restoredBackupOnboardingFlow = false
+                                        showOnboarding = AppPreferences.needsOnboarding(this@MainActivity)
+                                    },
+                                    onRestoreComplete = {
+                                        showPostLoginBackupCheck = false
+                                        restoredBackupOnboardingFlow = true
+                                        showOnboarding = true
+                                    }
+                                )
+                            } else if (showOnboarding) {
                                 keepNativeSplashVisible = false
                                 OnboardingScreen(
                                     onFinish = {
                                         AppPreferences.markOnboardingComplete(this@MainActivity)
                                         showOnboarding = false
+                                        restoredBackupOnboardingFlow = false
                                     },
                                     onThemeModeChanged = { mode ->
                                         themeMode = mode
-                                    }
+                                    },
+                                    initialStep = if (restoredBackupOnboardingFlow) 5 else 1,
+                                    requireVehicleSetup = !restoredBackupOnboardingFlow
                                 )
                             } else {
                                 ManutencaoScreen(
@@ -695,44 +715,75 @@ fun gerarPdfRelatorio(
         }
         val marginX = 36f
         canvas.drawColor(android.graphics.Color.WHITE)
-        val topBarPaint = Paint().apply { color = android.graphics.Color.parseColor("#E2E8F0") }
-        canvas.drawRect(0f, 0f, pageInfo.pageWidth.toFloat(), 6f, topBarPaint)
         val contentWidth = pageInfo.pageWidth - marginX * 2
-        var y = 138f
+        var y = 108f
+        var pageNumber = 1
 
         fun fit(text: String, maxChars: Int): String =
             if (text.length <= maxChars) text else text.take(maxChars - 3) + "..."
 
+        val pageNumPaint = Paint().apply {
+            textSize = 9f
+            color = android.graphics.Color.parseColor("#94A3B8")
+            textAlign = Paint.Align.CENTER
+            isAntiAlias = true
+        }
+
+        fun finishCurrentPage() {
+            canvas.drawText(
+                "— $pageNumber —",
+                pageInfo.pageWidth / 2f,
+                pageInfo.pageHeight - 14f,
+                pageNumPaint
+            )
+            if (!isPremium) {
+                canvas.drawText("Gerado pelo Zellu", pageInfo.pageWidth / 2f, pageInfo.pageHeight - 28f, watermarkPaint)
+            }
+        }
+
         fun ensureSpace(extra: Float) {
             if (y + extra > pageInfo.pageHeight - 40) {
-                if (!isPremium) {
-                    canvas.drawText("Gerado pelo Zellu", pageInfo.pageWidth / 2f, pageInfo.pageHeight - 24f, watermarkPaint)
-                }
+                finishCurrentPage()
                 document.finishPage(currentPage)
+                pageNumber++
                 val nextPageInfo = PdfDocument.PageInfo.Builder(595, 842, document.pages.size + 1).create()
                 currentPage = document.startPage(nextPageInfo)
                 canvas = currentPage.canvas
+                canvas.drawColor(android.graphics.Color.WHITE)
                 y = 60f
             }
         }
 
         fun drawHeader() {
-            val titleCenterPaint = Paint(headerPaint).apply { textAlign = Paint.Align.CENTER }
-            canvas.drawText("RELATORIO TÊCNICO", pageInfo.pageWidth / 2f, 54f, titleCenterPaint)
-            canvas.drawLine(marginX, 78f, pageInfo.pageWidth - marginX, 78f, dividerPaint)
-            val headerInfoPaint = Paint(headerSubPaint).apply { textAlign = Paint.Align.CENTER }
+            val bannerPaint = Paint().apply { color = accentColor }
+            canvas.drawRect(0f, 0f, pageInfo.pageWidth.toFloat(), 82f, bannerPaint)
+            val titleCenterPaint = Paint(headerPaint).apply {
+                textAlign = Paint.Align.CENTER
+                color = android.graphics.Color.WHITE
+            }
+            canvas.drawText("RELATORIO TECNICO", pageInfo.pageWidth / 2f, 48f, titleCenterPaint)
+            val headerInfoPaint = Paint().apply {
+                textSize = 11f
+                color = android.graphics.Color.parseColor("#BFDBFE")
+                textAlign = Paint.Align.CENTER
+                isAntiAlias = true
+            }
             canvas.drawText(
                 "Gerado em ${LocalDate.now().format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))}",
                 pageInfo.pageWidth / 2f,
-                108f,
+                66f,
                 headerInfoPaint
             )
         }
 
+        val accentBarPaint = Paint().apply { color = accentColor }
+        val accentTitlePaint = Paint(sectionTitlePaint).apply { color = accentColor }
+
         fun drawSectionTitle(title: String) {
             ensureSpace(30f)
             val titleY = y
-            canvas.drawText(title, marginX, titleY, sectionTitlePaint)
+            canvas.drawRect(marginX, titleY - 13f, marginX + 4f, titleY + 3f, accentBarPaint)
+            canvas.drawText(title, marginX + 10f, titleY, accentTitlePaint)
             y += 10f
             canvas.drawLine(marginX, y, pageInfo.pageWidth - marginX, y, dividerPaint)
             y += 12f
@@ -981,65 +1032,130 @@ fun gerarPdfRelatorio(
             y += 8f
         }
 
+        val tableHeaderBluePaint = Paint().apply { color = accentColor }
+        val tableHeaderTextPaint = Paint().apply {
+            textSize = 10f
+            color = android.graphics.Color.WHITE
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            isAntiAlias = true
+        }
+        val tableHeaderTextRightPaint = Paint(tableHeaderTextPaint).apply { textAlign = Paint.Align.RIGHT }
+        val tableRowEvenPaint = Paint().apply { color = android.graphics.Color.WHITE }
+        val tableRowOddPaint = Paint().apply { color = android.graphics.Color.parseColor("#F8FAFC") }
+        val tableRowDividerPaint = Paint().apply {
+            color = android.graphics.Color.parseColor("#E2E8F0")
+            strokeWidth = 0.8f
+        }
+        val tableItemTextPaint = Paint().apply {
+            textSize = 10.5f
+            color = android.graphics.Color.parseColor("#1E293B")
+            isAntiAlias = true
+        }
+        val tableSecondaryTextPaint = Paint().apply {
+            textSize = 10.5f
+            color = android.graphics.Color.parseColor("#64748B")
+            isAntiAlias = true
+        }
+        val tableValueTextPaint = Paint().apply {
+            textSize = 10.5f
+            color = colorSuccess
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            textAlign = Paint.Align.RIGHT
+            isAntiAlias = true
+        }
+        val tableOuterBorderPaint = Paint().apply {
+            color = android.graphics.Color.parseColor("#E2E8F0")
+            style = Paint.Style.STROKE
+            strokeWidth = 1f
+            isAntiAlias = true
+        }
+        val tableHeaderH = 30f
+        val tableRowH = 28f
+
+        fun drawTableHeader(vararg cols: Pair<String, Float>) {
+            ensureSpace(tableHeaderH + tableRowH)
+            canvas.drawRoundRect(
+                android.graphics.RectF(marginX, y, marginX + contentWidth, y + tableHeaderH),
+                10f, 10f, tableHeaderBluePaint
+            )
+            canvas.drawRect(marginX, y + 10f, marginX + contentWidth, y + tableHeaderH, tableHeaderBluePaint)
+            val textY = y + 20f
+            cols.forEach { (label, xOffset) ->
+                if (xOffset < 0f) {
+                    canvas.drawText(label, marginX + contentWidth + xOffset, textY, tableHeaderTextRightPaint)
+                } else {
+                    canvas.drawText(label, marginX + xOffset, textY, tableHeaderTextPaint)
+                }
+            }
+            y += tableHeaderH
+        }
+
         drawSectionTitle("REGISTROS CADASTRADOS")
         if (manutencoesRealizadas.isEmpty()) {
-            canvas.drawText("Nenhum registro cadastrado.", marginX, y, bodyPaint)
-            y += 16f
+            ensureSpace(32f)
+            val emptyPaint = Paint(bodyPaint).apply { color = android.graphics.Color.parseColor("#94A3B8") }
+            canvas.drawText("Nenhum registro cadastrado.", marginX + 6f, y + 14f, emptyPaint)
+            y += 32f
         } else {
-            val headerHeight = 22f
-            val headerBg = Paint().apply { color = android.graphics.Color.parseColor("#E2E8F0") }
-            canvas.drawRect(marginX, y, marginX + contentWidth, y + headerHeight, headerBg)
-            val headerTextPaint = Paint(labelPaint).apply {
-                color = android.graphics.Color.BLACK
-                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            drawTableHeader("ITEM" to 12f, "DATA" to 210f, "KM" to 304f, "VALOR" to -12f)
+            manutencoesRealizadas.forEachIndexed { index, (data, lembrete) ->
+                ensureSpace(tableRowH + 1f)
+                val rowBg = if (index % 2 == 0) tableRowEvenPaint else tableRowOddPaint
+                canvas.drawRect(marginX, y, marginX + contentWidth, y + tableRowH, rowBg)
+                val textY = y + 19f
+                canvas.drawText(fit(lembrete.titulo, 26), marginX + 12f, textY, tableItemTextPaint)
+                canvas.drawText(data.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")), marginX + 210f, textY, tableSecondaryTextPaint)
+                canvas.drawText(lembrete.kmLimite.ifBlank { "-" }, marginX + 304f, textY, tableSecondaryTextPaint)
+                if (lembrete.valor > 0.0) {
+                    canvas.drawText(formatarMoeda(lembrete.valor), marginX + contentWidth - 12f, textY, tableValueTextPaint)
+                } else {
+                    val dashRightPaint = Paint(tableSecondaryTextPaint).apply { textAlign = Paint.Align.RIGHT }
+                    canvas.drawText("-", marginX + contentWidth - 12f, textY, dashRightPaint)
+                }
+                canvas.drawLine(marginX, y + tableRowH, marginX + contentWidth, y + tableRowH, tableRowDividerPaint)
+                y += tableRowH
             }
-            val headerY = y + 15f
-            canvas.drawText("Item", marginX + 6f, headerY, headerTextPaint)
-            canvas.drawText("Data", marginX + 250f, headerY, headerTextPaint)
-            canvas.drawText("Valor", marginX + 360f, headerY, headerTextPaint)
-            y += headerHeight + 8f
-
-            manutencoesRealizadas.forEach { (data, lembrete) ->
-                ensureSpace(26f)
-                val rowTextY = y + 4f
-                canvas.drawText(fit(lembrete.titulo, 30), marginX + 6f, rowTextY, bodyPaint)
-                canvas.drawText(data.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")), marginX + 250f, rowTextY, bodyPaint)
-                canvas.drawText(formatarMoeda(lembrete.valor), marginX + 360f, rowTextY, bodyPaint)
-                y += 26f
-                canvas.drawLine(marginX, y - 14f, marginX + contentWidth, y - 14f, dividerPaint)
-            }
+            canvas.drawRoundRect(
+                android.graphics.RectF(marginX, y - (manutencoesRealizadas.size * tableRowH) - tableHeaderH, marginX + contentWidth, y),
+                10f, 10f, tableOuterBorderPaint
+            )
             y += 16f
         }
 
-        y += 24f
-        drawSectionTitle("AVISOS CADASTRADOS")
+        y += 16f
+        drawSectionTitle("SERVIÇOS REGISTRADOS")
         if (proximos.isEmpty()) {
-            canvas.drawText("Nenhum aviso cadastrado.", marginX, y, bodyPaint)
-            y += 16f
+            ensureSpace(32f)
+            val emptyPaint = Paint(bodyPaint).apply { color = android.graphics.Color.parseColor("#94A3B8") }
+            canvas.drawText("Nenhum servico registrado.", marginX + 6f, y + 14f, emptyPaint)
+            y += 32f
         } else {
-            val headerHeight = 22f
-            val headerBg = Paint().apply { color = android.graphics.Color.parseColor("#E2E8F0") }
-            canvas.drawRect(marginX, y, marginX + contentWidth, y + headerHeight, headerBg)
-            val headerTextPaint = Paint(labelPaint).apply {
-                color = android.graphics.Color.BLACK
-                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            val today = LocalDate.now()
+            drawTableHeader("ITEM" to 12f, "DATA" to 228f, "KM" to 336f, "CATEGORIA" to 416f)
+            proximos.take(10).forEachIndexed { index, (lembrete, data) ->
+                ensureSpace(tableRowH + 1f)
+                val rowBg = if (index % 2 == 0) tableRowEvenPaint else tableRowOddPaint
+                canvas.drawRect(marginX, y, marginX + contentWidth, y + tableRowH, rowBg)
+                val textY = y + 19f
+                val daysUntil = java.time.temporal.ChronoUnit.DAYS.between(today, data)
+                val dateColor = when {
+                    daysUntil < 0 -> colorDanger
+                    daysUntil <= 30 -> android.graphics.Color.parseColor("#D97706")
+                    else -> colorSuccess
+                }
+                val datePaint = Paint(tableSecondaryTextPaint).apply { color = dateColor }
+                canvas.drawText(fit(lembrete.titulo, 28), marginX + 12f, textY, tableItemTextPaint)
+                canvas.drawText(data.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")), marginX + 228f, textY, datePaint)
+                canvas.drawText(lembrete.kmLimite.ifBlank { "-" }, marginX + 336f, textY, tableSecondaryTextPaint)
+                canvas.drawText(fit(lembrete.tipo.label, 10), marginX + 416f, textY, tableSecondaryTextPaint)
+                canvas.drawLine(marginX, y + tableRowH, marginX + contentWidth, y + tableRowH, tableRowDividerPaint)
+                y += tableRowH
             }
-            val headerY = y + 15f
-            canvas.drawText("Item", marginX + 6f, headerY, headerTextPaint)
-            canvas.drawText("Data", marginX + 240f, headerY, headerTextPaint)
-            canvas.drawText("KM", marginX + 330f, headerY, headerTextPaint)
-            canvas.drawText("Cat.", marginX + 420f, headerY, headerTextPaint)
-            y += headerHeight + 8f
-            proximos.take(10).forEach { (lembrete, data) ->
-                ensureSpace(26f)
-                val rowTextY = y + 4f
-                canvas.drawText(fit(lembrete.titulo, 28), marginX + 6f, rowTextY, bodyPaint)
-                canvas.drawText(data.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")), marginX + 240f, rowTextY, bodyPaint)
-                canvas.drawText(lembrete.kmLimite.ifBlank { "-" }, marginX + 330f, rowTextY, bodyPaint)
-                canvas.drawText(fit(lembrete.tipo.label, 8), marginX + 420f, rowTextY, bodyPaint)
-                y += 26f
-                canvas.drawLine(marginX, y - 14f, marginX + contentWidth, y - 14f, dividerPaint)
-            }
+            val drawnRows = minOf(proximos.size, 10)
+            canvas.drawRoundRect(
+                android.graphics.RectF(marginX, y - (drawnRows * tableRowH) - tableHeaderH, marginX + contentWidth, y),
+                10f, 10f, tableOuterBorderPaint
+            )
         }
         y += 18f
         canvas.drawLine(marginX, y, pageInfo.pageWidth - marginX, y, dividerPaint)
@@ -1054,9 +1170,7 @@ fun gerarPdfRelatorio(
             y += targetHeight
         }
 
-        if (!isPremium) {
-            canvas.drawText("Gerado pelo Zellu", pageInfo.pageWidth / 2f, pageInfo.pageHeight - 24f, watermarkPaint)
-        }
+        finishCurrentPage()
         document.finishPage(currentPage)
         val anoNoModelo = Regex("(19|20)\\d{2}").find(carro.modelo)?.value ?: LocalDate.now().year.toString()
         val dataArquivo = LocalDate.now().format(DateTimeFormatter.ofPattern("dd-MM-yyyy"))
@@ -1150,24 +1264,36 @@ fun gerarPdfFinanceiro(
             }
         }
 
+        val finAccentColor = android.graphics.Color.parseColor("#2563EB")
+        val finAccentBarPaint = Paint().apply { color = finAccentColor }
+
         fun drawHeader() {
             canvas.drawColor(android.graphics.Color.WHITE)
-            canvas.drawRect(0f, 0f, pageInfo.pageWidth.toFloat(), 6f, accentPaint)
-            val titleCenterPaint = Paint(titlePaint).apply { textAlign = Paint.Align.CENTER }
+            canvas.drawRect(0f, 0f, pageInfo.pageWidth.toFloat(), 82f, accentPaint)
+            val titleCenterPaint = Paint(titlePaint).apply {
+                textAlign = Paint.Align.CENTER
+                color = android.graphics.Color.WHITE
+            }
             canvas.drawText("RELATORIO FINANCEIRO", pageInfo.pageWidth / 2f, 48f, titleCenterPaint)
-            val subtitleCenterPaint = Paint(subtitlePaint).apply { textAlign = Paint.Align.CENTER }
+            val datePaint = Paint().apply {
+                textSize = 11f
+                color = android.graphics.Color.parseColor("#BFDBFE")
+                textAlign = Paint.Align.CENTER
+                isAntiAlias = true
+            }
             canvas.drawText(
                 "Gerado em ${LocalDate.now().format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))}",
                 pageInfo.pageWidth / 2f,
-                70f,
-                subtitleCenterPaint
+                66f,
+                datePaint
             )
-            canvas.drawLine(marginX, 84f, pageInfo.pageWidth - marginX, 84f, dividerPaint)
         }
 
         fun drawSectionTitle(title: String) {
             ensureSpace(24f)
-            canvas.drawText(title, marginX, y, sectionPaint)
+            canvas.drawRect(marginX, y - 13f, marginX + 4f, y + 3f, finAccentBarPaint)
+            val accentSectionPaint = Paint(sectionPaint).apply { color = finAccentColor }
+            canvas.drawText(title, marginX + 10f, y, accentSectionPaint)
             y += 8f
             canvas.drawLine(marginX, y, pageInfo.pageWidth - marginX, y, dividerPaint)
             y += 14f
