@@ -262,7 +262,13 @@ fun EbookStoreScreen(onDismiss: () -> Unit) {
 // --- BILLING MANAGER (Simplificado para o exemplo) ---
 private class EbookBundleBillingManager(private val appContext: Context) : PurchasesUpdatedListener {
     private val billingClient: BillingClient = BillingClient.newBuilder(appContext)
-        .setListener(this).enablePendingPurchases().build()
+        .setListener(this)
+        .enablePendingPurchases(
+            PendingPurchasesParams.newBuilder()
+                .enableOneTimeProducts()
+                .build()
+        )
+        .build()
 
     private var bundleProductDetails: ProductDetails? = null
     private val _isBundleUnlocked = MutableStateFlow(false)
@@ -314,7 +320,9 @@ private class EbookBundleBillingManager(private val appContext: Context) : Purch
         val query = QueryProductDetailsParams.newBuilder().setProductList(listOf(
             QueryProductDetailsParams.Product.newBuilder().setProductId(EBOOK_BUNDLE_PRODUCT_ID).setProductType(BillingClient.ProductType.INAPP).build()
         )).build()
-        billingClient.queryProductDetailsAsync(query) { _, details -> bundleProductDetails = details.firstOrNull() }
+        billingClient.queryProductDetailsAsync(query) { _, result ->
+            bundleProductDetails = result.productDetailsList.firstOrNull()
+        }
     }
 }
 

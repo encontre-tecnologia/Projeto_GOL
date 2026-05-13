@@ -507,6 +507,7 @@ fun EditarCarroScreen(
                     },
                     modifier = Modifier
                         .fillMaxWidth()
+                        .navigationBarsPadding()
                         .height(54.dp),
                     enabled = hasChanges,
                     colors = ButtonDefaults.buttonColors(containerColor = accentBlue),
@@ -514,6 +515,7 @@ fun EditarCarroScreen(
                 ) {
                     Text(trNow("Salvar Alterações", "Save changes"), color = Color.White, fontWeight = FontWeight.Bold)
                 }
+                Spacer(Modifier.height(18.dp))
             }
         }
     }

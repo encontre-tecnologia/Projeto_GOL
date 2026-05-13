@@ -36,6 +36,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.heightIn
 import java.text.NumberFormat
 import java.util.Locale
 
@@ -127,23 +130,44 @@ fun EtapaRevisaoAvisoContent(
             .fillMaxWidth()
             .offset(y = (-14).dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
+        // Anel duplo ao redor do ícone
         Box(
             modifier = Modifier
-                .size(56.dp)
-                .background(accentBlue.copy(alpha = 0.18f), CircleShape)
-                .border(1.dp, accentBlue.copy(alpha = 0.28f), CircleShape),
+                .size(74.dp)
+                .background(accentBlue.copy(alpha = 0.07f), CircleShape)
+                .border(1.5.dp, accentBlue.copy(alpha = 0.16f), CircleShape),
             contentAlignment = Alignment.Center
         ) {
-            Icon(Icons.Rounded.FactCheck, contentDescription = null, tint = accentBlue, modifier = Modifier.size(30.dp))
+            Box(
+                modifier = Modifier
+                    .size(54.dp)
+                    .background(accentBlue.copy(alpha = 0.16f), CircleShape)
+                    .border(1.5.dp, accentBlue.copy(alpha = 0.34f), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Rounded.FactCheck,
+                    contentDescription = null,
+                    tint = accentBlue,
+                    modifier = Modifier.size(28.dp)
+                )
+            }
         }
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(2.dp))
         Text(
             text = if (isRegistroServico) tr("Revisar serviço", "Review service") else tr("Revisar aviso", "Review reminder"),
             color = textPrimary,
             fontWeight = FontWeight.Bold,
-            fontSize = 25.sp
+            fontSize = 22.sp,
+            letterSpacing = (-0.3).sp
+        )
+        Text(
+            text = tr("Confira os dados antes de salvar", "Check details before saving"),
+            color = textSecondary,
+            fontSize = 13.sp,
+            textAlign = TextAlign.Center
         )
     }
 
@@ -195,37 +219,43 @@ private fun AvisoResumoCardPosto(
                 .padding(horizontal = 14.dp, vertical = 14.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
+            // Ícone + categoria + título unidos
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Box(
                     modifier = Modifier
-                        .size(28.dp)
+                        .size(40.dp)
                         .background(corCategoria(aviso.tipo).copy(alpha = 0.18f), CircleShape)
-                        .border(1.dp, corCategoria(aviso.tipo).copy(alpha = 0.28f), CircleShape),
+                        .border(1.5.dp, corCategoria(aviso.tipo).copy(alpha = 0.32f), CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
                     TipoIcon(
                         tipo = aviso.tipo,
                         tint = corCategoria(aviso.tipo),
-                        size = 15.dp
+                        size = 20.dp
                     )
                 }
-                Text(
-                    aviso.categoria,
-                    color = textPrimary,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(3.dp)
+                ) {
+                    Text(
+                        aviso.categoria,
+                        color = corCategoria(aviso.tipo),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        aviso.titulo,
+                        color = textPrimary,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
-            Text(
-                aviso.titulo,
-                color = textPrimary,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.SemiBold
-            )
             LinhaResumo(
                 titulo = tr("Descricao dos itens", "Items description"),
                 valor = aviso.descricaoItens,
@@ -235,30 +265,32 @@ private fun AvisoResumoCardPosto(
                 borderColor = borderColor
             )
             if (aviso.mostrarValor) {
+                // Valor em destaque com fundo verde suave
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    color = if (bgCard.luminance() < 0.5f) Color(0xFF0B1220) else Color(0xFFF8FAFC),
-                    border = BorderStroke(1.dp, borderColor)
+                    shape = RoundedCornerShape(14.dp),
+                    color = Color(0xFF22C55E).copy(alpha = if (bgCard.luminance() < 0.5f) 0.13f else 0.09f),
+                    border = BorderStroke(1.dp, Color(0xFF22C55E).copy(alpha = 0.28f))
                 ) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            tr("Valor", "Amount"),
-                            color = textSecondary,
-                            fontSize = 12.sp,
+                            tr("Total", "Total"),
+                            color = Color(0xFF22C55E).copy(alpha = 0.75f),
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.SemiBold
                         )
                         Text(
                             aviso.valor,
                             color = Color(0xFF22C55E),
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold
+                            fontSize = 22.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = (-0.5).sp
                         )
                     }
                 }
@@ -315,38 +347,64 @@ private fun AvisoResumoCard(
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(0.dp)
         ) {
-            Column(
+            // Header com strip lateral colorida
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(headerBg)
-                    .padding(horizontal = 14.dp, vertical = 14.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
+                    .height(IntrinsicSize.Min)
             ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(headerBg)
+                        .padding(start = 18.dp, end = 14.dp, top = 14.dp, bottom = 14.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(28.dp)
+                            .size(38.dp)
                             .background(corCategoria(aviso.tipo).copy(alpha = 0.18f), CircleShape)
-                            .border(1.dp, corCategoria(aviso.tipo).copy(alpha = 0.28f), CircleShape),
+                            .border(1.5.dp, corCategoria(aviso.tipo).copy(alpha = 0.35f), CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
                         TipoIcon(
                             tipo = aviso.tipo,
                             tint = corCategoria(aviso.tipo),
-                            size = 15.dp
+                            size = 20.dp
                         )
                     }
-                    Text(
-                        aviso.titulo,
-                        color = textPrimary,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(5.dp)
+                    ) {
+                        Text(
+                            aviso.titulo,
+                            color = textPrimary,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Surface(
+                            shape = RoundedCornerShape(20.dp),
+                            color = corCategoria(aviso.tipo).copy(alpha = 0.15f)
+                        ) {
+                            Text(
+                                aviso.categoria,
+                                color = corCategoria(aviso.tipo),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
                 }
+                // Strip lateral esquerda colorida por categoria
+                Box(
+                    modifier = Modifier
+                        .width(4.dp)
+                        .fillMaxHeight()
+                        .background(corCategoria(aviso.tipo))
+                )
             }
             Column(
                 modifier = Modifier
@@ -419,32 +477,49 @@ private fun LinhaResumo(
     itemBg: Color,
     borderColor: Color
 ) {
+    val accentColor = MaterialTheme.colorScheme.primary
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = itemBg),
         shape = RoundedCornerShape(12.dp),
         border = BorderStroke(1.dp, borderColor)
     ) {
-        Column(
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
+                .height(IntrinsicSize.Min)
         ) {
-            Text(
-                titulo,
-                color = textSecondary,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.SemiBold,
-                textAlign = TextAlign.Start
+            // Barra lateral de acento
+            Box(
+                modifier = Modifier
+                    .width(3.dp)
+                    .fillMaxHeight()
+                    .background(
+                        accentColor.copy(alpha = 0.55f),
+                        RoundedCornerShape(topStart = 12.dp, bottomStart = 12.dp)
+                    )
             )
-            Text(
-                valor,
-                color = textPrimary,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier.fillMaxWidth()
-            )
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(
+                    titulo,
+                    color = textSecondary,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    textAlign = TextAlign.Start
+                )
+                Text(
+                    valor,
+                    color = textPrimary,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
         }
     }
 }
@@ -467,17 +542,22 @@ private fun RowScope.ResumoTagGridItem(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(62.dp)
-                .padding(horizontal = 10.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp)
+                .heightIn(min = 62.dp)
+                .padding(horizontal = 10.dp, vertical = 9.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp)
         ) {
-            Text(titulo, color = textSecondary, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+            Text(
+                titulo,
+                color = textSecondary,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 0.3.sp
+            )
             Text(
                 valor,
                 color = textPrimary,
                 fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                maxLines = 2
+                fontWeight = FontWeight.Bold
             )
         }
     }
@@ -497,27 +577,26 @@ private fun RowScope.ResumoTagKmGridItem(
         shape = RoundedCornerShape(12.dp),
         border = BorderStroke(1.dp, borderColor)
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(62.dp)
-                .padding(horizontal = 10.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+                .heightIn(min = 62.dp)
+                .padding(horizontal = 10.dp, vertical = 9.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp)
         ) {
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(2.dp)
-            ) {
-                Text("KM", color = textSecondary, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
-                Text(
-                    formatarKmResumo(valor),
-                    color = textPrimary,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 2
-                )
-            }
+            Text(
+                "KM",
+                color = textSecondary,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 0.3.sp
+            )
+            Text(
+                formatarKmResumo(valor),
+                color = textPrimary,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold
+            )
         }
     }
 }
@@ -540,13 +619,23 @@ private fun ResumoLinhaCompacta(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 10.dp, vertical = 8.dp),
+                .padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text(titulo, color = textPrimary, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+            Text(
+                titulo,
+                color = textSecondary,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold
+            )
             Spacer(Modifier.width(8.dp))
-            Text(valor, color = textSecondary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+            Text(
+                valor,
+                color = textPrimary,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold
+            )
         }
     }
 }

@@ -141,6 +141,7 @@ import java.io.Serializable
 import java.text.Normalizer
 import java.text.NumberFormat
 import java.time.LocalDate
+import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import java.time.DayOfWeek
@@ -180,7 +181,12 @@ fun NovoAgendamentoDialog(
     initialTipo: TipoManutencao = TipoManutencao.OLEO,
     initialRegistroServico: Boolean? = null,
     planTier: PlanTier,
-    onRequestPremium: () -> Unit,
+    adminReminderLimitOverride: Int? = null,
+    activeReminderCount: Int = 0,
+    activeRecordCount: Int = 0,
+    activeFuelRecordCount: Int = 0,
+    onFuelRecordsSaved: (List<Abastecimento>, Int) -> Unit = { _, _ -> },
+    onRequestPremium: (String) -> Unit,
     onOpenVehicleGuide: () -> Unit = {}
 ) {
     val context = LocalContext.current
@@ -188,7 +194,10 @@ fun NovoAgendamentoDialog(
     val keyboardController = LocalSoftwareKeyboardController.current
     val appContext = context.applicationContext
     val englishUi = isEnglishUi()
-    val isPremium = planTier != PlanTier.FREE
+    val reminderLimit = effectiveReminderLimitForPlan(planTier, adminReminderLimitOverride)
+    val fuelRecordLimit = fuelRecordLimitForPlan(planTier)
+    val scannerLimit = scannerLimitForPlan(planTier)
+    val planLabel = planNameLabel(planTier)
     val scheme = MaterialTheme.colorScheme
     val isDark = scheme.background.luminance() < 0.5f
     val pageBackground = if (isDark) Color.Black else scheme.background
@@ -261,6 +270,7 @@ fun NovoAgendamentoDialog(
     val isInitialPosto = initialTipo == TipoManutencao.ABASTECIMENTO
     var avisoPersonalizado by remember { mutableStateOf(false) }
     var etapaAtual by remember { mutableStateOf(1) }
+    var showGuiaManutencao by remember { mutableStateOf(false) }
     var fluxoCadastro by remember(initialRegistroServico) {
         mutableStateOf(
             when (initialRegistroServico) {
@@ -360,6 +370,11 @@ fun NovoAgendamentoDialog(
     }
 
     LaunchedEffect(tipoSelecionado) {
+        if (tipoSelecionado == TipoManutencao.ABASTECIMENTO) {
+            avisoSemTotal = false
+            avisoSemQuantidade = false
+            if (quantidadeManualInput.isBlank()) quantidadeManualInput = "1"
+        }
         if (tituloAviso.isBlank()) {
             tituloAviso = tipoSelecionado.label
         }
@@ -498,6 +513,15 @@ fun NovoAgendamentoDialog(
     }
 
     fun tentarAbrirCamera(exibirGuia: Boolean = true) {
+        if (!AppPreferences.canUseOcr(context, scannerLimit)) {
+            Toast.makeText(
+                context,
+                "Limite do plano $planLabel: $scannerLimit scans por mes.",
+                Toast.LENGTH_LONG
+            ).show()
+            onRequestPremium("scanner_limit")
+            return
+        }
         val chaveGuiaNovoAviso = "mostrar_guia_scanner_produto_novo_aviso"
         val mostrarGuia = scannerGuidePrefs.getBoolean(chaveGuiaNovoAviso, true)
         if (exibirGuia && mostrarGuia) {
@@ -664,6 +688,35 @@ fun NovoAgendamentoDialog(
     }
 
     fun dataHojeFormatada(): String = LocalDate.now().format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))
+
+    fun proximaDataRecorrenteFutura(
+        dataInicial: String,
+        hora: String,
+        recorrenciaConfig: Pair<String, Int>?
+    ): String {
+        if (recorrenciaConfig == null) return dataInicial
+        var dataCandidata = runCatching { LocalDate.parse(dataInicial, dataFormatter) }.getOrElse { LocalDate.now() }
+        val partesHora = hora.split(":")
+        val horario = runCatching {
+            LocalTime.of(
+                partesHora.getOrNull(0)?.toIntOrNull() ?: 9,
+                partesHora.getOrNull(1)?.toIntOrNull() ?: 0
+            )
+        }.getOrElse { LocalTime.of(9, 0) }
+        val agora = java.time.LocalDateTime.now()
+        repeat(500) {
+            if (dataCandidata.atTime(horario).isAfter(agora)) {
+                return dataCandidata.format(dataFormatter)
+            }
+            dataCandidata = when (recorrenciaConfig.first) {
+                NotificacaoHelper.REC_UNIT_DAY -> dataCandidata.plusDays(recorrenciaConfig.second.toLong())
+                NotificacaoHelper.REC_UNIT_MONTH -> dataCandidata.plusMonths(recorrenciaConfig.second.toLong())
+                NotificacaoHelper.REC_UNIT_YEAR -> dataCandidata.plusYears(recorrenciaConfig.second.toLong())
+                else -> dataCandidata.plusDays(recorrenciaConfig.second.toLong())
+            }
+        }
+        return dataCandidata.format(dataFormatter)
+    }
 
     fun aplicarPrimeiroAvisoAgoraSeRecorrente() {
         if (!repetirAteDesativar) return
@@ -891,13 +944,25 @@ fun NovoAgendamentoDialog(
         return kmAtualBase + kmEstimadoRodado
     }
 
-    fun salvarAvisos(kmAtualBaseForcado: Int? = null) {
+    fun salvarAvisos(kmAtualBaseForcado: Int? = null): Boolean {
+        fun validarLimiteAbastecimentos(novosAbastecimentos: Int): Boolean {
+            if (novosAbastecimentos <= 0 || fuelRecordLimit == Int.MAX_VALUE) return true
+            val totalAtual = runCatching {
+                BancoDeDados.carregarAbastecimentos(context).size
+            }.getOrDefault(activeFuelRecordCount)
+                .coerceAtLeast(activeFuelRecordCount)
+            if (totalAtual + novosAbastecimentos <= fuelRecordLimit) return true
+            onRequestPremium("fuel_limit")
+            return false
+        }
+
         fun registrarAbastecimentosNoHistorico(
             valores: List<Double>,
             itensRegistrados: List<ItemAbastecimento> = emptyList()
-        ) {
+        ): Boolean {
             val valoresValidos = valores.filter { it > 0.0 }
-            if (valoresValidos.isEmpty()) return
+            if (valoresValidos.isEmpty()) return true
+            if (!validarLimiteAbastecimentos(valoresValidos.size)) return false
             scope.launch(Dispatchers.IO) {
                 val existentes = BancoDeDados.carregarAbastecimentos(context)
                 val precoReferencia = existentes
@@ -916,8 +981,14 @@ fun NovoAgendamentoDialog(
                         itens = itensRegistrados
                     )
                 }
-                BancoDeDados.salvarAbastecimentos(context, existentes + novosRegistros)
+                val atualizados = existentes + novosRegistros
+                BancoDeDados.salvarAbastecimentos(context, atualizados)
+                AdminUsersSync.syncFuelSnapshot(atualizados)
+                withContext(Dispatchers.Main) {
+                    onFuelRecordsSaved(atualizados, novosRegistros.size)
+                }
             }
+            return true
         }
 
         val kmAtualBase = kmAtualBaseForcado ?: (kmBase.toIntOrNull() ?: 0)
@@ -925,11 +996,27 @@ fun NovoAgendamentoDialog(
         val recorrenciaConfig = recorrenciaSelecionadaConfig()
         val dataAvisoStr = when {
             isRegistroServico -> data
-            !isRegistroServico && recorrenciaConfig != null -> dataHojeFormatada()
+            !isRegistroServico && recorrenciaConfig != null -> proximaDataRecorrenteFutura(
+                dataInicial = dataHojeFormatada(),
+                hora = horaNotificacao,
+                recorrenciaConfig = recorrenciaConfig
+            )
             else -> dataAviso
         }
         if (dataAviso != dataAvisoStr) {
             dataAviso = dataAvisoStr
+        }
+        fun validarLimiteAvisos(novosAvisosAtivos: Int): Boolean {
+            if (novosAvisosAtivos <= 0 || reminderLimit == Int.MAX_VALUE) return true
+            val totalCadastrosTecnicos = activeReminderCount + activeRecordCount
+            if (isRegistroServico) {
+                if (totalCadastrosTecnicos + novosAvisosAtivos <= reminderLimit) return true
+                onRequestPremium("record_limit")
+                return false
+            }
+            if (totalCadastrosTecnicos + novosAvisosAtivos <= reminderLimit) return true
+            onRequestPremium("reminder_limit")
+            return false
         }
         Log.i(
             "ReminderRepeat",
@@ -940,12 +1027,16 @@ fun NovoAgendamentoDialog(
                 val tipoItem = itemTipoOverrides[item.id] ?: tipoSelecionado
                 val rep = if (qrModoSeparado) 1 else maxOf(1, item.quantidade)
                 val kmFuturo = kmOuEstadoPorTipo(tipoItem, kmAtualBase)
+                val horaItem = itemHoraAvisoOverrides[item.id] ?: horaNotificacao
                 val dataItem = if (!isRegistroServico && recorrenciaConfig != null) {
-                    dataAvisoStr
+                    proximaDataRecorrenteFutura(
+                        dataInicial = dataHojeFormatada(),
+                        hora = horaItem,
+                        recorrenciaConfig = recorrenciaConfig
+                    )
                 } else {
                     itemDataAvisoOverrides[item.id] ?: dataAvisoStr
                 }
-                val horaItem = itemHoraAvisoOverrides[item.id] ?: horaNotificacao
                 val valorItem = itemValorOverrides[item.id]?.toDoubleOrNull() ?: item.valor
                 (1..rep).map { indice ->
                     val tituloCustom = itemTituloOverrides[item.id]?.trim().orEmpty()
@@ -972,12 +1063,12 @@ fun NovoAgendamentoDialog(
                 }
             }
             val lembretesSemPosto = novosLembretes.filter { it.tipo != TipoManutencao.ABASTECIMENTO }
+            if (!validarLimiteAvisos(lembretesSemPosto.size)) return false
             val valoresAbastecimento = novosLembretes
                 .filter { it.tipo == TipoManutencao.ABASTECIMENTO }
                 .map { it.valor }
             if (!isRegistroServico) {
                 lembretesSemPosto.forEach { lembrete ->
-                    NotificacaoHelper.agendarNotificacao(appContext, lembrete, lembrete.horaAviso)
                     if (tipoPermiteFrequencia(lembrete.tipo)) {
                         if (recorrenciaConfig != null) {
                             Log.i(
@@ -1000,7 +1091,7 @@ fun NovoAgendamentoDialog(
                     }
                 }
             }
-            registrarAbastecimentosNoHistorico(valoresAbastecimento)
+            if (!registrarAbastecimentosNoHistorico(valoresAbastecimento)) return false
             if (lembretesSemPosto.isNotEmpty()) {
                 val resultado = if (isRegistroServico) {
                     lembretesSemPosto.map { marcarLembreteComoRealizado(it) }
@@ -1043,15 +1134,16 @@ fun NovoAgendamentoDialog(
                     if (valorItem <= 0.0) return@mapNotNull null
                     ItemAbastecimento(nome = item.nome, valor = valorItem)
                 }
-                registrarAbastecimentosNoHistorico(
+                if (!registrarAbastecimentosNoHistorico(
                     valores = listOf(novoLembrete.valor),
                     itensRegistrados = itensAbastecimento
-                )
+                )) return false
                                             Toast.makeText(context, "Salvo no historico.", Toast.LENGTH_SHORT).show()
             } else if (isRegistroServico) {
+                if (!validarLimiteAvisos(1)) return false
                 onConfirm(marcarLembreteComoRealizado(novoLembrete))
             } else {
-                NotificacaoHelper.agendarNotificacao(appContext, novoLembrete, horaNotificacao)
+                if (!validarLimiteAvisos(1)) return false
                 if (tipoPermiteFrequencia(novoLembrete.tipo)) {
                     if (recorrenciaConfig != null) {
                         Log.i(
@@ -1075,11 +1167,13 @@ fun NovoAgendamentoDialog(
                 onConfirm(novoLembrete)
             }
         }
+        return true
     }
 
     fun tentarSalvarAvisos() {
-        salvarAvisos()
-        onDismiss()
+        if (salvarAvisos()) {
+            onDismiss()
+        }
     }
 
     if (showScannerGuide) {
@@ -1160,14 +1254,16 @@ fun NovoAgendamentoDialog(
                 Button(
                     onClick = {
                         showScannerGuide = false
-                        showCamera = true
+                        tentarAbrirCamera(exibirGuia = false)
                     },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(52.dp),
                     shape = RoundedCornerShape(12.dp)
                 ) {
-                    Text("Escanear QR code da nota")
+                    Icon(Icons.Default.AutoAwesome, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Ler nota com IA pelo QR Code", fontWeight = FontWeight.SemiBold)
                 }
             }
         }
@@ -1176,7 +1272,7 @@ fun NovoAgendamentoDialog(
 
     if (showCamera) {
         CameraCapturaDialog(onDismiss = { showCamera = false }, onFotoCapturada = { resultado ->
-            if (!isPremium) {
+            if (scannerLimit != Int.MAX_VALUE) {
                 AppPreferences.incrementOcrCount(context)
             }
             fotoCaminho = resultado.arquivoFoto.absolutePath
@@ -1849,8 +1945,10 @@ fun NovoAgendamentoDialog(
     }
 
     val valorTotalManual = valorInput.replace(",", ".").toDoubleOrNull()
-    val valorTotalValido = avisoSemTotal || (valorTotalManual != null && valorTotalManual > 0.0)
-    val quantidadeManualValida = avisoSemQuantidade || (quantidadeManualInput.toIntOrNull()?.let { it > 0 } == true)
+    val valorTotalValido = valorTotalManual != null && valorTotalManual > 0.0
+    val quantidadeManualValida = isFluxoPosto ||
+        avisoSemQuantidade ||
+        (quantidadeManualInput.toIntOrNull()?.let { it > 0 } == true)
     val podeAvancarEtapa1 = if (isModoLista && listaItensDetectados.isNotEmpty()) {
         true
     } else {
@@ -1949,9 +2047,10 @@ fun NovoAgendamentoDialog(
                         val novoKm = kmSugeridoParaConfirmar
                         if (novoKm != null) {
                             kmBase = novoKm.toString()
-                            salvarAvisos(kmAtualBaseForcado = novoKm)
-                            showKmSugeridoDialog = false
-                            onDismiss()
+                            if (salvarAvisos(kmAtualBaseForcado = novoKm)) {
+                                showKmSugeridoDialog = false
+                                onDismiss()
+                            }
                         }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
@@ -1975,9 +2074,10 @@ fun NovoAgendamentoDialog(
                     ) { Text("Editar KM manualmente", color = textPrimary) }
                     OutlinedButton(
                         onClick = {
-                            showKmSugeridoDialog = false
-                            salvarAvisos()
-                            onDismiss()
+                            if (salvarAvisos()) {
+                                showKmSugeridoDialog = false
+                                onDismiss()
+                            }
                         },
                         shape = RoundedCornerShape(10.dp),
                         border = BorderStroke(
@@ -2161,7 +2261,30 @@ fun NovoAgendamentoDialog(
                     IconButton(onClick = voltarUmaEtapaOuFechar) {
                         Icon(Icons.Default.ArrowBackIosNew, contentDescription = tr("Voltar", "Back"), tint = iconColor)
                     }
-                    Spacer(Modifier.width(38.dp))
+                    // Botão de ajuda — visível apenas na etapa 1
+                    if (etapaAtual == 1) {
+                        IconButton(
+                            onClick = { showGuiaManutencao = true },
+                            modifier = Modifier.size(48.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(42.dp)
+                                    .background(accentBlue.copy(alpha = 0.13f), CircleShape)
+                                    .border(1.5.dp, accentBlue.copy(alpha = 0.35f), CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    Icons.Default.Info,
+                                    contentDescription = tr("Guia de manutenção", "Maintenance guide"),
+                                    tint = accentBlue,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                        }
+                    } else {
+                        Spacer(Modifier.width(48.dp))
+                    }
                 }
                 Column(
                     modifier = Modifier.padding(top = 0.dp, bottom = 6.dp),
@@ -2221,8 +2344,13 @@ fun NovoAgendamentoDialog(
                                 )
                                 Spacer(Modifier.width(8.dp))
                                 Text(
-                                    if (fotoCaminho != null) "Escanear QR code da nota novamente" else "Escanear QR code da nota",
-                                    color = Color.White
+                                    if (fotoCaminho != null) {
+                                        "Ler nota novamente com IA"
+                                    } else {
+                                        "Ler nota com IA pelo QR Code"
+                                    },
+                                    color = Color.White,
+                                    fontWeight = FontWeight.SemiBold
                                 )
                             }
                             if (fotoCaminho != null) {
@@ -2235,10 +2363,15 @@ fun NovoAgendamentoDialog(
                                     },
                                     modifier = Modifier.fillMaxWidth().height(46.dp),
                                     shape = RoundedCornerShape(12.dp),
-                                    border = BorderStroke(1.dp, cardBorder),
-                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = textPrimary)
+                                    border = BorderStroke(1.dp, accentBlue.copy(alpha = if (isDark) 0.85f else 0.65f)),
+                                    colors = ButtonDefaults.outlinedButtonColors(
+                                        containerColor = accentBlue.copy(alpha = if (isDark) 0.18f else 0.10f),
+                                        contentColor = accentBlue
+                                    )
                                 ) {
-                                    Text(tr("Mudar para cadastro manual", "Switch to manual entry"), fontWeight = FontWeight.SemiBold)
+                                    Icon(Icons.Default.EditNote, contentDescription = null)
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(tr("Preencher manualmente", "Fill manually"), fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
@@ -2312,15 +2445,13 @@ fun NovoAgendamentoDialog(
                                     quantidadeTotalExtraida != null
                                 )
                             )
-
                             if (!veioDeEscaneamento) {
                             OutlinedTextField(
-                                value = if (avisoSemTotal) "" else valorInput,
+                                value = valorInput,
                                 onValueChange = { novo ->
                                     valorInput = formatarValorMonetarioCampo(novo)
                                 },
-                                enabled = !avisoSemTotal,
-                                label = { Text(if (avisoSemTotal) "Total" else "Total *") },
+                                label = { Text("Total *") },
                                 prefix = { Text("R$") },
                                 modifier = Modifier.fillMaxWidth(),
                                 keyboardOptions = KeyboardOptions(
@@ -2335,64 +2466,51 @@ fun NovoAgendamentoDialog(
                                 ),
                                 shape = RoundedCornerShape(12.dp)
                             )
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        avisoSemTotal = !avisoSemTotal
-                                        if (avisoSemTotal) valorInput = ""
-                                    },
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Checkbox(
-                                    checked = avisoSemTotal,
-                                    onCheckedChange = { marcado ->
-                                        avisoSemTotal = marcado
-                                        if (marcado) valorInput = ""
-                                    }
+                            if (!isFluxoPosto) {
+                                val textoTipoCadastro = if (isRegistroServico) {
+                                    tr("registro", "record")
+                                } else {
+                                    tr("aviso", "reminder")
+                                }
+                                OutlinedTextField(
+                                    value = if (avisoSemQuantidade) "" else quantidadeManualInput,
+                                    onValueChange = { quantidadeManualInput = it.filter(Char::isDigit).take(3) },
+                                    enabled = !avisoSemQuantidade,
+                                    label = { Text(if (avisoSemQuantidade) tr("Quantidade", "Quantity") else tr("Quantidade *", "Quantity *")) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    keyboardOptions = KeyboardOptions(
+                                        keyboardType = KeyboardType.Number,
+                                        imeAction = ImeAction.Done
+                                    ),
+                                    singleLine = true,
+                                    shape = RoundedCornerShape(12.dp)
                                 )
-                                Text(
-                                    text = "Este aviso não possui total",
-                                    color = textSecondary,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Medium
-                                )
-                            }
-                            OutlinedTextField(
-                                value = if (avisoSemQuantidade) "" else quantidadeManualInput,
-                                onValueChange = { quantidadeManualInput = it.filter(Char::isDigit).take(3) },
-                                enabled = !avisoSemQuantidade,
-                                label = { Text(if (avisoSemQuantidade) tr("Quantidade", "Quantity") else tr("Quantidade *", "Quantity *")) },
-                                modifier = Modifier.fillMaxWidth(),
-                                keyboardOptions = KeyboardOptions(
-                                    keyboardType = KeyboardType.Number,
-                                    imeAction = ImeAction.Done
-                                ),
-                                singleLine = true,
-                                shape = RoundedCornerShape(12.dp)
-                            )
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        avisoSemQuantidade = !avisoSemQuantidade
-                                        if (avisoSemQuantidade) quantidadeManualInput = ""
-                                    },
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Checkbox(
-                                    checked = avisoSemQuantidade,
-                                    onCheckedChange = { marcado ->
-                                        avisoSemQuantidade = marcado
-                                        if (marcado) quantidadeManualInput = ""
-                                    }
-                                )
-                                Text(
-                                    text = "Este aviso não possui quantidade",
-                                    color = textSecondary,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Medium
-                                )
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            avisoSemQuantidade = !avisoSemQuantidade
+                                            if (avisoSemQuantidade) quantidadeManualInput = ""
+                                        },
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Checkbox(
+                                        checked = avisoSemQuantidade,
+                                        onCheckedChange = { marcado ->
+                                            avisoSemQuantidade = marcado
+                                            if (marcado) quantidadeManualInput = ""
+                                        }
+                                    )
+                                    Text(
+                                        text = tr(
+                                            "Este $textoTipoCadastro não possui quantidade",
+                                            "This $textoTipoCadastro has no quantity"
+                                        ),
+                                        color = textSecondary,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
                             }
                             }
                             if (mostrarResumoNota) {
@@ -3483,6 +3601,17 @@ fun NovoAgendamentoDialog(
                 }
             }
             }
+        }
+        // Overlay do guia de manutenção — cobre o dialog inteiro ao ser aberto
+        if (showGuiaManutencao) {
+            GuiaManutencaoOverlay(
+                onDismiss = { showGuiaManutencao = false },
+                isDark = isDark,
+                textPrimary = textPrimary,
+                textSecondary = textSecondary,
+                accentBlue = accentBlue,
+                pageBackground = pageBackground
+            )
         }
         }
     }

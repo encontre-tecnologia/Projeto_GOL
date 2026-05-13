@@ -4590,7 +4590,10 @@ private fun generateTripReportPdf(
         canvas.drawText(returnedByText.take(28), margin + 96f, y + 174f, valuePaint)
         y += 212f
 
-        canvas.drawText("GASTOS DETALHADOS", margin, y, sectionPaint)
+        val tripSectionAccentPaint = Paint().apply { color = android.graphics.Color.parseColor("#2563EB") }
+        canvas.drawRect(margin, y - 13f, margin + 4f, y + 3f, tripSectionAccentPaint)
+        val tripAccentSectionPaint = Paint(sectionPaint).apply { color = android.graphics.Color.parseColor("#2563EB") }
+        canvas.drawText("GASTOS DETALHADOS", margin + 10f, y, tripAccentSectionPaint)
         y += 8f
         canvas.drawLine(margin, y, pageWidth - margin, y, dividerPaint)
         y += 14f

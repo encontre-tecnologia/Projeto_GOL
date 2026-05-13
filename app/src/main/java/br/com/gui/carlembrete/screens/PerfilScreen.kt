@@ -17,6 +17,7 @@ import androidx.compose.material.icons.filled.ArrowBackIosNew
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Email
 import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.VerifiedUser
@@ -53,12 +54,15 @@ private val AccentBlue = Color(0xFF3B82F6)
 fun PerfilScreen(
     onDismiss: () -> Unit,
     planTier: PlanTier,
-    totalVeiculos: Int
+    totalVeiculos: Int,
+    avisosUsados: Int,
+    limiteAvisos: Int,
+    limiteAvisosViaAdmin: Boolean
 ) {
     val context = LocalContext.current
     val scheme = MaterialTheme.colorScheme
     val isDark = scheme.background.luminance() < 0.5f
-    val screenBg = if (isDark) Color(0xFF020917) else Color(0xFFF8FAFC)
+    val screenBg = if (isDark) Color.Black else Color(0xFFF8FAFC)
     val cardBg = if (isDark) Color(0xFF0D1B2E) else Color.White
     val cardBorder = if (isDark) Color(0xFF1E3A5F) else Color(0xFFD6E0EF)
     val titleColor = if (isDark) Color(0xFFF8FAFC) else Color(0xFF0F172A)
@@ -238,6 +242,19 @@ fun PerfilScreen(
 
             Spacer(Modifier.height(20.dp))
 
+            ReminderLimitProfileCard(
+                used = avisosUsados,
+                limit = limiteAvisos,
+                planName = badgeLabel,
+                hasAdminBoost = limiteAvisosViaAdmin,
+                isDark = isDark,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp)
+            )
+
+            Spacer(Modifier.height(20.dp))
+
             // --- INFO CARD ---
             Column(
                 modifier = Modifier
@@ -345,6 +362,92 @@ private fun StatCard(modifier: Modifier, label: String, value: String, color: Co
     ) {
         Text(value, color = color, fontSize = 22.sp, fontWeight = FontWeight.Black)
         Text(label, color = dimColor, fontSize = 12.sp)
+    }
+}
+
+@Composable
+private fun ReminderLimitProfileCard(
+    used: Int,
+    limit: Int,
+    planName: String,
+    hasAdminBoost: Boolean,
+    isDark: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val unlimited = limit == Int.MAX_VALUE
+    val progress = if (unlimited || limit <= 0) 1f else (used.toFloat() / limit.toFloat()).coerceIn(0f, 1f)
+    val available = if (unlimited) null else (limit - used).coerceAtLeast(0)
+    val container = if (isDark) Color(0xFF0D1B2E) else Color.White
+    val border = if (isDark) Color(0xFF1E3A5F) else Color(0xFFD6E0EF)
+    val titleColor = if (isDark) Color(0xFFF8FAFC) else Color(0xFF0F172A)
+    val bodyColor = if (isDark) Color(0xFF94A3B8) else Color(0xFF64748B)
+    val trackColor = if (isDark) Color.White.copy(alpha = 0.08f) else Color(0xFFE2E8F0)
+    val accent = if (progress >= 0.9f && !unlimited) Color(0xFFF59E0B) else AccentBlue
+
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(20.dp))
+            .background(container)
+            .border(BorderStroke(1.dp, border), RoundedCornerShape(20.dp))
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(accent.copy(alpha = if (isDark) 0.22f else 0.14f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Rounded.NotificationsActive, contentDescription = null, tint = accent)
+                }
+                Spacer(Modifier.width(12.dp))
+                Column {
+                    Text("Avisos e registros", color = titleColor, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    Text(if (hasAdminBoost) "Cota extra ativa" else "Plano $planName", color = bodyColor, fontSize = 12.sp)
+                }
+            }
+            Text(
+                text = if (unlimited) "Ilimitado" else "$limit",
+                color = titleColor,
+                fontWeight = FontWeight.Bold,
+                fontSize = 16.sp
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(8.dp)
+                .clip(RoundedCornerShape(999.dp))
+                .background(trackColor)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(progress)
+                    .height(8.dp)
+                    .background(accent)
+            )
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text("Cadastrados: $used", color = bodyColor, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            Text(
+                text = if (unlimited) "Disponiveis: ilimitado" else "Disponiveis: $available",
+                color = bodyColor,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
     }
 }
 

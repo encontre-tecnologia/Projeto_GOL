@@ -33,7 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import br.com.gui.carlembrete.Abastecimento
-import br.com.gui.carlembrete.AppPreferences
+import br.com.gui.carlembrete.AdminUsersSync
 import br.com.gui.carlembrete.BancoDeDados
 import br.com.gui.carlembrete.formatarMoedaLocal
 import br.com.gui.carlembrete.tr
@@ -98,12 +98,9 @@ fun HistoricoAbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
             formatter = formatter
         )
     }
-    val resumoConsumo = remember(ordenados, kmAtualCarro, carroId) {
+    val resumoConsumo = remember(abastecimentos) {
         calcularResumoConsumoAbastecimento(
-            context = context,
-            carroId = carroId,
-            kmAtualCarro = kmAtualCarro,
-            abastecimentos = ordenados
+            abastecimentos = abastecimentos
         )
     }
     DisposableEffect(view, isDark, screenBg) {
@@ -133,6 +130,7 @@ fun HistoricoAbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
                     withContext(Dispatchers.IO) {
                         BancoDeDados.salvarAbastecimentos(context, novaLista)
                     }
+                    AdminUsersSync.syncFuelSnapshot(novaLista)
                     abastecimentos = novaLista
                     itemEdicao = null
                 }
@@ -150,6 +148,7 @@ fun HistoricoAbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
                     withContext(Dispatchers.IO) {
                         BancoDeDados.salvarAbastecimentos(context, novaLista)
                     }
+                    AdminUsersSync.syncFuelSnapshot(novaLista)
                     abastecimentos = novaLista
                     itemExcluir = null
                 }
@@ -172,84 +171,115 @@ fun HistoricoAbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
             )
         }
     ) { innerPadding ->
-        Column(
+        LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
                 .padding(horizontal = 20.dp),
+            contentPadding = PaddingValues(vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(18.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.Transparent),
-                border = BorderStroke(1.dp, cardBorderColor)
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(
-                            Brush.verticalGradient(
-                                colors = if (isDark) {
-                                    listOf(Color(0xFF0B1220), Color(0xFF111827))
-                                } else {
-                                    listOf(Color(0xFFF8FAFC), Color(0xFFFFFFFF))
-                                }
-                            )
-                        )
-                        .padding(horizontal = 14.dp, vertical = 14.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+                    border = BorderStroke(1.dp, cardBorderColor)
                 ) {
-                    Text(
-                        text = tr("Resumo de consumo", "Consumption summary"),
-                        color = if (isDark) Color(0xFF93C5FD) else Color(0xFF1D4ED8),
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 12.sp
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(
+                                Brush.verticalGradient(
+                                    colors = if (isDark) {
+                                        listOf(Color(0xFF0B1220), Color(0xFF111827))
+                                    } else {
+                                        listOf(Color(0xFFF8FAFC), Color(0xFFFFFFFF))
+                                    }
+                                )
+                            )
+                            .padding(horizontal = 14.dp, vertical = 14.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        MiniResumoDestaque(
-                            label = tr("Total do mes", "Month total"),
-                            value = formatarMoedaLocal(resumoGastos.gastoMes),
-                            isDark = isDark,
-                            valueColor = if (isDark) Color(0xFF86EFAC) else Color(0xFF166534),
-                            modifier = Modifier.weight(1f)
+                        Text(
+                            text = tr("Resumo de consumo", "Consumption summary"),
+                            color = if (isDark) Color(0xFF93C5FD) else Color(0xFF1D4ED8),
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 12.sp
                         )
-                        MiniResumoDestaque(
-                            label = tr("Litros", "Liters"),
-                            value = String.format(Locale("pt", "BR"), "%.2f L", resumoConsumo.litrosTotais),
-                            isDark = isDark,
-                            valueColor = if (isDark) Color(0xFF93C5FD) else Color(0xFF1D4ED8),
-                            modifier = Modifier.weight(1f)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            MiniResumoDestaque(
+                                label = tr("Consumo medio", "Average consumption"),
+                                value = resumoConsumo.litrosPorDia?.let {
+                                    String.format(Locale("pt", "BR"), "%.2f L/dia", it)
+                                } ?: "--",
+                                isDark = isDark,
+                                valueColor = if (isDark) Color(0xFF86EFAC) else Color(0xFF166534),
+                                modifier = Modifier.weight(1f)
+                            )
+                            MiniResumoDestaque(
+                                label = tr("Litros", "Liters"),
+                                value = String.format(Locale("pt", "BR"), "%.2f L", resumoConsumo.litrosConsiderados),
+                                isDark = isDark,
+                                valueColor = if (isDark) Color(0xFF93C5FD) else Color(0xFF1D4ED8),
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                        Text(
+                            text = resumoConsumo.descricaoBase,
+                            color = if (isDark) Color(0xFFCBD5E1) else Color(0xFF475569),
+                            fontSize = 12.sp,
+                            lineHeight = 16.sp
                         )
+                        HorizontalDivider(color = cardBorderColor.copy(alpha = 0.55f))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = tr("Total do mes", "Month total"),
+                                color = if (isDark) TextGray else Color(0xFF64748B),
+                                fontSize = 12.sp
+                            )
+                            Text(
+                                text = formatarMoedaLocal(resumoGastos.gastoMes),
+                                color = if (isDark) Color(0xFF86EFAC) else Color(0xFF166534),
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp
+                            )
+                        }
                     }
                 }
             }
 
             if (ordenados.isEmpty()) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(Icons.Rounded.LocalGasStation, null, tint = bodyColor.copy(alpha = 0.35f), modifier = Modifier.size(60.dp))
-                        Spacer(Modifier.height(16.dp))
-                        Text("Sem registros ainda", color = bodyColor, fontSize = 16.sp)
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillParentMaxSize()
+                            .padding(top = 48.dp),
+                        contentAlignment = Alignment.TopCenter
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(Icons.Rounded.LocalGasStation, null, tint = bodyColor.copy(alpha = 0.35f), modifier = Modifier.size(60.dp))
+                            Spacer(Modifier.height(16.dp))
+                            Text("Sem registros ainda", color = bodyColor, fontSize = 16.sp)
+                        }
                     }
                 }
             } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(vertical = 8.dp)
-                ) {
-                    itemsIndexed(ordenados) { index, item ->
-                        TimelineItem(
-                            item = item,
-                            isLast = index == ordenados.lastIndex,
-                            onEdit = { itemEdicao = item },
-                            onDelete = { itemExcluir = item },
-                            isDark = isDark
-                        )
-                    }
+                itemsIndexed(ordenados) { index, item ->
+                    TimelineItem(
+                        item = item,
+                        isLast = index == ordenados.lastIndex,
+                        onEdit = { itemEdicao = item },
+                        onDelete = { itemExcluir = item },
+                        isDark = isDark
+                    )
                 }
             }
         }
@@ -354,8 +384,8 @@ fun TimelineItem(
                                 }
                             }
                             Spacer(Modifier.width(8.dp))
-                            Text(item.data, color = cardTitle, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                        }
+                        Text(item.data, color = cardTitle, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                    }
                         Row {
                             IconButton(onClick = onEdit, modifier = Modifier.size(32.dp)) {
                                 Icon(Icons.Rounded.Edit, null, tint = cardBody, modifier = Modifier.size(18.dp))
@@ -476,19 +506,38 @@ private data class ResumoGastosAbastecimento(
 )
 
 private data class ResumoConsumoAbastecimento(
-    val kmPorLitro: Double?,
-    val litrosPorKm: Double?,
-    val litrosTotais: Double
+    val litrosPorDia: Double?,
+    val litrosTotais: Double,
+    val litrosConsiderados: Double,
+    val diasConsiderados: Long?,
+    val intervalosValidos: Int
 ) {
     val label: String
-        get() = if (kmPorLitro != null && litrosPorKm != null) {
+        get() = if (litrosPorDia != null) {
             val locale = Locale("pt", "BR")
-            "${String.format(locale, "%.2f", kmPorLitro)} km/L • ${String.format(locale, "%.3f", litrosPorKm)} L/km"
+            "${String.format(locale, "%.2f", litrosPorDia)} L/dia"
         } else if (litrosTotais > 0.0) {
             val locale = Locale("pt", "BR")
             "${String.format(locale, "%.2f", litrosTotais)} L registrados"
         } else {
             "--"
+        }
+
+    val descricaoBase: String
+        get() {
+            val locale = Locale("pt", "BR")
+            return when {
+                litrosPorDia != null && diasConsiderados != null -> {
+                    "Baseado em $diasConsiderados dia(s) entre abastecimentos e " +
+                        "${String.format(locale, "%.2f", litrosConsiderados)} L abastecidos em $intervalosValidos intervalo(s)."
+                }
+                litrosTotais > 0.0 -> {
+                    "Cadastre pelo menos dois abastecimentos em datas diferentes para calcular o consumo medio por dia."
+                }
+                else -> {
+                    "Cadastre abastecimentos para o app calcular o consumo medio por intervalo."
+                }
+            }
         }
 }
 
@@ -538,32 +587,55 @@ private fun parseLocalDateFlexible(raw: String, fallbackFormatter: DateTimeForma
 }
 
 private fun calcularResumoConsumoAbastecimento(
-    context: android.content.Context,
-    carroId: String,
-    kmAtualCarro: Int,
     abastecimentos: List<Abastecimento>
 ): ResumoConsumoAbastecimento {
     val litrosTotais = abastecimentos.sumOf { it.litros.coerceAtLeast(0.0) }
-    val kmInicial = AppPreferences.getFuelStartKm(context, carroId)
+    val registrosComData = abastecimentos
+        .mapIndexedNotNull { index, item ->
+            val data = parseLocalDateFlexible(item.data, DateTimeFormatter.ofPattern("dd/MM/yyyy"))
+                ?: return@mapIndexedNotNull null
+            if (item.litros <= 0.0) return@mapIndexedNotNull null
+            FuelConsumptionPoint(index = index, data = data, litros = item.litros)
+        }
+        .sortedWith(
+            compareBy<FuelConsumptionPoint> { it.data }
+                .thenBy { it.index }
+        )
 
-    if (kmInicial == null || kmAtualCarro <= kmInicial || litrosTotais <= 0.0) {
-        return ResumoConsumoAbastecimento(kmPorLitro = null, litrosPorKm = null, litrosTotais = litrosTotais)
+    val intervalos = registrosComData.windowed(2).mapNotNull { (anterior, atual) ->
+        val dias = java.time.temporal.ChronoUnit.DAYS.between(anterior.data, atual.data)
+        val litros = atual.litros.coerceAtLeast(0.0)
+        if (dias > 0L && litros > 0.0) dias to litros else null
     }
 
-    val distancia = (kmAtualCarro - kmInicial).toDouble()
-    if (distancia <= 0.0) {
-        return ResumoConsumoAbastecimento(kmPorLitro = null, litrosPorKm = null, litrosTotais = litrosTotais)
+    if (intervalos.isEmpty() || litrosTotais <= 0.0) {
+        return ResumoConsumoAbastecimento(
+            litrosPorDia = null,
+            litrosTotais = litrosTotais,
+            litrosConsiderados = 0.0,
+            diasConsiderados = null,
+            intervalosValidos = 0
+        )
     }
 
-    val kmPorLitro = distancia / litrosTotais
-    val litrosPorKm = litrosTotais / distancia
+    val dias = intervalos.sumOf { it.first }
+    val litrosConsiderados = intervalos.sumOf { it.second }
+    val litrosPorDia = litrosConsiderados / dias.toDouble()
 
     return ResumoConsumoAbastecimento(
-        kmPorLitro = kmPorLitro.takeIf { it.isFinite() && it > 0.0 },
-        litrosPorKm = litrosPorKm.takeIf { it.isFinite() && it > 0.0 },
-        litrosTotais = litrosTotais
+        litrosPorDia = litrosPorDia.takeIf { it.isFinite() && it > 0.0 },
+        litrosTotais = litrosTotais,
+        litrosConsiderados = litrosConsiderados.takeIf { it.isFinite() && it > 0.0 } ?: 0.0,
+        diasConsiderados = dias.takeIf { it > 0L },
+        intervalosValidos = intervalos.size
     )
 }
+
+private data class FuelConsumptionPoint(
+    val index: Int,
+    val data: LocalDate,
+    val litros: Double
+)
 
 // ... Dialogs mantidos iguais ...
 @OptIn(ExperimentalMaterial3Api::class)

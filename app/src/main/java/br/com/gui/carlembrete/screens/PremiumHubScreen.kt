@@ -1,6 +1,8 @@
 ﻿package br.com.gui.carlembrete
 
 import android.app.Activity
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -16,6 +18,7 @@ import androidx.compose.material.icons.filled.ArrowForwardIos
 import androidx.compose.material.icons.filled.Diamond
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Inventory2
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Route
 import androidx.compose.material.icons.filled.SupportAgent
 import androidx.compose.material3.*
@@ -69,7 +72,8 @@ fun PremiumHubScreen(
     val supportBorder = if (isDark) Color(0xFF34D399).copy(alpha = 0.45f) else Color(0xFF10B981).copy(alpha = 0.45f)
     val supportText = if (isDark) Color(0xFF6EE7B7) else Color(0xFF047857)
     val isEnglish = isEnglishUi()
-    val supportPhone = "5516994392545"
+    val supportPhone = "5516992136295"
+    val dashboardUrl = "https://dasbord-frota-six.vercel.app/"
     val userName = FirebaseAuth.getInstance().currentUser?.displayName
         ?: FirebaseAuth.getInstance().currentUser?.email
         ?: "cliente"
@@ -221,6 +225,24 @@ fun PremiumHubScreen(
                         title = tr("Visão geral da frota", "Fleet overview"),
                         subtitle = tr("Veja todos os veículos da garagem", "See all vehicles in the garage"),
                         onClick = onOpenFleetOverview,
+                        cardBg = cardBg,
+                        cardBorder = cardBorder,
+                        titleColor = titleColor,
+                        subtitleColor = subColor,
+                        chevronColor = dimColor
+                    )
+
+                    HubFeatureCard(
+                        icon = Icons.Default.OpenInNew,
+                        iconColor = Color(0xFF0F766E),
+                        iconBg = Color(0xFFCCFBF1),
+                        title = tr("Dashboard web", "Web dashboard"),
+                        subtitle = tr("dasbord-frota-six.vercel.app", "dasbord-frota-six.vercel.app"),
+                        onClick = {
+                            context.startActivity(
+                                Intent(Intent.ACTION_VIEW, Uri.parse(dashboardUrl))
+                            )
+                        },
                         cardBg = cardBg,
                         cardBorder = cardBorder,
                         titleColor = titleColor,
