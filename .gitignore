@@ -26,6 +26,8 @@ app/release/
 # Local assistant/tool caches
 .claude/
 .codex_tmp/
+.codex_work/
+outputs/
 
 # Kotlin/IDE local diagnostics
 .kotlin/errors/
