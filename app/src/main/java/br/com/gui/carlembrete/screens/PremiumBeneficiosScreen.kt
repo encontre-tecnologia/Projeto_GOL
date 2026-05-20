@@ -190,6 +190,9 @@ fun PremiumBeneficiosScreen(
                     features = listOf(
                         tr("15 veiculos, 50 avisos/registros e 150 abastecimentos", "15 vehicles, 50 reminders/records and 150 fuel records"),
                         tr("30 scans de QR por mes", "30 QR scans per month"),
+                        tr("Repeticao automatica de avisos", "Automatic reminder recurrence"),
+                        tr("PDF do Onde parei", "Where I parked PDF"),
+                        tr("Backup e restauracao no Google Drive", "Google Drive backup and restore"),
                         tr("Registro de viagens", "Trip logging"),
                         tr("Controle de custos por rota", "Route cost tracking"),
                         tr("Historico completo de viagens", "Full trip history")

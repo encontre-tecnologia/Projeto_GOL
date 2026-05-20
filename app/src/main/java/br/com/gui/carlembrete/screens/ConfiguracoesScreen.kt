@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.ArrowBackIosNew
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -60,6 +61,7 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -231,6 +233,8 @@ fun ConfiguracoesScreen(
     carros: List<CarroInfo>,
     lembretes: List<Lembrete>,
     contatos: List<ContatoProfissional>,
+    planTier: PlanTier = PlanTier.FREE,
+    onRequestPremium: (String) -> Unit = {},
     onThemeModeChanged: (AppThemeMode) -> Unit
 ) {
     val colorScheme = MaterialTheme.colorScheme
@@ -256,11 +260,17 @@ fun ConfiguracoesScreen(
     val driveBackupManager = remember { DriveBackupManager(context) }
     var pendingBackupAction by remember { mutableStateOf<BackupAction?>(null) }
     var backupInProgressAction by remember { mutableStateOf<BackupAction?>(null) }
+    val canUseDriveBackup = planTier != PlanTier.FREE
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(canUseDriveBackup) {
         lastBackupTime = getLastBackupTime(context)
         backupInterval = getBackupInterval(context)
-        scheduleBackupWork(context, backupInterval)
+        if (canUseDriveBackup) {
+            scheduleBackupWork(context, backupInterval)
+        } else {
+            backupInterval = BackupInterval.OFF
+            scheduleBackupWork(context, BackupInterval.OFF)
+        }
     }
 
     fun criarBackup(account: GoogleSignInAccount) {
@@ -389,6 +399,10 @@ fun ConfiguracoesScreen(
 
 
     fun executarBackup(action: BackupAction) {
+        if (!canUseDriveBackup) {
+            onRequestPremium("drive_backup")
+            return
+        }
         if (backupInProgressAction != null) return
         backupInProgressAction = action
         val account = GoogleSignIn.getLastSignedInAccount(context)
@@ -434,7 +448,7 @@ fun ConfiguracoesScreen(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    stringResource(R.string.cfg_version_label),
+                    stringResource(R.string.cfg_version_label, BuildConfig.VERSION_NAME),
                     color = colorScheme.onSurfaceVariant,
                     fontSize = 12.sp
                 )
@@ -491,13 +505,6 @@ fun ConfiguracoesScreen(
 
             SectionHeader(title = stringResource(R.string.cfg_section_appearance))
             Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)) {
-                Text(
-                    stringResource(R.string.cfg_theme_label),
-                    color = colorScheme.onSurface,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 12.sp
-                )
-                Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                     ThemeModeOptionButton(
                         label = stringResource(R.string.cfg_theme_system),
@@ -536,6 +543,39 @@ fun ConfiguracoesScreen(
 
             Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)) {
                 val backupBusy = backupInProgressAction != null
+                if (!canUseDriveBackup) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (isDark) Color(0xFF111827) else Color(0xFFFFFBF2)
+                        ),
+                        border = BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = if (isDark) 0.55f else 0.85f))
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Lock, null, tint = Color(0xFFF59E0B), modifier = Modifier.size(20.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    "Backup no Drive é Lite+",
+                                    color = colorScheme.onSurface,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp
+                                )
+                            }
+                            Text(
+                                "No plano grátis, seus dados ficam salvos neste aparelho. Assine o Lite para proteger veículos, avisos e históricos no Google Drive.",
+                                color = colorScheme.onSurfaceVariant,
+                                fontSize = 12.sp,
+                                lineHeight = 16.sp
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(12.dp))
+                }
                 if (backupBusy) {
                     Text(
                         text = when (backupInProgressAction) {
@@ -560,30 +600,43 @@ fun ConfiguracoesScreen(
                     enabled = !backupBusy,
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB))
-                ) {
-                    Icon(Icons.Default.CloudUpload, null, tint = Color.White, modifier = Modifier.size(20.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text(stringResource(R.string.cfg_backup_save), fontWeight = FontWeight.Bold, color = Color.White)
-                }
-
-                Spacer(Modifier.height(12.dp))
-
-                OutlinedButton(
-                    onClick = {
-                        executarBackup(BackupAction.RESTORE)
-                    },
-                    enabled = !backupBusy,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    border = BorderStroke(1.dp, Color(0xFF475569)),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = if (colorScheme.background.luminance() < 0.5f) Color.White else Color(0xFF0F172A)
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (canUseDriveBackup) Color(0xFF2563EB) else Color(0xFFF59E0B)
                     )
                 ) {
-                    Icon(Icons.Default.CloudDownload, null, modifier = Modifier.size(20.dp))
+                    Icon(
+                        if (canUseDriveBackup) Icons.Default.CloudUpload else Icons.Default.Lock,
+                        null,
+                        tint = if (canUseDriveBackup) Color.White else Color.Black,
+                        modifier = Modifier.size(20.dp)
+                    )
                     Spacer(Modifier.width(8.dp))
-                    Text(stringResource(R.string.cfg_backup_restore), fontWeight = FontWeight.Bold)
+                    Text(
+                        if (canUseDriveBackup) stringResource(R.string.cfg_backup_save) else "Liberar backup no Lite",
+                        fontWeight = FontWeight.Bold,
+                        color = if (canUseDriveBackup) Color.White else Color.Black
+                    )
+                }
+
+                if (canUseDriveBackup) {
+                    Spacer(Modifier.height(12.dp))
+
+                    OutlinedButton(
+                        onClick = {
+                            executarBackup(BackupAction.RESTORE)
+                        },
+                        enabled = !backupBusy,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, Color(0xFF475569)),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = if (colorScheme.background.luminance() < 0.5f) Color.White else Color(0xFF0F172A)
+                        )
+                    ) {
+                        Icon(Icons.Default.CloudDownload, null, modifier = Modifier.size(20.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(stringResource(R.string.cfg_backup_restore), fontWeight = FontWeight.Bold)
+                    }
                 }
 
                 Spacer(Modifier.height(12.dp))
@@ -595,7 +648,9 @@ fun ConfiguracoesScreen(
                 Text(
                     stringResource(R.string.cfg_backup_last, lastBackupLabel),
                     color = Color(0xFF94A3B8),
-                    fontSize = 12.sp
+                    fontSize = 12.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
                 )
             }
 

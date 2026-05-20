@@ -30,7 +30,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -43,7 +42,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -77,13 +75,12 @@ private tailrec fun Context.findBackupActivity(): Activity? = when (this) {
 
 @Composable
 fun PostLoginDriveBackupScreen(
+    planTier: PlanTier = PlanTier.FREE,
     onContinueWithoutRestore: () -> Unit,
     onRestoreComplete: () -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val colorScheme = MaterialTheme.colorScheme
-    val isDark = colorScheme.background.luminance() < 0.5f
     val driveScope = remember { Scope(DriveScopes.DRIVE_APPDATA) }
     val driveBackupManager = remember { DriveBackupManager(context) }
     val googleSignInClient = remember {
@@ -98,8 +95,13 @@ fun PostLoginDriveBackupScreen(
     var state by remember { mutableStateOf(PostLoginBackupState.CHECKING) }
     var accountWithBackup by remember { mutableStateOf<GoogleSignInAccount?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    val canUseDriveBackup = planTier != PlanTier.FREE
 
     fun checkBackup(account: GoogleSignInAccount) {
+        if (!canUseDriveBackup) {
+            onContinueWithoutRestore()
+            return
+        }
         state = PostLoginBackupState.CHECKING
         scope.launch {
             runCatching {
@@ -120,6 +122,10 @@ fun PostLoginDriveBackupScreen(
     }
 
     fun restoreBackup(account: GoogleSignInAccount) {
+        if (!canUseDriveBackup) {
+            onContinueWithoutRestore()
+            return
+        }
         state = PostLoginBackupState.RESTORING
         scope.launch(Dispatchers.IO) {
             try {
@@ -171,6 +177,10 @@ fun PostLoginDriveBackupScreen(
     }
 
     LaunchedEffect(Unit) {
+        if (!canUseDriveBackup) {
+            onContinueWithoutRestore()
+            return@LaunchedEffect
+        }
         val account = GoogleSignIn.getLastSignedInAccount(context)
         if (account != null && GoogleSignIn.hasPermissions(account, driveScope)) {
             checkBackup(account)
@@ -179,10 +189,11 @@ fun PostLoginDriveBackupScreen(
         }
     }
 
-    val pageBg = if (isDark) Color.Black else colorScheme.background
-    val cardBg = if (isDark) Color(0xFF0F172A) else Color.White
-    val titleColor = if (isDark) Color.White else Color(0xFF0F172A)
-    val bodyColor = if (isDark) Color(0xFFCBD5E1) else Color(0xFF475569)
+    val pageBg = Color.Black
+    val cardBg = Color(0xFF111827)
+    val titleColor = Color(0xFFF8FAFC)
+    val bodyColor = Color(0xFFCBD5E1)
+    val accentBlue = Color(0xFF60A5FA)
 
     Box(
         modifier = Modifier
@@ -197,7 +208,7 @@ fun PostLoginDriveBackupScreen(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(24.dp),
             colors = CardDefaults.cardColors(containerColor = cardBg),
-            border = BorderStroke(1.dp, colorScheme.outlineVariant.copy(alpha = 0.75f))
+            border = BorderStroke(1.dp, Color(0xFF334155))
         ) {
             Column(
                 modifier = Modifier
@@ -208,7 +219,7 @@ fun PostLoginDriveBackupScreen(
             ) {
                 when (state) {
                     PostLoginBackupState.CHECKING -> {
-                        CircularProgressIndicator(color = Color(0xFF2563EB))
+                        CircularProgressIndicator(color = accentBlue)
                         Text("Procurando backup no Drive", color = titleColor, fontWeight = FontWeight.Bold, fontSize = 20.sp)
                         Text(
                             "So um segundo: estamos vendo se sua conta ja tem dados salvos para restaurar.",
@@ -218,7 +229,7 @@ fun PostLoginDriveBackupScreen(
                         )
                     }
                     PostLoginBackupState.NEEDS_PERMISSION -> {
-                        Icon(Icons.Default.CloudDownload, null, tint = Color(0xFF2563EB), modifier = Modifier.size(54.dp))
+                        Icon(Icons.Default.CloudDownload, null, tint = accentBlue, modifier = Modifier.size(54.dp))
                         Text("Verificar backup no Drive", color = titleColor, fontWeight = FontWeight.Bold, fontSize = 22.sp)
                         Text(
                             "Para saber se sua conta ja tem backup, o Zellu precisa acessar a pasta segura do app no Google Drive.",
@@ -232,9 +243,9 @@ fun PostLoginDriveBackupScreen(
                                 .fillMaxWidth()
                                 .height(50.dp),
                             shape = RoundedCornerShape(14.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB))
+                            colors = ButtonDefaults.buttonColors(containerColor = accentBlue)
                         ) {
-                            Text("Verificar meu backup", color = Color.White, fontWeight = FontWeight.Bold)
+                            Text("Verificar meu backup", color = Color(0xFF06111F), fontWeight = FontWeight.Bold)
                         }
                         OutlinedButton(
                             onClick = onContinueWithoutRestore,
@@ -247,7 +258,7 @@ fun PostLoginDriveBackupScreen(
                         }
                     }
                     PostLoginBackupState.FOUND -> {
-                        Icon(Icons.Default.CloudDownload, null, tint = Color(0xFF2563EB), modifier = Modifier.size(54.dp))
+                        Icon(Icons.Default.CloudDownload, null, tint = accentBlue, modifier = Modifier.size(54.dp))
                         Text("Encontramos um backup", color = titleColor, fontWeight = FontWeight.Bold, fontSize = 22.sp)
                         Text(
                             "Quer restaurar os dados do Drive agora? Se preferir nao restaurar, voce segue para o fluxo de boas-vindas.",
@@ -261,9 +272,9 @@ fun PostLoginDriveBackupScreen(
                                 .fillMaxWidth()
                                 .height(50.dp),
                             shape = RoundedCornerShape(14.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB))
+                            colors = ButtonDefaults.buttonColors(containerColor = accentBlue)
                         ) {
-                            Text("Restaurar backup", color = Color.White, fontWeight = FontWeight.Bold)
+                            Text("Restaurar backup", color = Color(0xFF06111F), fontWeight = FontWeight.Bold)
                         }
                         OutlinedButton(
                             onClick = onContinueWithoutRestore,
@@ -290,13 +301,13 @@ fun PostLoginDriveBackupScreen(
                                 .fillMaxWidth()
                                 .height(50.dp),
                             shape = RoundedCornerShape(14.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB))
+                            colors = ButtonDefaults.buttonColors(containerColor = accentBlue)
                         ) {
-                            Text("Continuar", color = Color.White, fontWeight = FontWeight.Bold)
+                            Text("Continuar", color = Color(0xFF06111F), fontWeight = FontWeight.Bold)
                         }
                     }
                     PostLoginBackupState.RESTORING -> {
-                        CircularProgressIndicator(color = Color(0xFF2563EB))
+                        CircularProgressIndicator(color = accentBlue)
                         Text("Restaurando backup", color = titleColor, fontWeight = FontWeight.Bold, fontSize = 20.sp)
                         Text("Estamos trazendo seus veiculos, avisos e historicos do Drive.", color = bodyColor, textAlign = TextAlign.Center)
                     }
@@ -310,9 +321,9 @@ fun PostLoginDriveBackupScreen(
                                 .fillMaxWidth()
                                 .height(50.dp),
                             shape = RoundedCornerShape(14.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB))
+                            colors = ButtonDefaults.buttonColors(containerColor = accentBlue)
                         ) {
-                            Text("Continuar mesmo assim", color = Color.White, fontWeight = FontWeight.Bold)
+                            Text("Continuar mesmo assim", color = Color(0xFF06111F), fontWeight = FontWeight.Bold)
                         }
                     }
                 }

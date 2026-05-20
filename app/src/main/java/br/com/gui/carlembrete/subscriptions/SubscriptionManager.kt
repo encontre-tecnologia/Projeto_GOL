@@ -35,6 +35,8 @@ class SubscriptionManager(context: Context) : PurchasesUpdatedListener {
     val planTier: StateFlow<PlanTier> = _planTier
     private val _isSubscribed = MutableStateFlow(false)
     val isSubscribed: StateFlow<Boolean> = _isSubscribed
+    private val _entitlementsLoaded = MutableStateFlow(false)
+    val entitlementsLoaded: StateFlow<Boolean> = _entitlementsLoaded
 
     fun refreshLocalEntitlements() {
         applyEffectiveEntitlements()
@@ -54,17 +56,21 @@ class SubscriptionManager(context: Context) : PurchasesUpdatedListener {
     }
 
     fun connect() {
+        _entitlementsLoaded.value = false
         applyEffectiveEntitlements()
         billingClient.startConnection(object : BillingClientStateListener {
             override fun onBillingSetupFinished(billingResult: BillingResult) {
                 if (billingResult.responseCode == BillingClient.BillingResponseCode.OK) {
                     queryProduct()
                     refreshPurchases()
+                } else {
+                    _entitlementsLoaded.value = true
                 }
             }
 
             override fun onBillingServiceDisconnected() {
                 // Will retry on next user action
+                _entitlementsLoaded.value = true
             }
         })
     }
@@ -192,6 +198,7 @@ class SubscriptionManager(context: Context) : PurchasesUpdatedListener {
         }
         billingTier = tier
         applyEffectiveEntitlements()
+        _entitlementsLoaded.value = true
     }
 
     companion object {

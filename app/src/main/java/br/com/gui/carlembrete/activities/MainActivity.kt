@@ -21,6 +21,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.border
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxSize
@@ -29,6 +30,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
@@ -42,6 +44,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.collectAsState
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.core.app.NotificationManagerCompat
@@ -171,6 +174,9 @@ class MainActivity : ComponentActivity() {
                 }
                 val colorScheme = MaterialTheme.colorScheme
                 val auth = remember { FirebaseAuth.getInstance() }
+                val subscriptionManager = remember { SubscriptionManager(this@MainActivity) }
+                val planTier by subscriptionManager.planTier.collectAsState()
+                val entitlementsLoaded by subscriptionManager.entitlementsLoaded.collectAsState()
                 var usuario by remember { mutableStateOf(auth.currentUser) }
                 var announcementTitle by remember { mutableStateOf<String?>(null) }
                 var announcementBody by remember { mutableStateOf<String?>(null) }
@@ -198,11 +204,15 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 DisposableEffect(Unit) {
+                    subscriptionManager.connect()
                     val listener = FirebaseAuth.AuthStateListener { firebaseAuth ->
                         usuario = firebaseAuth.currentUser
                     }
                     auth.addAuthStateListener(listener)
-                    onDispose { auth.removeAuthStateListener(listener) }
+                    onDispose {
+                        auth.removeAuthStateListener(listener)
+                        subscriptionManager.disconnect()
+                    }
                 }
                 LaunchedEffect(usuario) {
                     if (usuario != null) {
@@ -235,18 +245,91 @@ class MainActivity : ComponentActivity() {
                         Box(modifier = Modifier.fillMaxSize()) {
                             if (showPostLoginBackupCheck) {
                                 keepNativeSplashVisible = false
-                                PostLoginDriveBackupScreen(
-                                    onContinueWithoutRestore = {
-                                        showPostLoginBackupCheck = false
-                                        restoredBackupOnboardingFlow = false
-                                        showOnboarding = AppPreferences.needsOnboarding(this@MainActivity)
-                                    },
-                                    onRestoreComplete = {
+                                if (!entitlementsLoaded) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .background(Color.Black),
+                                        contentAlignment = androidx.compose.ui.Alignment.Center
+                                    ) {
+                                        androidx.compose.material3.CircularProgressIndicator(
+                                            color = Color(0xFF60A5FA)
+                                        )
+                                    }
+                                } else if (planTier == PlanTier.FREE) {
+                                    val continueWithLocalStorage = {
                                         showPostLoginBackupCheck = false
                                         restoredBackupOnboardingFlow = true
                                         showOnboarding = true
                                     }
-                                )
+                                    androidx.compose.material3.AlertDialog(
+                                        onDismissRequest = continueWithLocalStorage,
+                                        shape = dialogCornerShape,
+                                        containerColor = Color(0xFF111827),
+                                        icon = {
+                                            androidx.compose.material3.Surface(
+                                                color = Color(0xFF60A5FA).copy(alpha = 0.16f),
+                                                shape = androidx.compose.foundation.shape.CircleShape,
+                                                border = androidx.compose.foundation.BorderStroke(
+                                                    1.dp,
+                                                    Color(0xFF60A5FA).copy(alpha = 0.35f)
+                                                )
+                                            ) {
+                                                androidx.compose.material3.Icon(
+                                                    imageVector = Icons.Default.PhoneAndroid,
+                                                    contentDescription = null,
+                                                    tint = Color(0xFF60A5FA),
+                                                    modifier = Modifier.padding(11.dp)
+                                                )
+                                            }
+                                        },
+                                        title = {
+                                            androidx.compose.material3.Text(
+                                                text = "Encontramos dados locais",
+                                                color = Color(0xFFE2E8F0),
+                                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                                            )
+                                        },
+                                        text = {
+                                            androidx.compose.material3.Text(
+                                                text = "Encontramos dados salvos neste celular e vamos continuar usando eles no plano grátis. Backup e recuperação pelo Google Drive ficam disponíveis no Lite.",
+                                                color = Color(0xFFCBD5E1)
+                                            )
+                                        },
+                                        confirmButton = {
+                                            androidx.compose.material3.Button(
+                                                onClick = continueWithLocalStorage,
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .height(46.dp),
+                                                shape = dialogActionButtonShape,
+                                                colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                                                    containerColor = Color(0xFF60A5FA)
+                                                )
+                                            ) {
+                                                androidx.compose.material3.Text(
+                                                    text = "Continuar",
+                                                    color = Color(0xFF06111F),
+                                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                                                )
+                                            }
+                                        }
+                                    )
+                                } else {
+                                    PostLoginDriveBackupScreen(
+                                        planTier = planTier,
+                                        onContinueWithoutRestore = {
+                                            showPostLoginBackupCheck = false
+                                            restoredBackupOnboardingFlow = false
+                                            showOnboarding = AppPreferences.needsOnboarding(this@MainActivity)
+                                        },
+                                        onRestoreComplete = {
+                                            showPostLoginBackupCheck = false
+                                            restoredBackupOnboardingFlow = true
+                                            showOnboarding = true
+                                        }
+                                    )
+                                }
                             } else if (showOnboarding) {
                                 keepNativeSplashVisible = false
                                 OnboardingScreen(
