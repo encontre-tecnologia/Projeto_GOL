@@ -3,7 +3,6 @@
 import android.content.Context
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -32,7 +31,6 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -66,7 +64,6 @@ fun PerfilScreen(
     val cardBg = if (isDark) Color(0xFF0D1B2E) else Color.White
     val cardBorder = if (isDark) Color(0xFF1E3A5F) else Color(0xFFD6E0EF)
     val titleColor = if (isDark) Color(0xFFF8FAFC) else Color(0xFF0F172A)
-    val logoutTint = if (isDark) Color(0xFFFC8181) else Color(0xFFDC2626)
 
     val user = FirebaseAuth.getInstance().currentUser
     val nome = user?.displayName?.takeIf { it.isNotBlank() } ?: "Usuário"
@@ -76,6 +73,7 @@ fun PerfilScreen(
     val isPremium = planTier != PlanTier.FREE
 
     var showDeleteDialog by remember { mutableStateOf(false) }
+    var showLogoutDialog by remember { mutableStateOf(false) }
 
     if (showDeleteDialog) {
         DeleteAccountDialog(
@@ -83,6 +81,16 @@ fun PerfilScreen(
             onConfirm = {
                 showDeleteDialog = false
                 apagarContaLocalRemota(context)
+                onDismiss()
+            }
+        )
+    }
+    if (showLogoutDialog) {
+        LogoutConfirmDialog(
+            onDismiss = { showLogoutDialog = false },
+            onConfirm = {
+                showLogoutDialog = false
+                FirebaseAuth.getInstance().signOut()
                 onDismiss()
             }
         )
@@ -124,20 +132,7 @@ fun PerfilScreen(
                     fontSize = 20.sp
                 )
                 Spacer(Modifier.weight(1f))
-                IconButton(
-                    onClick = {
-                        FirebaseAuth.getInstance().signOut()
-                        onDismiss()
-                    },
-                    modifier = Modifier.size(40.dp)
-                ) {
-                    Icon(
-                        Icons.AutoMirrored.Filled.Logout,
-                        contentDescription = "Sair",
-                        tint = logoutTint,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
+                Spacer(Modifier.size(40.dp))
             }
 
             Spacer(Modifier.height(24.dp))
@@ -168,11 +163,11 @@ fun PerfilScreen(
                             contentScale = ContentScale.Crop
                         )
                     } else {
-                        Image(
-                            painter = painterResource(id = R.mipmap.ic_launcher_foreground),
+                        Icon(
+                            imageVector = Icons.Rounded.Person,
                             contentDescription = null,
-                            modifier = Modifier.fillMaxSize().clip(CircleShape),
-                            contentScale = ContentScale.Crop
+                            tint = if (isDark) Color(0xFF93C5FD) else Color(0xFF2563EB),
+                            modifier = Modifier.size(54.dp)
                         )
                     }
                 }
@@ -293,12 +288,27 @@ fun PerfilScreen(
 
             Spacer(Modifier.height(32.dp))
 
+            // --- DELETE BUTTON ---
+            OutlinedButton(
+                onClick = { showDeleteDialog = true },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp)
+                    .height(52.dp),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, Color(0xFF7F1D1D)),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFFC8181))
+            ) {
+                Icon(Icons.Rounded.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(10.dp))
+                Text("Excluir conta e dados", fontWeight = FontWeight.SemiBold)
+            }
+
+            Spacer(Modifier.height(12.dp))
+
             // --- LOGOUT BUTTON ---
             Button(
-                onClick = {
-                    FirebaseAuth.getInstance().signOut()
-                    onDismiss()
-                },
+                onClick = { showLogoutDialog = true },
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 20.dp)
@@ -318,24 +328,6 @@ fun PerfilScreen(
                     color = if (isDark) Color(0xFF60A5FA) else Color(0xFF1D4ED8),
                     fontWeight = FontWeight.SemiBold
                 )
-            }
-
-            Spacer(Modifier.height(12.dp))
-
-            // --- DELETE BUTTON ---
-            OutlinedButton(
-                onClick = { showDeleteDialog = true },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp)
-                    .height(52.dp),
-                shape = RoundedCornerShape(16.dp),
-                border = BorderStroke(1.dp, Color(0xFF7F1D1D)),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFFC8181))
-            ) {
-                Icon(Icons.Rounded.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(10.dp))
-                Text("Excluir conta e dados", fontWeight = FontWeight.SemiBold)
             }
 
             Spacer(Modifier.height(32.dp))
@@ -506,6 +498,10 @@ private fun DeleteAccountDialog(
     val cardBorder = if (isDark) Color(0xFF1E3A5F) else Color(0xFFD6E0EF)
     val titleColor = if (isDark) Color(0xFFF8FAFC) else Color(0xFF0F172A)
     val subColor = if (isDark) Color(0xFF94A3B8) else Color(0xFF64748B)
+    val dangerBg = if (isDark) Color(0xFF4A1F2A) else Color(0xFFFFE4E6)
+    val dangerColor = if (isDark) Color(0xFFFDA4AF) else Color(0xFFE11D48)
+    val dangerButtonBg = if (isDark) Color(0xFF7F2A3A) else Color(0xFFFFCDD2)
+    val dangerButtonText = if (isDark) Color(0xFFFFCDD2) else Color(0xFF9F1239)
 
     Dialog(onDismissRequest = onDismiss) {
         Column(
@@ -521,10 +517,10 @@ private fun DeleteAccountDialog(
                 modifier = Modifier
                     .size(64.dp)
                     .clip(CircleShape)
-                    .background(Color(0xFF7F1D1D)),
+                    .background(dangerBg),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(Icons.Rounded.Delete, contentDescription = null, tint = Color(0xFFFC8181), modifier = Modifier.size(30.dp))
+                Icon(Icons.Rounded.Delete, contentDescription = null, tint = dangerColor, modifier = Modifier.size(30.dp))
             }
             Spacer(Modifier.height(20.dp))
             Text(
@@ -560,9 +556,9 @@ private fun DeleteAccountDialog(
                     onClick = onConfirm,
                     modifier = Modifier.weight(1f).height(48.dp),
                     shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7F1D1D))
+                    colors = ButtonDefaults.buttonColors(containerColor = dangerButtonBg)
                 ) {
-                    Text(tr("Apagar", "Delete"), color = Color(0xFFFC8181), fontWeight = FontWeight.Bold)
+                    Text(tr("Apagar", "Delete"), color = dangerButtonText, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -610,3 +606,80 @@ private fun apagarContaLocalRemota(context: Context) {
     Toast.makeText(context, "Dados removidos com sucesso.", Toast.LENGTH_LONG).show()
 }
 
+@Composable
+private fun LogoutConfirmDialog(
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    val scheme = MaterialTheme.colorScheme
+    val isDark = scheme.background.luminance() < 0.5f
+    val cardBg = if (isDark) Color(0xFF0D1B2E) else Color.White
+    val cardBorder = if (isDark) Color(0xFF1E3A5F) else Color(0xFFD6E0EF)
+    val titleColor = if (isDark) Color(0xFFF8FAFC) else Color(0xFF0F172A)
+    val subColor = if (isDark) Color(0xFF94A3B8) else Color(0xFF64748B)
+    val actionBg = if (isDark) Color(0xFF1E3A5F) else Color(0xFFE2E8F0)
+    val actionColor = if (isDark) Color(0xFF60A5FA) else Color(0xFF1D4ED8)
+
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(24.dp))
+                .background(cardBg)
+                .border(BorderStroke(1.dp, cardBorder), RoundedCornerShape(24.dp))
+                .padding(28.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(64.dp)
+                    .clip(CircleShape)
+                    .background(actionBg),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.AutoMirrored.Filled.Logout,
+                    contentDescription = null,
+                    tint = actionColor,
+                    modifier = Modifier.size(30.dp)
+                )
+            }
+            Spacer(Modifier.height(20.dp))
+            Text(
+                "Sair da conta?",
+                color = titleColor,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center
+            )
+            Spacer(Modifier.height(10.dp))
+            Text(
+                "Você poderá entrar novamente com sua conta Google quando quiser.",
+                color = subColor,
+                fontSize = 14.sp,
+                textAlign = TextAlign.Center,
+                lineHeight = 20.sp
+            )
+            Spacer(Modifier.height(28.dp))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.weight(1f).height(48.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    border = BorderStroke(1.dp, cardBorder),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = subColor)
+                ) {
+                    Text("Cancelar", fontWeight = FontWeight.SemiBold)
+                }
+                Button(
+                    onClick = onConfirm,
+                    modifier = Modifier.weight(1f).height(48.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = actionBg)
+                ) {
+                    Text("Sair", color = actionColor, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+}

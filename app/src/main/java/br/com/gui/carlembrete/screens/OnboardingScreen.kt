@@ -94,7 +94,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -119,7 +118,6 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationManagerCompat
-import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -226,9 +224,8 @@ fun OnboardingScreen(
 ) {
     var step by remember { mutableIntStateOf(initialStep) }
     val context = LocalContext.current
-    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
-    val onboardingBg = if (isDark) Color.Black else Color(0xFF0F2A4A)
-    val onboardingCardBg = if (isDark) Color(0xFF111827) else Color(0xFF1E293B)
+    val onboardingBg = Color(0xFF0B1220)
+    val onboardingCardBg = Color(0xFF1E293B)
     val scope = rememberCoroutineScope()
     var carroNome by remember { mutableStateOf("") }
     var carroMarca by remember { mutableStateOf("") }
@@ -241,6 +238,28 @@ fun OnboardingScreen(
     var selectedThemeMode by remember { mutableStateOf(AppThemeMode.DARK) }
     var aceitouTermos by remember { mutableStateOf(false) }
     var aceitouPrivacidade by remember { mutableStateOf(false) }
+    DisposableEffect(context) {
+        val window = context.findActivity()?.window
+        if (window == null) {
+            onDispose {}
+        } else {
+            val controller = WindowInsetsControllerCompat(window, window.decorView)
+            val previousStatusColor = window.statusBarColor
+            val previousNavigationColor = window.navigationBarColor
+            val previousLightStatusBars = controller.isAppearanceLightStatusBars
+            val previousLightNavigationBars = controller.isAppearanceLightNavigationBars
+            window.statusBarColor = android.graphics.Color.BLACK
+            window.navigationBarColor = android.graphics.Color.BLACK
+            controller.isAppearanceLightStatusBars = false
+            controller.isAppearanceLightNavigationBars = false
+            onDispose {
+                window.statusBarColor = previousStatusColor
+                window.navigationBarColor = previousNavigationColor
+                controller.isAppearanceLightStatusBars = previousLightStatusBars
+                controller.isAppearanceLightNavigationBars = previousLightNavigationBars
+            }
+        }
+    }
     val previousStep = when (step) {
         7 -> 5
         6 -> 4
@@ -518,7 +537,7 @@ fun OnboardingScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(if (currentStep in listOf(5, 6, 9)) 0.dp else 24.dp)
+                    .padding(if (currentStep in listOf(5, 6, 7, 9)) 0.dp else 24.dp)
             ) {
                 when (currentStep) {
                     1 -> {
@@ -796,7 +815,8 @@ fun OnboardingScreen(
                                 modifier = Modifier
                                     .align(Alignment.BottomCenter)
                                     .fillMaxWidth()
-                                    .background(Color.Black)
+                                    .background(onboardingBg)
+                                    .navigationBarsPadding()
                                     .padding(horizontal = 16.dp, vertical = 12.dp)
                             ) {
                                 Button(
@@ -948,7 +968,7 @@ fun OnboardingScreen(
                             LazyColumn(
                                 modifier = Modifier.fillMaxSize(),
                                 verticalArrangement = Arrangement.spacedBy(14.dp),
-                                contentPadding = PaddingValues(bottom = 92.dp)
+                                contentPadding = PaddingValues(start = 26.dp, top = 24.dp, end = 26.dp, bottom = 112.dp)
                             ) {
                                 item {
                                 Box(
@@ -1139,8 +1159,9 @@ fun OnboardingScreen(
                                 modifier = Modifier
                                     .align(Alignment.BottomCenter)
                                     .fillMaxWidth()
-                                    .background(Color.Black)
-                                    .padding(vertical = 12.dp)
+                                    .background(onboardingBg)
+                                    .navigationBarsPadding()
+                                    .padding(horizontal = 20.dp, vertical = 12.dp)
                             ) {
                                 Button(
                                     onClick = { step = if (requireVehicleSetup) 4 else 6 },
@@ -1150,10 +1171,18 @@ fun OnboardingScreen(
                                         .height(56.dp),
                                     shape = RoundedCornerShape(10.dp),
                                     colors = ButtonDefaults.buttonColors(
-                                        containerColor = if (aceitouTermos && aceitouPrivacidade) Color(0xFF2563EB) else Color(0xFF475569),
-                                        contentColor = Color.White
+                                        containerColor = Color(0xFF2563EB),
+                                        contentColor = Color.White,
+                                        disabledContainerColor = Color(0xFF334155),
+                                        disabledContentColor = Color(0xFF94A3B8)
                                     )
-                                ) { Text("Próximo", fontSize = 19.sp) }
+                                ) {
+                                    Text(
+                                        "Próximo",
+                                        fontSize = 19.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
                             }
                         }
                     }
