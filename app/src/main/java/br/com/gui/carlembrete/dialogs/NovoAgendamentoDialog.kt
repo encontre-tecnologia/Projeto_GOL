@@ -198,6 +198,7 @@ fun NovoAgendamentoDialog(
     val fuelRecordLimit = fuelRecordLimitForPlan(planTier)
     val scannerLimit = scannerLimitForPlan(planTier)
     val planLabel = planNameLabel(planTier)
+    val canUseRecurringReminders = planTier != PlanTier.FREE
     val scheme = MaterialTheme.colorScheme
     val isDark = scheme.background.luminance() < 0.5f
     val pageBackground = if (isDark) Color.Black else scheme.background
@@ -669,6 +670,7 @@ fun NovoAgendamentoDialog(
     }
 
     fun recorrenciaSelecionadaConfig(): Pair<String, Int>? {
+        if (!canUseRecurringReminders) return null
         if (!repetirAteDesativar) return null
         return when (frequenciaLembreteKey) {
             "DAY" -> {
@@ -721,11 +723,8 @@ fun NovoAgendamentoDialog(
     fun aplicarPrimeiroAvisoAgoraSeRecorrente() {
         if (!repetirAteDesativar) return
         if (frequenciaLembreteKey != "DAY" && frequenciaLembreteKey != "MONTH" && frequenciaLembreteKey != "YEAR") return
-        val hoje = dataHojeFormatada()
-        dataAviso = hoje
-        if (itemDataAvisoOverrides.isNotEmpty()) {
-            itemDataAvisoOverrides = itemDataAvisoOverrides.mapValues { hoje }
-        }
+        // Mantem a data escolhida pelo usuario: a recorrencia deve nascer da data do aviso,
+        // nao do dia em que a repeticao foi ativada.
     }
 
     fun iniciarCapturaVoz() {
@@ -997,7 +996,7 @@ fun NovoAgendamentoDialog(
         val dataAvisoStr = when {
             isRegistroServico -> data
             !isRegistroServico && recorrenciaConfig != null -> proximaDataRecorrenteFutura(
-                dataInicial = dataHojeFormatada(),
+                dataInicial = dataAviso,
                 hora = horaNotificacao,
                 recorrenciaConfig = recorrenciaConfig
             )
@@ -1029,8 +1028,9 @@ fun NovoAgendamentoDialog(
                 val kmFuturo = kmOuEstadoPorTipo(tipoItem, kmAtualBase)
                 val horaItem = itemHoraAvisoOverrides[item.id] ?: horaNotificacao
                 val dataItem = if (!isRegistroServico && recorrenciaConfig != null) {
+                    val dataBaseItem = itemDataAvisoOverrides[item.id] ?: dataAvisoStr
                     proximaDataRecorrenteFutura(
-                        dataInicial = dataHojeFormatada(),
+                        dataInicial = dataBaseItem,
                         hora = horaItem,
                         recorrenciaConfig = recorrenciaConfig
                     )
@@ -2820,16 +2820,20 @@ fun NovoAgendamentoDialog(
                                             interactionSource = remember { MutableInteractionSource() },
                                             indication = null
                                         ) {
-                                            val novoValor = !repetirAteDesativar
-                                            repetirAteDesativar = novoValor
-                                            if (novoValor) {
-                                                if (frequenciaLembreteKey == "NONE") {
-                                                    frequenciaLembreteKey = "DAY"
-                                                }
-                                                aplicarPrimeiroAvisoAgoraSeRecorrente()
+                                            if (!canUseRecurringReminders) {
+                                                onRequestPremium("recurrence_premium")
                                             } else {
-                                                frequenciaLembreteKey = "NONE"
-                                                menuFrequenciaExpanded = false
+                                                val novoValor = !repetirAteDesativar
+                                                repetirAteDesativar = novoValor
+                                                if (novoValor) {
+                                                    if (frequenciaLembreteKey == "NONE") {
+                                                        frequenciaLembreteKey = "DAY"
+                                                    }
+                                                    aplicarPrimeiroAvisoAgoraSeRecorrente()
+                                                } else {
+                                                    frequenciaLembreteKey = "NONE"
+                                                    menuFrequenciaExpanded = false
+                                                }
                                             }
                                         }
                                         .padding(vertical = 2.dp),
@@ -2838,15 +2842,19 @@ fun NovoAgendamentoDialog(
                                     Checkbox(
                                         checked = repetirAteDesativar,
                                         onCheckedChange = { marcado ->
-                                            repetirAteDesativar = marcado
-                                            if (marcado) {
-                                                if (frequenciaLembreteKey == "NONE") {
-                                                    frequenciaLembreteKey = "DAY"
-                                                }
-                                                aplicarPrimeiroAvisoAgoraSeRecorrente()
+                                            if (!canUseRecurringReminders) {
+                                                onRequestPremium("recurrence_premium")
                                             } else {
-                                                frequenciaLembreteKey = "NONE"
-                                                menuFrequenciaExpanded = false
+                                                repetirAteDesativar = marcado
+                                                if (marcado) {
+                                                    if (frequenciaLembreteKey == "NONE") {
+                                                        frequenciaLembreteKey = "DAY"
+                                                    }
+                                                    aplicarPrimeiroAvisoAgoraSeRecorrente()
+                                                } else {
+                                                    frequenciaLembreteKey = "NONE"
+                                                    menuFrequenciaExpanded = false
+                                                }
                                             }
                                         }
                                     )
@@ -2855,8 +2863,31 @@ fun NovoAgendamentoDialog(
                                         color = textPrimary,
                                         fontWeight = FontWeight.SemiBold
                                     )
+                                    if (!canUseRecurringReminders) {
+                                        Spacer(Modifier.width(8.dp))
+                                        AssistChip(
+                                            onClick = { onRequestPremium("recurrence_premium") },
+                                            label = { Text("Lite+") },
+                                            leadingIcon = {
+                                                Icon(
+                                                    Icons.Default.Lock,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(14.dp)
+                                                )
+                                            }
+                                        )
+                                    }
                                 }
                                 if (repetirAteDesativar) {
+                                    Text(
+                                        text = tr(
+                                            "A repetição é calculada a partir da data deste aviso.",
+                                            "Repeat is calculated from this reminder date."
+                                        ),
+                                        color = textSecondary,
+                                        fontSize = 12.sp,
+                                        lineHeight = 16.sp
+                                    )
                                     ExposedDropdownMenuBox(
                                         expanded = menuFrequenciaExpanded,
                                         onExpandedChange = { menuFrequenciaExpanded = !menuFrequenciaExpanded },

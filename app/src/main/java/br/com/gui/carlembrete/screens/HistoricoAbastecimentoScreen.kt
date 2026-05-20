@@ -212,7 +212,7 @@ fun HistoricoAbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             MiniResumoDestaque(
-                                label = tr("Consumo medio", "Average consumption"),
+                                label = tr("Media por dia", "Daily average"),
                                 value = resumoConsumo.litrosPorDia?.let {
                                     String.format(Locale("pt", "BR"), "%.2f L/dia", it)
                                 } ?: "--",
@@ -222,7 +222,7 @@ fun HistoricoAbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
                             )
                             MiniResumoDestaque(
                                 label = tr("Litros", "Liters"),
-                                value = String.format(Locale("pt", "BR"), "%.2f L", resumoConsumo.litrosConsiderados),
+                                value = String.format(Locale("pt", "BR"), "%.2f L", resumoConsumo.litrosTotais),
                                 isDark = isDark,
                                 valueColor = if (isDark) Color(0xFF93C5FD) else Color(0xFF1D4ED8),
                                 modifier = Modifier.weight(1f)
@@ -527,12 +527,16 @@ private data class ResumoConsumoAbastecimento(
         get() {
             val locale = Locale("pt", "BR")
             return when {
-                litrosPorDia != null && diasConsiderados != null -> {
+                litrosPorDia != null && diasConsiderados != null && intervalosValidos > 0 -> {
                     "Baseado em $diasConsiderados dia(s) entre abastecimentos e " +
                         "${String.format(locale, "%.2f", litrosConsiderados)} L abastecidos em $intervalosValidos intervalo(s)."
                 }
+                litrosPorDia != null && diasConsiderados != null -> {
+                    "Baseado em $diasConsiderados dia(s) com abastecimento registrado e " +
+                        "${String.format(locale, "%.2f", litrosConsiderados)} L no total."
+                }
                 litrosTotais > 0.0 -> {
-                    "Cadastre pelo menos dois abastecimentos em datas diferentes para calcular o consumo medio por dia."
+                    "Cadastre abastecimentos em dias diferentes para calcular a media de consumo por dia."
                 }
                 else -> {
                     "Cadastre abastecimentos para o app calcular o consumo medio por intervalo."
@@ -609,11 +613,17 @@ private fun calcularResumoConsumoAbastecimento(
     }
 
     if (intervalos.isEmpty() || litrosTotais <= 0.0) {
+        val diasComRegistro = registrosComData
+            .map { it.data }
+            .distinct()
+            .size
+            .takeIf { it > 0 }
+        val mediaPorDiaRegistrado = diasComRegistro?.let { litrosTotais / it.toDouble() }
         return ResumoConsumoAbastecimento(
-            litrosPorDia = null,
+            litrosPorDia = mediaPorDiaRegistrado?.takeIf { it.isFinite() && it > 0.0 },
             litrosTotais = litrosTotais,
-            litrosConsiderados = 0.0,
-            diasConsiderados = null,
+            litrosConsiderados = litrosTotais.takeIf { it.isFinite() && it > 0.0 } ?: 0.0,
+            diasConsiderados = diasComRegistro?.toLong(),
             intervalosValidos = 0
         )
     }

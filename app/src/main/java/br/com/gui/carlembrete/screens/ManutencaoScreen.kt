@@ -151,6 +151,84 @@ private fun markFuelReportMiniTutorialSeen(context: Context) {
         .apply()
 }
 
+@Composable
+private fun PremiumRequirementDialog(
+    title: String,
+    message: String,
+    isDark: Boolean,
+    onDismiss: () -> Unit,
+    onViewPlans: () -> Unit
+) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        val limitDialogBg = if (isDark) Color(0xFF0F172A) else Color(0xFFFFFBF2)
+        val limitDialogBorder = if (isDark) Color(0xFFF59E0B).copy(alpha = 0.58f) else Color(0xFFF2D57A)
+        val limitTitle = if (isDark) Color(0xFFFBBF24) else Color(0xFF9A6A00)
+        val limitText = if (isDark) Color(0xFFCBD5E1) else Color(0xFF334155)
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp),
+            shape = RoundedCornerShape(24.dp),
+            color = limitDialogBg,
+            tonalElevation = 8.dp,
+            shadowElevation = 16.dp,
+            border = BorderStroke(1.dp, limitDialogBorder.copy(alpha = if (isDark) 0.55f else 1f))
+        ) {
+            Column(
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Text(
+                    title,
+                    color = limitTitle,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 20.sp
+                )
+                Text(
+                    message,
+                    color = limitText,
+                    fontSize = 14.sp,
+                    lineHeight = 19.sp
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(46.dp),
+                        shape = RoundedCornerShape(24.dp),
+                        border = BorderStroke(1.dp, Color(0xFFF59E0B)),
+                        colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.Transparent)
+                    ) {
+                        Text(
+                            "Agora não",
+                            color = Color(0xFFF59E0B),
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    Button(
+                        onClick = onViewPlans,
+                        modifier = Modifier
+                            .weight(1.12f)
+                            .height(46.dp),
+                        shape = RoundedCornerShape(24.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF59E0B))
+                    ) {
+                        Text("Ver planos", color = Color.Black, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
+}
+
 /* ----------------- TELA PRINCIPAL (Visual Dashboard Premium) ----------------- */
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -527,6 +605,56 @@ fun ManutencaoScreen(
     var showPremiumBeneficiosScreen by remember { mutableStateOf(false) }
     var showAvisosNotificacoesDialog by remember { mutableStateOf(false) }
     var notificacoesDisparadas by remember { mutableStateOf<List<NotificacaoDisparada>>(emptyList()) }
+    fun currentPremiumDialogCopy(): Pair<String, String> {
+        val activeReminderCount = todosLembretes.count {
+            it.tipo != TipoManutencao.ABASTECIMENTO && !isLembreteRealizado(it)
+        }
+        val activeRecordCount = todosLembretes.count {
+            it.tipo != TipoManutencao.ABASTECIMENTO && isLembreteRealizado(it)
+        }
+        val activeMaintenanceCount = activeReminderCount + activeRecordCount
+        val currentReminderLimit = effectiveReminderLimitForPlan(planTier, adminReminderLimitOverride)
+        val currentFuelRecordLimit = fuelRecordLimitForPlan(planTier)
+        val currentScannerLimit = scannerLimitForPlan(planTier)
+        val liteReminderLimit = reminderLimitForPlan(PlanTier.LITE)
+        val liteFuelRecordLimit = fuelRecordLimitForPlan(PlanTier.LITE)
+        val liteScannerLimit = scannerLimitForPlan(PlanTier.LITE)
+        val displayedMaintenanceCount = if (currentReminderLimit == Int.MAX_VALUE) {
+            activeMaintenanceCount
+        } else {
+            activeMaintenanceCount.coerceAtMost(currentReminderLimit)
+        }
+        val displayedFuelCount = if (currentFuelRecordLimit == Int.MAX_VALUE) {
+            abastecimentos.size
+        } else {
+            abastecimentos.size.coerceAtMost(currentFuelRecordLimit)
+        }
+        val maintenanceUsageText =
+            "Voce esta no plano $planNameCurrent e ja usa $displayedMaintenanceCount de $currentReminderLimit avisos/registros."
+        val fuelUsageText =
+            "Voce esta no plano $planNameCurrent e ja cadastrou $displayedFuelCount de $currentFuelRecordLimit abastecimentos."
+        val dialogTitle = when (premiumDialogReason) {
+            "reminder_limit" -> "Limite de avisos atingido"
+            "record_limit" -> "Limite de registros atingido"
+            "fuel_limit" -> "Limite de abastecimentos atingido"
+            "scanner_limit" -> "Limite de scanner atingido"
+            "parking_pdf" -> "PDF do estacionamento no Lite"
+            "recurrence_premium" -> "Repetição automática no Lite"
+            "drive_backup" -> "Backup no Drive é Lite+"
+            else -> "Recurso Premium"
+        }
+        val dialogText = when (premiumDialogReason) {
+            "reminder_limit" -> "$maintenanceUsageText Para criar mais lembretes de manutencao, assine o Lite e libere ate $liteReminderLimit avisos/registros."
+            "record_limit" -> "$maintenanceUsageText Para salvar mais servicos que ja aconteceram, assine o Lite e libere ate $liteReminderLimit avisos/registros."
+            "fuel_limit" -> "$fuelUsageText Para continuar acompanhando consumo e km/L, assine o Lite e libere ate $liteFuelRecordLimit abastecimentos."
+            "scanner_limit" -> "Voce esta no plano $planNameCurrent e ja usou os $currentScannerLimit scans de QR deste mes. O Lite libera $liteScannerLimit scans por mes para preencher notas mais rapido."
+            "parking_pdf" -> "O PDF do Onde parei fica disponivel no Lite, Frota e Enterprise. Gere comprovantes de parada e compartilhe quando precisar."
+            "recurrence_premium" -> "A repeticao automatica fica disponivel no Lite, Frota e Enterprise. Avisos normais continuam funcionando no plano gratis."
+            "drive_backup" -> "No plano gratis, seus dados ficam neste aparelho. O Lite libera backup e restauracao no Google Drive para proteger veiculos, avisos e historicos."
+            else -> "Escolha um plano para liberar mais avisos, scans de QR, viagens, frota e recursos avancados."
+        }
+        return dialogTitle to dialogText
+    }
     val lifecycleOwner = LocalLifecycleOwner.current
     val refreshNotificacoes = remember(context) {
         {
@@ -921,8 +1049,27 @@ fun ManutencaoScreen(
             carros = listaCarros,
             lembretes = todosLembretes,
             contatos = listaContatos,
+            planTier = planTier,
+            onRequestPremium = { reason ->
+                premiumDialogReason = reason
+                showPremiumDialog = true
+            },
             onThemeModeChanged = onThemeModeChanged
         )
+        if (showPremiumDialog) {
+            val (dialogTitle, dialogText) = currentPremiumDialogCopy()
+            PremiumRequirementDialog(
+                title = dialogTitle,
+                message = dialogText,
+                isDark = isDark,
+                onDismiss = { showPremiumDialog = false },
+                onViewPlans = {
+                    showPremiumDialog = false
+                    showConfiguracoes = false
+                    showPremiumBeneficiosScreen = true
+                }
+            )
+        }
         return
     }
     BackHandler(enabled = showAnjoDaGuardaScreen) { showAnjoDaGuardaScreen = false }
@@ -1136,6 +1283,11 @@ fun ManutencaoScreen(
                 contatoDetalheSelecionado = listaContatos.find { it.id == atualizado.contatoId }
                 Toast.makeText(context, trNow("Aviso atualizado!", "Reminder updated!"), Toast.LENGTH_SHORT).show()
             },
+            planTier = planTier,
+            onRequestPremium = { reason ->
+                premiumDialogReason = reason
+                showPremiumDialog = true
+            },
             onAddPrestador = { lembrete ->
                 lembreteParaVincularContato = lembrete.id
                 showSelecionarPrestadorScreen = true
@@ -1295,6 +1447,9 @@ fun ManutencaoScreen(
             "record_limit" -> "Limite de registros atingido"
             "fuel_limit" -> "Limite de abastecimentos atingido"
             "scanner_limit" -> "Limite de scanner atingido"
+            "parking_pdf" -> "PDF do estacionamento no Lite"
+            "recurrence_premium" -> "Repetição automática no Lite"
+            "drive_backup" -> "Backup no Drive é Lite+"
             else -> "Recurso Premium"
         }
         val dialogText = when (premiumDialogReason) {
@@ -1302,6 +1457,9 @@ fun ManutencaoScreen(
             "record_limit" -> "$maintenanceUsageText Para salvar mais servicos que ja aconteceram, assine o Lite e libere ate $liteReminderLimit avisos/registros."
             "fuel_limit" -> "$fuelUsageText Para continuar acompanhando consumo e km/L, assine o Lite e libere ate $liteFuelRecordLimit abastecimentos."
             "scanner_limit" -> "Voce esta no plano $planNameCurrent e ja usou os $currentScannerLimit scans de QR deste mes. O Lite libera $liteScannerLimit scans por mes para preencher notas mais rapido."
+            "parking_pdf" -> "O PDF do Onde parei fica disponivel no Lite, Frota e Enterprise. Gere comprovantes de parada e compartilhe quando precisar."
+            "recurrence_premium" -> "A repeticao automatica fica disponivel no Lite, Frota e Enterprise. Avisos normais continuam funcionando no plano gratis."
+            "drive_backup" -> "No plano gratis, seus dados ficam neste aparelho. O Lite libera backup e restauracao no Google Drive para proteger veiculos, avisos e historicos."
             else -> "Escolha um plano para liberar mais avisos, scans de QR, viagens, frota e recursos avancados."
         }
         Dialog(
@@ -1309,7 +1467,7 @@ fun ManutencaoScreen(
             properties = DialogProperties(usePlatformDefaultWidth = false)
         ) {
             val limitDialogBg = if (isDark) Color(0xFF0F172A) else Color(0xFFFFFBF2)
-            val limitDialogBorder = if (isDark) Color(0xFF1D4ED8) else Color(0xFFF2D57A)
+            val limitDialogBorder = if (isDark) Color(0xFFF59E0B).copy(alpha = 0.58f) else Color(0xFFF2D57A)
             val limitTitle = if (isDark) Color(0xFFFBBF24) else Color(0xFF9A6A00)
             val limitText = if (isDark) Color(0xFFCBD5E1) else Color(0xFF334155)
             Surface(
@@ -1532,7 +1690,14 @@ fun ManutencaoScreen(
     }
     BackHandler(enabled = showAondePareiScreen) { showAondePareiScreen = false }
     if (showAondePareiScreen) {
-        AondePareiScreen(onDismiss = { showAondePareiScreen = false })
+        AondePareiScreen(
+            onDismiss = { showAondePareiScreen = false },
+            planTier = planTier,
+            onRequestPremium = { reason ->
+                premiumDialogReason = reason
+                showPremiumDialog = true
+            }
+        )
         return
     }
     BackHandler(enabled = showAiAssistantScreen) { showAiAssistantScreen = false }
@@ -3448,6 +3613,8 @@ private fun LembreteDetalhesScreen(
     onMarkAsDone: (Lembrete) -> Unit,
     onFinalizeAndClose: (Lembrete) -> Unit,
     onSalvar: (Lembrete) -> Unit,
+    planTier: PlanTier = PlanTier.FREE,
+    onRequestPremium: (String) -> Unit = {},
     onAddPrestador: (Lembrete) -> Unit
 ) {
     val context = LocalContext.current
@@ -3573,6 +3740,7 @@ private fun LembreteDetalhesScreen(
         lembrete.tipo != TipoManutencao.SEGURO &&
         lembrete.tipo != TipoManutencao.IPVA &&
         lembrete.tipo != TipoManutencao.ABASTECIMENTO
+    val podeUsarRepeticaoAutomatica = planTier != PlanTier.FREE
     fun textoRecorrencia(unit: String, interval: Int): String {
         val intervaloValido = interval.coerceAtLeast(1)
         return when (unit) {
@@ -3663,7 +3831,7 @@ private fun LembreteDetalhesScreen(
 
     LaunchedEffect(lembrete.id) {
         val recorrenciaAtual = NotificacaoHelper.obterRecorrencia(context.applicationContext, lembrete.id)
-        repetirAviso = recorrenciaAtual != null && tipoPermiteRepeticao
+        repetirAviso = recorrenciaAtual != null && tipoPermiteRepeticao && podeUsarRepeticaoAutomatica
         recorrenciaUnit = recorrenciaAtual?.unit ?: NotificacaoHelper.REC_UNIT_DAY
         recorrenciaIntervaloTexto = (recorrenciaAtual?.interval ?: 1).coerceAtLeast(1).toString()
     }
@@ -3686,7 +3854,7 @@ private fun LembreteDetalhesScreen(
         kmLimite = lembrete.kmLimite
         contatoSelecionadoId = lembrete.contatoId
         val recorrenciaAtual = NotificacaoHelper.obterRecorrencia(context.applicationContext, lembrete.id)
-        repetirAviso = recorrenciaAtual != null && tipoPermiteRepeticao
+        repetirAviso = recorrenciaAtual != null && tipoPermiteRepeticao && podeUsarRepeticaoAutomatica
         recorrenciaUnit = recorrenciaAtual?.unit ?: NotificacaoHelper.REC_UNIT_DAY
         recorrenciaIntervaloTexto = (recorrenciaAtual?.interval ?: 1).coerceAtLeast(1).toString()
         menuRecorrenciaExpanded = false
@@ -4040,13 +4208,25 @@ private fun LembreteDetalhesScreen(
                                             .fillMaxWidth()
                                             .clip(RoundedCornerShape(14.dp))
                                             .background(if (isDark) Color.White.copy(alpha = 0.05f) else Color(0xFFF8FAFC))
-                                            .clickable { repetirAviso = !repetirAviso }
+                                            .clickable {
+                                                if (podeUsarRepeticaoAutomatica) {
+                                                    repetirAviso = !repetirAviso
+                                                } else {
+                                                    onRequestPremium("recurrence_premium")
+                                                }
+                                            }
                                             .padding(horizontal = 10.dp, vertical = 8.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Checkbox(
                                             checked = repetirAviso,
-                                            onCheckedChange = { repetirAviso = it }
+                                            onCheckedChange = {
+                                                if (podeUsarRepeticaoAutomatica) {
+                                                    repetirAviso = it
+                                                } else {
+                                                    onRequestPremium("recurrence_premium")
+                                                }
+                                            }
                                         )
                                         Column {
                                             Text(
@@ -4056,8 +4236,31 @@ private fun LembreteDetalhesScreen(
                                             )
                                             Text(descricaoRecorrenciaAtual, color = textSecondary, fontSize = 12.sp)
                                         }
+                                        if (!podeUsarRepeticaoAutomatica) {
+                                            Spacer(Modifier.width(8.dp))
+                                            AssistChip(
+                                                onClick = { onRequestPremium("recurrence_premium") },
+                                                label = { Text("Lite+") },
+                                                leadingIcon = {
+                                                    Icon(
+                                                        Icons.Default.Lock,
+                                                        contentDescription = null,
+                                                        modifier = Modifier.size(14.dp)
+                                                    )
+                                                }
+                                            )
+                                        }
                                     }
                                     if (repetirAviso) {
+                                        Text(
+                                            text = tr(
+                                                "A repetição é calculada a partir da data deste aviso.",
+                                                "Repeat is calculated from this reminder date."
+                                            ),
+                                            color = textSecondary,
+                                            fontSize = 12.sp,
+                                            lineHeight = 16.sp
+                                        )
                                         ExposedDropdownMenuBox(
                                             expanded = menuRecorrenciaExpanded,
                                             onExpandedChange = { menuRecorrenciaExpanded = !menuRecorrenciaExpanded },
@@ -4359,7 +4562,7 @@ private fun LembreteDetalhesScreen(
                                 atualizado.tipo != TipoManutencao.SEGURO &&
                                 atualizado.tipo != TipoManutencao.IPVA &&
                                 atualizado.tipo != TipoManutencao.ABASTECIMENTO
-                            if (atualizadoPermiteRepeticao && repetirAviso) {
+                            if (atualizadoPermiteRepeticao && podeUsarRepeticaoAutomatica && repetirAviso) {
                                 NotificacaoHelper.salvarRecorrencia(
                                     context = context.applicationContext,
                                     lembreteId = atualizado.id,
