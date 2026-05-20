@@ -1,6 +1,9 @@
 ﻿package br.com.gui.carlembrete
 
 import HistoricoAbastecimentoScreen
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -29,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -39,20 +43,31 @@ import android.app.DatePickerDialog
 import androidx.compose.material.icons.filled.CalendarMonth
 import java.util.Locale
 
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
     val scheme = MaterialTheme.colorScheme
     val isDark = scheme.background.luminance() < 0.5f
-    val primaryDark = if (isDark) Color(0xFF0F172A) else scheme.background
-    val surfaceDark = if (isDark) Color(0xFF1E293B) else scheme.surface
+    val primaryDark = if (isDark) Color.Black else scheme.background
+    val surfaceDark = if (isDark) Color(0xFF111827) else scheme.surface
     val accentBlue = Color(0xFF3B82F6)
     val accentGreen = Color(0xFF34D399)
     val cardStroke = if (isDark) Color(0xFF1F2A44) else Color(0xFFCBD5E1)
     val textPrimary = if (isDark) Color.White else Color.Black
     val textDim = if (isDark) Color(0xFF94A3B8) else Color(0xFF475569)
     val context = LocalContext.current
+    val activity = remember(context) { context.findActivity() }
     val scope = rememberCoroutineScope()
+    val subscriptionManager = remember { SubscriptionManager(context) }
+    val planTier by subscriptionManager.planTier.collectAsState()
+    val fuelRecordLimit = fuelRecordLimitForPlan(planTier)
+    val planLabel = planNameLabel(planTier)
     var precoGasolina by remember { mutableStateOf("5,60") }
     var valorAbastecido by remember { mutableStateOf("20,00") }
     val opcoesCombustivel = if (isEnglishUi()) {
@@ -69,6 +84,8 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
     var isSaving by remember { mutableStateOf(false) }
     var showSalvarSucessoDialog by remember { mutableStateOf(false) }
     var showHistoricoScreen by remember { mutableStateOf(false) }
+    var showFuelLimitDialog by remember { mutableStateOf(false) }
+    var showPremiumBeneficiosScreen by remember { mutableStateOf(false) }
     val dateFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
     var dataSelecionada by remember { mutableStateOf(LocalDate.now()) }
     val preco = precoGasolina.replace(",", ".").toDoubleOrNull()
@@ -102,8 +119,8 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
         unfocusedLabelColor = textDim,
         focusedLeadingIconColor = if (isDark) Color(0xFFCBD5F5) else Color(0xFF334155),
         unfocusedLeadingIconColor = textDim,
-        focusedContainerColor = if (isDark) Color(0xFF0F172A) else Color.White,
-        unfocusedContainerColor = if (isDark) Color(0xFF0F172A) else Color.White
+        focusedContainerColor = if (isDark) Color(0xFF111827) else Color.White,
+        unfocusedContainerColor = if (isDark) Color(0xFF111827) else Color.White
     )
 
     LaunchedEffect(Unit) {
@@ -117,6 +134,15 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
         HistoricoAbastecimentoScreen(
             carroId = carroId,
             onDismiss = { showHistoricoScreen = false }
+        )
+        return
+    }
+    if (showPremiumBeneficiosScreen) {
+        PremiumBeneficiosScreen(
+            onDismiss = { showPremiumBeneficiosScreen = false },
+            onSubscribeNow = { plano ->
+                activity?.let { subscriptionManager.launchPurchaseFlow(it, plano) }
+            }
         )
         return
     }
@@ -342,6 +368,10 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
 
             Button(
                 onClick = {
+                    if (fuelRecordLimit != Int.MAX_VALUE && abastecimentos.size >= fuelRecordLimit) {
+                        showFuelLimitDialog = true
+                        return@Button
+                    }
                     val precoValue = preco ?: return@Button
                     val totalValue = total ?: return@Button
                     val litrosCalculados = totalValue / precoValue
@@ -364,6 +394,7 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
                         withContext(Dispatchers.IO) {
                             BancoDeDados.salvarAbastecimentos(context, atualizada)
                         }
+                        AdminUsersSync.syncFuelSnapshot(atualizada)
                         abastecimentos = atualizada
                         precoGasolina = "5,60"
                         valorAbastecido = "20,00"
@@ -461,6 +492,84 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
                             colors = ButtonDefaults.buttonColors(containerColor = accentBlue)
                         ) {
                             Text(tr("Historico", "History"), fontWeight = FontWeight.Bold, color = Color.White)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (showFuelLimitDialog) {
+        val displayedFuelCount = if (fuelRecordLimit == Int.MAX_VALUE) {
+            abastecimentos.size
+        } else {
+            abastecimentos.size.coerceAtMost(fuelRecordLimit)
+        }
+        Dialog(
+            onDismissRequest = { showFuelLimitDialog = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            val limitDialogBg = if (isDark) Color(0xFF0F172A) else Color(0xFFFFFBF2)
+            val limitDialogBorder = if (isDark) Color(0xFF1D4ED8) else Color(0xFFF2D57A)
+            val limitTitle = if (isDark) Color(0xFFFBBF24) else Color(0xFF9A6A00)
+            val limitText = if (isDark) Color(0xFFCBD5E1) else Color(0xFF334155)
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp),
+                shape = RoundedCornerShape(24.dp),
+                color = limitDialogBg,
+                tonalElevation = 8.dp,
+                shadowElevation = 16.dp,
+                border = BorderStroke(1.dp, limitDialogBorder.copy(alpha = if (isDark) 0.55f else 1f))
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Text(
+                        tr("Limite de abastecimentos atingido", "Fuel limit reached"),
+                        color = limitTitle,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 20.sp
+                    )
+                    Text(
+                        tr(
+                            "Voce esta no plano $planLabel e ja cadastrou $displayedFuelCount de $fuelRecordLimit abastecimentos. Assine o Lite para continuar acompanhando consumo e km/L.",
+                            "You are on the $planLabel plan and already saved $displayedFuelCount of $fuelRecordLimit fuel records. Subscribe to Lite to keep tracking consumption."
+                        ),
+                        color = limitText,
+                        fontSize = 14.sp,
+                        lineHeight = 19.sp
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedButton(
+                            onClick = { showFuelLimitDialog = false },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(46.dp),
+                            shape = RoundedCornerShape(24.dp),
+                            border = BorderStroke(1.dp, Color(0xFFF59E0B)),
+                            colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.Transparent)
+                        ) {
+                            Text("Agora não", color = Color(0xFFF59E0B), fontWeight = FontWeight.Bold)
+                        }
+                        Button(
+                            onClick = {
+                                showFuelLimitDialog = false
+                                showPremiumBeneficiosScreen = true
+                            },
+                            modifier = Modifier
+                                .weight(1.12f)
+                                .height(46.dp),
+                            shape = RoundedCornerShape(24.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF59E0B))
+                        ) {
+                            Text("Ver planos", color = Color.Black, fontWeight = FontWeight.Bold)
                         }
                     }
                 }

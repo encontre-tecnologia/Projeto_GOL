@@ -187,15 +187,15 @@ fun calcularCorStatus(lembretes: List<Lembrete>, tipoAlvo: TipoManutencao): Colo
 
 fun calcularReputacao(lembretes: List<Lembrete>): Pair<String, String> {
     val lembretesAtivos = lembretes.filterNot(::isLembreteRealizado)
-    if (lembretesAtivos.isEmpty()) return "Sem histÃ³rico" to "Cadastre serviÃ§os para gerar uma reputaÃ§Ã£o."
+    if (lembretesAtivos.isEmpty()) return "Sem historico" to "Cadastre servicos para gerar uma reputacao."
     val cores = TipoManutencao.values().map { calcularCorStatus(lembretesAtivos, it) }
     return when {
         cores.all { it == Color(0xFF10B981) || it == Color(0xFF334155) } ->
-            "Excelente" to "Todas as manutenÃ§Ãµes estÃ£o em dia."
+            "Excelente" to "Todas as manutencoes estao em dia."
         cores.any { it == Color(0xFFEF4444) } ->
-            "CrÃ­tica" to "Existem manutenÃ§Ãµes vencidas. Agende o quanto antes."
+            "Critica" to "Existem manutencoes vencidas. Agende o quanto antes."
         else ->
-            "Em atenÃ§Ã£o" to "Alguns lembretes estÃ£o prÃ³ximos do vencimento."
+            "Em atencao" to "Alguns lembretes estao proximos do vencimento."
     }
 }
 fun abrirWhatsApp(context: Context, telefone: String, mensagem: String) { try { val numeroLimpo = telefone.filter { it.isDigit() }; val numeroFinal = if (!numeroLimpo.startsWith("55") && numeroLimpo.length >= 10) "55$numeroLimpo" else numeroLimpo; val uri = Uri.parse("https://api.whatsapp.com/send?phone=$numeroFinal&text=${Uri.encode(mensagem)}"); context.startActivity(Intent(Intent.ACTION_VIEW, uri)) } catch (e: Exception) { Toast.makeText(context, "Erro ao abrir WhatsApp.", Toast.LENGTH_SHORT).show() } }

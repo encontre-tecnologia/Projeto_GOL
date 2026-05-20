@@ -7,6 +7,7 @@ import com.android.billingclient.api.BillingClient
 import com.android.billingclient.api.BillingClientStateListener
 import com.android.billingclient.api.BillingFlowParams
 import com.android.billingclient.api.BillingResult
+import com.android.billingclient.api.PendingPurchasesParams
 import com.android.billingclient.api.ProductDetails
 import com.android.billingclient.api.QueryProductDetailsParams
 import com.android.billingclient.api.Purchase
@@ -16,30 +17,60 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
 class SubscriptionManager(context: Context) : PurchasesUpdatedListener {
-    private val billingClient: BillingClient = BillingClient.newBuilder(context)
+    private val appContext = context.applicationContext
+    private val billingClient: BillingClient = BillingClient.newBuilder(appContext)
         .setListener(this)
-        .enablePendingPurchases()
+        .enablePendingPurchases(
+            PendingPurchasesParams.newBuilder()
+                .enableOneTimeProducts()
+                .build()
+        )
         .build()
 
-    private var productDetails: ProductDetails? = null
-    private var selectedOfferToken: String? = null
+    private val productDetailsById = mutableMapOf<String, ProductDetails>()
+    private val offerTokenByProductId = mutableMapOf<String, String>()
+    private var billingTier: PlanTier = PlanTier.FREE
 
     private val _planTier = MutableStateFlow(PlanTier.FREE)
     val planTier: StateFlow<PlanTier> = _planTier
     private val _isSubscribed = MutableStateFlow(false)
     val isSubscribed: StateFlow<Boolean> = _isSubscribed
+    private val _entitlementsLoaded = MutableStateFlow(false)
+    val entitlementsLoaded: StateFlow<Boolean> = _entitlementsLoaded
+
+    fun refreshLocalEntitlements() {
+        applyEffectiveEntitlements()
+    }
+
+    private fun applyEffectiveEntitlements() {
+        val override = isAdminPremiumOverrideEnabled(appContext)
+        val effective = if (override && billingTier == PlanTier.FREE)
+            getAdminPremiumOverrideTier(appContext)
+        else
+            billingTier
+        _planTier.value = effective
+        _isSubscribed.value = effective != PlanTier.FREE
+        val planLabel = if (effective != PlanTier.FREE) "premium" else "free"
+        val tierLabel = effective.name // "FREE", "LITE", "FROTA", "ENTERPRISE"
+        AdminUsersSync.syncCurrentUser(plan = planLabel, tierName = tierLabel)
+    }
 
     fun connect() {
+        _entitlementsLoaded.value = false
+        applyEffectiveEntitlements()
         billingClient.startConnection(object : BillingClientStateListener {
             override fun onBillingSetupFinished(billingResult: BillingResult) {
                 if (billingResult.responseCode == BillingClient.BillingResponseCode.OK) {
                     queryProduct()
                     refreshPurchases()
+                } else {
+                    _entitlementsLoaded.value = true
                 }
             }
 
             override fun onBillingServiceDisconnected() {
                 // Will retry on next user action
+                _entitlementsLoaded.value = true
             }
         })
     }
@@ -50,10 +81,19 @@ class SubscriptionManager(context: Context) : PurchasesUpdatedListener {
         }
     }
 
-    fun launchPurchaseFlow(activity: android.app.Activity) {
-        val details = productDetails ?: return
-        val offerToken = selectedOfferToken ?: run {
-            Log.w("Billing", "Oferta de assinatura indisponivel para $SUBSCRIPTION_PRODUCT_ID")
+    fun launchPurchaseFlow(
+        activity: android.app.Activity,
+        plan: SubscriptionPlan = SubscriptionPlan.FROTA
+    ) {
+        val targetProductId = plan.productId
+        val details = productDetailsById[targetProductId] ?: run {
+            Log.w("Billing", "Produto de assinatura indisponivel no Billing: $targetProductId")
+            return
+        }
+        val offerToken = offerTokenByProductId[targetProductId]
+            ?: offerTokenByProductId[details.productId]
+            ?: run {
+            Log.w("Billing", "Oferta de assinatura indisponivel para $targetProductId")
             return
         }
         val params = BillingFlowParams.newBuilder()
@@ -70,34 +110,48 @@ class SubscriptionManager(context: Context) : PurchasesUpdatedListener {
     }
 
     private fun queryProduct() {
+        val productIds = listOf(
+            SubscriptionPlan.LITE.productId,
+            SubscriptionPlan.FROTA.productId,
+            SubscriptionPlan.ENTERPRISE.productId
+        )
         val params = QueryProductDetailsParams.newBuilder()
             .setProductList(
-                listOf(
+                productIds.map { productId ->
                     QueryProductDetailsParams.Product.newBuilder()
-                        .setProductId(SUBSCRIPTION_PRODUCT_ID)
+                        .setProductId(productId)
                         .setProductType(BillingClient.ProductType.SUBS)
                         .build()
-                )
+                }
             )
             .build()
-        billingClient.queryProductDetailsAsync(params) { billingResult, detailsList ->
+        billingClient.queryProductDetailsAsync(params) { billingResult, result ->
             if (billingResult.responseCode != BillingClient.BillingResponseCode.OK) {
-                productDetails = null
-                selectedOfferToken = null
+                productDetailsById.clear()
+                offerTokenByProductId.clear()
                 Log.w("Billing", "Falha ao consultar produto: code=${billingResult.responseCode}")
                 return@queryProductDetailsAsync
             }
 
-            productDetails = detailsList.firstOrNull()
-            selectedOfferToken = productDetails
-                ?.subscriptionOfferDetails
-                ?.firstOrNull()
-                ?.offerToken
+            productDetailsById.clear()
+            offerTokenByProductId.clear()
 
-            if (productDetails == null) {
-                Log.w("Billing", "Produto nao encontrado: $SUBSCRIPTION_PRODUCT_ID")
-            } else if (selectedOfferToken == null) {
-                Log.w("Billing", "Produto encontrado sem oferta ativa: $SUBSCRIPTION_PRODUCT_ID")
+            result.productDetailsList.forEach { details ->
+                val offerToken = details.subscriptionOfferDetails
+                    ?.firstOrNull()
+                    ?.offerToken
+                if (offerToken != null) {
+                    productDetailsById[details.productId] = details
+                    offerTokenByProductId[details.productId] = offerToken
+                } else {
+                    Log.w("Billing", "Produto encontrado sem oferta ativa: ${details.productId}")
+                }
+            }
+
+            productIds.forEach { productId ->
+                if (!productDetailsById.containsKey(productId)) {
+                    Log.w("Billing", "Produto nao encontrado: $productId")
+                }
             }
         }
     }
@@ -118,12 +172,22 @@ class SubscriptionManager(context: Context) : PurchasesUpdatedListener {
     }
 
     private fun handlePurchases(purchases: List<Purchase>) {
-        var hasPremium = false
+        var tier = PlanTier.FREE
         for (purchase in purchases) {
             if (purchase.purchaseState == Purchase.PurchaseState.PURCHASED &&
-                purchase.products.contains(SUBSCRIPTION_PRODUCT_ID)
+                purchase.products.any {
+                    it == SubscriptionPlan.LITE.productId ||
+                        it == SubscriptionPlan.FROTA.productId ||
+                        it == SubscriptionPlan.ENTERPRISE.productId
+                }
             ) {
-                hasPremium = true
+                if (purchase.products.contains(SubscriptionPlan.ENTERPRISE.productId)) {
+                    tier = PlanTier.ENTERPRISE
+                } else if (purchase.products.contains(SubscriptionPlan.FROTA.productId)) {
+                    tier = PlanTier.FROTA
+                } else if (tier == PlanTier.FREE && purchase.products.contains(SubscriptionPlan.LITE.productId)) {
+                    tier = PlanTier.LITE
+                }
                 if (!purchase.isAcknowledged) {
                     val params = AcknowledgePurchaseParams.newBuilder()
                         .setPurchaseToken(purchase.purchaseToken)
@@ -132,21 +196,117 @@ class SubscriptionManager(context: Context) : PurchasesUpdatedListener {
                 }
             }
         }
-        val tier = when {
-            hasPremium -> PlanTier.PREMIUM
-            else -> PlanTier.FREE
-        }
-        _planTier.value = tier
-        _isSubscribed.value = tier != PlanTier.FREE
+        billingTier = tier
+        applyEffectiveEntitlements()
+        _entitlementsLoaded.value = true
     }
 
     companion object {
-        // Troque pelo ID real da assinatura no Google Play
-        const val SUBSCRIPTION_PRODUCT_ID = "carlembrete_premium_monthly"
+        const val SUBSCRIPTION_LITE_PRODUCT_ID = "zellu_lite"
+        const val SUBSCRIPTION_FROTA_PRODUCT_ID = "zellu_frota"
+        const val SUBSCRIPTION_ENTERPRISE_PRODUCT_ID = "zellu_enterprise"
+        private const val ADMIN_PREFS = "admin_mode_prefs"
+        private const val KEY_ADMIN_OVERRIDE = "admin_premium_override"
+        private const val KEY_ADMIN_OVERRIDE_PLAN = "admin_premium_override_plan"
+        private const val KEY_ADMIN_EBOOK_OVERRIDE = "admin_ebook_override"
+
+        fun setAdminPremiumOverride(context: Context, enabled: Boolean) {
+            context.applicationContext
+                .getSharedPreferences(ADMIN_PREFS, Context.MODE_PRIVATE)
+                .edit().putBoolean(KEY_ADMIN_OVERRIDE, enabled).apply()
+        }
+
+        fun isAdminPremiumOverrideEnabled(context: Context): Boolean {
+            return context.applicationContext
+                .getSharedPreferences(ADMIN_PREFS, Context.MODE_PRIVATE)
+                .getBoolean(KEY_ADMIN_OVERRIDE, false)
+        }
+
+        fun setAdminPremiumOverridePlan(context: Context, plan: String?) {
+            context.applicationContext
+                .getSharedPreferences(ADMIN_PREFS, Context.MODE_PRIVATE)
+                .edit().apply {
+                    if (plan != null) putString(KEY_ADMIN_OVERRIDE_PLAN, plan)
+                    else remove(KEY_ADMIN_OVERRIDE_PLAN)
+                }.apply()
+        }
+
+        fun getAdminPremiumOverrideTier(context: Context): PlanTier {
+            val plan = context.applicationContext
+                .getSharedPreferences(ADMIN_PREFS, Context.MODE_PRIVATE)
+                .getString(KEY_ADMIN_OVERRIDE_PLAN, null)
+            return when (plan?.uppercase()) {
+                "LITE" -> PlanTier.LITE
+                "ENTERPRISE" -> PlanTier.ENTERPRISE
+                else -> PlanTier.FROTA
+            }
+        }
+
+        fun setAdminEbookOverride(context: Context, enabled: Boolean) {
+            context.applicationContext
+                .getSharedPreferences(ADMIN_PREFS, Context.MODE_PRIVATE)
+                .edit().putBoolean(KEY_ADMIN_EBOOK_OVERRIDE, enabled).apply()
+        }
+
+        fun isAdminEbookOverrideEnabled(context: Context): Boolean {
+            return context.applicationContext
+                .getSharedPreferences(ADMIN_PREFS, Context.MODE_PRIVATE)
+                .getBoolean(KEY_ADMIN_EBOOK_OVERRIDE, false)
+        }
     }
+}
+
+enum class SubscriptionPlan(val productId: String) {
+    LITE(SubscriptionManager.SUBSCRIPTION_LITE_PRODUCT_ID),
+    FROTA(SubscriptionManager.SUBSCRIPTION_FROTA_PRODUCT_ID),
+    ENTERPRISE(SubscriptionManager.SUBSCRIPTION_ENTERPRISE_PRODUCT_ID)
 }
 
 enum class PlanTier(val productId: String) {
     FREE(""),
-    PREMIUM(SubscriptionManager.SUBSCRIPTION_PRODUCT_ID)
+    LITE(SubscriptionManager.SUBSCRIPTION_LITE_PRODUCT_ID),
+    FROTA(SubscriptionManager.SUBSCRIPTION_FROTA_PRODUCT_ID),
+    ENTERPRISE(SubscriptionManager.SUBSCRIPTION_ENTERPRISE_PRODUCT_ID)
+}
+
+fun vehicleLimitForPlan(planTier: PlanTier): Int = when (planTier) {
+    PlanTier.FREE -> 5
+    PlanTier.LITE -> 15
+    PlanTier.FROTA -> 50
+    PlanTier.ENTERPRISE -> 200
+}
+
+fun reminderLimitForPlan(planTier: PlanTier): Int = when (planTier) {
+    PlanTier.FREE -> 5
+    PlanTier.LITE -> 50
+    PlanTier.FROTA -> 300
+    PlanTier.ENTERPRISE -> Int.MAX_VALUE
+}
+
+fun effectiveReminderLimitForPlan(planTier: PlanTier, adminOverride: Int?): Int {
+    val baseLimit = reminderLimitForPlan(planTier)
+    val overrideLimit = adminOverride?.takeIf { it > 0 } ?: return baseLimit
+    if (baseLimit == Int.MAX_VALUE) return baseLimit
+    return maxOf(baseLimit, overrideLimit)
+}
+
+fun fuelRecordLimitForPlan(planTier: PlanTier): Int = when (planTier) {
+    PlanTier.FREE -> 20
+    PlanTier.LITE -> 150
+    PlanTier.FROTA -> 300
+    PlanTier.ENTERPRISE -> Int.MAX_VALUE
+}
+
+fun scannerLimitForPlan(planTier: PlanTier): Int = when (planTier) {
+    PlanTier.FREE -> 3
+    PlanTier.LITE -> 30
+    PlanTier.FROTA -> 200
+    PlanTier.ENTERPRISE -> Int.MAX_VALUE
+}
+
+fun planNameLabel(planTier: PlanTier): String = when (planTier) {
+    PlanTier.FREE -> "Grátis"
+    PlanTier.LITE -> "Lite"
+    PlanTier.FROTA -> "Frota"
+    PlanTier.ENTERPRISE -> "Enterprise"
 }

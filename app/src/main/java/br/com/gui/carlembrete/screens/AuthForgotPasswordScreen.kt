@@ -47,9 +47,8 @@ fun AuthForgotPasswordScreen(
             .background(
                 Brush.verticalGradient(
                     colors = listOf(
-                        Color(0xFF081428),
-                        Color(0xFF0B2342),
-                        Color(0xFF143A6C)
+                        Color(0xFF020617),
+                        Color(0xFF000000)
                     )
                 )
             )

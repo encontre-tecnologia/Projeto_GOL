@@ -39,33 +39,13 @@ object AdminUsageMetrics {
     }
 
     fun markAppOpen(context: Context) {
-        val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
-        val today = todayKey()
-        val prefs = context.getSharedPreferences(PREFS_USAGE, Context.MODE_PRIVATE)
-        val prefKey = "last_app_open_day_$uid"
-        val alreadyMarked = prefs.getString(prefKey, null) == today
-        if (alreadyMarked) return
-
-        incrementMetric(metricField = "appOpenCount", amount = 1L)
-        prefs.edit().putString(prefKey, today).apply()
-
-        firestore.collection("admin_users")
-            .document(uid)
-            .set(
-                mapOf(
-                    "lastAccess" to FieldValue.serverTimestamp(),
-                    "updatedAt" to FieldValue.serverTimestamp()
-                ),
-                SetOptions.merge()
-            )
-            .addOnFailureListener { error ->
-                Log.w(TAG_USAGE_METRICS, "Falha ao atualizar lastAccess no app open", error)
-            }
+        // appOpenCount e lastAccess removidos — não cobertos pela política de privacidade
     }
 
     fun markReminderCreated(amount: Int = 1) {
         if (amount <= 0) return
         incrementMetric(metricField = "remindersCreated", amount = amount.toLong())
+        AdminUsersSync.incrementRemindersTotal(amount)
     }
 
     fun markTravelExpenseSaved() {
@@ -73,7 +53,7 @@ object AdminUsageMetrics {
     }
 
     fun markQrScanSuccess() {
-        incrementMetric(metricField = "qrScansSuccessful", amount = 1L, throttleMs = 5_000L)
+        // qrScansSuccessful removido — não coberto pela política de privacidade
     }
 }
 

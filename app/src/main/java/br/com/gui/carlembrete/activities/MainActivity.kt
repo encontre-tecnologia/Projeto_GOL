@@ -20,9 +20,17 @@ import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.border
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
@@ -36,13 +44,23 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.collectAsState
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.compose.ui.unit.dp
 import br.com.gui.carlembrete.ui.theme.CarLembreteTheme
 import com.google.firebase.auth.FirebaseAuth
+import com.google.android.play.core.appupdate.AppUpdateManager
+import com.google.android.play.core.appupdate.AppUpdateManagerFactory
+import com.google.android.play.core.install.InstallStateUpdatedListener
+import com.google.android.play.core.install.model.AppUpdateType
+import com.google.android.play.core.install.model.InstallStatus
+import com.google.android.play.core.install.model.UpdateAvailability
+import com.google.android.play.core.review.ReviewManagerFactory
 import java.io.File
 import java.io.FileOutputStream
 import java.io.ObjectInputStream
@@ -52,15 +70,24 @@ import java.text.NumberFormat
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import kotlinx.coroutines.delay
 
 const val EXTRA_OPEN_AONDE_PAREI = "extra_open_aonde_parei"
+const val EXTRA_OPEN_LEMBRETE_ID = "extra_open_lembrete_id"
+const val EXTRA_OPEN_LEMBRETE_CARRO_ID = "extra_open_lembrete_carro_id"
 private const val TAG_MAIN_STARTUP = "MainStartup"
 
 class MainActivity : ComponentActivity() {
     private var contentInitialized = false
     private var openAondePareiFromIntent by mutableStateOf(false)
+    private var openLembreteIdFromIntent by mutableStateOf<String?>(null)
+    private var openLembreteCarroIdFromIntent by mutableStateOf<String?>(null)
     @Volatile
     private var keepNativeSplashVisible: Boolean = false
+    private var inAppUpdateChecked = false
+    private var reviewCheckedThisSession = false
+    private var appUpdateManager: AppUpdateManager? = null
+    private var installStateListener: InstallStateUpdatedListener? = null
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -79,6 +106,7 @@ class MainActivity : ComponentActivity() {
         keepNativeSplashVisible = shouldHoldSplashForHomeData
         installSplashScreen().setKeepOnScreenCondition { keepNativeSplashVisible }
         super.onCreate(savedInstanceState)
+        InstallDiagnostics.logDetailedSnapshot(applicationContext, "MainActivity.onCreate")
         val startupAt = System.currentTimeMillis()
         Log.d(TAG_MAIN_STARTUP, "onCreate start")
         handleNavigationIntent(intent)
@@ -113,6 +141,14 @@ class MainActivity : ComponentActivity() {
             openAondePareiFromIntent = true
             intent.removeExtra(EXTRA_OPEN_AONDE_PAREI)
         }
+        intent?.getStringExtra(EXTRA_OPEN_LEMBRETE_ID)?.let { lembreteId ->
+            if (lembreteId.isNotBlank()) {
+                openLembreteIdFromIntent = lembreteId
+                openLembreteCarroIdFromIntent = intent.getStringExtra(EXTRA_OPEN_LEMBRETE_CARRO_ID)
+            }
+            intent.removeExtra(EXTRA_OPEN_LEMBRETE_ID)
+            intent.removeExtra(EXTRA_OPEN_LEMBRETE_CARRO_ID)
+        }
     }
 
     private fun initializeContentIfNeeded() {
@@ -128,6 +164,7 @@ class MainActivity : ComponentActivity() {
                 )
             }
 
+            FixedFontScale {
             CarLembreteTheme(themeMode = themeMode) {
                 val isDarkTheme = when (themeMode) {
                     AppThemeMode.SYSTEM -> isSystemInDarkTheme()
@@ -137,32 +174,60 @@ class MainActivity : ComponentActivity() {
                 }
                 val colorScheme = MaterialTheme.colorScheme
                 val auth = remember { FirebaseAuth.getInstance() }
+                val subscriptionManager = remember { SubscriptionManager(this@MainActivity) }
+                val planTier by subscriptionManager.planTier.collectAsState()
+                val entitlementsLoaded by subscriptionManager.entitlementsLoaded.collectAsState()
                 var usuario by remember { mutableStateOf(auth.currentUser) }
+                var announcementTitle by remember { mutableStateOf<String?>(null) }
+                var announcementBody by remember { mutableStateOf<String?>(null) }
                 var showOnboarding by remember {
                     mutableStateOf(
                         AppPreferences.needsOnboarding(this@MainActivity)
                     )
                 }
-                LaunchedEffect(isDarkTheme) {
+                var showPostLoginBackupCheck by remember { mutableStateOf(false) }
+                var restoredBackupOnboardingFlow by remember { mutableStateOf(false) }
+                LaunchedEffect(isDarkTheme, usuario) {
                     val insetsController = WindowInsetsControllerCompat(window, window.decorView)
-                    val systemBarColor = colorScheme.background.toArgb()
-                    val useDarkIcons = colorScheme.background.luminance() > 0.5f
-                    window.statusBarColor = systemBarColor
-                    window.navigationBarColor = systemBarColor
-                    insetsController.isAppearanceLightStatusBars = useDarkIcons
-                    insetsController.isAppearanceLightNavigationBars = useDarkIcons
+                    if (usuario == null) {
+                        window.statusBarColor = android.graphics.Color.TRANSPARENT
+                        window.navigationBarColor = android.graphics.Color.TRANSPARENT
+                        insetsController.isAppearanceLightStatusBars = false
+                        insetsController.isAppearanceLightNavigationBars = false
+                    } else {
+                        val systemBarColor = colorScheme.background.toArgb()
+                        val useDarkIcons = colorScheme.background.luminance() > 0.5f
+                        window.statusBarColor = systemBarColor
+                        window.navigationBarColor = systemBarColor
+                        insetsController.isAppearanceLightStatusBars = useDarkIcons
+                        insetsController.isAppearanceLightNavigationBars = useDarkIcons
+                    }
                 }
                 DisposableEffect(Unit) {
+                    subscriptionManager.connect()
                     val listener = FirebaseAuth.AuthStateListener { firebaseAuth ->
                         usuario = firebaseAuth.currentUser
                     }
                     auth.addAuthStateListener(listener)
-                    onDispose { auth.removeAuthStateListener(listener) }
+                    onDispose {
+                        auth.removeAuthStateListener(listener)
+                        subscriptionManager.disconnect()
+                    }
                 }
                 LaunchedEffect(usuario) {
                     if (usuario != null) {
-                        requestStartupPermissionsIfNeeded()
+                        delay(450)
+                        AdminUsersSync.syncLocalOverview(this@MainActivity)
                         AdminUsageMetrics.markAppOpen(this@MainActivity)
+                        AdminUsersSync.checkAnnouncement(this@MainActivity) { title, description ->
+                            announcementTitle = title
+                            announcementBody = description
+                        }
+                        registrarUsoEEventosLeves()
+                        if (!showOnboarding) {
+                            iniciarInAppReviewSeElegivel()
+                            iniciarInAppUpdateSeDisponivel()
+                        }
                     }
                 }
                 val baseBackground = MaterialTheme.colorScheme.background
@@ -173,20 +238,111 @@ class MainActivity : ComponentActivity() {
                             onSignedIn = {
                                 usuario = auth.currentUser
                                 showOnboarding = AppPreferences.needsOnboarding(this@MainActivity)
+                                showPostLoginBackupCheck = true
                             }
                         )
                     } else {
                         Box(modifier = Modifier.fillMaxSize()) {
-                            if (showOnboarding) {
+                            if (showPostLoginBackupCheck) {
+                                keepNativeSplashVisible = false
+                                if (!entitlementsLoaded) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .background(Color.Black),
+                                        contentAlignment = androidx.compose.ui.Alignment.Center
+                                    ) {
+                                        androidx.compose.material3.CircularProgressIndicator(
+                                            color = Color(0xFF60A5FA)
+                                        )
+                                    }
+                                } else if (planTier == PlanTier.FREE) {
+                                    val continueWithLocalStorage = {
+                                        showPostLoginBackupCheck = false
+                                        restoredBackupOnboardingFlow = true
+                                        showOnboarding = true
+                                    }
+                                    androidx.compose.material3.AlertDialog(
+                                        onDismissRequest = continueWithLocalStorage,
+                                        shape = dialogCornerShape,
+                                        containerColor = Color(0xFF111827),
+                                        icon = {
+                                            androidx.compose.material3.Surface(
+                                                color = Color(0xFF60A5FA).copy(alpha = 0.16f),
+                                                shape = androidx.compose.foundation.shape.CircleShape,
+                                                border = androidx.compose.foundation.BorderStroke(
+                                                    1.dp,
+                                                    Color(0xFF60A5FA).copy(alpha = 0.35f)
+                                                )
+                                            ) {
+                                                androidx.compose.material3.Icon(
+                                                    imageVector = Icons.Default.PhoneAndroid,
+                                                    contentDescription = null,
+                                                    tint = Color(0xFF60A5FA),
+                                                    modifier = Modifier.padding(11.dp)
+                                                )
+                                            }
+                                        },
+                                        title = {
+                                            androidx.compose.material3.Text(
+                                                text = "Encontramos dados locais",
+                                                color = Color(0xFFE2E8F0),
+                                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                                            )
+                                        },
+                                        text = {
+                                            androidx.compose.material3.Text(
+                                                text = "Encontramos dados salvos neste celular e vamos continuar usando eles no plano grátis. Backup e recuperação pelo Google Drive ficam disponíveis no Lite.",
+                                                color = Color(0xFFCBD5E1)
+                                            )
+                                        },
+                                        confirmButton = {
+                                            androidx.compose.material3.Button(
+                                                onClick = continueWithLocalStorage,
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .height(46.dp),
+                                                shape = dialogActionButtonShape,
+                                                colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                                                    containerColor = Color(0xFF60A5FA)
+                                                )
+                                            ) {
+                                                androidx.compose.material3.Text(
+                                                    text = "Continuar",
+                                                    color = Color(0xFF06111F),
+                                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                                                )
+                                            }
+                                        }
+                                    )
+                                } else {
+                                    PostLoginDriveBackupScreen(
+                                        planTier = planTier,
+                                        onContinueWithoutRestore = {
+                                            showPostLoginBackupCheck = false
+                                            restoredBackupOnboardingFlow = false
+                                            showOnboarding = AppPreferences.needsOnboarding(this@MainActivity)
+                                        },
+                                        onRestoreComplete = {
+                                            showPostLoginBackupCheck = false
+                                            restoredBackupOnboardingFlow = true
+                                            showOnboarding = true
+                                        }
+                                    )
+                                }
+                            } else if (showOnboarding) {
                                 keepNativeSplashVisible = false
                                 OnboardingScreen(
                                     onFinish = {
                                         AppPreferences.markOnboardingComplete(this@MainActivity)
                                         showOnboarding = false
+                                        restoredBackupOnboardingFlow = false
                                     },
                                     onThemeModeChanged = { mode ->
                                         themeMode = mode
-                                    }
+                                    },
+                                    initialStep = if (restoredBackupOnboardingFlow) 5 else 1,
+                                    requireVehicleSetup = !restoredBackupOnboardingFlow
                                 )
                             } else {
                                 ManutencaoScreen(
@@ -195,12 +351,233 @@ class MainActivity : ComponentActivity() {
                                     onLoaded = { keepNativeSplashVisible = false },
                                     onThemeModeChanged = { themeMode = it }
                                 )
+                                if (announcementTitle != null && announcementBody != null) {
+                                    val dialogBg = if (isDarkTheme) Color(0xFF0B1220) else Color.White
+                                    val dialogTitle = if (isDarkTheme) Color(0xFFE2E8F0) else Color(0xFF0F172A)
+                                    val dialogBody = if (isDarkTheme) Color(0xFF94A3B8) else Color(0xFF475569)
+                                    val dialogAccent = Color(0xFF2563EB)
+                                    val dialogButtonBorder = if (isDarkTheme) Color(0xFF334155) else Color(0xFFD1D5DB)
+                                    androidx.compose.material3.AlertDialog(
+                                        onDismissRequest = { announcementTitle = null; announcementBody = null },
+                                        modifier = Modifier.border(dialogBorderStroke, dialogCornerShape),
+                                        shape = dialogCornerShape,
+                                        containerColor = dialogBg,
+                                        icon = {
+                                            androidx.compose.material3.Surface(
+                                                color = dialogAccent.copy(alpha = 0.14f),
+                                                shape = androidx.compose.foundation.shape.CircleShape,
+                                                border = androidx.compose.foundation.BorderStroke(1.dp, dialogAccent.copy(alpha = 0.35f))
+                                            ) {
+                                                androidx.compose.material3.Icon(
+                                                    imageVector = Icons.Default.Notifications,
+                                                    contentDescription = null,
+                                                    tint = dialogAccent,
+                                                    modifier = Modifier.padding(11.dp)
+                                                )
+                                            }
+                                        },
+                                        title = {
+                                            androidx.compose.material3.Text(
+                                                text = announcementTitle ?: "",
+                                                color = dialogTitle,
+                                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                                            )
+                                        },
+                                        text = {
+                                            androidx.compose.material3.Text(
+                                                text = announcementBody ?: "",
+                                                color = dialogBody
+                                            )
+                                        },
+                                        confirmButton = {
+                                            androidx.compose.material3.OutlinedButton(
+                                                onClick = { announcementTitle = null; announcementBody = null },
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .height(46.dp),
+                                                shape = dialogActionButtonShape,
+                                                border = androidx.compose.foundation.BorderStroke(1.dp, dialogButtonBorder),
+                                                colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
+                                                    containerColor = Color.Transparent,
+                                                    contentColor = dialogBody
+                                                )
+                                            ) {
+                                                androidx.compose.material3.Text(
+                                                    text = "Entendi",
+                                                    color = dialogBody,
+                                                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
+                                                )
+                                            }
+                                        }
+                                    )
+                                }
                             }
                         }
                     }
                 }
             }
+            }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        val manager = appUpdateManager ?: return
+        manager.appUpdateInfo
+            .addOnSuccessListener { info ->
+                if (info.updateAvailability() == UpdateAvailability.DEVELOPER_TRIGGERED_UPDATE_IN_PROGRESS) {
+                    runCatching {
+                        manager.startUpdateFlowForResult(
+                            info,
+                            AppUpdateType.FLEXIBLE,
+                            this,
+                            REQ_CODE_IN_APP_UPDATE
+                        )
+                    }
+                }
+            }
+    }
+
+    override fun onDestroy() {
+        installStateListener?.let { listener ->
+            appUpdateManager?.unregisterListener(listener)
+        }
+        installStateListener = null
+        super.onDestroy()
+    }
+
+    private fun iniciarInAppUpdateSeDisponivel() {
+        if (inAppUpdateChecked) return
+        inAppUpdateChecked = true
+        val manager = AppUpdateManagerFactory.create(this)
+        appUpdateManager = manager
+        val listener = InstallStateUpdatedListener { state ->
+            if (state.installStatus() == InstallStatus.DOWNLOADED) {
+                Toast.makeText(
+                    this,
+                    trNow("Atualização baixada. Finalizando instalação...", "Update downloaded. Finishing installation..."),
+                    Toast.LENGTH_LONG
+                ).show()
+                runCatching { manager.completeUpdate() }
+            }
+        }
+        installStateListener = listener
+        manager.registerListener(listener)
+        manager.appUpdateInfo
+            .addOnSuccessListener { info ->
+                val updateAvailable = info.updateAvailability() == UpdateAvailability.UPDATE_AVAILABLE
+                val flexibleAllowed = info.isUpdateTypeAllowed(AppUpdateType.FLEXIBLE)
+                if (updateAvailable && flexibleAllowed) {
+                    runCatching {
+                        manager.startUpdateFlowForResult(
+                            info,
+                            AppUpdateType.FLEXIBLE,
+                            this,
+                            REQ_CODE_IN_APP_UPDATE
+                        )
+                    }
+                }
+            }
+    }
+
+    private fun iniciarInAppReviewSeElegivel() {
+        if (reviewCheckedThisSession) return
+        reviewCheckedThisSession = true
+        val prefs = getSharedPreferences(ENGAGEMENT_PREFS, Context.MODE_PRIVATE)
+        val now = System.currentTimeMillis()
+        val firstOpen = prefs.getLong(KEY_FIRST_OPEN_MS, 0L).takeIf { it > 0L } ?: now
+        val openCount = prefs.getInt(KEY_OPEN_COUNT, 0)
+        val lastPrompt = prefs.getLong(KEY_LAST_REVIEW_PROMPT_MS, 0L)
+        val daysSinceFirst = ((now - firstOpen) / DAY_MS).toInt()
+        val canPrompt = openCount >= 8 &&
+            daysSinceFirst >= 5 &&
+            (lastPrompt == 0L || (now - lastPrompt) >= 45L * DAY_MS)
+        if (!canPrompt) return
+
+        val reviewManager = ReviewManagerFactory.create(this)
+        reviewManager.requestReviewFlow()
+            .addOnCompleteListener { task ->
+                prefs.edit().putLong(KEY_LAST_REVIEW_PROMPT_MS, now).apply()
+                if (!task.isSuccessful) return@addOnCompleteListener
+                val reviewInfo = task.result
+                reviewManager.launchReviewFlow(this, reviewInfo)
+            }
+    }
+
+    private fun registrarUsoEEventosLeves() {
+        val prefs = getSharedPreferences(ENGAGEMENT_PREFS, Context.MODE_PRIVATE)
+        val now = System.currentTimeMillis()
+        val firstOpen = prefs.getLong(KEY_FIRST_OPEN_MS, 0L)
+        val openCount = prefs.getInt(KEY_OPEN_COUNT, 0) + 1
+        val editor = prefs.edit()
+            .putInt(KEY_OPEN_COUNT, openCount)
+            .putLong(KEY_LAST_OPEN_MS, now)
+        if (firstOpen == 0L) editor.putLong(KEY_FIRST_OPEN_MS, now)
+        editor.apply()
+
+        if (!ENABLE_STARTUP_ENGAGEMENT_NOTIFICATIONS) return
+        if (!notificacoesPermitidas()) return
+
+        val lastSimpleReminder = prefs.getLong(KEY_LAST_SIMPLE_REMINDER_MS, 0L)
+        if (openCount >= 3 && (now - lastSimpleReminder) >= 7L * DAY_MS) {
+            NotificacaoHelper.dispararNotificacaoInstantanea(
+                context = this,
+                titulo = trNow("Hora de revisar seu veículo", "Time for a vehicle check"),
+                descricao = trNow(
+                    "Dá uma olhada nos avisos e mantenha a revisão em dia.",
+                    "Quick check your reminders and keep maintenance up to date."
+                )
+            )
+            prefs.edit().putLong(KEY_LAST_SIMPLE_REMINDER_MS, now).apply()
+        }
+
+        val formatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
+        val dueSoon = BancoDeDados.carregarLembretes(this)
+            .filterNot(::isLembreteRealizado)
+            .mapNotNull { lembrete ->
+                runCatching { LocalDate.parse(lembrete.dataLimite, formatter) }.getOrNull()?.let { data -> lembrete to data }
+            }
+            .any { (_, data) ->
+                val days = java.time.temporal.ChronoUnit.DAYS.between(LocalDate.now(), data)
+                days in 0..3
+            }
+        if (dueSoon) {
+            val lastDueSoon = prefs.getLong(KEY_LAST_DUE_SOON_NOTIF_MS, 0L)
+            if ((now - lastDueSoon) >= DAY_MS) {
+                NotificacaoHelper.dispararNotificacaoInstantanea(
+                    context = this,
+                    titulo = trNow("Tem aviso chegando", "Upcoming reminder"),
+                    descricao = trNow(
+                        "Você tem revisão/aviso para os próximos dias. Bora conferir?",
+                        "You have maintenance reminders for the next days. Want to check now?"
+                    )
+                )
+                prefs.edit().putLong(KEY_LAST_DUE_SOON_NOTIF_MS, now).apply()
+            }
+        }
+    }
+
+    private fun notificacoesPermitidas(): Boolean {
+        if (!NotificationManagerCompat.from(this).areNotificationsEnabled()) return false
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            return false
+        }
+        return true
+    }
+
+    companion object {
+        private const val REQ_CODE_IN_APP_UPDATE = 2417
+        private const val ENGAGEMENT_PREFS = "engagement_prefs_v1"
+        private const val KEY_FIRST_OPEN_MS = "first_open_ms"
+        private const val KEY_LAST_OPEN_MS = "last_open_ms"
+        private const val KEY_OPEN_COUNT = "open_count"
+        private const val KEY_LAST_REVIEW_PROMPT_MS = "last_review_prompt_ms"
+        private const val KEY_LAST_SIMPLE_REMINDER_MS = "last_simple_reminder_ms"
+        private const val KEY_LAST_DUE_SOON_NOTIF_MS = "last_due_soon_notif_ms"
+        private const val ENABLE_STARTUP_ENGAGEMENT_NOTIFICATIONS = false
+        private const val DAY_MS = 24L * 60L * 60L * 1000L
     }
 }
 
@@ -294,12 +671,18 @@ fun formatarMoeda(valor: Double): String = NumberFormat.getCurrencyInstance(Loca
 
 fun gerarResumoRelatorio(carro: CarroInfo, lembretes: List<Lembrete>, isPremium: Boolean): String {
     val builder = StringBuilder()
+    val isBike = carro.tipoVeiculo == TipoVeiculo.BICICLETA || carro.tipoVeiculo == TipoVeiculo.BIKE_ELETRICA
+    val exibirKm = !isBike || !carro.semControleKm
     builder.appendLine("Relatório do veículo")
     builder.appendLine("Nome: ${carro.nome}")
     builder.appendLine("Proprietário: ${carro.proprietario.ifBlank { "Não informado" }}")
     builder.appendLine("Marca: ${carro.marca.ifBlank { "Não informada" }}")
     builder.appendLine("Modelo: ${carro.modelo}")
-    builder.appendLine("Odômetro: ${if (carro.kmAtual > 0) "${carro.kmAtual} km" else "Não informado"}")
+    builder.appendLine(
+        "Odômetro: ${
+            if (!exibirKm) "Não aplicável" else if (carro.kmAtual > 0) "${carro.kmAtual} km" else "Não informado"
+        }"
+    )
     builder.appendLine()
     builder.appendLine("Avisos ativos: ${lembretes.size}")
     TipoManutencao.values().forEach { tipo ->
@@ -415,44 +798,75 @@ fun gerarPdfRelatorio(
         }
         val marginX = 36f
         canvas.drawColor(android.graphics.Color.WHITE)
-        val topBarPaint = Paint().apply { color = android.graphics.Color.parseColor("#E2E8F0") }
-        canvas.drawRect(0f, 0f, pageInfo.pageWidth.toFloat(), 6f, topBarPaint)
         val contentWidth = pageInfo.pageWidth - marginX * 2
-        var y = 138f
+        var y = 108f
+        var pageNumber = 1
 
         fun fit(text: String, maxChars: Int): String =
             if (text.length <= maxChars) text else text.take(maxChars - 3) + "..."
 
+        val pageNumPaint = Paint().apply {
+            textSize = 9f
+            color = android.graphics.Color.parseColor("#94A3B8")
+            textAlign = Paint.Align.CENTER
+            isAntiAlias = true
+        }
+
+        fun finishCurrentPage() {
+            canvas.drawText(
+                "— $pageNumber —",
+                pageInfo.pageWidth / 2f,
+                pageInfo.pageHeight - 14f,
+                pageNumPaint
+            )
+            if (!isPremium) {
+                canvas.drawText("Gerado pelo Zellu", pageInfo.pageWidth / 2f, pageInfo.pageHeight - 28f, watermarkPaint)
+            }
+        }
+
         fun ensureSpace(extra: Float) {
             if (y + extra > pageInfo.pageHeight - 40) {
-                if (!isPremium) {
-                    canvas.drawText("Gerado pelo Zellu", pageInfo.pageWidth / 2f, pageInfo.pageHeight - 24f, watermarkPaint)
-                }
+                finishCurrentPage()
                 document.finishPage(currentPage)
+                pageNumber++
                 val nextPageInfo = PdfDocument.PageInfo.Builder(595, 842, document.pages.size + 1).create()
                 currentPage = document.startPage(nextPageInfo)
                 canvas = currentPage.canvas
+                canvas.drawColor(android.graphics.Color.WHITE)
                 y = 60f
             }
         }
 
         fun drawHeader() {
-            val titleCenterPaint = Paint(headerPaint).apply { textAlign = Paint.Align.CENTER }
-            canvas.drawText("RELATORIO TÊCNICO", pageInfo.pageWidth / 2f, 54f, titleCenterPaint)
-            canvas.drawLine(marginX, 78f, pageInfo.pageWidth - marginX, 78f, dividerPaint)
-            val headerInfoPaint = Paint(headerSubPaint).apply { textAlign = Paint.Align.CENTER }
+            val bannerPaint = Paint().apply { color = accentColor }
+            canvas.drawRect(0f, 0f, pageInfo.pageWidth.toFloat(), 82f, bannerPaint)
+            val titleCenterPaint = Paint(headerPaint).apply {
+                textAlign = Paint.Align.CENTER
+                color = android.graphics.Color.WHITE
+            }
+            canvas.drawText("RELATORIO TECNICO", pageInfo.pageWidth / 2f, 48f, titleCenterPaint)
+            val headerInfoPaint = Paint().apply {
+                textSize = 11f
+                color = android.graphics.Color.parseColor("#BFDBFE")
+                textAlign = Paint.Align.CENTER
+                isAntiAlias = true
+            }
             canvas.drawText(
                 "Gerado em ${LocalDate.now().format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))}",
                 pageInfo.pageWidth / 2f,
-                108f,
+                66f,
                 headerInfoPaint
             )
         }
 
+        val accentBarPaint = Paint().apply { color = accentColor }
+        val accentTitlePaint = Paint(sectionTitlePaint).apply { color = accentColor }
+
         fun drawSectionTitle(title: String) {
             ensureSpace(30f)
             val titleY = y
-            canvas.drawText(title, marginX, titleY, sectionTitlePaint)
+            canvas.drawRect(marginX, titleY - 13f, marginX + 4f, titleY + 3f, accentBarPaint)
+            canvas.drawText(title, marginX + 10f, titleY, accentTitlePaint)
             y += 10f
             canvas.drawLine(marginX, y, pageInfo.pageWidth - marginX, y, dividerPaint)
             y += 12f
@@ -535,47 +949,16 @@ fun gerarPdfRelatorio(
         val valorParaVenderTexto = valorParaVender?.takeIf { it.isNotBlank() } ?: "Nao disponivel"
         val vezesBatidoTexto = carro.vezesBatido?.toString() ?: "Nao informado"
         val tempoComVeiculoTexto = carro.tempoComVeiculo.ifBlank { "Nao informado" }
-        val abastecimentosCarro = BancoDeDados.carregarAbastecimentos(context).filter { it.carroId == carro.id }
-        val totalLitrosAbastecidos = abastecimentosCarro.sumOf { it.litros.coerceAtLeast(0.0) }
-        val kmInicialConsumo = AppPreferences.getFuelStartKm(context, carro.id)
-        val distanciaConsumoKm = if (
-            kmInicialConsumo != null &&
-            carro.kmAtual > kmInicialConsumo &&
-            totalLitrosAbastecidos > 0.0
-        ) {
-            (carro.kmAtual - kmInicialConsumo).toDouble()
-        } else {
-            null
-        }
-        val consumoKmPorLitro = if (distanciaConsumoKm != null && totalLitrosAbastecidos > 0.0) {
-            distanciaConsumoKm / totalLitrosAbastecidos
-        } else {
-            null
-        }
-        val consumoLitrosPorKm = if (distanciaConsumoKm != null && distanciaConsumoKm > 0.0) {
-            totalLitrosAbastecidos / distanciaConsumoKm
-        } else {
-            null
-        }
-        val consumoLitrosPor100Km = if (distanciaConsumoKm != null && distanciaConsumoKm > 0.0) {
-            (totalLitrosAbastecidos * 100.0) / distanciaConsumoKm
-        } else {
-            null
-        }
-        val ultimoAbastecimentoData = abastecimentosCarro
-            .mapNotNull { item ->
-                runCatching { LocalDate.parse(item.data, DateTimeFormatter.ofPattern("dd/MM/yyyy")) }.getOrNull()
-            }
-            .maxOrNull()
-            ?.format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))
-            ?: "--"
-        val ultimoAbastecimento = abastecimentosCarro
-            .maxByOrNull { item ->
-                runCatching { LocalDate.parse(item.data, DateTimeFormatter.ofPattern("dd/MM/yyyy")) }.getOrNull()
-                    ?: LocalDate.MIN
-            }
-
         val isBike = carro.tipoVeiculo == TipoVeiculo.BICICLETA || carro.tipoVeiculo == TipoVeiculo.BIKE_ELETRICA
+        val exibirKmBike = isBike && !carro.semControleKm
+        val abastecimentosCarro = BancoDeDados.carregarAbastecimentos(context).filter { it.carroId == carro.id }
+        val hoje = LocalDate.now()
+        val litrosTotais = abastecimentosCarro.sumOf { it.litros.coerceAtLeast(0.0) }
+        val totalMesCombustivel = abastecimentosCarro.sumOf { item ->
+            val data = runCatching { LocalDate.parse(item.data, DateTimeFormatter.ofPattern("dd/MM/yyyy")) }.getOrNull()
+            if (data != null && data.year == hoje.year && data.monthValue == hoje.monthValue) item.valorPago else 0.0
+        }
+        val referenciaMes = hoje.format(DateTimeFormatter.ofPattern("MM/yyyy"))
         if (!isBike) {
             drawSectionTitle("INFORMACOES")
             val infoBoxHeight = 126f
@@ -593,7 +976,11 @@ fun gerarPdfRelatorio(
         }
 
         drawSectionTitle("IDENTIFICACAO")
-        val boxHeight = if (isBike) 150f else 180f
+        val boxHeight = if (isBike) {
+            if (exibirKmBike) 186f else 150f
+        } else {
+            180f
+        }
         ensureSpace(boxHeight)
         canvas.drawRect(marginX, y, marginX + contentWidth, y + boxHeight, cardBgPaint)
         canvas.drawRoundRect(android.graphics.RectF(marginX, y, marginX + contentWidth, y + boxHeight), 12f, 12f, cardBorderPaint)
@@ -609,7 +996,13 @@ fun gerarPdfRelatorio(
             drawKeyValue("Tipo", carro.tipoVeiculo.label, rightX, rowY + 42f)
             drawKeyValue("Proprietario", fit(proprietarioTexto, 30), leftX, rowY + 78f)
             val corTexto = corNomePorArgb(carro.corArgb)
-            drawKeyValue("Cor", corTexto, rightX, rowY + 78f)
+            if (exibirKmBike) {
+                val odometroTexto = if (carro.kmAtual > 0) "${carro.kmAtual} km" else "Nao informado"
+                drawKeyValue("Odometro", odometroTexto, leftX, rowY + 114f)
+                drawKeyValue("Cor", corTexto, rightX, rowY + 114f)
+            } else {
+                drawKeyValue("Cor", corTexto, rightX, rowY + 78f)
+            }
         } else {
             drawKeyValue("Motor", fit(carro.modelo.ifBlank { "-" }, 26), rightX, rowY)
             drawKeyValue("Marca", carro.marca.ifBlank { "-" }, leftX, rowY + 42f)
@@ -665,28 +1058,18 @@ fun gerarPdfRelatorio(
                 val infoLeftX = marginX + 12f
                 val infoRightX = marginX + contentWidth / 2 + 10f
                 val infoRowY = topY + 24f
-                val consumoTexto = if (consumoKmPorLitro != null && consumoLitrosPor100Km != null) {
-                    String.format(
-                        Locale("pt", "BR"),
-                        "%.1f km/L (%.1f L/100km)",
-                        consumoKmPorLitro,
-                        consumoLitrosPor100Km
-                    )
-                } else {
-                    "Nao disponivel"
-                }
-                val ultimoTexto = if (ultimoAbastecimento != null) {
-                    "${ultimoAbastecimentoData} - ${String.format(Locale("pt", "BR"), "%.1f L", ultimoAbastecimento.litros)}"
-                } else {
-                    "--"
-                }
-                drawKeyValue("Consumo medio", consumoTexto, infoLeftX, infoRowY)
-                drawKeyValue("Ultimo abastecimento", ultimoTexto, infoRightX, infoRowY)
+                drawKeyValue("Total mes ($referenciaMes)", formatarMoeda(totalMesCombustivel), infoLeftX, infoRowY)
+                drawKeyValue(
+                    "Litros totais",
+                    "${String.format(Locale("pt", "BR"), "%.2f", litrosTotais)} L",
+                    infoRightX,
+                    infoRowY
+                )
             }
             y += 8f
         }
 
-        if (carro.tipoVeiculo != TipoVeiculo.BICICLETA) {
+        if (!isBike) {
             drawSectionTitle("DOCUMENTACAO")
             val documentos = listOf(
                 TipoManutencao.IPVA to "IPVA",
@@ -732,65 +1115,130 @@ fun gerarPdfRelatorio(
             y += 8f
         }
 
-        drawSectionTitle("MANUTENCOES REALIZADAS")
-        if (manutencoesRealizadas.isEmpty()) {
-            canvas.drawText("Nenhuma manutencao realizada registrada.", marginX, y, bodyPaint)
-            y += 16f
-        } else {
-            val headerHeight = 22f
-            val headerBg = Paint().apply { color = android.graphics.Color.parseColor("#E2E8F0") }
-            canvas.drawRect(marginX, y, marginX + contentWidth, y + headerHeight, headerBg)
-            val headerTextPaint = Paint(labelPaint).apply {
-                color = android.graphics.Color.BLACK
-                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-            }
-            val headerY = y + 15f
-            canvas.drawText("Item", marginX + 6f, headerY, headerTextPaint)
-            canvas.drawText("Data", marginX + 250f, headerY, headerTextPaint)
-            canvas.drawText("Valor", marginX + 360f, headerY, headerTextPaint)
-            y += headerHeight + 8f
+        val tableHeaderBluePaint = Paint().apply { color = accentColor }
+        val tableHeaderTextPaint = Paint().apply {
+            textSize = 10f
+            color = android.graphics.Color.WHITE
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            isAntiAlias = true
+        }
+        val tableHeaderTextRightPaint = Paint(tableHeaderTextPaint).apply { textAlign = Paint.Align.RIGHT }
+        val tableRowEvenPaint = Paint().apply { color = android.graphics.Color.WHITE }
+        val tableRowOddPaint = Paint().apply { color = android.graphics.Color.parseColor("#F8FAFC") }
+        val tableRowDividerPaint = Paint().apply {
+            color = android.graphics.Color.parseColor("#E2E8F0")
+            strokeWidth = 0.8f
+        }
+        val tableItemTextPaint = Paint().apply {
+            textSize = 10.5f
+            color = android.graphics.Color.parseColor("#1E293B")
+            isAntiAlias = true
+        }
+        val tableSecondaryTextPaint = Paint().apply {
+            textSize = 10.5f
+            color = android.graphics.Color.parseColor("#64748B")
+            isAntiAlias = true
+        }
+        val tableValueTextPaint = Paint().apply {
+            textSize = 10.5f
+            color = colorSuccess
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            textAlign = Paint.Align.RIGHT
+            isAntiAlias = true
+        }
+        val tableOuterBorderPaint = Paint().apply {
+            color = android.graphics.Color.parseColor("#E2E8F0")
+            style = Paint.Style.STROKE
+            strokeWidth = 1f
+            isAntiAlias = true
+        }
+        val tableHeaderH = 30f
+        val tableRowH = 28f
 
-            manutencoesRealizadas.forEach { (data, lembrete) ->
-                ensureSpace(26f)
-                val rowTextY = y + 4f
-                canvas.drawText(fit(lembrete.titulo, 30), marginX + 6f, rowTextY, bodyPaint)
-                canvas.drawText(data.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")), marginX + 250f, rowTextY, bodyPaint)
-                canvas.drawText(formatarMoeda(lembrete.valor), marginX + 360f, rowTextY, bodyPaint)
-                y += 26f
-                canvas.drawLine(marginX, y - 14f, marginX + contentWidth, y - 14f, dividerPaint)
+        fun drawTableHeader(vararg cols: Pair<String, Float>) {
+            ensureSpace(tableHeaderH + tableRowH)
+            canvas.drawRoundRect(
+                android.graphics.RectF(marginX, y, marginX + contentWidth, y + tableHeaderH),
+                10f, 10f, tableHeaderBluePaint
+            )
+            canvas.drawRect(marginX, y + 10f, marginX + contentWidth, y + tableHeaderH, tableHeaderBluePaint)
+            val textY = y + 20f
+            cols.forEach { (label, xOffset) ->
+                if (xOffset < 0f) {
+                    canvas.drawText(label, marginX + contentWidth + xOffset, textY, tableHeaderTextRightPaint)
+                } else {
+                    canvas.drawText(label, marginX + xOffset, textY, tableHeaderTextPaint)
+                }
             }
+            y += tableHeaderH
+        }
+
+        drawSectionTitle("REGISTROS CADASTRADOS")
+        if (manutencoesRealizadas.isEmpty()) {
+            ensureSpace(32f)
+            val emptyPaint = Paint(bodyPaint).apply { color = android.graphics.Color.parseColor("#94A3B8") }
+            canvas.drawText("Nenhum registro cadastrado.", marginX + 6f, y + 14f, emptyPaint)
+            y += 32f
+        } else {
+            drawTableHeader("ITEM" to 12f, "DATA" to 210f, "KM" to 304f, "VALOR" to -12f)
+            manutencoesRealizadas.forEachIndexed { index, (data, lembrete) ->
+                ensureSpace(tableRowH + 1f)
+                val rowBg = if (index % 2 == 0) tableRowEvenPaint else tableRowOddPaint
+                canvas.drawRect(marginX, y, marginX + contentWidth, y + tableRowH, rowBg)
+                val textY = y + 19f
+                canvas.drawText(fit(lembrete.titulo, 26), marginX + 12f, textY, tableItemTextPaint)
+                canvas.drawText(data.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")), marginX + 210f, textY, tableSecondaryTextPaint)
+                canvas.drawText(lembrete.kmLimite.ifBlank { "-" }, marginX + 304f, textY, tableSecondaryTextPaint)
+                if (lembrete.valor > 0.0) {
+                    canvas.drawText(formatarMoeda(lembrete.valor), marginX + contentWidth - 12f, textY, tableValueTextPaint)
+                } else {
+                    val dashRightPaint = Paint(tableSecondaryTextPaint).apply { textAlign = Paint.Align.RIGHT }
+                    canvas.drawText("-", marginX + contentWidth - 12f, textY, dashRightPaint)
+                }
+                canvas.drawLine(marginX, y + tableRowH, marginX + contentWidth, y + tableRowH, tableRowDividerPaint)
+                y += tableRowH
+            }
+            canvas.drawRoundRect(
+                android.graphics.RectF(marginX, y - (manutencoesRealizadas.size * tableRowH) - tableHeaderH, marginX + contentWidth, y),
+                10f, 10f, tableOuterBorderPaint
+            )
             y += 16f
         }
 
-        y += 24f
-        drawSectionTitle("MANUTENCOES FUTURAS")
+        y += 16f
+        drawSectionTitle("SERVIÇOS REGISTRADOS")
         if (proximos.isEmpty()) {
-            canvas.drawText("Nenhum lembrete cadastrado.", marginX, y, bodyPaint)
-            y += 16f
+            ensureSpace(32f)
+            val emptyPaint = Paint(bodyPaint).apply { color = android.graphics.Color.parseColor("#94A3B8") }
+            canvas.drawText("Nenhum servico registrado.", marginX + 6f, y + 14f, emptyPaint)
+            y += 32f
         } else {
-            val headerHeight = 22f
-            val headerBg = Paint().apply { color = android.graphics.Color.parseColor("#E2E8F0") }
-            canvas.drawRect(marginX, y, marginX + contentWidth, y + headerHeight, headerBg)
-            val headerTextPaint = Paint(labelPaint).apply {
-                color = android.graphics.Color.BLACK
-                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            val today = LocalDate.now()
+            drawTableHeader("ITEM" to 12f, "DATA" to 228f, "KM" to 336f, "CATEGORIA" to 416f)
+            proximos.take(10).forEachIndexed { index, (lembrete, data) ->
+                ensureSpace(tableRowH + 1f)
+                val rowBg = if (index % 2 == 0) tableRowEvenPaint else tableRowOddPaint
+                canvas.drawRect(marginX, y, marginX + contentWidth, y + tableRowH, rowBg)
+                val textY = y + 19f
+                val daysUntil = java.time.temporal.ChronoUnit.DAYS.between(today, data)
+                val dateColor = when {
+                    daysUntil < 0 -> colorDanger
+                    daysUntil <= 30 -> android.graphics.Color.parseColor("#D97706")
+                    else -> colorSuccess
+                }
+                val datePaint = Paint(tableSecondaryTextPaint).apply { color = dateColor }
+                canvas.drawText(fit(lembrete.titulo, 28), marginX + 12f, textY, tableItemTextPaint)
+                canvas.drawText(data.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")), marginX + 228f, textY, datePaint)
+                canvas.drawText(lembrete.kmLimite.ifBlank { "-" }, marginX + 336f, textY, tableSecondaryTextPaint)
+                canvas.drawText(fit(lembrete.tipo.label, 10), marginX + 416f, textY, tableSecondaryTextPaint)
+                canvas.drawLine(marginX, y + tableRowH, marginX + contentWidth, y + tableRowH, tableRowDividerPaint)
+                y += tableRowH
             }
-            val headerY = y + 15f
-            canvas.drawText("Item", marginX + 6f, headerY, headerTextPaint)
-            canvas.drawText("Data", marginX + 240f, headerY, headerTextPaint)
-            canvas.drawText("KM", marginX + 330f, headerY, headerTextPaint)
-            canvas.drawText("Cat.", marginX + 420f, headerY, headerTextPaint)
-            y += headerHeight + 8f
-            proximos.take(10).forEach { (lembrete, data) ->
-                ensureSpace(26f)
-                val rowTextY = y + 4f
-                canvas.drawText(fit(lembrete.titulo, 28), marginX + 6f, rowTextY, bodyPaint)
-                canvas.drawText(data.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")), marginX + 240f, rowTextY, bodyPaint)
-                canvas.drawText(lembrete.kmLimite.ifBlank { "-" }, marginX + 330f, rowTextY, bodyPaint)
-                canvas.drawText(fit(lembrete.tipo.label, 8), marginX + 420f, rowTextY, bodyPaint)
-                y += 26f
-                canvas.drawLine(marginX, y - 14f, marginX + contentWidth, y - 14f, dividerPaint)
-            }
+            val drawnRows = minOf(proximos.size, 10)
+            canvas.drawRoundRect(
+                android.graphics.RectF(marginX, y - (drawnRows * tableRowH) - tableHeaderH, marginX + contentWidth, y),
+                10f, 10f, tableOuterBorderPaint
+            )
         }
         y += 18f
         canvas.drawLine(marginX, y, pageInfo.pageWidth - marginX, y, dividerPaint)
@@ -805,11 +1253,17 @@ fun gerarPdfRelatorio(
             y += targetHeight
         }
 
-        if (!isPremium) {
-            canvas.drawText("Gerado pelo Zellu", pageInfo.pageWidth / 2f, pageInfo.pageHeight - 24f, watermarkPaint)
-        }
+        finishCurrentPage()
         document.finishPage(currentPage)
-        val pdfFile = File(context.cacheDir, "relatorio_${System.currentTimeMillis()}.pdf")
+        val anoNoModelo = Regex("(19|20)\\d{2}").find(carro.modelo)?.value ?: LocalDate.now().year.toString()
+        val dataArquivo = LocalDate.now().format(DateTimeFormatter.ofPattern("dd-MM-yyyy"))
+        val nomeCarroNormalizado = Normalizer.normalize(carro.nome.lowercase(Locale("pt", "BR")), Normalizer.Form.NFD)
+            .replace(Regex("\\p{M}+"), "")
+            .replace(Regex("[^a-z0-9]+"), "-")
+            .trim('-')
+            .ifBlank { "veiculo" }
+        val nomeArquivo = "relatorio_${nomeCarroNormalizado}_${anoNoModelo}_${dataArquivo}.pdf"
+        val pdfFile = File(context.cacheDir, nomeArquivo)
         FileOutputStream(pdfFile).use { output -> document.writeTo(output) }
         document.close()
         FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", pdfFile)
@@ -893,24 +1347,36 @@ fun gerarPdfFinanceiro(
             }
         }
 
+        val finAccentColor = android.graphics.Color.parseColor("#2563EB")
+        val finAccentBarPaint = Paint().apply { color = finAccentColor }
+
         fun drawHeader() {
             canvas.drawColor(android.graphics.Color.WHITE)
-            canvas.drawRect(0f, 0f, pageInfo.pageWidth.toFloat(), 6f, accentPaint)
-            val titleCenterPaint = Paint(titlePaint).apply { textAlign = Paint.Align.CENTER }
+            canvas.drawRect(0f, 0f, pageInfo.pageWidth.toFloat(), 82f, accentPaint)
+            val titleCenterPaint = Paint(titlePaint).apply {
+                textAlign = Paint.Align.CENTER
+                color = android.graphics.Color.WHITE
+            }
             canvas.drawText("RELATORIO FINANCEIRO", pageInfo.pageWidth / 2f, 48f, titleCenterPaint)
-            val subtitleCenterPaint = Paint(subtitlePaint).apply { textAlign = Paint.Align.CENTER }
+            val datePaint = Paint().apply {
+                textSize = 11f
+                color = android.graphics.Color.parseColor("#BFDBFE")
+                textAlign = Paint.Align.CENTER
+                isAntiAlias = true
+            }
             canvas.drawText(
                 "Gerado em ${LocalDate.now().format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))}",
                 pageInfo.pageWidth / 2f,
-                70f,
-                subtitleCenterPaint
+                66f,
+                datePaint
             )
-            canvas.drawLine(marginX, 84f, pageInfo.pageWidth - marginX, 84f, dividerPaint)
         }
 
         fun drawSectionTitle(title: String) {
             ensureSpace(24f)
-            canvas.drawText(title, marginX, y, sectionPaint)
+            canvas.drawRect(marginX, y - 13f, marginX + 4f, y + 3f, finAccentBarPaint)
+            val accentSectionPaint = Paint(sectionPaint).apply { color = finAccentColor }
+            canvas.drawText(title, marginX + 10f, y, accentSectionPaint)
             y += 8f
             canvas.drawLine(marginX, y, pageInfo.pageWidth - marginX, y, dividerPaint)
             y += 14f
@@ -979,7 +1445,9 @@ fun gerarPdfFinanceiro(
                 } else {
                     carro.modelo.ifBlank { "" }.let { if (it.isBlank()) "" else "Motor: $it" }
                 }
-                val kmTexto = if (carro.kmAtual > 0) "KM: ${carro.kmAtual}" else ""
+                val isBikeRow = carro.tipoVeiculo == TipoVeiculo.BICICLETA || carro.tipoVeiculo == TipoVeiculo.BIKE_ELETRICA
+                val exibirKmRow = !isBikeRow || !carro.semControleKm
+                val kmTexto = if (exibirKmRow && carro.kmAtual > 0) "KM: ${carro.kmAtual}" else ""
                 val combustivelTexto = if (gastoComb > 0.0) "Comb: ${formatarMoeda(gastoComb)}" else ""
                 val detalhes = listOf(carro.marca, detalheExtra, kmTexto, combustivelTexto)
                     .filter { it.isNotBlank() }

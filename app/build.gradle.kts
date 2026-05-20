@@ -8,6 +8,8 @@
 }
 
 import java.util.Properties
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 
 val localProps = Properties().apply {
     val file = rootProject.file("local.properties")
@@ -20,25 +22,60 @@ val fipeBaseUrl = (localProps.getProperty("FIPE_BASE_URL") ?: "https://parallelu
     .trim()
     .ifEmpty { "https://parallelum.com.br/fipe/" }
 
+fun propOrEnv(key: String): String? {
+    return System.getenv(key)?.takeIf { it.isNotBlank() }
+        ?: localProps.getProperty(key)?.takeIf { it.isNotBlank() }
+}
+
+val releaseStoreFile = propOrEnv("RELEASE_STORE_FILE")
+val releaseStorePassword = propOrEnv("RELEASE_STORE_PASSWORD")
+val releaseKeyAlias = propOrEnv("RELEASE_KEY_ALIAS")
+val releaseKeyPassword = propOrEnv("RELEASE_KEY_PASSWORD") ?: releaseStorePassword
+val explicitVersionCode = propOrEnv("VERSION_CODE")?.toIntOrNull()
+// Formato seguro para Google Play: yyyyMMddHH (ex.: 2026042213), sempre < 2100000000.
+val fallbackVersionCode = LocalDateTime.now()
+    .format(DateTimeFormatter.ofPattern("yyyyMMddHH"))
+    .toInt()
+val isReleaseSigningReady = !releaseStoreFile.isNullOrBlank() &&
+    !releaseStorePassword.isNullOrBlank() &&
+    !releaseKeyAlias.isNullOrBlank() &&
+    !releaseKeyPassword.isNullOrBlank()
+
 android {
     namespace = "br.com.gui.carlembrete"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "br.com.gui.carlembrete"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = explicitVersionCode ?: fallbackVersionCode
+        versionName = "1.0.20260518.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "FIPE_BASE_URL", "\"$fipeBaseUrl\"")
+    }
+
+    signingConfigs {
+        create("release") {
+            if (isReleaseSigningReady) {
+                storeFile = rootProject.file(requireNotNull(releaseStoreFile))
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
+            if (isReleaseSigningReady) {
+                signingConfig = signingConfigs.getByName("release")
+            } else {
+                println("Release signing is not configured; generating unsigned release artifacts.")
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -118,13 +155,13 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.test.manifest)
 
     // CÃ¢mera (CameraX)
-    implementation("androidx.camera:camera-camera2:1.3.1")
-    implementation("androidx.camera:camera-lifecycle:1.3.1")
-    implementation("androidx.camera:camera-view:1.3.1")
+    implementation("androidx.camera:camera-camera2:1.6.1")
+    implementation("androidx.camera:camera-lifecycle:1.6.1")
+    implementation("androidx.camera:camera-view:1.6.1")
     implementation("com.google.guava:guava:31.1-android")
 
     // InteligÃªncia Artificial (Google ML Kit - OCR)
-    implementation("com.google.android.gms:play-services-mlkit-text-recognition:19.0.0")
+    implementation("com.google.android.gms:play-services-mlkit-text-recognition:19.0.1")
     implementation("com.google.mlkit:barcode-scanning:17.3.0")
     implementation("org.jsoup:jsoup:1.15.4")
 
@@ -138,7 +175,9 @@ dependencies {
     implementation("com.google.firebase:firebase-firestore-ktx")
 
     // Google Play Billing
-    implementation("com.android.billingclient:billing-ktx:6.1.0")
+    implementation("com.android.billingclient:billing:8.3.0")
+    implementation("com.google.android.play:review-ktx:2.0.2")
+    implementation("com.google.android.play:app-update-ktx:2.1.0")
 
     // Google Drive (App Folder) backup
     implementation("com.google.api-client:google-api-client-android:2.2.0")

@@ -58,12 +58,12 @@
       android:strokeColor="#D1B561"
       android:strokeWidth="1.5"/>
   <path
-      android:pathData="M220,170v470M1316,170v470"
+      android:pathData="M220,170v515M1316,170v515"
       android:fillColor="#00000000"
       android:strokeColor="#6F4A2D"
       android:strokeWidth="22"/>
   <path
-      android:pathData="M120,640h1296"
+      android:pathData="M120,685h1296"
       android:fillColor="#00000000"
       android:strokeColor="#5A5F66"
       android:strokeWidth="24"/>

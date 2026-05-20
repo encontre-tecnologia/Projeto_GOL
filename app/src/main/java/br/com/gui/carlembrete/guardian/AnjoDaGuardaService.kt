@@ -960,7 +960,8 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Anjo da Guarda")
             .setContentText(text)
-            .setSmallIcon(R.drawable.logonotificacao)
+            .setSmallIcon(R.drawable.ic_shield_notification)
+            .setColor(NotificacaoHelper.notificationAccentColor(this))
             .setOngoing(true)
             .build()
     }
@@ -973,9 +974,9 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
         } catch (se: SecurityException) {
             val granted = ContextCompat.checkSelfPermission(
                 this,
-                "android.permission.FOREGROUND_SERVICE_DATA_SYNC"
+                android.Manifest.permission.FOREGROUND_SERVICE
             ) == PackageManager.PERMISSION_GRANTED
-            Log.e(TAG, "FGS start failed type=dataSync permGranted=$granted sdk=${Build.VERSION.SDK_INT}", se)
+            Log.e(TAG, "FGS start failed permGranted=$granted sdk=${Build.VERSION.SDK_INT}", se)
             showAlertNotification("Falha ao iniciar monitoramento: permissão de serviço em primeiro plano.")
             false
         }
@@ -986,7 +987,8 @@ class AnjoDaGuardaService : Service(), SensorEventListener {
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Anjo da Guarda")
             .setContentText(text)
-            .setSmallIcon(R.drawable.logonotificacao)
+            .setSmallIcon(R.drawable.ic_shield_notification)
+            .setColor(NotificacaoHelper.notificationAccentColor(this))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .build()

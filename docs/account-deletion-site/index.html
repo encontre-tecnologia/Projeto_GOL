@@ -1,0 +1,98 @@
+﻿<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Exclusao de Conta - Zellu</title>
+  <style>
+    :root {
+      --bg: #0b1220;
+      --card: #111a2e;
+      --text: #e8eefc;
+      --muted: #a9b7d6;
+      --accent: #4da3ff;
+      --border: #223457;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Roboto, Arial, sans-serif;
+      background: radial-gradient(circle at top, #122242 0%, var(--bg) 50%);
+      color: var(--text);
+      line-height: 1.6;
+    }
+    .wrap {
+      max-width: 860px;
+      margin: 0 auto;
+      padding: 40px 20px 64px;
+    }
+    .card {
+      background: color-mix(in srgb, var(--card) 92%, black);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 24px;
+      margin-top: 16px;
+    }
+    h1, h2 { line-height: 1.25; margin: 0 0 12px; }
+    h1 { font-size: 1.9rem; }
+    h2 { font-size: 1.2rem; color: #d8e6ff; }
+    p, li { color: var(--muted); }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .pill {
+      display: inline-block;
+      padding: 6px 10px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      font-size: 0.85rem;
+      color: #c7d7f8;
+      margin-bottom: 12px;
+    }
+    .steps li { margin-bottom: 10px; }
+    .footer { margin-top: 18px; font-size: 0.9rem; color: #94a9d3; }
+    .links { margin-top: 18px; display: flex; gap: 14px; flex-wrap: wrap; }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <span class="pill">Zellu - Politica de Exclusao</span>
+    <h1>Exclusao de conta e dados</h1>
+    <div class="card">
+      <h2>Como excluir sua conta no app</h2>
+      <ol class="steps">
+        <li>Abra o app <strong>Zellu</strong>.</li>
+        <li>Va em <strong>Perfil</strong>.</li>
+        <li>Toque em <strong>Excluir conta e dados</strong>.</li>
+        <li>Confirme em <strong>Apagar</strong>.</li>
+      </ol>
+      <p>Apos a confirmacao, a conta e removida e o app encerra a sessao.</p>
+    </div>
+
+    <div class="card">
+      <h2>Quais dados sao excluidos</h2>
+      <ul>
+        <li>Conta de autenticacao do usuario.</li>
+        <li>Dados locais do app no dispositivo (veiculos, lembretes, abastecimentos, preferencias e itens relacionados).</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2>Retencao de dados</h2>
+      <p>Alguns registros tecnicos e operacionais podem ser mantidos temporariamente para seguranca, prevencao a fraude e cumprimento de obrigacoes legais. Esses registros sao minimizados e removidos conforme a politica interna de retencao.</p>
+    </div>
+
+    <div class="card">
+      <h2>Solicitacao manual de exclusao</h2>
+      <p>Se voce nao conseguir acessar o app, solicite exclusao manual pelo e-mail:</p>
+      <p><a href="mailto:guilhermedevsistemas@gmail.com">guilhermedevsistemas@gmail.com</a></p>
+      <p>No assunto, use: <strong>Excluir conta - Zellu</strong>.</p>
+      <div class="links">
+        <a href="/privacy-policy.html">Politica de Privacidade</a>
+        <a href="/terms-of-use.html">Termos de Uso</a>
+      </div>
+    </div>
+
+    <p class="footer">Ultima atualizacao: 10/04/2026</p>
+  </main>
+</body>
+</html>

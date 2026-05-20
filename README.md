@@ -46,7 +46,7 @@ O app atende diferentes tipos de veiculo, incluindo carro, moto, caminhonete, ca
 - WorkManager
 - Retrofit + Gson
 - JUnit 4 + Allure
-- GitHub Actions (CI)
+- GitLab CI/CD
 
 ---
 
@@ -96,16 +96,54 @@ Gerar relatorio Allure:
 
 ---
 
-## CI
+## CI/CD
 
-A pipeline do GitHub Actions executa os testes unitarios em pushes e pull requests para `main` e `master`.
+O projeto usa `.gitlab-ci.yml` com este fluxo:
+
+- **Quality**: `lintDebug`
+- **Test**: `testDebugUnitTest`
+- **Build**: `assembleDebug` e `bundleRelease`
+- **Deploy**:
+  - `Release`: upload do AAB para Google Play Console (track configuravel, padrao `internal`).
+  - Em `tag`: deploy automatico.
+  - Em `main/master`: deploy manual.
+- **Notify**: mensagem no Google Chat a cada `push` na branch `dev`/`Dev`.
+
+### Variaveis necessarias no GitLab
+
+Configure em `Settings > CI/CD > Variables`:
+
+- `GOOGLE_CHAT_WEBHOOK_URL`: URL completa do webhook do Google Chat.
+- `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON`: credencial JSON da service account com permissao de release no Google Play Console.
+- `PLAY_PACKAGE_NAME` (opcional): pacote do app no Play Console. Padrao: `br.com.gui.carlembrete`.
+- `PLAY_TRACK` (opcional): faixa do release (`internal`, `alpha`, `beta`, `production`). Padrao: `alpha`.
+- `PLAY_RELEASE_STATUS` (opcional): status no Play (`draft`, `completed`, `inProgress`, `halted`). Padrao: `draft`.
+- `PLAY_CHANGES_NOT_SENT_FOR_REVIEW` (opcional): envia alteracoes sem submit imediato de review via API (`true`/`false`). Padrao: `true`.
+- `RELEASE_STORE_FILE`: caminho do keystore de upload (ex.: `keystore/zellu-upload.jks`).
+- `RELEASE_STORE_FILE_BASE64` (alternativa): conteudo Base64 do `.jks` em linha unica (use quando nao conseguir usar variavel do tipo `File`).
+- `RELEASE_STORE_PASSWORD`: senha do keystore.
+- `RELEASE_KEY_ALIAS`: alias da chave (ex.: `upload`).
+- `RELEASE_KEY_PASSWORD`: senha da chave.
+
+Observacoes:
+
+- Se `GOOGLE_CHAT_WEBHOOK_URL` nao estiver definido, o job de notificacao nao roda.
+- Se `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` nao estiver definido, jobs de deploy para Play Console nao rodam.
+- Se as variaveis `RELEASE_*` nao estiverem configuradas, o AAB pode ser gerado sem assinatura e o deploy falha.
+- Para `RELEASE_STORE_FILE_BASE64`, gere no PowerShell:
+
+```powershell
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("C:\caminho\zellu-upload.jks"))
+```
+
+- Evite marcar as variaveis como `Protected` se a branch `Dev` nao for protegida.
 
 ---
 
 ## Estrutura (resumo)
 
 - `app/`: aplicativo Android
-- `.github/workflows/android-ci.yml`: pipeline de CI
+- `.gitlab-ci.yml`: pipeline de CI/CD
 - `gradle/` e scripts `gradlew*`: build e automacao
 
 ---

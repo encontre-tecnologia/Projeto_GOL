@@ -22,6 +22,14 @@
           }
         },
         {
+          "client_id": "101479851038-gaak7ttedf2j2qdlhm382n2pb95kfp9a.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "br.com.gui.carlembrete",
+            "certificate_hash": "23cd941c02cc4391f910bbee9cf79bc997ea4fc5"
+          }
+        },
+        {
           "client_id": "101479851038-82vpsm2gs89nen077d4ur26v8unh24cl.apps.googleusercontent.com",
           "client_type": 3
         }
