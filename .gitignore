@@ -16,6 +16,9 @@ local.properties
 app/google-services.json
 *.jks
 *.keystore
+zellukeystore*
+*.aab
+app/release/
 
 .gradle-local/
 .android-local/
