@@ -931,14 +931,41 @@ private fun gerarPdfStatusFrota(
         var y = 48f
 
         canvas.drawColor(android.graphics.Color.WHITE)
-        val centerPaint = Paint(titlePaint).apply { textAlign = Paint.Align.CENTER }
-        canvas.drawText("RELATORIO EXECUTIVO", pageWidth / 2f, 210f, centerPaint)
-        canvas.drawText("STATUS DA FROTA", pageWidth / 2f, 242f, centerPaint)
-        val coverBody = Paint(bodyPaint).apply { textAlign = Paint.Align.CENTER; textSize = 12f }
-        canvas.drawText(companyName, pageWidth / 2f, 290f, coverBody)
-        canvas.drawText("Periodo: ${selectedPeriod.label}", pageWidth / 2f, 314f, coverBody)
-        canvas.drawText("Responsavel: ${ownerFilter ?: "Todos"}", pageWidth / 2f, 338f, coverBody)
-        canvas.drawText("Emitido em ${LocalDate.now().format(dateFormatter)}", pageWidth / 2f, 362f, coverBody)
+        val coverAccentPaint = Paint().apply { color = android.graphics.Color.parseColor("#2563EB") }
+        canvas.drawRect(0f, 0f, pageWidth.toFloat(), 110f, coverAccentPaint)
+        val coverTitlePaint = Paint(titlePaint).apply {
+            textAlign = Paint.Align.CENTER
+            color = android.graphics.Color.WHITE
+            textSize = 26f
+        }
+        canvas.drawText("RELATORIO EXECUTIVO", pageWidth / 2f, 60f, coverTitlePaint)
+        val coverSubPaint = Paint().apply {
+            textAlign = Paint.Align.CENTER
+            color = android.graphics.Color.parseColor("#BFDBFE")
+            textSize = 14f
+            isAntiAlias = true
+        }
+        canvas.drawText("STATUS DA FROTA", pageWidth / 2f, 88f, coverSubPaint)
+        val coverDivider = Paint().apply {
+            color = android.graphics.Color.parseColor("#CBD5E1")
+            strokeWidth = 1.2f
+        }
+        canvas.drawLine(margin, 210f, pageWidth - margin, 210f, coverDivider)
+        val coverInfoPaint = Paint(bodyPaint).apply {
+            textAlign = Paint.Align.CENTER
+            textSize = 14f
+            color = android.graphics.Color.parseColor("#0F172A")
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        }
+        canvas.drawText(companyName, pageWidth / 2f, 252f, coverInfoPaint)
+        val coverDetailPaint = Paint(bodyPaint).apply {
+            textAlign = Paint.Align.CENTER
+            textSize = 11f
+            color = android.graphics.Color.parseColor("#64748B")
+        }
+        canvas.drawText("Periodo: ${selectedPeriod.label}", pageWidth / 2f, 282f, coverDetailPaint)
+        canvas.drawText("Responsavel: ${ownerFilter ?: "Todos"}", pageWidth / 2f, 304f, coverDetailPaint)
+        canvas.drawText("Emitido em ${LocalDate.now().format(dateFormatter)}", pageWidth / 2f, 326f, coverDetailPaint)
         document.finishPage(page)
         pageIndex += 1
         page = document.startPage(PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageIndex).create())
@@ -965,60 +992,162 @@ private fun gerarPdfStatusFrota(
         }
 
         canvas.drawColor(android.graphics.Color.WHITE)
-        canvas.drawText("RELATORIO STATUS DA FROTA", margin, y, titlePaint)
-        y += 24f
-        drawLine("Gerado em: ${LocalDate.now().format(dateFormatter)}")
-        drawLine("Periodo: ${selectedPeriod.label}")
-        drawLine("Responsavel: ${ownerFilter ?: "Todos"}")
-        drawLine(
-            "Filtro: ${
-                when (healthFilter) {
-                    FleetHealth.GOOD -> "Saude boa"
-                    FleetHealth.ATTENTION -> "Atencao"
-                    FleetHealth.CRITICAL -> "Critico"
-                    null -> "Todos"
-                }
-            }"
+        val pageAccentPaint = Paint().apply { color = android.graphics.Color.parseColor("#2563EB") }
+        canvas.drawRect(0f, 0f, pageWidth.toFloat(), 72f, pageAccentPaint)
+        val pageTitlePaint = Paint(titlePaint).apply {
+            textAlign = Paint.Align.CENTER
+            color = android.graphics.Color.WHITE
+            textSize = 18f
+        }
+        canvas.drawText("RELATORIO STATUS DA FROTA", pageWidth / 2f, 40f, pageTitlePaint)
+        val pageDatePaint = Paint().apply {
+            textAlign = Paint.Align.CENTER
+            color = android.graphics.Color.parseColor("#BFDBFE")
+            textSize = 10f
+            isAntiAlias = true
+        }
+        canvas.drawText(
+            "Gerado em ${LocalDate.now().format(dateFormatter)}  |  Periodo: ${selectedPeriod.label}  |  Resp.: ${ownerFilter ?: "Todos"}",
+            pageWidth / 2f, 58f, pageDatePaint
         )
-        y += 4f
+        y = 90f
         canvas.drawLine(margin, y, pageWidth - margin, y, dividerPaint)
         y += 18f
 
-        canvas.drawText("RESUMO EXECUTIVO", margin, y, sectionPaint)
-        y += 18f
-        drawLine("Total de veiculos: $total")
-        drawLine("Saude boa: $good")
-        drawLine("Em atencao: $attention")
-        drawLine("Criticos: $critical")
-        drawLine("Custo pendente de manutencao: ${formatCurrency(pendingTotal)}")
+        val sectionAccentPaint = Paint().apply { color = android.graphics.Color.parseColor("#2563EB") }
+        val accentSectionPaint = Paint(sectionPaint).apply { color = android.graphics.Color.parseColor("#2563EB") }
 
-        y += 10f
+        canvas.drawRect(margin, y - 13f, margin + 4f, y + 3f, sectionAccentPaint)
+        canvas.drawText("RESUMO EXECUTIVO", margin + 10f, y, accentSectionPaint)
+        y += 18f
+
+        val cardBgPaint = Paint().apply { color = android.graphics.Color.parseColor("#F8FAFC") }
+        val cardBorderPaint = Paint().apply {
+            color = android.graphics.Color.parseColor("#E2E8F0")
+            style = Paint.Style.STROKE
+            strokeWidth = 1.2f
+            isAntiAlias = true
+        }
+        val metricLabelPaint = Paint().apply {
+            textSize = 9f
+            color = android.graphics.Color.parseColor("#64748B")
+            isAntiAlias = true
+        }
+        val metricValuePaint = Paint().apply {
+            textSize = 20f
+            color = android.graphics.Color.parseColor("#0F172A")
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            isAntiAlias = true
+        }
+        val halfWidth = (pageWidth - margin * 2 - 8f) / 2f
+        val bigCardH = 52f
+
+        val card1Rect = android.graphics.RectF(margin, y, margin + halfWidth, y + bigCardH)
+        canvas.drawRoundRect(card1Rect, 8f, 8f, cardBgPaint)
+        canvas.drawRoundRect(card1Rect, 8f, 8f, cardBorderPaint)
+        canvas.drawText("TOTAL VEICULOS", margin + 8f, y + 18f, metricLabelPaint)
+        canvas.drawText(total.toString(), margin + 8f, y + 44f, metricValuePaint)
+
+        val card2X = margin + halfWidth + 8f
+        val card2Rect = android.graphics.RectF(card2X, y, card2X + halfWidth, y + bigCardH)
+        canvas.drawRoundRect(card2Rect, 8f, 8f, cardBgPaint)
+        canvas.drawRoundRect(card2Rect, 8f, 8f, cardBorderPaint)
+        canvas.drawText("CUSTO PENDENTE", card2X + 8f, y + 18f, metricLabelPaint)
+        val costValuePaint = Paint(metricValuePaint).apply { textSize = 15f }
+        canvas.drawText(formatCurrency(pendingTotal), card2X + 8f, y + 44f, costValuePaint)
+        y += bigCardH + 8f
+
+        val thirdWidth = (pageWidth - margin * 2 - 16f) / 3f
+        val miniCardH = 50f
+        val colorGood = android.graphics.Color.parseColor("#16A34A")
+        val colorWarn = android.graphics.Color.parseColor("#D97706")
+        val colorCrit = android.graphics.Color.parseColor("#DC2626")
+        listOf(
+            Triple("EM DIA", good, colorGood),
+            Triple("ATENCAO", attention, colorWarn),
+            Triple("CRITICOS", critical, colorCrit)
+        ).forEachIndexed { i, (label, count, color) ->
+            val cardX = margin + i * (thirdWidth + 8f)
+            val miniRect = android.graphics.RectF(cardX, y, cardX + thirdWidth, y + miniCardH)
+            canvas.drawRoundRect(miniRect, 8f, 8f, cardBgPaint)
+            val leftStripPaint = Paint().apply { this.color = color }
+            canvas.drawRoundRect(android.graphics.RectF(cardX, y, cardX + 4f, y + miniCardH), 4f, 4f, leftStripPaint)
+            canvas.drawRoundRect(miniRect, 8f, 8f, cardBorderPaint)
+            val coloredLabel = Paint(metricLabelPaint).apply { this.color = color }
+            canvas.drawText(label, cardX + 10f, y + 18f, coloredLabel)
+            val countPaint = Paint(metricValuePaint).apply { textSize = 18f; this.color = color }
+            canvas.drawText(count.toString(), cardX + 10f, y + 42f, countPaint)
+        }
+        y += miniCardH + 16f
+
         canvas.drawLine(margin, y, pageWidth - margin, y, dividerPaint)
         y += 18f
-        canvas.drawText("DETALHAMENTO POR VEICULO", margin, y, sectionPaint)
+        canvas.drawRect(margin, y - 13f, margin + 4f, y + 3f, sectionAccentPaint)
+        canvas.drawText("DETALHAMENTO POR VEICULO", margin + 10f, y, accentSectionPaint)
         y += 18f
 
         if (statuses.isEmpty()) {
             drawLine("Nenhum veiculo no filtro atual.")
         } else {
+            val vehicleCardBgPaint = Paint().apply { color = android.graphics.Color.parseColor("#F8FAFC") }
+            val vehicleCardBorderPaint = Paint().apply {
+                color = android.graphics.Color.parseColor("#E2E8F0")
+                style = Paint.Style.STROKE
+                strokeWidth = 1.2f
+                isAntiAlias = true
+            }
+            val pillTextPaint = Paint().apply {
+                color = android.graphics.Color.WHITE
+                textSize = 9f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                isAntiAlias = true
+            }
+            val vehicleNamePaint = Paint(sectionPaint).apply {
+                textSize = 12f
+                color = android.graphics.Color.parseColor("#0F172A")
+            }
+
             statuses.forEachIndexed { index, item ->
-                ensureSpace(112f)
-                val healthText = when (item.health) {
-                    FleetHealth.GOOD -> "Saude boa"
-                    FleetHealth.ATTENTION -> "Atencao"
-                    FleetHealth.CRITICAL -> "Critico"
+                val cardHeight = 120f
+                ensureSpace(cardHeight + 10f)
+                val healthColor = when (item.health) {
+                    FleetHealth.GOOD -> android.graphics.Color.parseColor("#16A34A")
+                    FleetHealth.ATTENTION -> android.graphics.Color.parseColor("#D97706")
+                    FleetHealth.CRITICAL -> android.graphics.Color.parseColor("#DC2626")
                 }
-                canvas.drawText("${index + 1}. ${item.carro.nome}", margin, y, sectionPaint)
-                y += 16f
-                drawLine("Tipo: ${item.carro.tipoVeiculo.label} | Responsavel: ${item.owner}")
-                drawLine("Status: $healthText | Vencidas: ${item.overdueCount} | Prox.30d: ${item.upcoming30Count}")
-                drawLine("Proxima manutencao: ${item.nextMaintenanceDate?.format(dateFormatter) ?: "Sem previsao"}")
-                drawLine("Ultimo abastecimento: ${item.lastFuelDate?.format(dateFormatter) ?: "Sem registro"}")
-                drawLine("Abastecimentos no periodo: ${item.recentFuelCount} | Litros: ${String.format(java.util.Locale.US, "%.1f", item.recentFuelLiters)}")
-                drawLine("Custo combustivel periodo: ${formatCurrency(item.recentFuelCost)} | Pendente manutencao: ${formatCurrency(item.pendingCost)}")
-                y += 4f
-                canvas.drawLine(margin, y, pageWidth - margin, y, dividerPaint)
-                y += 14f
+                val healthText = when (item.health) {
+                    FleetHealth.GOOD -> "EM DIA"
+                    FleetHealth.ATTENTION -> "ATENCAO"
+                    FleetHealth.CRITICAL -> "CRITICO"
+                }
+                val cardTop = y
+                val cardRect = android.graphics.RectF(margin, cardTop, pageWidth - margin, cardTop + cardHeight)
+                canvas.drawRoundRect(cardRect, 8f, 8f, vehicleCardBgPaint)
+                val leftStripPaint = Paint().apply { color = healthColor }
+                canvas.drawRoundRect(android.graphics.RectF(margin, cardTop, margin + 4f, cardTop + cardHeight), 4f, 4f, leftStripPaint)
+                canvas.drawRoundRect(cardRect, 8f, 8f, vehicleCardBorderPaint)
+
+                val textX = margin + 12f
+                canvas.drawText("${index + 1}. ${item.carro.nome}", textX, cardTop + 20f, vehicleNamePaint)
+
+                val pillText = healthText
+                val pillW = pillTextPaint.measureText(pillText) + 14f
+                val pillLeft = pageWidth - margin - pillW - 6f
+                val pillPaint = Paint().apply { color = healthColor }
+                canvas.drawRoundRect(android.graphics.RectF(pillLeft, cardTop + 8f, pageWidth - margin - 6f, cardTop + 26f), 8f, 8f, pillPaint)
+                canvas.drawText(pillText, pillLeft + 7f, cardTop + 21f, pillTextPaint)
+
+                var textY = cardTop + 38f
+                val lineH = 16f
+                canvas.drawText("Tipo: ${item.carro.tipoVeiculo.label}  |  Responsavel: ${item.owner}", textX, textY, bodyPaint)
+                textY += lineH
+                canvas.drawText("Vencidas: ${item.overdueCount}  |  Proximas 30d: ${item.upcoming30Count}  |  Prox. manut.: ${item.nextMaintenanceDate?.format(dateFormatter) ?: "--"}", textX, textY, bodyPaint)
+                textY += lineH
+                canvas.drawText("Ult. abastecimento: ${item.lastFuelDate?.format(dateFormatter) ?: "--"}  |  Qtd. periodo: ${item.recentFuelCount}  |  Litros: ${String.format(java.util.Locale.US, "%.1f", item.recentFuelLiters)}", textX, textY, bodyPaint)
+                textY += lineH
+                canvas.drawText("Custo combustivel: ${formatCurrency(item.recentFuelCost)}  |  Pendente manut.: ${formatCurrency(item.pendingCost)}", textX, textY, bodyPaint)
+
+                y = cardTop + cardHeight + 10f
             }
         }
 

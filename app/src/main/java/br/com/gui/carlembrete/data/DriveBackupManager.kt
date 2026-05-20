@@ -54,6 +54,13 @@ class DriveBackupManager(private val context: Context) {
         }
     }
 
+    suspend fun hasBackup(account: GoogleSignInAccount): Boolean {
+        return withContext(Dispatchers.IO) {
+            val drive = buildDriveService(account)
+            findBackupFileId(drive) != null
+        }
+    }
+
     private fun buildDriveService(account: GoogleSignInAccount): Drive {
         val androidAccount = requireNotNull(account.account) { "Conta Google invalida." }
         val credential = GoogleAccountCredential.usingOAuth2(

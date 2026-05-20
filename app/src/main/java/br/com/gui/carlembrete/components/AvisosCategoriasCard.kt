@@ -39,6 +39,7 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -71,10 +72,10 @@ private fun avisosPalette(): AvisosPalette {
     val scheme = MaterialTheme.colorScheme
     val isDark = scheme.background.luminance() < 0.5f
     return AvisosPalette(
-        cardBackground = if (isDark) Color(0xFF334155) else Color.White,
-        itemBackground = if (isDark) Color(0xFF1E293B) else Color(0xFFF8FAFC),
-        surfaceHighlight = if (isDark) Color(0xFF334155) else Color(0xFFCBD5E1),
-        categoryBadgeBorder = if (isDark) Color(0xFF2B3950) else Color.White,
+        cardBackground = if (isDark) Color(0xFF172033) else Color.White,
+        itemBackground = if (isDark) Color(0xFF1F2937) else Color(0xFFF8FAFC),
+        surfaceHighlight = if (isDark) Color(0xFF172033) else Color(0xFFCBD5E1),
+        categoryBadgeBorder = if (isDark) Color(0xFF172033) else Color.White,
         textPrimary = scheme.onSurface,
         textSecondary = scheme.onSurfaceVariant,
         accent = scheme.primary,
@@ -307,7 +308,7 @@ fun LembreteCardLocal(
             .fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = palette.itemBackground),
-        border = BorderStroke(1.dp, if (palette.isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.22f)),
+        border = BorderStroke(1.dp, if (palette.isDark) Color.White.copy(alpha = 0.16f) else Color.Black.copy(alpha = 0.22f)),
         elevation = CardDefaults.cardElevation(4.dp)
     ) {
         Column(
@@ -368,7 +369,12 @@ fun LembreteCardLocal(
 
             // DivisÃ³ria sutil
             Spacer(Modifier.height(16.dp))
-            Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color.White.copy(alpha = 0.05f)))
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(1.dp)
+                    .background(if (palette.isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f))
+            )
             Spacer(Modifier.height(16.dp))
 
             }
@@ -442,24 +448,10 @@ fun LembreteCardLocal(
                         modifier = Modifier
                             .clip(CircleShape)
                             .clickable {
-                                val dataFormatada = try {
-                                    dataParaOrdenacao(lembrete).format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))
-                                } catch (e: Exception) { lembrete.dataLimite.ifBlank { "--/--/----" } }
-                                val saudacao = when (LocalTime.now().hour) {
-                                    in 5..11 -> if (isEnglish) "Good morning" else "Bom dia"
-                                    in 12..17 -> if (isEnglish) "Good afternoon" else "Boa tarde"
-                                    else -> if (isEnglish) "Good evening" else "Boa noite"
-                                }
-                                val servico = lembrete.titulo.ifBlank { if (isEnglish) "service" else "serviço" }
-                                val itemTrocado = lembrete.peca.ifBlank { lembrete.titulo }.ifBlank { if (isEnglish) "service item" else "item do serviço" }
                                 abrirWhatsApp(
                                     context,
                                     contato.telefone,
-                                    if (isEnglish) {
-                                        "$saudacao, ${contato.nome}! How are you?\n\nI did the *$servico* with you, for *$itemTrocado*, on *$dataFormatada*.\nCould you confirm if the price is still *$valorFormatado* and when you could do this service again?"
-                                    } else {
-                                        "$saudacao, ${contato.nome}! Tudo bem?\n\nFiz a *$servico* com você, do item *$itemTrocado*, no dia *$dataFormatada*.\nGostaria de perguntar se o valor ainda é *$valorFormatado* e quando você teria uma data para realizar esse serviço novamente."
-                                    }
+                                    "Olá tudo bem?"
                                 )
                             }
                     ) {
@@ -755,8 +747,25 @@ private fun EmptyStateView(textColor: Color) {
             )
         }
         Spacer(Modifier.height(16.dp))
-        Text(tr("Tudo 100%!", "All set!"), color = palette.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-        Text(tr("Nenhum aviso nessa categoria.", "No reminders in this category."), color = textColor, fontSize = 13.sp)
+        Text(
+            text = tr("Nenhum aviso por aqui", "No reminders here"),
+            color = palette.textPrimary,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.Center
+        )
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = tr(
+                "Quando precisar acompanhar uma revisão, troca ou manutenção, toque em Novo Lembrete.",
+                "When you need to track a service, replacement, or maintenance, tap New Reminder."
+            ),
+            color = textColor,
+            fontSize = 13.sp,
+            lineHeight = 18.sp,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(horizontal = 22.dp)
+        )
     }
 }
 

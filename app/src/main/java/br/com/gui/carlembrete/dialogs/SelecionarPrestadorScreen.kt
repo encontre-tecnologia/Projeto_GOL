@@ -2,6 +2,7 @@ package br.com.gui.carlembrete
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,12 +15,16 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -35,9 +40,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -45,6 +51,7 @@ import androidx.compose.ui.unit.sp
 fun SelecionarPrestadorScreen(
     tipoSelecionado: TipoManutencao,
     isBikeVehicle: Boolean,
+    prestadoresCadastrados: List<ContatoProfissional> = emptyList(),
     onDismiss: () -> Unit,
     onConfirmar: (ContatoProfissional) -> Unit
 ) {
@@ -52,17 +59,27 @@ fun SelecionarPrestadorScreen(
     val accentBlue = Color(0xFF2563EB)
     val textPrimary = if (isDark) Color(0xFFF8FAFC) else Color(0xFF0F172A)
     val textSecondary = if (isDark) Color(0xFF94A3B8) else Color(0xFF64748B)
-    val containerColor = if (isDark) Color(0xFF0F172A) else Color.White
+    val containerColor = if (isDark) Color(0xFF111827) else Color.White
     val borderColor = if (isDark) Color.White.copy(alpha = 0.16f) else Color.Black.copy(alpha = 0.14f)
     val textFieldBg = if (isDark) Color(0xFF111827) else Color(0xFFF8FAFC)
+    val cancelarBorderColor = if (isDark) Color.White else borderColor
+    val cancelarTextColor = if (isDark) Color.White else textPrimary
 
     var nomeInput by rememberSaveable { mutableStateOf("") }
     var telefoneInput by rememberSaveable { mutableStateOf("") }
+    var prestadoresExpanded by rememberSaveable { mutableStateOf(false) }
 
     val telefoneDigitos = telefoneInput.filter(Char::isDigit).take(11)
     val nomeValido = nomeInput.trim().length >= 2
     val telefoneValido = telefoneDigitos.length >= 10
     val podeSalvar = nomeValido && telefoneValido
+    val prestadoresOrdenados = prestadoresCadastrados
+        .distinctBy { it.id }
+        .sortedWith(
+            compareByDescending<ContatoProfissional> {
+                it.tipoServico.equals(tipoSelecionado.label, ignoreCase = true)
+            }.thenBy { it.nome.lowercase() }
+        )
 
     BackHandler(onBack = onDismiss)
 
@@ -98,16 +115,6 @@ fun SelecionarPrestadorScreen(
                     fontSize = 22.sp,
                     textAlign = TextAlign.Center
                 )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    text = tr(
-                        "Preencha os dados para vincular ao aviso de ${tipoSelecionado.label}.",
-                        "Fill in the details to link to the ${tipoSelecionado.label} reminder."
-                    ),
-                    color = textSecondary,
-                    fontSize = 13.sp,
-                    textAlign = TextAlign.Center
-                )
             }
         },
         text = {
@@ -115,6 +122,74 @@ fun SelecionarPrestadorScreen(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
+                if (prestadoresOrdenados.isNotEmpty()) {
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        OutlinedTextField(
+                            value = "",
+                            onValueChange = {},
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { prestadoresExpanded = true },
+                            readOnly = true,
+                            enabled = false,
+                            label = { Text(tr("Selecione prestador", "Select provider")) },
+                            placeholder = { Text(tr("Clique para escolher", "Tap to choose")) },
+                            trailingIcon = {
+                                Icon(
+                                    Icons.Default.ArrowDropDown,
+                                    contentDescription = null,
+                                    tint = textSecondary
+                                )
+                            },
+                            shape = RoundedCornerShape(12.dp),
+                            colors = TextFieldDefaults.colors(
+                                disabledTextColor = textPrimary,
+                                disabledLabelColor = textSecondary,
+                                disabledPlaceholderColor = textSecondary,
+                                disabledTrailingIconColor = textSecondary,
+                                disabledContainerColor = textFieldBg,
+                                disabledIndicatorColor = borderColor
+                            )
+                        )
+                        DropdownMenu(
+                            expanded = prestadoresExpanded,
+                            onDismissRequest = { prestadoresExpanded = false },
+                            modifier = Modifier.fillMaxWidth(0.78f)
+                        ) {
+                            prestadoresOrdenados.forEach { prestador ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text(
+                                                text = prestador.nome,
+                                                fontWeight = FontWeight.SemiBold,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            Text(
+                                                text = prestador.tipoServico.ifBlank { tr("Prestador", "Provider") },
+                                                color = textSecondary,
+                                                fontSize = 11.sp,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                    },
+                                    onClick = {
+                                        prestadoresExpanded = false
+                                        onConfirmar(prestador)
+                                    }
+                                )
+                            }
+                        }
+                    }
+                    HorizontalDivider(color = borderColor)
+                    Text(
+                        text = tr("Ou cadastre um novo", "Or add a new one"),
+                        color = textSecondary,
+                        fontSize = 12.sp
+                    )
+                }
                 OutlinedTextField(
                     value = nomeInput,
                     onValueChange = { nomeInput = it },
@@ -164,12 +239,20 @@ fun SelecionarPrestadorScreen(
             OutlinedButton(
                 onClick = onDismiss,
                 shape = RoundedCornerShape(12.dp),
-                border = androidx.compose.foundation.BorderStroke(1.dp, borderColor),
+                border = androidx.compose.foundation.BorderStroke(1.dp, cancelarBorderColor),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    contentColor = cancelarTextColor
+                ),
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(54.dp)
             ) {
-                Text(tr("Cancelar", "Cancel"), fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                Text(
+                    tr("Cancelar", "Cancel"),
+                    color = cancelarTextColor,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
             }
         },
         confirmButton = {

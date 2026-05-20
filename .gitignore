@@ -19,3 +19,20 @@ app/google-services.json
 
 .gradle-local/
 .android-local/
+
+# Local assistant/tool caches
+.claude/
+.codex_tmp/
+
+# Kotlin/IDE local diagnostics
+.kotlin/errors/
+
+# Local emulator/export scratch files
+lembretes_emulador*.dat
+lembretes_emulador*.b64
+
+# Web app
+web/node_modules/
+web/dist/
+web/tsconfig.tsbuildinfo
+web/*.log

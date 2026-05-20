@@ -1,9 +1,12 @@
 ﻿package br.com.gui.carlembrete
 
+import android.content.Intent
 import android.graphics.BitmapFactory
+import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -27,24 +30,27 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBackIosNew
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SearchOff
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -59,7 +65,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+import java.util.ArrayList
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -67,16 +77,21 @@ import java.util.Locale
 fun GaragemOverviewScreen(
     carros: List<CarroInfo>,
     onSelecionar: (CarroInfo) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    title: String = tr("Meus veículos", "My vehicles"),
+    exportButtonLabel: String = tr("Exportar", "Export"),
+    showExportButton: Boolean = false,
+    showVehicleHealthSection: Boolean = true,
+    onOpenReminderDetails: (Lembrete) -> Unit = {}
 ) {
     val context = LocalContext.current
     val scheme = MaterialTheme.colorScheme
     val isDark = scheme.background.luminance() < 0.5f
-    val bg = if (isDark) scheme.background else scheme.background
+    val bg = if (isDark) Color.Black else scheme.background
     val accentBlue = Color(0xFF3B82F6)
     val textPrimary = if (isDark) Color.White else Color.Black
     val textDim = if (isDark) Color(0xFF94A3B8) else Color(0xFF475569)
-    val cardBg = if (isDark) Color(0xFF0F172A) else Color.White
+    val cardBg = if (isDark) Color(0xFF111827) else Color.White
     val cardBorder = if (isDark) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.10f)
     val isEnglish = isEnglishUi()
     val allFilterLabel = if (isEnglish) "ALL" else "TODOS"
@@ -85,6 +100,9 @@ fun GaragemOverviewScreen(
     val criticalLabel = if (isEnglish) "Critical" else "Crítica"
     val noHistoryLabel = if (isEnglish) "No history" else "Sem histórico"
     val notInformedLabel = if (isEnglish) "Not informed" else "Não informado"
+    val noReportsMessage = if (isEnglish) "No reports were generated." else "Nenhum relatório foi gerado."
+    val shareReportsTitle = if (isEnglish) "Share reports" else "Compartilhar relatórios"
+    val shareFallbackMessage = if (isEnglish) "Could not open sharing." else "Não foi possível abrir o compartilhamento."
     val searchFieldColors = OutlinedTextFieldDefaults.colors(
         focusedTextColor = textPrimary,
         unfocusedTextColor = textPrimary,
@@ -102,6 +120,40 @@ fun GaragemOverviewScreen(
     var busca by remember { mutableStateOf("") }
     var todosLembretes by remember { mutableStateOf<List<Lembrete>>(emptyList()) }
     var filtroSaude by remember { mutableStateOf(allFilterLabel) }
+    var lembretesVencidosDialogCarro by remember { mutableStateOf<CarroInfo?>(null) }
+    var exportandoRelatorios by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val onExportReports: () -> Unit = {
+        if (!exportandoRelatorios) {
+            scope.launch {
+                exportandoRelatorios = true
+                val uris = withContext(Dispatchers.IO) {
+                    exportarRelatoriosDaFrota(context, carros, todosLembretes)
+                }
+                exportandoRelatorios = false
+                if (uris.isNotEmpty()) {
+                    val abriuCompartilhamento = compartilharRelatoriosDaFrota(
+                        context = context,
+                        uris = uris,
+                        chooserTitle = shareReportsTitle
+                    )
+                    if (!abriuCompartilhamento) {
+                        Toast.makeText(
+                            context,
+                            shareFallbackMessage,
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                } else {
+                    Toast.makeText(
+                        context,
+                        noReportsMessage,
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }
+    }
     val garageHeaderImage = remember(context) {
         runCatching {
             context.assets.open("GarageZellu.png").use { input ->
@@ -147,8 +199,24 @@ fun GaragemOverviewScreen(
             carro.id to Triple(tituloSaude, corSaude, descricaoReputacao)
         }
     }
-    val carrosFiltrados = remember(carrosComBusca, saudePorCarro, filtroSaude) {
-        if (filtroSaude == allFilterLabel) {
+    val formatter = remember { DateTimeFormatter.ofPattern("dd/MM/yyyy") }
+    val hoje = remember { LocalDate.now() }
+    val vencidosPorCarro = remember(todosLembretes, formatter, hoje) {
+        todosLembretes
+            .filterNot(::isLembreteRealizado)
+            .filter { it.tipo != TipoManutencao.ABASTECIMENTO }
+            .mapNotNull { lembrete ->
+                val data = runCatching { LocalDate.parse(lembrete.dataLimite, formatter) }.getOrNull()
+                    ?: return@mapNotNull null
+                if (data.isBefore(hoje)) lembrete to data else null
+            }
+            .groupBy(
+                keySelector = { it.first.carroId },
+                valueTransform = { it.first }
+            )
+    }
+    val carrosFiltrados = remember(carrosComBusca, saudePorCarro, filtroSaude, showVehicleHealthSection) {
+        if (!showVehicleHealthSection || filtroSaude == allFilterLabel) {
             carrosComBusca
         } else {
             carrosComBusca.filter { carro ->
@@ -159,26 +227,7 @@ fun GaragemOverviewScreen(
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
-        containerColor = bg,
-        topBar = {
-            CenterAlignedTopAppBar(
-                title = {},
-                navigationIcon = {
-                    IconButton(
-                        onClick = onDismiss,
-                        modifier = Modifier.size(56.dp)
-                    ) {
-                        Icon(
-                            Icons.Default.ArrowBackIosNew,
-                            contentDescription = tr("Voltar", "Back"),
-                            tint = textPrimary,
-                            modifier = Modifier.size(26.dp)
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = bg)
-            )
-        }
+        containerColor = bg
     ) { innerPadding ->
         Box(modifier = Modifier.fillMaxSize().background(bg)) {
             if (carros.isEmpty()) {
@@ -187,10 +236,18 @@ fun GaragemOverviewScreen(
                         .fillMaxSize()
                         .padding(innerPadding)
                         .padding(24.dp),
-                    verticalArrangement = Arrangement.Center,
+                    verticalArrangement = Arrangement.Top,
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Spacer(Modifier.height(12.dp))
+                    GarageOverviewTopBar(
+                        textPrimary = textPrimary,
+                        exportandoRelatorios = exportandoRelatorios,
+                        showExportButton = showExportButton,
+                        exportButtonLabel = exportButtonLabel,
+                        onDismiss = onDismiss,
+                        onExport = onExportReports
+                    )
+                    Spacer(Modifier.height(28.dp))
                     Text(tr("Nenhum veículo cadastrado", "No registered vehicles"), color = textDim)
                 }
             } else {
@@ -201,6 +258,17 @@ fun GaragemOverviewScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     contentPadding = PaddingValues(start = 16.dp, top = 4.dp, end = 16.dp, bottom = 12.dp)
                 ) {
+                    item {
+                        GarageOverviewTopBar(
+                            textPrimary = textPrimary,
+                            exportandoRelatorios = exportandoRelatorios,
+                            showExportButton = showExportButton,
+                            exportButtonLabel = exportButtonLabel,
+                            onDismiss = onDismiss,
+                            onExport = onExportReports
+                        )
+                    }
+
                     item {
                         Column(
                             modifier = Modifier.fillMaxWidth().padding(top = 0.dp, bottom = 6.dp),
@@ -215,7 +283,7 @@ fun GaragemOverviewScreen(
                                 )
                             }
                             Text(
-                                tr("Meus veículos", "My vehicles"),
+                                title,
                                 color = textPrimary,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 26.sp
@@ -242,50 +310,52 @@ fun GaragemOverviewScreen(
                         )
                     }
 
-                    item {
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = CardDefaults.cardColors(containerColor = cardBg),
-                            border = BorderStroke(1.dp, cardBorder),
-                            shape = RoundedCornerShape(16.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .horizontalScroll(rememberScrollState())
-                                    .padding(horizontal = 10.dp, vertical = 10.dp),
-                                horizontalArrangement = Arrangement.spacedBy(14.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                    if (showVehicleHealthSection) {
+                        item {
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(containerColor = cardBg),
+                                border = BorderStroke(1.dp, cardBorder),
+                                shape = RoundedCornerShape(16.dp)
                             ) {
-                                val filtros = listOf(
-                                    allFilterLabel,
-                                    healthyLabel,
-                                    attentionLabel,
-                                    criticalLabel,
-                                    noHistoryLabel
-                                )
-                                filtros.forEach { itemFiltro ->
-                                    val selecionado = filtroSaude == itemFiltro
-                                    val corFiltro = when (itemFiltro) {
-                                        healthyLabel -> Color(0xFF10B981)
-                                        attentionLabel -> Color(0xFFEAB308)
-                                        criticalLabel -> Color(0xFFEF4444)
-                                        noHistoryLabel -> textDim
-                                        else -> accentBlue
-                                    }
-                                    Surface(
-                                        shape = RoundedCornerShape(999.dp),
-                                        color = if (selecionado) corFiltro.copy(alpha = if (isDark) 0.24f else 0.14f) else Color.Transparent,
-                                        border = BorderStroke(1.dp, corFiltro.copy(alpha = if (selecionado) 0.9f else 0.45f)),
-                                        modifier = Modifier.clickable { filtroSaude = itemFiltro }
-                                    ) {
-                                        Text(
-                                            text = itemFiltro,
-                                            color = if (selecionado) corFiltro else textPrimary,
-                                            fontWeight = if (selecionado) FontWeight.Bold else FontWeight.SemiBold,
-                                            fontSize = 12.sp,
-                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
-                                        )
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .horizontalScroll(rememberScrollState())
+                                        .padding(horizontal = 10.dp, vertical = 10.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    val filtros = listOf(
+                                        allFilterLabel,
+                                        healthyLabel,
+                                        attentionLabel,
+                                        criticalLabel,
+                                        noHistoryLabel
+                                    )
+                                    filtros.forEach { itemFiltro ->
+                                        val selecionado = filtroSaude == itemFiltro
+                                        val corFiltro = when (itemFiltro) {
+                                            healthyLabel -> Color(0xFF10B981)
+                                            attentionLabel -> Color(0xFFEAB308)
+                                            criticalLabel -> Color(0xFFEF4444)
+                                            noHistoryLabel -> textDim
+                                            else -> accentBlue
+                                        }
+                                        Surface(
+                                            shape = RoundedCornerShape(999.dp),
+                                            color = if (selecionado) corFiltro.copy(alpha = if (isDark) 0.24f else 0.14f) else Color.Transparent,
+                                            border = BorderStroke(1.dp, corFiltro.copy(alpha = if (selecionado) 0.9f else 0.45f)),
+                                            modifier = Modifier.clickable { filtroSaude = itemFiltro }
+                                        ) {
+                                            Text(
+                                                text = itemFiltro,
+                                                color = if (selecionado) corFiltro else textPrimary,
+                                                fontWeight = if (selecionado) FontWeight.Bold else FontWeight.SemiBold,
+                                                fontSize = 12.sp,
+                                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -294,7 +364,7 @@ fun GaragemOverviewScreen(
 
                     if (carrosFiltrados.isEmpty()) {
                         item {
-                            val mensagemSemResultados = if (filtroSaude != allFilterLabel) {
+                            val mensagemSemResultados = if (showVehicleHealthSection && filtroSaude != allFilterLabel) {
                                 if (isEnglish) {
                                     "There is no vehicle for category \"$filtroSaude\"."
                                 } else {
@@ -322,6 +392,19 @@ fun GaragemOverviewScreen(
                         }
                     } else {
                         items(carrosFiltrados) { carro ->
+                            val corBaseVeiculo = carro.getCorUI()
+                            val corCirculoVeiculo = when {
+                                // Evita "sumir" no tema escuro quando a cor do veículo é preta/muito escura.
+                                isDark && corBaseVeiculo.luminance() < 0.12f -> Color(0xFF334155)
+                                // Em tema claro, evita bolha extremamente escura com pouco contraste.
+                                !isDark && corBaseVeiculo.luminance() < 0.08f -> Color(0xFFE2E8F0)
+                                else -> corBaseVeiculo
+                            }
+                            val tintIconeVeiculo = if (corCirculoVeiculo.luminance() < 0.45f) {
+                                Color.White
+                            } else {
+                                Color(0xFF0F172A)
+                            }
                             Card(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -345,12 +428,17 @@ fun GaragemOverviewScreen(
                                             modifier = Modifier
                                                 .size(56.dp)
                                                 .clip(CircleShape)
-                                                .background(carro.getCorUI().copy(alpha = if (isDark) 0.38f else 0.24f)),
+                                                .background(corCirculoVeiculo.copy(alpha = if (isDark) 0.60f else 0.24f))
+                                                .border(
+                                                    width = 1.dp,
+                                                    color = if (isDark) Color.White.copy(alpha = 0.18f) else Color.Black.copy(alpha = 0.08f),
+                                                    shape = CircleShape
+                                                ),
                                             contentAlignment = Alignment.Center
                                         ) {
                                             VehicleIcon(
                                                 tipoVeiculo = carro.tipoVeiculo,
-                                                tint = if (isDark) Color.White else Color.Black,
+                                                tint = tintIconeVeiculo,
                                                 size = 28.dp
                                             )
                                         }
@@ -365,9 +453,19 @@ fun GaragemOverviewScreen(
                                                 fontWeight = FontWeight.Bold,
                                                 fontSize = 16.sp
                                             )
-                                            val anoVeiculo = extrairAnoDoModeloNoCard(carro.modelo)
+                                            val isBikeType =
+                                                carro.tipoVeiculo == TipoVeiculo.BICICLETA ||
+                                                    carro.tipoVeiculo == TipoVeiculo.BIKE_ELETRICA
+                                            val detalheModelo = if (isBikeType) {
+                                                extrairAroDoModeloNoCard(carro.modelo)
+                                                    .takeIf { it.isNotBlank() && it != "--" }
+                                                    ?.let { "${tr("Aro", "Rim")}: $it" }
+                                            } else {
+                                                extrairAnoDoModeloNoCard(carro.modelo)
+                                                    .takeIf { it.isNotBlank() && it != "--" }
+                                            }
                                             val marcaAno = listOf(
-                                                anoVeiculo.takeIf { it.isNotBlank() && it != "--" },
+                                                detalheModelo,
                                                 carro.marca.takeIf { it.isNotBlank() }
                                             ).joinToString(" • ").ifBlank { tr("Marca não informada", "Brand not informed") }
                                             Text(
@@ -406,43 +504,54 @@ fun GaragemOverviewScreen(
                                         }
                                     }
 
-                                    val saudeInfo = saudePorCarro[carro.id]
-                                    val saudeTitulo = saudeInfo?.first ?: tr("Sem histórico", "No history")
-                                    val saudeCor = saudeInfo?.second ?: textDim
-                                    val saudeDescricao = saudeInfo?.third ?: tr("Cadastre serviços para avaliar.", "Register services to evaluate.")
+                                    if (showVehicleHealthSection) {
+                                        val saudeInfo = saudePorCarro[carro.id]
+                                        val saudeTitulo = saudeInfo?.first ?: tr("Sem histórico", "No history")
+                                        val saudeCor = saudeInfo?.second ?: textDim
+                                        val saudeDescricao = saudeInfo?.third ?: tr("Cadastre serviços para avaliar.", "Register services to evaluate.")
+                                        val podeAbrirVencidosDialog = saudeTitulo == attentionLabel || saudeTitulo == criticalLabel
 
-                                    Surface(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        shape = RoundedCornerShape(12.dp),
-                                        color = if (isDark) Color(0xFF111827) else Color(0xFFF8FAFC),
-                                        border = BorderStroke(1.dp, saudeCor.copy(alpha = 0.35f))
-                                    ) {
-                                        Column(
+                                        Surface(
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .padding(horizontal = 12.dp, vertical = 11.dp),
-                                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                                                .then(
+                                                    if (podeAbrirVencidosDialog) {
+                                                        Modifier.clickable { lembretesVencidosDialogCarro = carro }
+                                                    } else {
+                                                        Modifier
+                                                    }
+                                                ),
+                                            shape = RoundedCornerShape(12.dp),
+                                            color = if (isDark) Color(0xFF111827) else Color(0xFFF8FAFC),
+                                            border = BorderStroke(1.dp, saudeCor.copy(alpha = 0.35f))
                                         ) {
-                                            Text(
-                                                tr("Saúde do veículo", "Vehicle health"),
-                                                color = textDim,
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.SemiBold
-                                            )
-                                            Text(
-                                                saudeTitulo,
-                                                color = saudeCor,
-                                                fontSize = 14.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                            Text(
-                                                saudeDescricao,
-                                                color = textDim,
-                                                fontSize = 12.sp,
-                                                lineHeight = 15.sp,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
+                                            Column(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(horizontal = 12.dp, vertical = 11.dp),
+                                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                Text(
+                                                    tr("Saúde do veículo", "Vehicle health"),
+                                                    color = textDim,
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.SemiBold
+                                                )
+                                                Text(
+                                                    saudeTitulo,
+                                                    color = saudeCor,
+                                                    fontSize = 14.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                                Text(
+                                                    saudeDescricao,
+                                                    color = textDim,
+                                                    fontSize = 12.sp,
+                                                    lineHeight = 15.sp,
+                                                    maxLines = 2,
+                                                    overflow = TextOverflow.Clip
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -453,11 +562,221 @@ fun GaragemOverviewScreen(
             }
         }
     }
+
+    lembretesVencidosDialogCarro?.let { carroSelecionado ->
+        val vencidosDoCarro = vencidosPorCarro[carroSelecionado.id].orEmpty()
+            .sortedBy { lembrete -> runCatching { LocalDate.parse(lembrete.dataLimite, formatter) }.getOrNull() }
+        AlertDialog(
+            onDismissRequest = { lembretesVencidosDialogCarro = null },
+            title = {
+                Text(
+                    text = tr("Avisos vencidos", "Overdue reminders"),
+                    fontWeight = FontWeight.Bold,
+                    color = textPrimary
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = carroSelecionado.nome.ifBlank { tr("Veículo sem nome", "Unnamed vehicle") },
+                        color = textDim,
+                        fontSize = 12.sp
+                    )
+                    if (vencidosDoCarro.isEmpty()) {
+                        Text(
+                            text = tr("Nenhum aviso vencido para este veículo.", "No overdue reminders for this vehicle."),
+                            color = textDim
+                        )
+                    } else {
+                        vencidosDoCarro.forEach { lembrete ->
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        lembretesVencidosDialogCarro = null
+                                        onOpenReminderDetails(lembrete)
+                                    },
+                                shape = RoundedCornerShape(10.dp),
+                                color = if (isDark) Color(0xFF111827) else Color(0xFFF8FAFC),
+                                border = BorderStroke(1.dp, cardBorder)
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 10.dp, vertical = 9.dp),
+                                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                                ) {
+                                    Text(
+                                        text = lembrete.titulo.ifBlank { tr("Aviso sem título", "Untitled reminder") },
+                                        color = textPrimary,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Text(
+                                        text = "${tr("Data", "Date")}: ${lembrete.dataLimite}",
+                                        color = Color(0xFFEF4444),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { lembretesVencidosDialogCarro = null }) {
+                    Text(tr("Fechar", "Close"))
+                }
+            },
+            containerColor = cardBg
+        )
+    }
+}
+
+@Composable
+private fun GarageOverviewTopBar(
+    textPrimary: Color,
+    exportandoRelatorios: Boolean,
+    showExportButton: Boolean,
+    exportButtonLabel: String,
+    onDismiss: () -> Unit,
+    onExport: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 2.dp, bottom = 4.dp)
+    ) {
+        IconButton(
+            onClick = onDismiss,
+            modifier = Modifier
+                .size(56.dp)
+                .align(Alignment.CenterStart)
+        ) {
+            Icon(
+                Icons.Default.ArrowBackIosNew,
+                contentDescription = tr("Voltar", "Back"),
+                tint = textPrimary,
+                modifier = Modifier.size(26.dp)
+            )
+        }
+
+        if (showExportButton) {
+            TextButton(
+                onClick = onExport,
+                enabled = !exportandoRelatorios,
+                modifier = Modifier.align(Alignment.CenterEnd)
+            ) {
+                Icon(
+                    Icons.Default.Share,
+                    contentDescription = null,
+                    tint = textPrimary,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(Modifier.width(6.dp))
+                if (exportandoRelatorios) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp,
+                        color = textPrimary
+                    )
+                    Spacer(Modifier.width(8.dp))
+                }
+                Text(
+                    text = exportButtonLabel,
+                    color = textPrimary,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+    }
+}
+
+private fun exportarRelatoriosDaFrota(
+    context: android.content.Context,
+    carros: List<CarroInfo>,
+    todosLembretes: List<Lembrete>
+): List<android.net.Uri> {
+    if (carros.isEmpty()) return emptyList()
+
+    val lembretesPorCarro = todosLembretes.groupBy { it.carroId }
+    val uris = mutableListOf<android.net.Uri>()
+
+    carros.forEach { carro ->
+        val lembretesDoCarro = lembretesPorCarro[carro.id].orEmpty()
+        val uri = gerarPdfRelatorio(
+            context = context,
+            carro = carro,
+            lembretes = lembretesDoCarro,
+            isPremium = true
+        )
+        if (uri != null) uris += uri
+    }
+
+    return uris
+}
+
+private fun compartilharRelatoriosDaFrota(
+    context: android.content.Context,
+    uris: List<android.net.Uri>,
+    chooserTitle: String
+): Boolean {
+    if (uris.isEmpty()) return false
+
+    val intent = if (uris.size == 1) {
+        Intent(Intent.ACTION_SEND).apply {
+            type = "application/pdf"
+            putExtra(Intent.EXTRA_STREAM, uris[0])
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+    } else {
+        Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+            type = "application/pdf"
+            putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(uris))
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+    }
+
+    return runCatching {
+        context.startActivity(Intent.createChooser(intent, chooserTitle))
+    }.isSuccess
+}
+
+@Composable
+fun VisaoGeralFrotaScreen(
+    carros: List<CarroInfo>,
+    onSelecionar: (CarroInfo) -> Unit,
+    onDismiss: () -> Unit,
+    onOpenReminderDetails: (Lembrete) -> Unit = {}
+) {
+    GaragemOverviewScreen(
+        carros = carros,
+        onSelecionar = onSelecionar,
+        onDismiss = onDismiss,
+        title = tr("Visão geral frota", "Fleet overview"),
+        exportButtonLabel = tr("Exportar e compartilhar", "Export and share"),
+        showExportButton = true,
+        showVehicleHealthSection = true,
+        onOpenReminderDetails = onOpenReminderDetails
+    )
 }
 
 private fun extrairAnoDoModeloNoCard(modelo: String): String {
     val match = Regex("\\b(19|20)\\d{2}\\b").find(modelo)
     return match?.value ?: "--"
 }
+
+private fun extrairAroDoModeloNoCard(modelo: String): String {
+    val texto = modelo.trim()
+    if (texto.isBlank()) return "--"
+
+    val comPrefixo = Regex("(?i)\\baro\\s*[:\\-]?\\s*(\\d{1,2})\\b").find(texto)?.groupValues?.getOrNull(1)
+    if (!comPrefixo.isNullOrBlank()) return comPrefixo
+
+    val numeroSolto = Regex("\\b(\\d{1,2})\\b").find(texto)?.groupValues?.getOrNull(1)
+    return numeroSolto ?: texto
+}
+
 
 

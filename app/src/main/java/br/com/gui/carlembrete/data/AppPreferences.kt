@@ -25,6 +25,12 @@ object AppPreferences {
     private const val KEY_PARKING_PHOTO_URIS = "parking_photo_uris"
     private const val KEY_FIPE_CACHE_VALUE_PREFIX = "fipe_cache_value_"
     private const val KEY_FIPE_CACHE_TIME_PREFIX = "fipe_cache_time_"
+    private const val HOME_TUTORIAL_PREFS = "home_tutorial_prefs"
+    private const val KEY_HOME_TUTORIAL_VERSION = "home_tutorial_version"
+    private const val CURRENT_HOME_TUTORIAL_VERSION = 1
+    private const val ONBOARDING_PREFS = "onboarding_prefs"
+    private const val KEY_REPORT_MINI_TUTORIAL_SEEN = "report_mini_tutorial_seen"
+    private const val KEY_FUEL_REPORT_MINI_TUTORIAL_SEEN = "fuel_report_mini_tutorial_seen"
 
     fun needsOnboarding(context: Context): Boolean {
         return context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getBoolean(KEY_FIRST_RUN, true)
@@ -34,6 +40,19 @@ object AppPreferences {
         context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
             .edit()
             .putBoolean(KEY_FIRST_RUN, false)
+            .apply()
+    }
+
+    fun markInitialTutorialsSeenAfterRestore(context: Context) {
+        context.getSharedPreferences(HOME_TUTORIAL_PREFS, MODE_PRIVATE)
+            .edit()
+            .putInt(KEY_HOME_TUTORIAL_VERSION, CURRENT_HOME_TUTORIAL_VERSION)
+            .apply()
+
+        context.getSharedPreferences(ONBOARDING_PREFS, MODE_PRIVATE)
+            .edit()
+            .putBoolean(KEY_REPORT_MINI_TUTORIAL_SEEN, true)
+            .putBoolean(KEY_FUEL_REPORT_MINI_TUTORIAL_SEEN, true)
             .apply()
     }
 
@@ -69,15 +88,20 @@ object AppPreferences {
     }
 
     fun getAppLanguage(context: Context): AppLanguage {
-        val stored = context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-            .getString(KEY_APP_LANGUAGE, AppLanguage.SYSTEM.name)
-        return AppLanguage.entries.firstOrNull { it.name == stored } ?: AppLanguage.SYSTEM
+        val prefs = context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        val stored = prefs.getString(KEY_APP_LANGUAGE, AppLanguage.PORTUGUESE.name)
+        val resolved = AppLanguage.entries.firstOrNull { it.name == stored } ?: AppLanguage.PORTUGUESE
+        // O app opera somente em portugues; normaliza legado "SYSTEM" para evitar seguir idioma do aparelho.
+        if (resolved != AppLanguage.PORTUGUESE) {
+            prefs.edit().putString(KEY_APP_LANGUAGE, AppLanguage.PORTUGUESE.name).apply()
+        }
+        return AppLanguage.PORTUGUESE
     }
 
     fun setAppLanguage(context: Context, language: AppLanguage) {
         context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
             .edit()
-            .putString(KEY_APP_LANGUAGE, language.name)
+            .putString(KEY_APP_LANGUAGE, AppLanguage.PORTUGUESE.name)
             .apply()
     }
 

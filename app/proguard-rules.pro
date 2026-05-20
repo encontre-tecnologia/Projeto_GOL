@@ -19,3 +19,20 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+# Keep Serializable models stable across releases to avoid data loss
+# in local ObjectInputStream/ObjectOutputStream persistence.
+-keepnames class br.com.gui.carlembrete.** implements java.io.Serializable
+-keepclassmembers class br.com.gui.carlembrete.** implements java.io.Serializable {
+    static final long serialVersionUID;
+    !static !transient <fields>;
+}
+
+# Google API Client / Drive SDK relies on reflection for JSON parsing.
+# Keep these classes in release to avoid "key error" with obfuscated models.
+-keep class com.google.api.client.** { *; }
+-keep class com.google.api.services.drive.** { *; }
+-keep class com.google.api.client.googleapis.extensions.android.gms.auth.** { *; }
+-keep class com.google.api.client.json.gson.** { *; }
+-dontwarn com.google.api.client.**
+-dontwarn com.google.api.services.drive.**

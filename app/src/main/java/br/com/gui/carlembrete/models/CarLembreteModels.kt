@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Opacity
 import androidx.compose.material.icons.rounded.Agriculture
 import androidx.compose.material.icons.rounded.BatteryChargingFull
 import androidx.compose.material.icons.rounded.Build
@@ -83,7 +84,11 @@ data class Lembrete(
     val horaAviso: String = "09:00",
     val estabelecimentoNome: String = "",
     val estabelecimentoEndereco: String = ""
-) : Serializable
+) : Serializable {
+    companion object {
+        private const val serialVersionUID: Long = 1L
+    }
+}
 
 // Logos removidos por segurança legal. Use ícones genéricos por tipo de veículo.
 
@@ -95,7 +100,7 @@ enum class TipoVeiculo(val label: String, val icon: ImageVector) {
     CARRO("Sedan", Icons.Rounded.DirectionsCar),
     HATCH("Carro de passeio", Icons.Rounded.DirectionsCar),
     MOTO("Moto", Icons.Rounded.Motorcycle),
-    CAMINHONETE("Pickup", Icons.Rounded.LocalShipping),
+    CAMINHONETE("Pickup ou Caminhonete", Icons.Rounded.LocalShipping),
     FURGAO("Furgão", Icons.Rounded.LocalShipping),
     CAMINHAO("Caminhao leve/pesado", Icons.Rounded.LocalShipping),
     ONIBUS("Ônibus", Icons.Rounded.LocalShipping),
@@ -278,6 +283,23 @@ val marcasBikeEletrica = listOf(
     "Haibike"
 )
 
+val marcasMoto = listOf(
+    "Honda",
+    "Yamaha",
+    "Suzuki",
+    "Kawasaki",
+    "BMW",
+    "Ducati",
+    "Triumph",
+    "Royal Enfield",
+    "KTM",
+    "Harley-Davidson",
+    "Bajaj",
+    "Haojue",
+    "Shineray",
+    "Dafra"
+)
+
 val marcasTrator = listOf(
     "Sem marca",
     "John Deere",
@@ -331,6 +353,7 @@ val marcasVeiculoEletrico = listOf(
 fun marcasPorTipo(tipo: TipoVeiculo?): List<String> = when (tipo) {
     TipoVeiculo.BICICLETA -> marcasBicicleta
     TipoVeiculo.BIKE_ELETRICA -> marcasBikeEletrica
+    TipoVeiculo.MOTO -> marcasMoto
     TipoVeiculo.TRATOR -> marcasTrator
     TipoVeiculo.CARRETINHA -> marcasCarretinha
     TipoVeiculo.VEICULO_ELETRICO -> marcasVeiculoEletrico
@@ -354,10 +377,15 @@ data class CarroInfo(
     val proprietario: String = "",
     val corArgb: Int = 0xFF3B82F6.toInt(),
     val kmAtual: Int = 0,
+    val semControleKm: Boolean = false,
     val tipoVeiculo: TipoVeiculo = TipoVeiculo.CARRO,
     val vezesBatido: Int? = null,
     val tempoComVeiculo: String = ""
 ) : Serializable {
+    companion object {
+        private const val serialVersionUID: Long = 1L
+    }
+
     fun getCorUI(): Color = Color(corArgb)
 }
 
@@ -432,6 +460,9 @@ fun TipoVeiculoSelector(
     modifier: Modifier = Modifier
 ) {
     val accent = Color(0xFF3B82F6)
+    val tiposDisponiveis = remember {
+        TipoVeiculo.values().filter { it != TipoVeiculo.TRATOR }
+    }
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -439,7 +470,7 @@ fun TipoVeiculoSelector(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        TipoVeiculo.values().forEach { tipo ->
+        tiposDisponiveis.forEach { tipo ->
             val selected = tipo == selecionado
             val bgColor = when {
                 selected -> accent
@@ -483,7 +514,11 @@ data class ContatoProfissional(
     val nome: String,
     val telefone: String,
     val tipoServico: String
-) : Serializable
+) : Serializable {
+    companion object {
+        private const val serialVersionUID: Long = 1L
+    }
+}
 
 data class Abastecimento(
     val id: String = UUID.randomUUID().toString(),
@@ -491,15 +526,33 @@ data class Abastecimento(
     val data: String,
     val precoLitro: Double,
     val valorPago: Double,
-    val litros: Double
-) : Serializable
+    val litros: Double,
+    val itens: List<ItemAbastecimento> = emptyList()
+) : Serializable {
+    companion object {
+        private const val serialVersionUID: Long = 1L
+    }
+}
+
+data class ItemAbastecimento(
+    val nome: String,
+    val valor: Double
+) : Serializable {
+    companion object {
+        private const val serialVersionUID: Long = 1L
+    }
+}
 
 data class Pedalada(
     val id: String = UUID.randomUUID().toString(),
     val carroId: String,
     val data: String,
     val km: Double
-) : Serializable
+) : Serializable {
+    companion object {
+        private const val serialVersionUID: Long = 1L
+    }
+}
 
 enum class TipoManutencao(val label: String) {
     CORRENTE("Corrente"),
@@ -532,14 +585,14 @@ enum class TipoManutencao(val label: String) {
         PNEU -> Icons.Rounded.TireRepair
         TRANSMISSAO -> Icons.Rounded.Settings
         REVISAO -> Icons.Rounded.Description
-        OLEO -> Icons.Rounded.WaterDrop
+        OLEO -> Icons.Default.Opacity
         LAVAGEM -> Icons.Rounded.LocalCarWash
         ABASTECIMENTO -> Icons.Rounded.LocalGasStation
         BATERIA -> Icons.Rounded.BatteryChargingFull
         VIDROS -> Icons.Rounded.DirectionsCar
         MECANICA -> Icons.Rounded.Build
         FUNILARIA -> Icons.Rounded.FormatPaint
-        FREIO -> Icons.Rounded.DiscFull
+        FREIO -> Icons.Rounded.TireRepair
         LICENCIAMENTO -> Icons.Rounded.Description
         IPVA -> Icons.Rounded.Payments
         SEGURO -> Icons.Rounded.Shield

@@ -16,13 +16,16 @@ import androidx.compose.material.icons.filled.ArrowBackIosNew
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Email
 import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.VerifiedUser
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -32,6 +35,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
 import com.google.android.gms.auth.api.signin.GoogleSignIn
@@ -42,36 +46,37 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 
-@OptIn(ExperimentalMaterial3Api::class)
+private val AccentBlue = Color(0xFF3B82F6)
+
 @Composable
 fun PerfilScreen(
     onDismiss: () -> Unit,
     planTier: PlanTier,
-    totalVeiculos: Int
+    totalVeiculos: Int,
+    avisosUsados: Int,
+    limiteAvisos: Int,
+    limiteAvisosViaAdmin: Boolean
 ) {
     val context = LocalContext.current
-    val colorScheme = MaterialTheme.colorScheme
-
-    // Cores baseadas no tema
-    val isDark = colorScheme.background.luminance() < 0.5f
-    val bg = if (isDark) Color(0xFF0F172A) else colorScheme.background
-    val cardBg = if (isDark) Color(0xFF1E293B) else Color(0xFFF8FAFC)
-    val border = if (isDark) Color.White.copy(alpha = 0.10f) else Color(0xFFE2E8F0)
+    val scheme = MaterialTheme.colorScheme
+    val isDark = scheme.background.luminance() < 0.5f
+    val screenBg = if (isDark) Color.Black else Color(0xFFF8FAFC)
+    val cardBg = if (isDark) Color(0xFF0D1B2E) else Color.White
+    val cardBorder = if (isDark) Color(0xFF1E3A5F) else Color(0xFFD6E0EF)
+    val titleColor = if (isDark) Color(0xFFF8FAFC) else Color(0xFF0F172A)
 
     val user = FirebaseAuth.getInstance().currentUser
     val nome = user?.displayName?.takeIf { it.isNotBlank() } ?: "Usuário"
     val email = user?.email?.takeIf { it.isNotBlank() } ?: "Email não informado"
     val foto = user?.photoUrl?.toString()
-
-    val ultimoLoginMillis = user?.metadata?.lastSignInTimestamp ?: 0L
-    val ultimoLoginTexto = formatarData(ultimoLoginMillis)
+    val ultimoLoginTexto = formatarData(user?.metadata?.lastSignInTimestamp ?: 0L)
+    val isPremium = planTier != PlanTier.FREE
 
     var showDeleteDialog by remember { mutableStateOf(false) }
+    var showLogoutDialog by remember { mutableStateOf(false) }
 
     if (showDeleteDialog) {
         DeleteAccountDialog(
-            cardBg = cardBg,
-            border = border,
             onDismiss = { showDeleteDialog = false },
             onConfirm = {
                 showDeleteDialog = false
@@ -80,156 +85,400 @@ fun PerfilScreen(
             }
         )
     }
+    if (showLogoutDialog) {
+        LogoutConfirmDialog(
+            onDismiss = { showLogoutDialog = false },
+            onConfirm = {
+                showLogoutDialog = false
+                FirebaseAuth.getInstance().signOut()
+                onDismiss()
+            }
+        )
+    }
 
-    Scaffold(
-        modifier = Modifier.fillMaxSize(),
-        containerColor = bg
-    ) { innerPadding ->
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(screenBg)
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
-                .verticalScroll(rememberScrollState())
-                .padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(20.dp)
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .verticalScroll(rememberScrollState()),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            // --- HEADER ---
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = onDismiss) {
-                    Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Voltar")
+                IconButton(onClick = onDismiss, modifier = Modifier.size(40.dp)) {
+                    Icon(
+                        Icons.Default.ArrowBackIosNew,
+                        contentDescription = "Voltar",
+                        tint = titleColor,
+                        modifier = Modifier.size(20.dp)
+                    )
                 }
-                Text("Meu Perfil", fontWeight = FontWeight.Black)
-                IconButton(onClick = {
-                    FirebaseAuth.getInstance().signOut()
-                    onDismiss()
-                }) {
-                    Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = "Sair", tint = colorScheme.error)
-                }
+                Spacer(Modifier.weight(1f))
+                Text(
+                    "Meu Perfil",
+                    color = titleColor,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 20.sp
+                )
+                Spacer(Modifier.weight(1f))
+                Spacer(Modifier.size(40.dp))
             }
 
-            // --- HEADER: FOTO E NOME ---
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Spacer(Modifier.height(24.dp))
+
+            // --- AVATAR + NOME ---
+            Box(
+                modifier = Modifier
+                    .size(104.dp)
+                    .background(
+                        Brush.linearGradient(listOf(AccentBlue, Color(0xFF6366F1))),
+                        CircleShape
+                    )
+                    .padding(3.dp),
+                contentAlignment = Alignment.Center
+            ) {
                 Box(
                     modifier = Modifier
-                        .size(120.dp)
+                        .fillMaxSize()
                         .clip(CircleShape)
-                        .background(cardBg)
-                        .border(4.dp, border, CircleShape),
+                        .background(cardBg),
                     contentAlignment = Alignment.Center
                 ) {
                     if (!foto.isNullOrBlank()) {
                         AsyncImage(
                             model = foto,
-                            contentDescription = "Foto de perfil",
+                            contentDescription = null,
                             modifier = Modifier.fillMaxSize().clip(CircleShape),
                             contentScale = ContentScale.Crop
                         )
                     } else {
-                        Icon(Icons.Rounded.Person, contentDescription = null,
-                            modifier = Modifier.size(60.dp), tint = colorScheme.primary)
-                    }
-                }
-
-                Spacer(Modifier.height(16.dp))
-
-                Text(
-                    text = nome,
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = colorScheme.onSurface
-                )
-
-                Surface(
-                    color = colorScheme.primaryContainer.copy(alpha = 0.3f),
-                    shape = RoundedCornerShape(16.dp),
-                    modifier = Modifier.padding(top = 8.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(Icons.Rounded.VerifiedUser, null, Modifier.size(14.dp), tint = colorScheme.primary)
-                        Spacer(Modifier.width(4.dp))
-                        Text("Conta Ativa", style = MaterialTheme.typography.labelMedium, color = colorScheme.primary)
+                        Icon(
+                            imageVector = Icons.Rounded.Person,
+                            contentDescription = null,
+                            tint = if (isDark) Color(0xFF93C5FD) else Color(0xFF2563EB),
+                            modifier = Modifier.size(54.dp)
+                        )
                     }
                 }
             }
 
-            // --- SEÇÃO: INFORMAÇÕES ---
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(24.dp),
-                colors = CardDefaults.cardColors(containerColor = cardBg),
-                border = BorderStroke(1.dp, border)
+            Spacer(Modifier.height(16.dp))
+
+            Text(
+                text = nome,
+                color = titleColor,
+                fontSize = 22.sp,
+                fontWeight = FontWeight.Bold
+            )
+
+            Spacer(Modifier.height(8.dp))
+
+            // Plan badge
+            val badgeLabel = planNameLabel(planTier)
+            val badgeColor = when (planTier) {
+                PlanTier.FREE -> AccentBlue
+                PlanTier.LITE -> Color(0xFF2563EB)
+                PlanTier.FROTA -> Color(0xFFFBBF24)
+                PlanTier.ENTERPRISE -> Color(0xFF06B6D4)
+            }
+            val badgeBg = when (planTier) {
+                PlanTier.FREE -> if (isDark) Color(0xFF1E3A5F) else Color(0xFFEFF6FF)
+                PlanTier.LITE -> if (isDark) Color(0xFF172554) else Color(0xFFEAF2FF)
+                PlanTier.FROTA -> if (isDark) Color(0xFF451A03) else Color(0xFFFFF4D8)
+                PlanTier.ENTERPRISE -> if (isDark) Color(0xFF083344) else Color(0xFFE6FAFE)
+            }
+            val badgeIcon = if (isPremium) Icons.Rounded.Star else Icons.Rounded.VerifiedUser
+
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(badgeBg)
+                    .padding(horizontal = 14.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    InfoRow(icon = Icons.Rounded.Email, label = "Email", value = email)
-                    HorizontalDivider(thickness = 0.5.dp, color = border)
-                    InfoRow(icon = Icons.Rounded.History, label = "Último acesso", value = ultimoLoginTexto)
-                    HorizontalDivider(thickness = 0.5.dp, color = border)
-                    InfoRow(
-                        icon = Icons.Rounded.VerifiedUser,
-                        label = "Plano",
-                        value = if (planTier == PlanTier.FREE) "Free" else "Premium"
-                    )
-                    HorizontalDivider(thickness = 0.5.dp, color = border)
-                    InfoRow(
-                        icon = Icons.Rounded.Person,
-                        label = "Veículos cadastrados",
-                        value = totalVeiculos.toString()
-                    )
-                }
+                Icon(badgeIcon, contentDescription = null, tint = badgeColor, modifier = Modifier.size(14.dp))
+                Text(badgeLabel, color = badgeColor, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
             }
 
-            Spacer(modifier = Modifier.weight(1f))
+            Spacer(Modifier.height(32.dp))
 
-            // --- BOTÃO DE PERIGO ---
+            // --- STATS ROW ---
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                StatCard(
+                    modifier = Modifier.weight(1f),
+                    label = "Veículos",
+                    value = totalVeiculos.toString(),
+                    color = AccentBlue
+                )
+                StatCard(
+                    modifier = Modifier.weight(1f),
+                    label = "Plano",
+                    value = badgeLabel,
+                    color = badgeColor
+                )
+            }
+
+            Spacer(Modifier.height(20.dp))
+
+            ReminderLimitProfileCard(
+                used = avisosUsados,
+                limit = limiteAvisos,
+                planName = badgeLabel,
+                hasAdminBoost = limiteAvisosViaAdmin,
+                isDark = isDark,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp)
+            )
+
+            Spacer(Modifier.height(20.dp))
+
+            // --- INFO CARD ---
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp)
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(cardBg)
+                    .border(BorderStroke(1.dp, cardBorder), RoundedCornerShape(20.dp))
+                    .padding(4.dp),
+                verticalArrangement = Arrangement.spacedBy(0.dp)
+            ) {
+                InfoRowDark(
+                    icon = Icons.Rounded.Email,
+                    iconColor = AccentBlue,
+                    iconBg = if (isDark) Color(0xFF1E3A5F) else Color(0xFFEFF6FF),
+                    label = "Email",
+                    value = email
+                )
+                HorizontalDivider(thickness = 1.dp, color = cardBorder.copy(alpha = 0.5f))
+                InfoRowDark(
+                    icon = Icons.Rounded.History,
+                    iconColor = Color(0xFF34D399),
+                    iconBg = if (isDark) Color(0xFF064E3B) else Color(0xFFDCFCE7),
+                    label = "Último acesso",
+                    value = ultimoLoginTexto
+                )
+                HorizontalDivider(thickness = 1.dp, color = cardBorder.copy(alpha = 0.5f))
+                InfoRowDark(
+                    icon = Icons.Rounded.Person,
+                    iconColor = Color(0xFFA78BFA),
+                    iconBg = if (isDark) Color(0xFF2E1065) else Color(0xFFF3E8FF),
+                    label = "Conta",
+                    value = "Google"
+                )
+            }
+
+            Spacer(Modifier.height(32.dp))
+
+            // --- DELETE BUTTON ---
             OutlinedButton(
                 onClick = { showDeleteDialog = true },
-                modifier = Modifier.fillMaxWidth().height(56.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp)
+                    .height(52.dp),
                 shape = RoundedCornerShape(16.dp),
-                border = BorderStroke(1.dp, colorScheme.error.copy(alpha = 0.5f)),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = colorScheme.error)
+                border = BorderStroke(1.dp, Color(0xFF7F1D1D)),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFFC8181))
             ) {
-                Icon(Icons.Rounded.Delete, contentDescription = null)
-                Spacer(Modifier.width(8.dp))
+                Icon(Icons.Rounded.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(10.dp))
                 Text("Excluir conta e dados", fontWeight = FontWeight.SemiBold)
             }
+
+            Spacer(Modifier.height(12.dp))
+
+            // --- LOGOUT BUTTON ---
+            Button(
+                onClick = { showLogoutDialog = true },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp)
+                    .height(52.dp),
+                shape = RoundedCornerShape(16.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = if (isDark) Color(0xFF1E3A5F) else Color(0xFFE2E8F0))
+            ) {
+                Icon(
+                    Icons.AutoMirrored.Filled.Logout,
+                    contentDescription = null,
+                    tint = if (isDark) Color(0xFF60A5FA) else Color(0xFF1D4ED8),
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    "Sair da conta",
+                    color = if (isDark) Color(0xFF60A5FA) else Color(0xFF1D4ED8),
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+
+            Spacer(Modifier.height(32.dp))
         }
     }
 }
 
 @Composable
-private fun InfoRow(icon: ImageVector, label: String, value: String) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically
+private fun StatCard(modifier: Modifier, label: String, value: String, color: Color) {
+    val scheme = MaterialTheme.colorScheme
+    val isDark = scheme.background.luminance() < 0.5f
+    val cardBg = if (isDark) Color(0xFF0D1B2E) else Color.White
+    val cardBorder = if (isDark) Color(0xFF1E3A5F) else Color(0xFFD6E0EF)
+    val dimColor = if (isDark) Color(0xFF64748B) else Color(0xFF475569)
+
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(cardBg)
+            .border(BorderStroke(1.dp, cardBorder), RoundedCornerShape(16.dp))
+            .padding(vertical = 16.dp, horizontal = 12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        Surface(
-            modifier = Modifier.size(36.dp),
-            shape = CircleShape,
-            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+        Text(value, color = color, fontSize = 22.sp, fontWeight = FontWeight.Black)
+        Text(label, color = dimColor, fontSize = 12.sp)
+    }
+}
+
+@Composable
+private fun ReminderLimitProfileCard(
+    used: Int,
+    limit: Int,
+    planName: String,
+    hasAdminBoost: Boolean,
+    isDark: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val unlimited = limit == Int.MAX_VALUE
+    val progress = if (unlimited || limit <= 0) 1f else (used.toFloat() / limit.toFloat()).coerceIn(0f, 1f)
+    val available = if (unlimited) null else (limit - used).coerceAtLeast(0)
+    val container = if (isDark) Color(0xFF0D1B2E) else Color.White
+    val border = if (isDark) Color(0xFF1E3A5F) else Color(0xFFD6E0EF)
+    val titleColor = if (isDark) Color(0xFFF8FAFC) else Color(0xFF0F172A)
+    val bodyColor = if (isDark) Color(0xFF94A3B8) else Color(0xFF64748B)
+    val trackColor = if (isDark) Color.White.copy(alpha = 0.08f) else Color(0xFFE2E8F0)
+    val accent = if (progress >= 0.9f && !unlimited) Color(0xFFF59E0B) else AccentBlue
+
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(20.dp))
+            .background(container)
+            .border(BorderStroke(1.dp, border), RoundedCornerShape(20.dp))
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(contentAlignment = Alignment.Center) {
-                Icon(icon, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(accent.copy(alpha = if (isDark) 0.22f else 0.14f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Rounded.NotificationsActive, contentDescription = null, tint = accent)
+                }
+                Spacer(Modifier.width(12.dp))
+                Column {
+                    Text("Avisos e registros", color = titleColor, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    Text(if (hasAdminBoost) "Cota extra ativa" else "Plano $planName", color = bodyColor, fontSize = 12.sp)
+                }
             }
-        }
-        Spacer(Modifier.width(16.dp))
-        Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = label,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                text = if (unlimited) "Ilimitado" else "$limit",
+                color = titleColor,
+                fontWeight = FontWeight.Bold,
+                fontSize = 16.sp
             )
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(8.dp)
+                .clip(RoundedCornerShape(999.dp))
+                .background(trackColor)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(progress)
+                    .height(8.dp)
+                    .background(accent)
+            )
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text("Cadastrados: $used", color = bodyColor, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
             Text(
-                text = value,
-                style = MaterialTheme.typography.bodyLarge,
+                text = if (unlimited) "Disponiveis: ilimitado" else "Disponiveis: $available",
+                color = bodyColor,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+    }
+}
+
+@Composable
+private fun InfoRowDark(
+    icon: ImageVector,
+    iconColor: Color,
+    iconBg: Color,
+    label: String,
+    value: String
+) {
+    val scheme = MaterialTheme.colorScheme
+    val isDark = scheme.background.luminance() < 0.5f
+    val dimColor = if (isDark) Color(0xFF64748B) else Color(0xFF475569)
+    val titleColor = if (isDark) Color(0xFFF8FAFC) else Color(0xFF0F172A)
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(iconBg),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(icon, contentDescription = null, tint = iconColor, modifier = Modifier.size(20.dp))
+        }
+        Column(modifier = Modifier.weight(1f)) {
+            Text(label, color = dimColor, fontSize = 11.sp)
+            Spacer(Modifier.height(2.dp))
+            Text(
+                value,
+                color = titleColor,
+                fontSize = 14.sp,
                 fontWeight = FontWeight.Medium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -240,50 +489,76 @@ private fun InfoRow(icon: ImageVector, label: String, value: String) {
 
 @Composable
 private fun DeleteAccountDialog(
-    cardBg: Color,
-    border: Color,
     onDismiss: () -> Unit,
     onConfirm: () -> Unit
 ) {
+    val scheme = MaterialTheme.colorScheme
+    val isDark = scheme.background.luminance() < 0.5f
+    val cardBg = if (isDark) Color(0xFF0D1B2E) else Color.White
+    val cardBorder = if (isDark) Color(0xFF1E3A5F) else Color(0xFFD6E0EF)
+    val titleColor = if (isDark) Color(0xFFF8FAFC) else Color(0xFF0F172A)
+    val subColor = if (isDark) Color(0xFF94A3B8) else Color(0xFF64748B)
+    val dangerBg = if (isDark) Color(0xFF4A1F2A) else Color(0xFFFFE4E6)
+    val dangerColor = if (isDark) Color(0xFFFDA4AF) else Color(0xFFE11D48)
+    val dangerButtonBg = if (isDark) Color(0xFF7F2A3A) else Color(0xFFFFCDD2)
+    val dangerButtonText = if (isDark) Color(0xFFFFCDD2) else Color(0xFF9F1239)
+
     Dialog(onDismissRequest = onDismiss) {
-        Card(
-            shape = RoundedCornerShape(28.dp),
-            colors = CardDefaults.cardColors(containerColor = cardBg),
-            border = BorderStroke(1.dp, border),
-            modifier = Modifier.fillMaxWidth()
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(24.dp))
+                .background(cardBg)
+                .border(BorderStroke(1.dp, cardBorder), RoundedCornerShape(24.dp))
+                .padding(28.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Column(
-                modifier = Modifier.padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+            Box(
+                modifier = Modifier
+                    .size(64.dp)
+                    .clip(CircleShape)
+                    .background(dangerBg),
+                contentAlignment = Alignment.Center
             ) {
-                Icon(
-                    Icons.Rounded.Delete,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.size(48.dp)
-                )
-                Spacer(Modifier.height(16.dp))
-                Text(tr("Apagar permanentemente?", "Delete permanently?"), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
-                Spacer(Modifier.height(12.dp))
-                Text(
-                    tr("Esta ação não pode ser desfeita. Todos os seus dados serão perdidos.", "This action cannot be undone. All your data will be lost."),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center
-                )
-                Spacer(Modifier.height(24.dp))
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    TextButton(onClick = onDismiss, modifier = Modifier.weight(1f)) {
-                        Text(tr("Cancelar", "Cancel"))
-                    }
-                    Button(
-                        onClick = onConfirm,
-                        modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Text(tr("Apagar", "Delete"), fontWeight = FontWeight.Bold)
-                    }
+                Icon(Icons.Rounded.Delete, contentDescription = null, tint = dangerColor, modifier = Modifier.size(30.dp))
+            }
+            Spacer(Modifier.height(20.dp))
+            Text(
+                tr("Apagar permanentemente?", "Delete permanently?"),
+                color = titleColor,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center
+            )
+            Spacer(Modifier.height(10.dp))
+            Text(
+                tr(
+                    "Esta ação não pode ser desfeita. Todos os seus dados serão perdidos.",
+                    "This action cannot be undone. All your data will be lost."
+                ),
+                color = subColor,
+                fontSize = 14.sp,
+                textAlign = TextAlign.Center,
+                lineHeight = 20.sp
+            )
+            Spacer(Modifier.height(28.dp))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.weight(1f).height(48.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    border = BorderStroke(1.dp, cardBorder),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = subColor)
+                ) {
+                    Text(tr("Cancelar", "Cancel"), fontWeight = FontWeight.SemiBold)
+                }
+                Button(
+                    onClick = onConfirm,
+                    modifier = Modifier.weight(1f).height(48.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = dangerButtonBg)
+                ) {
+                    Text(tr("Apagar", "Delete"), color = dangerButtonText, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -311,7 +586,6 @@ private fun formatarTempoDesdeLogin(lastSignInMillis: Long): String {
 }
 
 private fun apagarContaLocalRemota(context: Context) {
-    // Presumindo que os métodos salvarX existam no seu singleton BancoDeDados
     BancoDeDados.salvarCarros(context, emptyList())
     BancoDeDados.salvarLembretes(context, emptyList())
     BancoDeDados.salvarContatos(context, emptyList())
@@ -330,4 +604,82 @@ private fun apagarContaLocalRemota(context: Context) {
     auth.signOut()
     GoogleSignIn.getClient(context, GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN).build()).signOut()
     Toast.makeText(context, "Dados removidos com sucesso.", Toast.LENGTH_LONG).show()
+}
+
+@Composable
+private fun LogoutConfirmDialog(
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    val scheme = MaterialTheme.colorScheme
+    val isDark = scheme.background.luminance() < 0.5f
+    val cardBg = if (isDark) Color(0xFF0D1B2E) else Color.White
+    val cardBorder = if (isDark) Color(0xFF1E3A5F) else Color(0xFFD6E0EF)
+    val titleColor = if (isDark) Color(0xFFF8FAFC) else Color(0xFF0F172A)
+    val subColor = if (isDark) Color(0xFF94A3B8) else Color(0xFF64748B)
+    val actionBg = if (isDark) Color(0xFF1E3A5F) else Color(0xFFE2E8F0)
+    val actionColor = if (isDark) Color(0xFF60A5FA) else Color(0xFF1D4ED8)
+
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(24.dp))
+                .background(cardBg)
+                .border(BorderStroke(1.dp, cardBorder), RoundedCornerShape(24.dp))
+                .padding(28.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(64.dp)
+                    .clip(CircleShape)
+                    .background(actionBg),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.AutoMirrored.Filled.Logout,
+                    contentDescription = null,
+                    tint = actionColor,
+                    modifier = Modifier.size(30.dp)
+                )
+            }
+            Spacer(Modifier.height(20.dp))
+            Text(
+                "Sair da conta?",
+                color = titleColor,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center
+            )
+            Spacer(Modifier.height(10.dp))
+            Text(
+                "Você poderá entrar novamente com sua conta Google quando quiser.",
+                color = subColor,
+                fontSize = 14.sp,
+                textAlign = TextAlign.Center,
+                lineHeight = 20.sp
+            )
+            Spacer(Modifier.height(28.dp))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.weight(1f).height(48.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    border = BorderStroke(1.dp, cardBorder),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = subColor)
+                ) {
+                    Text("Cancelar", fontWeight = FontWeight.SemiBold)
+                }
+                Button(
+                    onClick = onConfirm,
+                    modifier = Modifier.weight(1f).height(48.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = actionBg)
+                ) {
+                    Text("Sair", color = actionColor, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
 }

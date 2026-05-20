@@ -9,27 +9,20 @@ import java.util.Locale
 
 object LocaleManager {
     fun applySavedLanguage(context: Context) {
-        applyLanguage(AppPreferences.getAppLanguage(context))
+        applyLanguage(AppLanguage.PORTUGUESE)
     }
 
     fun applyLanguage(language: AppLanguage) {
-        val locales = if (language == AppLanguage.SYSTEM || language.tag.isBlank()) {
-            LocaleListCompat.getEmptyLocaleList()
-        } else {
-            LocaleListCompat.forLanguageTags(language.tag)
-        }
+        val locales = LocaleListCompat.forLanguageTags(AppLanguage.PORTUGUESE.tag)
         AppCompatDelegate.setApplicationLocales(locales)
     }
 
     fun wrap(base: Context): ContextWrapper {
-        val selected = AppPreferences.getAppLanguage(base)
-        if (selected == AppLanguage.SYSTEM || selected.tag.isBlank()) {
-            return ContextWrapper(base)
-        }
-        val locale = Locale.forLanguageTag(selected.tag)
+        val locale = Locale.forLanguageTag(AppLanguage.PORTUGUESE.tag)
         Locale.setDefault(locale)
         val config = Configuration(base.resources.configuration)
         config.setLocale(locale)
+        config.fontScale = 1f
         val localized = base.createConfigurationContext(config)
         return ContextWrapper(localized)
     }

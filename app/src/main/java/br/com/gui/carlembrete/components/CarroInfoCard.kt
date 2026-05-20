@@ -29,12 +29,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -76,11 +76,11 @@ private fun carCardPalette(): CarCardPalette {
     val scheme = MaterialTheme.colorScheme
     val isDark = scheme.background.luminance() < 0.5f
     return CarCardPalette(
-        cardBackground = if (isDark) Color(0xFF2B3950) else Color.White,
+        cardBackground = if (isDark) Color(0xFF172033) else Color.White,
         textPrimary = scheme.onSurface,
         textSecondary = scheme.onSurfaceVariant,
         accent = scheme.primary,
-        actionBackground = if (isDark) Color(0xFF334155).copy(alpha = 0.5f) else Color(0xFFCBD5E1).copy(alpha = 0.65f),
+        actionBackground = if (isDark) Color(0xFF1E293B).copy(alpha = 0.92f) else Color(0xFFCBD5E1).copy(alpha = 0.65f),
         isDark = isDark
     )
 }
@@ -96,6 +96,9 @@ fun CarroInfoCard(
     onOpenFuelHistory: () -> Unit,
     showFuelHistoryAction: Boolean = false,
     onNovoLembrete: () -> Unit,
+    onEditButtonPositioned: (Rect) -> Unit = {},
+    onReportButtonPositioned: (Rect) -> Unit = {},
+    onNewReminderButtonPositioned: (Rect) -> Unit = {},
     nomeMantedor: String,
     textLight: Color,
     accentBlue: Color,
@@ -103,26 +106,36 @@ fun CarroInfoCard(
 ) {
     val palette = carCardPalette()
     val cardBorderColor = if (palette.isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.35f)
-    val nomeProprietarioExibido = carroAtual.proprietario
-        .trim()
-        .ifBlank { nomeMantedor.trim() }
-        .split(" ")
-        .firstOrNull()
-        .orEmpty()
+    val nomeProprietarioExibido = run {
+        val partesNome = carroAtual.proprietario
+            .trim()
+            .ifBlank { nomeMantedor.trim() }
+            .split("\\s+".toRegex())
+            .filter { it.isNotBlank() }
+
+        when (partesNome.size) {
+            0 -> ""
+            1 -> partesNome.first()
+            else -> "${partesNome.first()} ${partesNome.last()}"
+        }
+    }
     val anoVeiculo = extrairAnoVeiculo(carroAtual.modelo)
     val modeloSemAno = removerAnoDoModelo(carroAtual.modelo).ifBlank { carroAtual.modelo.ifBlank { "N/A" } }
     val vehicleIconOffsetY = if (carroAtual.tipoVeiculo == TipoVeiculo.BICICLETA) (-26).dp else 0.dp
+    val modeloPrincipalExibicao = if (carroAtual.tipoVeiculo == TipoVeiculo.BICICLETA) {
+        if (modeloSemAno.startsWith("Aro", ignoreCase = true)) modeloSemAno else "Aro: $modeloSemAno"
+    } else {
+        modeloSemAno
+    }
     val modeloAno = listOf(
-        modeloSemAno.takeIf { it.isNotBlank() },
+        modeloPrincipalExibicao.takeIf { it.isNotBlank() },
         anoVeiculo
     ).filterNotNull().joinToString(" - ")
     val marcaTexto = carroAtual.marca.uppercase().ifBlank { "N/A" }
-    // Cores DinÃƒÂ¢micas baseadas no carro (Apenas para o card interno do carro)
     val baseColor = carroAtual.getCorUI()
-    val isVeiculoBranco = isCorVeiculoBranca(baseColor)
-    val heroTextColor = if (isVeiculoBranco) Color(0xFF0F172A) else Color.White
-    val carDisplayGradientStart = if (isVeiculoBranco) Color(0xFFFFFFFF) else lerp(Color(0xFF1E293B), baseColor, 0.55f)
-    val carDisplayGradientEnd = if (isVeiculoBranco) Color(0xFFF3F4F6) else lerp(Color(0xFF0B1224), baseColor, 0.35f)
+    // Card principal da home com cor fixa por tema (sem degradê)
+    val heroCardBackground = if (palette.isDark) Color.Black else Color.White
+    val heroTextColor = if (palette.isDark) Color.White else Color.Black
 
     Box(
         modifier = modifier
@@ -153,23 +166,16 @@ fun CarroInfoCard(
                         .fillMaxWidth()
                         .height(248.dp)
                         .clip(RoundedCornerShape(22.dp))
-                        // O degradÃƒÂª fica SÃƒâ€œ aqui dentro, na imagem do carro
-                        .background(
-                            Brush.linearGradient(
-                                colors = listOf(carDisplayGradientStart, carDisplayGradientEnd),
-                                start = Offset(0f, 0f),
-                                end = Offset(0f, Float.POSITIVE_INFINITY)
-                            )
-                        )
+                        .background(heroCardBackground)
                         .border(
                             1.dp,
-                            if (isVeiculoBranco) Color(0xFF0F172A).copy(alpha = 0.16f) else Color.White.copy(alpha = 0.2f),
+                            if (palette.isDark) Color.White.copy(alpha = 0.18f) else Color.Black.copy(alpha = 0.14f),
                             RoundedCornerShape(22.dp)
                         )
                         .clickable { onOpenCarInfo() }
                 ) {
                     // --- WATERMARKS (Background decorativo) ---
-                    DecoracoesDeFundo(baseColor)
+                    DecoracoesDeFundo(carroAtual.getCorUI())
 
                     // --- CONTEÃƒÅ¡DO PRINCIPAL ---
                     Column(
@@ -199,35 +205,16 @@ fun CarroInfoCard(
                                     fontWeight = FontWeight.SemiBold,
                                     letterSpacing = 1.sp
                                 )
-                                Text(
-                                    text = marcaTexto,
-                                    fontSize = 11.sp,
-                                    color = heroTextColor.copy(alpha = 0.82f),
-                                    fontWeight = FontWeight.Bold,
-                                    letterSpacing = 0.8.sp,
-                                    modifier = Modifier.offset(y = (-2).dp)
-                                )
                             }
                         }
 
-                        // CENTRO (Logo com Glow)
+                        // CENTRO (Logo)
                         Box(
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxWidth(),
                             contentAlignment = Alignment.Center
                         ) {
-                            // Glow effect atrÃƒÂ¡s do logo
-                            Box(
-                                modifier = Modifier
-                                    .size(100.dp)
-                                    .background(
-                                        Brush.radialGradient(
-                                            colors = listOf(baseColor.copy(alpha = 0.3f), Color.Transparent)
-                                        )
-                                    )
-                            )
-
                             VehicleIcon(
                                 tipoVeiculo = carroAtual.tipoVeiculo,
                                 tint = heroTextColor,
@@ -235,15 +222,20 @@ fun CarroInfoCard(
                                 modifier = Modifier.offset(y = vehicleIconOffsetY)
                             )
 
-                            Text(
-                                text = if (isEnglishUi()) "Vehicle owner: $nomeProprietarioExibido" else "Veiculo de: $nomeProprietarioExibido",
+                            Column(
                                 modifier = Modifier
                                     .align(Alignment.BottomCenter)
-                                    .padding(bottom = 20.dp),
-                                color = heroTextColor.copy(alpha = 0.95f),
-                                fontSize = 13.sp,
-                                    fontWeight = FontWeight.SemiBold
-                            )
+                                    .padding(bottom = 24.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text = marcaTexto,
+                                    color = heroTextColor.copy(alpha = 0.82f),
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    letterSpacing = 0.8.sp
+                                )
+                            }
 
                         }
                     }
@@ -257,13 +249,17 @@ fun CarroInfoCard(
                     ActionGlassButton(
                         icon = Icons.Rounded.Edit,
                         label = tr("Editar", "Edit"),
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier
+                            .weight(1f)
+                            .onGloballyPositioned { onEditButtonPositioned(it.boundsInRoot()) },
                         onClick = onEditCar
                     )
                     ActionGlassButton(
                         icon = Icons.Rounded.Description,
                         label = tr("Relatorio", "Report"),
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier
+                            .weight(1f)
+                            .onGloballyPositioned { onReportButtonPositioned(it.boundsInRoot()) },
                         onClick = onOpenRelatorio
                     )
                 }
@@ -274,10 +270,11 @@ fun CarroInfoCard(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(56.dp)
-                        .shadow(12.dp, RoundedCornerShape(16.dp), spotColor = palette.accent.copy(alpha = 0.4f)),
+                        .onGloballyPositioned { onNewReminderButtonPositioned(it.boundsInRoot()) }
+                        .shadow(10.dp, RoundedCornerShape(16.dp), spotColor = palette.accent.copy(alpha = 0.30f)),
                     shape = RoundedCornerShape(16.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF3B82F6),
+                        containerColor = Color(0xFF357AE8),
                         contentColor = Color.White
                     )
                 ) {

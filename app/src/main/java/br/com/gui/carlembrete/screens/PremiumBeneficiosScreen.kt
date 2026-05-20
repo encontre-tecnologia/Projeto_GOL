@@ -1,45 +1,37 @@
 ﻿package br.com.gui.carlembrete
 
+import android.app.Activity
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBackIosNew
-import androidx.compose.material.icons.filled.Route
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CenterAlignedTopAppBar
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.runtime.Composable
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Diamond
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.WorkspacePremium
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -47,209 +39,397 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.view.WindowInsetsControllerCompat
 
-@OptIn(ExperimentalMaterial3Api::class)
+private val PBGoldStart = Color(0xFFE7B84A)
+private val PBGoldEnd = Color(0xFFC78A18)
+private val PBGoldGradient = Brush.horizontalGradient(listOf(PBGoldStart, PBGoldEnd))
+
 @Composable
 fun PremiumBeneficiosScreen(
     onDismiss: () -> Unit,
-    onSubscribeNow: () -> Unit
+    onSubscribeNow: (SubscriptionPlan) -> Unit,
+    showBackButton: Boolean = true,
+    showSubscribeButton: Boolean = true,
+    onPlanSelected: ((SubscriptionPlan) -> Unit)? = null
 ) {
-    // Cores Premium
-    val goldStart = Color(0xFFFFD700)
-    val goldEnd = Color(0xFFD4A017)
-    val goldGradient = Brush.horizontalGradient(listOf(goldStart, goldEnd))
-    val bgSurface = MaterialTheme.colorScheme.surface
+    var selectedPlan by rememberSaveable { mutableStateOf(SubscriptionPlan.FROTA) }
+    val view = LocalView.current
+    val context = LocalContext.current
+    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val screenBg = if (isDark) Color(0xFF020617) else Color(0xFFF7FAFF)
+    val cardBg = if (isDark) Color(0xFF0F172A) else Color.White
+    val titleColor = if (isDark) Color(0xFFF8FAFC) else Color(0xFF0F172A)
+    val subColor = if (isDark) Color(0xFFCBD5E1) else Color(0xFF475569)
+    val dimColor = if (isDark) Color(0xFF94A3B8) else Color(0xFF64748B)
+    val idleLiteBorder = if (isDark) Color(0xFF1E3A8A) else Color(0xFFD7E6FF)
+    val idleFleetBorder = if (isDark) Color(0xFF854D0E) else Color(0xFFFFE7A3)
+    val idleEnterpriseBorder = if (isDark) Color(0xFF155E75) else Color(0xFFBFEFF7)
 
-    // Scroll state para a coluna principal
-    val scrollState = rememberScrollState()
-
-    Scaffold(
-        topBar = {
-            CenterAlignedTopAppBar(
-                title = {
-                    Text(
-                        tr("Zellu Premium", "Zellu Premium"),
-                        fontWeight = FontWeight.Bold,
-                        style = MaterialTheme.typography.titleLarge
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.ArrowBackIosNew, contentDescription = tr("Voltar", "Back"))
-                    }
-                },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
-                    titleContentColor = MaterialTheme.colorScheme.onBackground
-                )
-            )
-        },
-        bottomBar = {
-            // BotÃ£o fixo no rodapÃ© para melhor conversÃ£o
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.background)
-                    .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 30.dp)
-            ) {
-                Button(
-                    onClick = onSubscribeNow,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(56.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color.Transparent
-                    ),
-                    contentPadding = PaddingValues() // Remove padding padrÃ£o para o gradiente funcionar
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(goldGradient, shape = RoundedCornerShape(16.dp)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = tr("ASSINAR AGORA", "SUBSCRIBE NOW"),
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 16.sp,
-                            color = Color.Black,
-                            letterSpacing = 1.sp
-                        )
-                    }
-                }
+    DisposableEffect(view, isDark, screenBg) {
+        val activity = view.context as? Activity
+        val window = activity?.window
+        val insetsController = window?.let { WindowInsetsControllerCompat(it, it.decorView) }
+        val oldStatusColor = window?.statusBarColor
+        val oldNavigationColor = window?.navigationBarColor
+        val oldLightStatus = insetsController?.isAppearanceLightStatusBars
+        val oldLightNavigation = insetsController?.isAppearanceLightNavigationBars
+        if (window != null && insetsController != null) {
+            window.statusBarColor = screenBg.toArgb()
+            window.navigationBarColor = screenBg.toArgb()
+            insetsController.isAppearanceLightStatusBars = !isDark
+            insetsController.isAppearanceLightNavigationBars = !isDark
+        }
+        onDispose {
+            if (window != null && insetsController != null) {
+                if (oldStatusColor != null) window.statusBarColor = oldStatusColor
+                if (oldNavigationColor != null) window.navigationBarColor = oldNavigationColor
+                if (oldLightStatus != null) insetsController.isAppearanceLightStatusBars = oldLightStatus
+                if (oldLightNavigation != null) insetsController.isAppearanceLightNavigationBars = oldLightNavigation
             }
         }
-    ) { innerPadding ->
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(screenBg)
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
-                .verticalScroll(scrollState) // Permite rolar se a tela for pequena
-                .padding(horizontal = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp),
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Card Principal de PreÃ§o (Hero)
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(24.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
-                border = BorderStroke(1.5.dp, goldGradient)
+            // --- HEADER ---
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 12.dp),
+                contentAlignment = Alignment.Center
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .background(goldGradient, CircleShape)
-                            .padding(horizontal = 12.dp, vertical = 4.dp)
+                if (showBackButton) {
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.align(Alignment.CenterStart).size(40.dp)
                     ) {
-                        Text(
-                            tr("MELHOR ESCOLHA", "BEST CHOICE"),
-                            color = Color.Black,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 10.sp
+                        Icon(
+                            Icons.Default.ArrowBackIosNew,
+                            contentDescription = tr("Voltar", "Back"),
+                            tint = titleColor,
+                            modifier = Modifier.size(20.dp)
                         )
                     }
+                }
+                Text(
+                    text = tr("Zellu Premium", "Zellu Premium"),
+                    color = titleColor,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 20.sp
+                )
+            }
 
+            Spacer(Modifier.height(12.dp))
+
+            // --- HERO ---
+            Box(
+                modifier = Modifier
+                    .size(72.dp)
+                    .clip(CircleShape)
+                    .background(Brush.radialGradient(listOf(PBGoldEnd.copy(alpha = 0.18f), Color.Transparent))),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Diamond,
+                    contentDescription = null,
+                    tint = PBGoldStart,
+                    modifier = Modifier.size(38.dp)
+                )
+            }
+
+            Spacer(Modifier.height(14.dp))
+
+            Text(
+                text = tr("Escolha seu plano", "Choose your plan"),
+                color = PBGoldStart,
+                fontWeight = FontWeight.Black,
+                fontSize = 26.sp,
+                textAlign = TextAlign.Center
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = tr("7 dias gratis • cancele quando quiser", "7 free days • cancel anytime"),
+                color = Color(0xFF34D399),
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.Center
+            )
+
+            Spacer(Modifier.height(28.dp))
+
+            // --- PLAN CARDS ---
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                PlanCard(
+                    name = tr("Plano Lite", "Lite Plan"),
+                    price = "10,50",
+                    tagLabel = null,
+                    nameColor = Color(0xFF93C5FD),
+                    borderColorSelected = Color(0xFF60A5FA),
+                    borderColorIdle = idleLiteBorder,
+                    tagBg = Color.Transparent,
+                    tagTextColor = Color.Transparent,
+                    isSelected = selectedPlan == SubscriptionPlan.LITE,
+                    description = tr("Modulo de viagens com custos por rota.", "Trip module with route cost tracking."),
+                    features = listOf(
+                        tr("15 veiculos, 50 avisos/registros e 150 abastecimentos", "15 vehicles, 50 reminders/records and 150 fuel records"),
+                        tr("30 scans de QR por mes", "30 QR scans per month"),
+                        tr("Repeticao automatica de avisos", "Automatic reminder recurrence"),
+                        tr("PDF do Onde parei", "Where I parked PDF"),
+                        tr("Backup e restauracao no Google Drive", "Google Drive backup and restore"),
+                        tr("Registro de viagens", "Trip logging"),
+                        tr("Controle de custos por rota", "Route cost tracking"),
+                        tr("Historico completo de viagens", "Full trip history")
+                    ),
+                    cardBg = cardBg,
+                    titleColor = titleColor,
+                    subColor = subColor,
+                    dimColor = dimColor,
+                    featureColor = Color(0xFF93C5FD),
+                    onClick = {
+                        selectedPlan = SubscriptionPlan.LITE
+                        onPlanSelected?.invoke(SubscriptionPlan.LITE)
+                    }
+                )
+
+                PlanCard(
+                    name = tr("Plano Frota", "Fleet Plan"),
+                    price = "29,90",
+                    tagLabel = tr("COMPLETO", "COMPLETE"),
+                    nameColor = PBGoldStart,
+                    borderColorSelected = PBGoldStart,
+                    borderColorIdle = idleFleetBorder,
+                    tagBg = if (isDark) Color(0xFF451A03) else Color(0xFFFFF3CC),
+                    tagTextColor = if (isDark) Color(0xFFFDE68A) else Color(0xFF7A5900),
+                    isSelected = selectedPlan == SubscriptionPlan.FROTA,
+                    description = tr("Viagens, gestao de frota e estoque.", "Trips, fleet management and stock."),
+                    features = listOf(
+                        tr("Tudo do plano Lite", "Everything from Lite"),
+                        tr("50 veiculos, 300 avisos/registros e 1000 abastecimentos", "50 vehicles, 300 reminders/records and 1000 fuel records"),
+                        tr("200 scans de QR por mes", "200 QR scans per month"),
+                        tr("Visao geral da frota", "Fleet overview"),
+                        tr("Sistema de estoque completo", "Full stock system"),
+                        tr("Gestao avancada e relatorios", "Advanced management")
+                    ),
+                    cardBg = cardBg,
+                    titleColor = titleColor,
+                    subColor = subColor,
+                    dimColor = dimColor,
+                    featureColor = PBGoldStart,
+                    onClick = {
+                        selectedPlan = SubscriptionPlan.FROTA
+                        onPlanSelected?.invoke(SubscriptionPlan.FROTA)
+                    }
+                )
+
+                PlanCard(
+                    name = tr("Plano Enterprise", "Enterprise Plan"),
+                    price = "59,90",
+                    tagLabel = tr("MAXIMO", "MAX"),
+                    nameColor = Color(0xFF22D3EE),
+                    borderColorSelected = Color(0xFF22D3EE),
+                    borderColorIdle = idleEnterpriseBorder,
+                    tagBg = if (isDark) Color(0xFF083344) else Color(0xFFE6FAFE),
+                    tagTextColor = if (isDark) Color(0xFFA5F3FC) else Color(0xFF0E7490),
+                    isSelected = selectedPlan == SubscriptionPlan.ENTERPRISE,
+                    description = tr("Tudo do Frota com mais capacidade de veiculos.", "Everything from Fleet with more vehicle capacity."),
+                    features = listOf(
+                        tr("Tudo do plano Frota", "Everything from Fleet"),
+                        tr("200 veiculos, avisos/registros e abastecimentos ilimitados", "200 vehicles, unlimited reminders/records and fuel records"),
+                        tr("Scans de QR ilimitados", "Unlimited QR scans"),
+                        tr("Viagens e custos avancados", "Advanced trips and costs"),
+                        tr("Estoque para operacao em escala", "Stock for large operations"),
+                        tr("Maior capacidade de veiculos", "Highest vehicle capacity")
+                    ),
+                    cardBg = cardBg,
+                    titleColor = titleColor,
+                    subColor = subColor,
+                    dimColor = dimColor,
+                    featureColor = Color(0xFF22D3EE),
+                    onClick = {
+                        selectedPlan = SubscriptionPlan.ENTERPRISE
+                        onPlanSelected?.invoke(SubscriptionPlan.ENTERPRISE)
+                    }
+                )
+            }
+
+            Spacer(Modifier.height(24.dp))
+
+            // --- CTA ---
+            if (showSubscribeButton) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp)
+                        .height(56.dp)
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(PBGoldGradient)
+                        .clickable { onSubscribeNow(selectedPlan) },
+                    contentAlignment = Alignment.Center
+                ) {
                     Text(
-                        text = buildAnnotatedString {
-                            withStyle(SpanStyle(fontSize = 18.sp, fontWeight = FontWeight.Normal)) { append("R$ ") }
-                            withStyle(SpanStyle(fontSize = 36.sp, fontWeight = FontWeight.Bold)) { append("9,90") }
-                            withStyle(SpanStyle(fontSize = 16.sp, fontWeight = FontWeight.Normal)) { append(tr(" /mês", " /month")) }
+                        text = when (selectedPlan) {
+                            SubscriptionPlan.LITE -> tr("ASSINAR LITE • 7 DIAS GRATIS", "SUBSCRIBE LITE • 7 FREE DAYS")
+                            SubscriptionPlan.FROTA -> tr("ASSINAR FROTA • 7 DIAS GRATIS", "SUBSCRIBE FLEET • 7 FREE DAYS")
+                            SubscriptionPlan.ENTERPRISE -> tr("ASSINAR ENTERPRISE • 7 DIAS GRATIS", "SUBSCRIBE ENTERPRISE • 7 FREE DAYS")
                         },
-                        color = MaterialTheme.colorScheme.onSurface
+                        fontWeight = FontWeight.Black,
+                        fontSize = 14.sp,
+                        color = Color(0xFF1A0800),
+                        letterSpacing = 0.5.sp
                     )
+                }
 
-                    Text(
-                        tr("7 dias grátis para testar", "7 free trial days"),
-                        color = goldStart,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 16.sp
+                Spacer(Modifier.height(12.dp))
+
+                Text(
+                    text = tr("Renovacao automatica. Cancele a qualquer momento.", "Auto-renewal. Cancel anytime."),
+                    color = dimColor,
+                    fontSize = 11.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(horizontal = 24.dp)
+                )
+
+                Spacer(Modifier.height(14.dp))
+
+                OutlinedButton(
+                    onClick = {
+                        val intent = Intent(Intent.ACTION_SENDTO).apply {
+                            data = Uri.parse(
+                                "mailto:guilhermedevsistemas@gmail.com" +
+                                    "?subject=${Uri.encode("Cotacao de plano empresarial")}" +
+                                    "&body=${Uri.encode("Gostaria de cotar um plano para minha empresa")}"
+                            )
+                        }
+                        runCatching {
+                            context.startActivity(Intent.createChooser(intent, "Enviar email"))
+                        }.onFailure {
+                            Toast.makeText(
+                                context,
+                                "Nenhum app de email encontrado.",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp)
+                        .height(52.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    border = BorderStroke(1.dp, if (isDark) Color(0xFF475569) else Color(0xFFCBD5E1)),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        containerColor = if (isDark) Color(0xFF0F172A) else Color.White,
+                        contentColor = titleColor
                     )
-
+                ) {
                     Text(
-                        tr("Cancele quando quiser", "Cancel anytime"),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 12.sp
+                        text = tr("Planos nao atendem? Quero sob demanda", "Need more capacity? Request custom plan"),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp,
+                        textAlign = TextAlign.Center
                     )
                 }
             }
 
-            Text(
-                tr("Benefícios Exclusivos", "Exclusive Benefits"),
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.align(Alignment.Start)
-            )
-
-            // Lista de BenefÃ­cios
-            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                BeneficioItem(
-                    icon = Icons.Default.Route,
-                    title = tr("Controle de Viagens", "Trip Management"),
-                    description = tr("Viagens ilimitadas com gastos, rotas e exportacao de relatorios.", "Unlimited trips with expenses, routes, and report exports."),
-                    iconTint = goldEnd
-                )
-            }
-
-            // EspaÃ§o extra no final para nÃ£o cortar conteÃºdo por causa do botÃ£o flutuante se houver muito texto
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(Modifier.height(32.dp))
         }
     }
 }
 
 @Composable
-private fun BeneficioItem(
-    icon: ImageVector,
-    title: String,
+private fun PlanCard(
+    name: String,
+    price: String,
+    tagLabel: String?,
+    nameColor: Color,
+    borderColorSelected: Color,
+    borderColorIdle: Color,
+    tagBg: Color,
+    tagTextColor: Color,
+    isSelected: Boolean,
     description: String,
-    iconTint: Color
+    features: List<String>,
+    cardBg: Color,
+    titleColor: Color,
+    subColor: Color,
+    dimColor: Color,
+    featureColor: Color,
+    onClick: () -> Unit
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
-        verticalAlignment = Alignment.Top
+    val borderColor = if (isSelected) borderColorSelected else borderColorIdle
+    val borderWidth = if (isSelected) 2.dp else 1.dp
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(cardBg)
+            .border(BorderStroke(borderWidth, borderColor), RoundedCornerShape(20.dp))
+            .clickable(onClick = onClick)
+            .padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // Ãcone com fundo sutil
-        Box(
-            modifier = Modifier
-                .size(48.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(iconTint.copy(alpha = 0.15f)),
-            contentAlignment = Alignment.Center
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = iconTint,
-                modifier = Modifier.size(24.dp)
-            )
+            Text(name, color = nameColor, fontWeight = FontWeight.Bold, fontSize = 17.sp, modifier = Modifier.weight(1f))
+            if (tagLabel != null) {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(tagBg)
+                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                ) {
+                    Text(tagLabel, color = tagTextColor, fontSize = 10.sp, fontWeight = FontWeight.Black)
+                }
+            }
         }
 
-        // Textos
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("R$", color = subColor, fontSize = 14.sp, modifier = Modifier.padding(bottom = 4.dp))
             Text(
-                text = title,
-                fontWeight = FontWeight.Bold,
-                fontSize = 16.sp,
-                color = MaterialTheme.colorScheme.onSurface
+                text = buildAnnotatedString {
+                    withStyle(SpanStyle(fontSize = 34.sp, fontWeight = FontWeight.Black, color = titleColor)) { append(price) }
+                },
+                color = titleColor
             )
-            Text(
-                text = description,
-                fontSize = 14.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                lineHeight = 20.sp
-            )
+            Text(tr("/mes", "/mo"), color = dimColor, fontSize = 13.sp, modifier = Modifier.padding(bottom = 6.dp))
+        }
+
+        Text(description, color = subColor, fontSize = 13.sp, lineHeight = 18.sp)
+
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            features.forEach { feature ->
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        Icons.Default.CheckCircle,
+                        contentDescription = null,
+                        tint = featureColor,
+                        modifier = Modifier.size(15.dp)
+                    )
+                    Text(feature, color = titleColor, fontSize = 13.sp)
+                }
+            }
         }
     }
 }
-
-

@@ -121,15 +121,18 @@ import kotlin.math.roundToInt
 /* ----------------- BANCO DE DADOS LOCAL ----------------- */
 
 object BancoDeDados {
+    private const val TAG = "BancoDeDados"
     private const val FILE_CARROS = "carros_v3.dat"
     private const val FILE_LEMBRETES = "lembretes_v3.dat"
     private const val FILE_CONTATOS = "contatos_v3.dat"
     private const val FILE_ABASTECIMENTOS = "abastecimentos_v3.dat"
     private const val FILE_PEDALADAS = "pedaladas_v1.dat"
+    private const val BACKUP_SUFFIX = ".bak"
+    private const val TEMP_SUFFIX = ".tmp"
 
     fun salvarCarros(context: Context, lista: List<CarroInfo>) = salvar(context, FILE_CARROS, lista)
     fun carregarCarros(context: Context): List<CarroInfo>? = carregar<List<CarroInfo>>(context, FILE_CARROS)
-    fun carregarCarrosComFallback(context: Context): List<CarroInfo> { val lista = carregarCarros(context); return if (lista.isNullOrEmpty()) listOf(CarroInfo(nome = "Carro Padrão", modelo = "Modelo 1.0", marca = "Marca Padrão", kmAtual = 0)) else lista }
+    fun carregarCarrosComFallback(context: Context): List<CarroInfo> = carregarCarros(context).orEmpty()
 
     fun salvarLembretes(context: Context, lista: List<Lembrete>) = salvar(context, FILE_LEMBRETES, lista)
     fun carregarLembretes(context: Context): List<Lembrete> = carregar<List<Lembrete>>(context, FILE_LEMBRETES) ?: emptyList()
@@ -143,6 +146,70 @@ object BancoDeDados {
     fun salvarPedaladas(context: Context, lista: List<Pedalada>) = salvar(context, FILE_PEDALADAS, lista)
     fun carregarPedaladas(context: Context): List<Pedalada> = carregar<List<Pedalada>>(context, FILE_PEDALADAS) ?: emptyList()
 
-    private fun <T> salvar(context: Context, fileName: String, data: T) { try { context.openFileOutput(fileName, Context.MODE_PRIVATE).use { fos -> ObjectOutputStream(fos).use { it.writeObject(data) } } } catch (e: Exception) { e.printStackTrace() } }
-    private fun <T> carregar(context: Context, fileName: String): T? { val file = File(context.filesDir, fileName); if (!file.exists()) return null; return try { context.openFileInput(fileName).use { fis -> ObjectInputStream(fis).use { it.readObject() as T } } } catch (e: Exception) { e.printStackTrace(); null } }
+    private fun <T> salvar(context: Context, fileName: String, data: T) {
+        val mainFile = File(context.filesDir, fileName)
+        val backupFile = File(context.filesDir, "$fileName$BACKUP_SUFFIX")
+        val tempFile = File(context.filesDir, "$fileName$TEMP_SUFFIX")
+
+        try {
+            if (mainFile.exists() && mainFile.length() > 0L) {
+                mainFile.copyTo(backupFile, overwrite = true)
+            }
+
+            FileOutputStream(tempFile).use { fos ->
+                ObjectOutputStream(fos).use { output ->
+                    output.writeObject(data)
+                    output.flush()
+                }
+                runCatching { fos.fd.sync() }
+                    .onFailure { Log.w(TAG, "Sync fisico indisponivel para $fileName; salvamento logico continuou.", it) }
+            }
+
+            if (mainFile.exists() && !mainFile.delete()) {
+                Log.w(TAG, "Nao foi possivel remover arquivo antigo: $fileName")
+            }
+            if (!tempFile.renameTo(mainFile)) {
+                tempFile.copyTo(mainFile, overwrite = true)
+                tempFile.delete()
+            }
+
+            if (!backupFile.exists() && mainFile.exists() && mainFile.length() > 0L) {
+                mainFile.copyTo(backupFile, overwrite = true)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Falha ao salvar $fileName. Mantendo backup anterior.", e)
+            tempFile.delete()
+        }
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun <T> carregar(context: Context, fileName: String): T? {
+        val mainFile = File(context.filesDir, fileName)
+        val backupFile = File(context.filesDir, "$fileName$BACKUP_SUFFIX")
+        val primary = carregarArquivo<T>(mainFile)
+        if (primary != null) return primary
+
+        val fallback = carregarArquivo<T>(backupFile)
+        if (fallback != null) {
+            Log.w(TAG, "Usando backup de $fileName apos falha no arquivo principal.")
+            runCatching { backupFile.copyTo(mainFile, overwrite = true) }
+                .onFailure { Log.e(TAG, "Falha ao restaurar backup de $fileName.", it) }
+            return fallback
+        }
+
+        return null
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun <T> carregarArquivo(file: File): T? {
+        if (!file.exists() || file.length() <= 0L) return null
+        return try {
+            file.inputStream().use { fis ->
+                ObjectInputStream(fis).use { input -> input.readObject() as T }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Falha ao carregar ${file.name}.", e)
+            null
+        }
+    }
 }

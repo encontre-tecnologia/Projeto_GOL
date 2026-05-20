@@ -1,10 +1,13 @@
-﻿package br.com.gui.carlembrete
+package br.com.gui.carlembrete
 
 import android.app.Activity
-import android.util.Patterns
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -15,93 +18,50 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Divider
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
+import com.google.android.gms.auth.api.signin.GoogleSignInStatusCodes
 import com.google.android.gms.common.api.ApiException
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.foundation.Image
-import androidx.compose.ui.res.painterResource
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.foundation.BorderStroke
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @Composable
 fun AuthScreen(onSignedIn: () -> Unit) {
     val context = LocalContext.current
-    val colorScheme = MaterialTheme.colorScheme
-    val isDark = colorScheme.background.luminance() < 0.5f
     val auth = remember { FirebaseAuth.getInstance() }
-    var email by remember { mutableStateOf("") }
-    var senha by remember { mutableStateOf("") }
-    var senhaVisivel by remember { mutableStateOf(false) }
-    var modoRecuperacao by remember { mutableStateOf(false) }
-    var modoCriarConta by remember { mutableStateOf(false) }
-    var tentouEntrar by remember { mutableStateOf(false) }
-
-    if (modoRecuperacao) {
-        AuthForgotPasswordScreen(
-            email = email,
-            onEmailChange = { email = it },
-            onSendLink = {
-                if (email.isBlank()) {
-                    Toast.makeText(context, "Informe o email para redefinir", Toast.LENGTH_SHORT).show()
-                } else {
-                    auth.sendPasswordResetEmail(email).addOnCompleteListener { task ->
-                        if (task.isSuccessful) {
-                            Toast.makeText(context, "Email de redefinição enviado", Toast.LENGTH_SHORT).show()
-                        } else {
-                            Toast.makeText(context, "Falha ao enviar email", Toast.LENGTH_SHORT).show()
-                        }
-                    }
-                }
-            },
-            onBack = { modoRecuperacao = false }
-        )
-        return
-    }
-    if (modoCriarConta) {
-        AuthCreateAccountScreen(
-            onSignedIn = onSignedIn,
-            onBack = { modoCriarConta = false }
-        )
-        return
-    }
+    var isAuthLoading by remember { mutableStateOf(false) }
+    var authStatusMessage by remember { mutableStateOf<String?>(null) }
+    val uiScope = rememberCoroutineScope()
 
     val gso = remember {
         GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
@@ -114,237 +74,244 @@ fun AuthScreen(onSignedIn: () -> Unit) {
     val googleLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        if (result.resultCode != Activity.RESULT_OK) {
-            Toast.makeText(context, "Login com Google cancelado", Toast.LENGTH_SHORT).show()
-            return@rememberLauncherForActivityResult
-        }
         val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
         try {
             val account = task.getResult(ApiException::class.java)
             val token = account.idToken
             if (token.isNullOrBlank()) {
-                Toast.makeText(context, "Token do Google não gerado. Verifique SHA-1.", Toast.LENGTH_SHORT).show()
+                isAuthLoading = false
+                val msg = "Token do Google não gerado. Verifique SHA-1/SHA-256 no Firebase."
+                authStatusMessage = msg
+                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                 return@rememberLauncherForActivityResult
             }
             val credential = GoogleAuthProvider.getCredential(token, null)
             auth.signInWithCredential(credential).addOnCompleteListener { signInTask ->
+                isAuthLoading = false
                 if (signInTask.isSuccessful) {
-                    AdminUsersSync.syncCurrentUser()
+                    authStatusMessage = null
                     onSignedIn()
+                    uiScope.launch {
+                        delay(500)
+                        AdminUsersSync.syncCurrentUser()
+                    }
                 } else {
-                    Toast.makeText(context, "Falha no login com Google", Toast.LENGTH_SHORT).show()
+                    val msg = if (!isInternetAvailable(context)) {
+                        "Sem internet. Conecte-se e tente novamente."
+                    } else {
+                        "Falha no login com Google"
+                    }
+                    authStatusMessage = msg
+                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                 }
             }
-        } catch (_: Exception) {
-            Toast.makeText(context, "Falha no login com Google", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    fun entrarEmailSenha() {
-        if (email.isBlank() || senha.isBlank()) {
-            Toast.makeText(context, "Informe email e senha", Toast.LENGTH_SHORT).show()
-            return
-        }
-        auth.signInWithEmailAndPassword(email, senha).addOnCompleteListener { task ->
-            if (task.isSuccessful) {
-                AdminUsersSync.syncCurrentUser()
-                onSignedIn()
-            } else {
-                Toast.makeText(context, "Falha ao entrar", Toast.LENGTH_SHORT).show()
+        } catch (e: ApiException) {
+            isAuthLoading = false
+            val msg = when {
+                !isInternetAvailable(context) -> "Sem internet. Conecte-se e tente novamente."
+                e.statusCode == GoogleSignInStatusCodes.SIGN_IN_CANCELLED || result.resultCode == Activity.RESULT_CANCELED ->
+                    "Login com Google cancelado"
+                e.statusCode == GoogleSignInStatusCodes.SIGN_IN_FAILED ->
+                    "Falha no login com Google. Tente novamente."
+                e.statusCode == GoogleSignInStatusCodes.SIGN_IN_CURRENTLY_IN_PROGRESS ->
+                    "Login já em andamento. Aguarde e tente de novo."
+                e.statusCode == 10 ->
+                    "Configuração Google/Firebase inválida (SHA-1/SHA-256 ou OAuth)."
+                else -> "Falha no login com Google (código ${e.statusCode})"
             }
+            authStatusMessage = msg
+            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+        } catch (_: Exception) {
+            isAuthLoading = false
+            val msg = if (!isInternetAvailable(context)) {
+                "Sem internet. Conecte-se e tente novamente."
+            } else {
+                "Falha inesperada no login com Google"
+            }
+            authStatusMessage = msg
+            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
         }
     }
 
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(
-                if (isDark) {
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            colorScheme.background,
-                            colorScheme.background
-                        )
-                    )
-                } else {
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            Color(0xFF081428),
-                            Color(0xFF0B2342),
-                            Color(0xFF143A6C)
-                        )
-                    )
-                }
-            )
-            .padding(24.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
+            .background(Color.Black)
     ) {
         Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+                .fillMaxSize()
+                .statusBarsPadding(),
+            verticalArrangement = Arrangement.SpaceBetween,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Box(
+            // Branding section
+            Column(
                 modifier = Modifier
-                    .height(96.dp)
-                    .width(96.dp)
-                    .border(1.dp, Color(0xFF334155), CircleShape)
-                    .background(Color.White, CircleShape),
-                contentAlignment = Alignment.Center
+                    .weight(1f)
+                    .padding(horizontal = 32.dp),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Image(
-                    painter = painterResource(id = R.mipmap.ic_launcher_foreground),
-                    contentDescription = "Logo do app",
+                Box(
                     modifier = Modifier
-                        .fillMaxSize()
-                        .clip(CircleShape),
-                    contentScale = ContentScale.Crop
-                )
-            }
-            Text(
-                text = "Entrar",
-                style = MaterialTheme.typography.headlineSmall,
-                color = Color(0xFFF8FAFC)
-            )
-            Text(
-                text = "Use email e senha ou continue com Google",
-                color = Color(0xFF94A3B8),
-                style = MaterialTheme.typography.bodySmall
-            )
-            val emailValido = Patterns.EMAIL_ADDRESS.matcher(email.trim()).matches()
-            val emailFormatoInvalido = email.isNotBlank() && !emailValido
-            val emailErro = (tentouEntrar && email.isBlank()) || emailFormatoInvalido
-            val senhaErro = tentouEntrar && senha.isBlank()
-            val podeEntrar = emailValido && senha.isNotBlank()
-            Spacer(Modifier.height(8.dp))
-            OutlinedTextField(
-                value = email,
-                onValueChange = { email = it },
-                label = { Text("Email") },
-                isError = emailErro,
-                textStyle = TextStyle(color = Color.White, fontSize = 16.sp),
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Email),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = Color(0xFFF8FAFC),
-                    unfocusedTextColor = Color(0xFFF8FAFC),
-                    focusedLabelColor = Color(0xFF94A3B8),
-                    unfocusedLabelColor = Color(0xFF94A3B8),
-                    focusedBorderColor = if (emailErro) Color(0xFFEF4444) else Color(0xFF334155),
-                    unfocusedBorderColor = if (emailErro) Color(0xFFEF4444) else Color(0xFF334155),
-                    focusedContainerColor = Color(0xFF0F172A),
-                    unfocusedContainerColor = Color(0xFF0F172A),
-                    cursorColor = Color(0xFFF8FAFC)
-                )
-            )
-            if (emailFormatoInvalido) {
+                        .size(88.dp)
+                        .border(
+                            width = 1.dp,
+                            brush = Brush.linearGradient(
+                                colors = listOf(
+                                    Color(0xFF3B82F6).copy(alpha = 0.6f),
+                                    Color(0xFF6366F1).copy(alpha = 0.4f)
+                                )
+                            ),
+                            shape = RoundedCornerShape(24.dp)
+                        )
+                        .background(
+                            color = Color.White,
+                            shape = RoundedCornerShape(24.dp)
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Image(
+                        painter = painterResource(id = R.mipmap.ic_launcher_foreground),
+                        contentDescription = "Logo Zellu",
+                        modifier = Modifier
+                            .size(72.dp)
+                            .clip(RoundedCornerShape(18.dp)),
+                        contentScale = ContentScale.Crop
+                    )
+                }
+
+                Spacer(Modifier.height(24.dp))
+
                 Text(
-                    text = "Email inválido",
-                    color = Color(0xFFEF4444),
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.align(Alignment.Start)
+                    text = "Zellu",
+                    fontSize = 36.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                    letterSpacing = (-0.5).sp
+                )
+
+                Spacer(Modifier.height(8.dp))
+
+                Text(
+                    text = "Cuide do seu veículo\nsem complicação.",
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Normal,
+                    color = Color(0xFF94A3B8),
+                    textAlign = TextAlign.Center,
+                    lineHeight = 22.sp
                 )
             }
-            OutlinedTextField(
-                value = senha,
-                onValueChange = { senha = it },
-                label = { Text("Senha") },
-                isError = senhaErro,
-                textStyle = TextStyle(color = Color.White, fontSize = 16.sp),
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                visualTransformation = if (senhaVisivel) VisualTransformation.None else PasswordVisualTransformation(),
-                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Password),
-                trailingIcon = {
-                    IconButton(onClick = { senhaVisivel = !senhaVisivel }) {
-                        Icon(
-                            imageVector = if (senhaVisivel) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                            contentDescription = if (senhaVisivel) "Ocultar senha" else "Mostrar senha",
-                            tint = Color(0xFF94A3B8)
+
+            // Bottom card
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        color = Color(0xFF080808),
+                        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
+                    )
+                    .border(
+                        width = 0.5.dp,
+                        color = Color.White.copy(alpha = 0.08f),
+                        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
+                    )
+                    .padding(horizontal = 28.dp, vertical = 32.dp)
+                    .navigationBarsPadding(),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = "Entrar ou criar conta",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color.White
+                )
+
+                Text(
+                    text = "Já tem conta? Você entra. Novo por aqui? Sua conta é criada automaticamente.",
+                    fontSize = 13.sp,
+                    color = Color(0xFF64748B),
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(Modifier.height(4.dp))
+
+                Button(
+                    onClick = {
+                        if (isAuthLoading) return@Button
+                        if (!isInternetAvailable(context)) {
+                            val msg = "Sem internet. Conecte-se para entrar com Google."
+                            authStatusMessage = msg
+                            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                            return@Button
+                        }
+                        authStatusMessage = null
+                        isAuthLoading = true
+                        googleSignInClient.signOut().addOnCompleteListener {
+                            googleLauncher.launch(googleSignInClient.signInIntent)
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(54.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF1E3A5F),
+                        contentColor = Color.White,
+                        disabledContainerColor = Color(0xFF1E3A5F).copy(alpha = 0.5f),
+                        disabledContentColor = Color.White.copy(alpha = 0.6f)
+                    ),
+                    enabled = !isAuthLoading
+                ) {
+                    if (isAuthLoading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.dp,
+                            color = Color.White
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Text("Entrando…", fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                    } else {
+                        Image(
+                            painter = painterResource(id = R.drawable.ic_google_g),
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Text("Continuar com Google", fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                    }
+                }
+
+                authStatusMessage?.let { status ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(
+                                color = Color(0xFFEF4444).copy(alpha = 0.1f),
+                                shape = RoundedCornerShape(10.dp)
+                            )
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = status,
+                            color = Color(0xFFFCA5A5),
+                            fontSize = 13.sp
                         )
                     }
-                },
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = Color(0xFFF8FAFC),
-                    unfocusedTextColor = Color(0xFFF8FAFC),
-                    focusedLabelColor = Color(0xFF94A3B8),
-                    unfocusedLabelColor = Color(0xFF94A3B8),
-                    focusedBorderColor = if (senhaErro) Color(0xFFEF4444) else Color(0xFF334155),
-                    unfocusedBorderColor = if (senhaErro) Color(0xFFEF4444) else Color(0xFF334155),
-                    focusedContainerColor = Color(0xFF0F172A),
-                    unfocusedContainerColor = Color(0xFF0F172A),
-                    cursorColor = Color(0xFFF8FAFC)
-                )
-            )
-            TextButton(
-                onClick = { modoRecuperacao = true },
-                modifier = Modifier.align(Alignment.End)
-            ) {
-                Text("Esqueci a senha", color = Color(0xFF94A3B8))
-            }
-            Button(
-                onClick = {
-                    tentouEntrar = true
-                    entrarEmailSenha()
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(52.dp),
-                shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = if (podeEntrar) Color(0xFF3B82F6) else Color(0xFF334155),
-                    contentColor = if (podeEntrar) Color.White else Color(0xFF94A3B8)
-                )
-            ) {
-                Text(
-                    "Entrar",
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.padding(top = 1.dp)
-                )
-            }
-            OutlinedButton(
-                onClick = { modoCriarConta = true },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(52.dp),
-                shape = RoundedCornerShape(14.dp),
-                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.9f)),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
-            ) {
-                Text(
-                    "Cadastre-se",
-                    style = MaterialTheme.typography.titleMedium
-                )
-            }
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Divider(color = Color(0xFFE2E8F0), modifier = Modifier.weight(1f))
-                Text("ou", color = Color(0xFF94A3B8), modifier = Modifier.padding(horizontal = 12.dp))
-                Divider(color = Color(0xFFE2E8F0), modifier = Modifier.weight(1f))
-            }
-            OutlinedButton(
-                onClick = { googleLauncher.launch(googleSignInClient.signInIntent) },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(56.dp),
-                shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
-                border = BorderStroke(1.dp, Color(0xFF93C5FD).copy(alpha = 0.55f))
-            ) {
-                Image(
-                    painter = painterResource(id = R.drawable.ic_google_g),
-                    contentDescription = null
-                )
-                Spacer(Modifier.width(8.dp))
-                Text("Entrar com Google")
+                }
             }
         }
     }
 }
 
+private fun isInternetAvailable(context: Context): Boolean {
+    val connectivityManager =
+        context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return false
+    val network = connectivityManager.activeNetwork ?: return false
+    val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return false
+    return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+        capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+}
