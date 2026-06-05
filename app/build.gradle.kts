@@ -50,7 +50,7 @@ android {
         minSdk = 26
         targetSdk = 35
         versionCode = explicitVersionCode ?: fallbackVersionCode
-        versionName = "1.0.20260421.3"
+        versionName = "1.0.20260605.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "FIPE_BASE_URL", "\"$fipeBaseUrl\"")
