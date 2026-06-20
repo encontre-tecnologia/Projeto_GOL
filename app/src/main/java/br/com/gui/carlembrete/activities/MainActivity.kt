@@ -20,6 +20,7 @@ import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -27,11 +28,30 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.unit.sp
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Campaign
+import androidx.compose.material.icons.filled.Celebration
+import androidx.compose.material.icons.filled.Diamond
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.RocketLaunch
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.material3.Text
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
@@ -42,6 +62,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.key
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.core.app.NotificationManagerCompat
@@ -68,6 +89,9 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import androidx.activity.compose.BackHandler
 
 const val EXTRA_OPEN_AONDE_PAREI = "extra_open_aonde_parei"
 const val EXTRA_OPEN_LEMBRETE_ID = "extra_open_lembrete_id"
@@ -98,6 +122,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         LocaleManager.applySavedLanguage(this)
+        repairOnboardingFlagIfNeeded()
         val shouldHoldSplashForHomeData = FirebaseAuth.getInstance().currentUser != null &&
             !AppPreferences.needsOnboarding(this)
         keepNativeSplashVisible = shouldHoldSplashForHomeData
@@ -173,11 +198,19 @@ class MainActivity : ComponentActivity() {
                 var usuario by remember { mutableStateOf(auth.currentUser) }
                 var announcementTitle by remember { mutableStateOf<String?>(null) }
                 var announcementBody by remember { mutableStateOf<String?>(null) }
+                var announcementIconType by remember { mutableStateOf("bell") }
+                var announcementImageUrl by remember { mutableStateOf("") }
                 var showOnboarding by remember {
                     mutableStateOf(
                         AppPreferences.needsOnboarding(this@MainActivity)
                     )
                 }
+                var showBackupCheck by remember { mutableStateOf(false) }
+                var showNewCarAfterLogin by remember { mutableStateOf(false) }
+                var showPermissionsAfterBackup by remember { mutableStateOf(false) }
+                var showTermsAfterBackup by remember { mutableStateOf(AppPreferences.needsTermsAfterRestore(this@MainActivity)) }
+                var showThanksAfterLogin by remember { mutableStateOf(false) }
+                val loginFlowScope = androidx.compose.runtime.rememberCoroutineScope()
                 LaunchedEffect(isDarkTheme, usuario) {
                     val insetsController = WindowInsetsControllerCompat(window, window.decorView)
                     if (usuario == null) {
@@ -205,10 +238,15 @@ class MainActivity : ComponentActivity() {
                     if (usuario != null) {
                         delay(450)
                         AdminUsersSync.syncLocalOverview(this@MainActivity)
+                        AdminUsersSync.syncUserConfig(this@MainActivity)    // lê admin_users/{uid} uma vez
+                        AdminUsersSync.syncFeatureChannels(this@MainActivity) // lê feature_channels em paralelo
+                        AdminUsersSync.recordLastAccess(this@MainActivity)
                         AdminUsageMetrics.markAppOpen(this@MainActivity)
-                        AdminUsersSync.checkAnnouncement(this@MainActivity) { title, description ->
+                        AdminUsersSync.checkAnnouncement(this@MainActivity) { title, description, iconType, imageUrl ->
                             announcementTitle = title
                             announcementBody = description
+                            announcementIconType = iconType
+                            announcementImageUrl = imageUrl
                         }
                         registrarUsoEEventosLeves()
                         if (!showOnboarding) {
@@ -225,6 +263,8 @@ class MainActivity : ComponentActivity() {
                             onSignedIn = {
                                 usuario = auth.currentUser
                                 showOnboarding = AppPreferences.needsOnboarding(this@MainActivity)
+                                // Sempre mostra a tela de backup ao fazer login (onboarding já tem o passo 3)
+                                if (!showOnboarding) showBackupCheck = true
                             }
                         )
                     } else {
@@ -240,72 +280,244 @@ class MainActivity : ComponentActivity() {
                                         themeMode = mode
                                     }
                                 )
-                            } else {
-                                ManutencaoScreen(
-                                    openAondePareiOnStart = openAondePareiFromIntent,
-                                    onAondePareiStartConsumed = { openAondePareiFromIntent = false },
-                                    onLoaded = { keepNativeSplashVisible = false },
-                                    onThemeModeChanged = { themeMode = it }
+                            } else if (showBackupCheck) {
+                                keepNativeSplashVisible = false
+                                val onboardingBg = if (isDarkTheme) Color(0xFF000000) else Color(0xFF0F2A4A)
+                                val onboardingCardBg = if (isDarkTheme) Color(0xFF111827) else Color(0xFF1E293B)
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(onboardingBg)
+                                        .statusBarsPadding()
+                                ) {
+                                    BackupCheckScreen(
+                                        onContinue = {
+                                            AppPreferences.setNeedsTermsAfterRestore(this@MainActivity, true)
+                                            showBackupCheck = false
+                                            showPermissionsAfterBackup = true
+                                        },
+                                        onNoBackup = { showBackupCheck = false; showNewCarAfterLogin = true },
+                                        cardBg = onboardingCardBg,
+                                        accentColor = Color(0xFF22C55E),
+                                        title = "Bem-vindo de volta!",
+                                        subtitle = "Vamos verificar seus dados."
+                                    )
+                                }
+                            } else if (showNewCarAfterLogin) {
+                                keepNativeSplashVisible = false
+                                BackHandler {
+                                    showNewCarAfterLogin = false
+                                    showBackupCheck = true
+                                }
+                                val onboardingBg = if (isDarkTheme) Color(0xFF000000) else Color(0xFF0F2A4A)
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(onboardingBg)
+                                        .statusBarsPadding()
+                                ) {
+                                    OnboardingNovoCarroScreen(
+                                        onDismiss = {
+                                            showNewCarAfterLogin = false
+                                            showPermissionsAfterBackup = true
+                                        },
+                                        onSalvar = { novoCarro ->
+                                            loginFlowScope.launch(kotlinx.coroutines.Dispatchers.IO) { // IO dispatcher
+                                                val atual = BancoDeDados.carregarCarros(this@MainActivity).orEmpty()
+                                                BancoDeDados.salvarCarros(this@MainActivity, atual + novoCarro)
+                                            }
+                                            AdminUsersSync.syncVehicles(listOf(novoCarro))
+                                            showNewCarAfterLogin = false
+                                            showPermissionsAfterBackup = true
+                                        }
+                                    )
+                                }
+                            } else if (showPermissionsAfterBackup) {
+                                keepNativeSplashVisible = false
+                                val backupRestored = AppPreferences.needsTermsAfterRestore(this@MainActivity)
+                                BackHandler(enabled = !backupRestored) {
+                                    showPermissionsAfterBackup = false
+                                    showBackupCheck = true
+                                }
+                                val onboardingBg = if (isDarkTheme) Color(0xFF000000) else Color(0xFF0F2A4A)
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(onboardingBg)
+                                        .statusBarsPadding()
+                                ) {
+                                    PermissoesOnboardingScreen(
+                                        onContinue = {
+                                            showPermissionsAfterBackup = false
+                                            showTermsAfterBackup = true
+                                        }
+                                    )
+                                }
+                            } else if (showTermsAfterBackup) {
+                                keepNativeSplashVisible = false
+                                BackHandler { /* disabled — terms must be accepted to proceed */ }
+                                val onboardingBg = if (isDarkTheme) Color(0xFF000000) else Color(0xFF0F2A4A)
+                                val onboardingCardBg = if (isDarkTheme) Color(0xFF111827) else Color(0xFF1E293B)
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(onboardingBg)
+                                        .statusBarsPadding()
+                                        .padding(horizontal = 20.dp, vertical = 24.dp)
+                                ) {
+                                    TermsAcceptScreen(
+                                        onAccepted = {
+                                            AppPreferences.setNeedsTermsAfterRestore(this@MainActivity, false)
+                                            showTermsAfterBackup = false
+                                            showThanksAfterLogin = true
+                                        },
+                                        cardBg = onboardingCardBg,
+                                        accentColor = Color(0xFF22C55E)
+                                    )
+                                }
+                            } else if (showThanksAfterLogin) {
+                                keepNativeSplashVisible = false
+                                BackHandler { /* disabled — no going back from thanks */ }
+                                OnboardingThanksScreen(
+                                    onGoToHome = { showThanksAfterLogin = false }
                                 )
+                            } else {
+                                key(usuario?.uid.orEmpty()) {
+                                    ManutencaoScreen(
+                                        openAondePareiOnStart = openAondePareiFromIntent,
+                                        onAondePareiStartConsumed = { openAondePareiFromIntent = false },
+                                        onLoaded = { keepNativeSplashVisible = false },
+                                        onThemeModeChanged = { themeMode = it }
+                                    )
+                                }
                                 if (announcementTitle != null && announcementBody != null) {
                                     val dialogBg = if (isDarkTheme) Color(0xFF0B1220) else Color.White
                                     val dialogTitle = if (isDarkTheme) Color(0xFFE2E8F0) else Color(0xFF0F172A)
                                     val dialogBody = if (isDarkTheme) Color(0xFF94A3B8) else Color(0xFF475569)
-                                    val dialogAccent = Color(0xFF2563EB)
                                     val dialogButtonBorder = if (isDarkTheme) Color(0xFF334155) else Color(0xFFD1D5DB)
-                                    androidx.compose.material3.AlertDialog(
-                                        onDismissRequest = { announcementTitle = null; announcementBody = null },
-                                        modifier = Modifier.border(dialogBorderStroke, dialogCornerShape),
-                                        shape = dialogCornerShape,
-                                        containerColor = dialogBg,
-                                        icon = {
+                                    val dismissAction = { announcementTitle = null; announcementBody = null }
+                                    val hasImage = announcementImageUrl.isNotBlank()
+                                    val iconVector = when (announcementIconType) {
+                                        "megaphone"   -> Icons.Default.Campaign
+                                        "star"        -> Icons.Default.Star
+                                        "celebration" -> Icons.Default.Celebration
+                                        "warning"     -> Icons.Default.Warning
+                                        "rocket"      -> Icons.Default.RocketLaunch
+                                        "diamond"     -> Icons.Default.Diamond
+                                        "info"        -> Icons.Default.Info
+                                        else          -> Icons.Default.Notifications
+                                    }
+                                    val iconTint = when (announcementIconType) {
+                                        "star", "diamond" -> Color(0xFFF59E0B)
+                                        "celebration"     -> Color(0xFF10B981)
+                                        "warning"         -> Color(0xFFF97316)
+                                        "rocket"          -> Color(0xFF7C3AED)
+                                        else              -> Color(0xFF2563EB)
+                                    }
+                                    if (hasImage) {
+                                        androidx.compose.ui.window.Dialog(onDismissRequest = dismissAction) {
                                             androidx.compose.material3.Surface(
-                                                color = dialogAccent.copy(alpha = 0.14f),
-                                                shape = androidx.compose.foundation.shape.CircleShape,
-                                                border = androidx.compose.foundation.BorderStroke(1.dp, dialogAccent.copy(alpha = 0.35f))
+                                                shape = dialogCornerShape,
+                                                color = dialogBg,
+                                                tonalElevation = 0.dp
                                             ) {
-                                                androidx.compose.material3.Icon(
-                                                    imageVector = Icons.Default.Notifications,
-                                                    contentDescription = null,
-                                                    tint = dialogAccent,
-                                                    modifier = Modifier.padding(11.dp)
-                                                )
-                                            }
-                                        },
-                                        title = {
-                                            androidx.compose.material3.Text(
-                                                text = announcementTitle ?: "",
-                                                color = dialogTitle,
-                                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
-                                            )
-                                        },
-                                        text = {
-                                            androidx.compose.material3.Text(
-                                                text = announcementBody ?: "",
-                                                color = dialogBody
-                                            )
-                                        },
-                                        confirmButton = {
-                                            androidx.compose.material3.OutlinedButton(
-                                                onClick = { announcementTitle = null; announcementBody = null },
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .height(46.dp),
-                                                shape = dialogActionButtonShape,
-                                                border = androidx.compose.foundation.BorderStroke(1.dp, dialogButtonBorder),
-                                                colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
-                                                    containerColor = Color.Transparent,
-                                                    contentColor = dialogBody
-                                                )
-                                            ) {
-                                                androidx.compose.material3.Text(
-                                                    text = "Entendi",
-                                                    color = dialogBody,
-                                                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
-                                                )
+                                                Column {
+                                                    coil.compose.AsyncImage(
+                                                        model = announcementImageUrl,
+                                                        contentDescription = null,
+                                                        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .aspectRatio(16f / 9f)
+                                                            .clip(androidx.compose.foundation.shape.RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
+                                                    )
+                                                    Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp)) {
+                                                        androidx.compose.material3.Text(
+                                                            text = announcementTitle ?: "",
+                                                            color = dialogTitle,
+                                                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                                            fontSize = 16.sp
+                                                        )
+                                                        Spacer(Modifier.height(4.dp))
+                                                        androidx.compose.material3.Text(
+                                                            text = announcementBody ?: "",
+                                                            color = dialogBody,
+                                                            fontSize = 14.sp
+                                                        )
+                                                        Spacer(Modifier.height(16.dp))
+                                                        androidx.compose.material3.OutlinedButton(
+                                                            onClick = dismissAction,
+                                                            modifier = Modifier.fillMaxWidth().height(46.dp),
+                                                            shape = dialogActionButtonShape,
+                                                            border = androidx.compose.foundation.BorderStroke(1.dp, dialogButtonBorder),
+                                                            colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
+                                                                containerColor = Color.Transparent,
+                                                                contentColor = dialogBody
+                                                            )
+                                                        ) {
+                                                            androidx.compose.material3.Text(
+                                                                text = "Entendi",
+                                                                color = dialogBody,
+                                                                fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
+                                                            )
+                                                        }
+                                                    }
+                                                }
                                             }
                                         }
-                                    )
+                                    } else {
+                                        androidx.compose.material3.AlertDialog(
+                                            onDismissRequest = dismissAction,
+                                            modifier = Modifier.border(dialogBorderStroke, dialogCornerShape),
+                                            shape = dialogCornerShape,
+                                            containerColor = dialogBg,
+                                            icon = {
+                                                androidx.compose.material3.Surface(
+                                                    color = iconTint.copy(alpha = 0.14f),
+                                                    shape = androidx.compose.foundation.shape.CircleShape,
+                                                    border = androidx.compose.foundation.BorderStroke(1.dp, iconTint.copy(alpha = 0.35f))
+                                                ) {
+                                                    androidx.compose.material3.Icon(
+                                                        imageVector = iconVector,
+                                                        contentDescription = null,
+                                                        tint = iconTint,
+                                                        modifier = Modifier.padding(11.dp)
+                                                    )
+                                                }
+                                            },
+                                            title = {
+                                                androidx.compose.material3.Text(
+                                                    text = announcementTitle ?: "",
+                                                    color = dialogTitle,
+                                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                                                )
+                                            },
+                                            text = {
+                                                androidx.compose.material3.Text(
+                                                    text = announcementBody ?: "",
+                                                    color = dialogBody
+                                                )
+                                            },
+                                            confirmButton = {
+                                                androidx.compose.material3.OutlinedButton(
+                                                    onClick = dismissAction,
+                                                    modifier = Modifier.fillMaxWidth().height(46.dp),
+                                                    shape = dialogActionButtonShape,
+                                                    border = androidx.compose.foundation.BorderStroke(1.dp, dialogButtonBorder),
+                                                    colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
+                                                        containerColor = Color.Transparent,
+                                                        contentColor = dialogBody
+                                                    )
+                                                ) {
+                                                    androidx.compose.material3.Text(
+                                                        text = "Entendi",
+                                                        color = dialogBody,
+                                                        fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
+                                                    )
+                                                }
+                                            }
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -460,6 +672,21 @@ class MainActivity : ComponentActivity() {
             return false
         }
         return true
+    }
+
+    /**
+     * Detecta regressão pós-atualização do Play Store: quando o SharedPrefs é resetado
+     * pela troca de nome (app_prefs_v1/v2 → v3), needsOnboarding volta a ser true,
+     * mas o arquivo de dados do usuário permanece em filesDir. Nesse caso, restauramos
+     * a flag antes de qualquer lógica de UI para evitar o fluxo de onboarding espúrio.
+     */
+    private fun repairOnboardingFlagIfNeeded() {
+        val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
+        if (!AppPreferences.needsOnboarding(this)) return
+        val vehicleFile = java.io.File(filesDir, "${uid}_carros_v3.dat")
+        if (vehicleFile.exists() && vehicleFile.length() > 0) {
+            AppPreferences.markOnboardingComplete(this)
+        }
     }
 
     companion object {
