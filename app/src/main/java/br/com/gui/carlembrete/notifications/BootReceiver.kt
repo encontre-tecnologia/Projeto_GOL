@@ -24,6 +24,7 @@ class BootReceiver : BroadcastReceiver() {
 
         val appContext = context?.applicationContext ?: return
         InstallDiagnostics.logDetailedSnapshot(appContext, "BootReceiver.$action")
+        scheduleDriveBackupWork(appContext)
         val pendingResult = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
             try {

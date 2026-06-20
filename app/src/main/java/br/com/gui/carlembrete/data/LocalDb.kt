@@ -16,6 +16,7 @@ import android.speech.RecognizerIntent
 import android.util.Log
 import android.widget.Toast
 import java.net.URLEncoder
+import com.google.firebase.auth.FirebaseAuth
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -127,22 +128,116 @@ object BancoDeDados {
     private const val FILE_ABASTECIMENTOS = "abastecimentos_v3.dat"
     private const val FILE_PEDALADAS = "pedaladas_v1.dat"
 
-    fun salvarCarros(context: Context, lista: List<CarroInfo>) = salvar(context, FILE_CARROS, lista)
-    fun carregarCarros(context: Context): List<CarroInfo>? = carregar<List<CarroInfo>>(context, FILE_CARROS)
+    private fun arquivoDaConta(context: Context, fileName: String): String {
+        val uid = FirebaseAuth.getInstance().currentUser?.uid
+            ?.replace(Regex("[^A-Za-z0-9_-]"), "_")
+            ?.takeIf { it.isNotBlank() }
+            ?: return fileName
+
+        val accountFileName = "${uid}_$fileName"
+        migrateLegacyFileIfNeeded(context, fileName, accountFileName)
+        return accountFileName
+    }
+
+    fun salvarCarros(context: Context, lista: List<CarroInfo>) = salvar(context, arquivoDaConta(context, FILE_CARROS), lista)
+    fun carregarCarros(context: Context): List<CarroInfo>? = carregar<List<CarroInfo>>(context, arquivoDaConta(context, FILE_CARROS))
     fun carregarCarrosComFallback(context: Context): List<CarroInfo> = carregarCarros(context).orEmpty()
 
-    fun salvarLembretes(context: Context, lista: List<Lembrete>) = salvar(context, FILE_LEMBRETES, lista)
-    fun carregarLembretes(context: Context): List<Lembrete> = carregar<List<Lembrete>>(context, FILE_LEMBRETES) ?: emptyList()
+    fun salvarLembretes(context: Context, lista: List<Lembrete>) = salvar(context, arquivoDaConta(context, FILE_LEMBRETES), lista)
+    fun carregarLembretes(context: Context): List<Lembrete> = carregar<List<Lembrete>>(context, arquivoDaConta(context, FILE_LEMBRETES)) ?: emptyList()
 
-    fun salvarContatos(context: Context, lista: List<ContatoProfissional>) = salvar(context, FILE_CONTATOS, lista)
-    fun carregarContatos(context: Context): List<ContatoProfissional> = carregar<List<ContatoProfissional>>(context, FILE_CONTATOS) ?: emptyList()
+    fun salvarContatos(context: Context, lista: List<ContatoProfissional>) = salvar(context, arquivoDaConta(context, FILE_CONTATOS), lista)
+    fun carregarContatos(context: Context): List<ContatoProfissional> = carregar<List<ContatoProfissional>>(context, arquivoDaConta(context, FILE_CONTATOS)) ?: emptyList()
 
-    fun salvarAbastecimentos(context: Context, lista: List<Abastecimento>) = salvar(context, FILE_ABASTECIMENTOS, lista)
-    fun carregarAbastecimentos(context: Context): List<Abastecimento> = carregar<List<Abastecimento>>(context, FILE_ABASTECIMENTOS) ?: emptyList()
+    fun salvarAbastecimentos(context: Context, lista: List<Abastecimento>) = salvar(context, arquivoDaConta(context, FILE_ABASTECIMENTOS), lista)
+    fun carregarAbastecimentos(context: Context): List<Abastecimento> = carregar<List<Abastecimento>>(context, arquivoDaConta(context, FILE_ABASTECIMENTOS)) ?: emptyList()
 
-    fun salvarPedaladas(context: Context, lista: List<Pedalada>) = salvar(context, FILE_PEDALADAS, lista)
-    fun carregarPedaladas(context: Context): List<Pedalada> = carregar<List<Pedalada>>(context, FILE_PEDALADAS) ?: emptyList()
+    fun salvarPedaladas(context: Context, lista: List<Pedalada>) = salvar(context, arquivoDaConta(context, FILE_PEDALADAS), lista)
+    fun carregarPedaladas(context: Context): List<Pedalada> = carregar<List<Pedalada>>(context, arquivoDaConta(context, FILE_PEDALADAS)) ?: emptyList()
 
-    private fun <T> salvar(context: Context, fileName: String, data: T) { try { context.openFileOutput(fileName, Context.MODE_PRIVATE).use { fos -> ObjectOutputStream(fos).use { it.writeObject(data) } } } catch (e: Exception) { e.printStackTrace() } }
-    private fun <T> carregar(context: Context, fileName: String): T? { val file = File(context.filesDir, fileName); if (!file.exists()) return null; return try { context.openFileInput(fileName).use { fis -> ObjectInputStream(fis).use { it.readObject() as T } } } catch (e: Exception) { e.printStackTrace(); null } }
+    fun validarDadosParaBackup(context: Context) {
+        listOf(
+            FILE_CARROS,
+            FILE_LEMBRETES,
+            FILE_CONTATOS,
+            FILE_ABASTECIMENTOS,
+            FILE_PEDALADAS
+        ).forEach { baseName ->
+            val accountName = arquivoDaConta(context, baseName)
+            val target = File(context.filesDir, accountName)
+            val previous = File(context.filesDir, "$accountName.previous")
+            if ((target.exists() || previous.exists()) && carregar<Any>(context, accountName) == null) {
+                throw IllegalStateException("Os dados locais nao puderam ser lidos. O backup anterior foi preservado.")
+            }
+        }
+    }
+
+    @Synchronized
+    private fun migrateLegacyFileIfNeeded(context: Context, legacyName: String, accountName: String) {
+        val legacyFile = File(context.filesDir, legacyName)
+        val accountFile = File(context.filesDir, accountName)
+        if (accountFile.exists() || !legacyFile.exists()) return
+
+        val migrationFile = File(context.filesDir, "$accountName.migrating")
+        try {
+            legacyFile.inputStream().use { input ->
+                migrationFile.outputStream().use { output ->
+                    input.copyTo(output)
+                    output.flush()
+                }
+            }
+            check(migrationFile.renameTo(accountFile)) { "Nao foi possivel concluir a migracao local." }
+            if (!legacyFile.delete()) {
+                Log.w("BancoDeDados", "Arquivo legado mantido apos migracao: $legacyName")
+            }
+            Log.i("BancoDeDados", "Dados locais migrados com seguranca para a conta atual.")
+        } catch (error: Exception) {
+            migrationFile.delete()
+            Log.e("BancoDeDados", "Falha ao migrar arquivo local $legacyName", error)
+        }
+    }
+
+    @Synchronized
+    private fun <T> salvar(context: Context, fileName: String, data: T) {
+        val target = File(context.filesDir, fileName)
+        val temp = File(context.filesDir, "$fileName.tmp")
+        val previous = File(context.filesDir, "$fileName.previous")
+        try {
+            FileOutputStream(temp).use { fos ->
+                ObjectOutputStream(fos).use {
+                    it.writeObject(data)
+                    it.flush()
+                }
+                fos.fd.sync()
+            }
+            previous.delete()
+            if (target.exists() && !target.renameTo(previous)) {
+                throw IllegalStateException("Nao foi possivel preservar o arquivo local anterior.")
+            }
+            if (!temp.renameTo(target)) {
+                previous.renameTo(target)
+                throw IllegalStateException("Nao foi possivel concluir a gravacao local.")
+            }
+        } catch (e: Exception) {
+            temp.delete()
+            if (!target.exists() && previous.exists()) previous.renameTo(target)
+            Log.e("BancoDeDados", "Falha ao salvar $fileName sem afetar os dados anteriores", e)
+        }
+    }
+    private fun <T> carregar(context: Context, fileName: String): T? {
+        val target = File(context.filesDir, fileName)
+        val previous = File(context.filesDir, "$fileName.previous")
+        val candidates = listOf(target, previous).filter { it.exists() }
+        for (candidate in candidates) {
+            try {
+                @Suppress("UNCHECKED_CAST")
+                return candidate.inputStream().use { fis ->
+                    ObjectInputStream(fis).use { it.readObject() as T }
+                }
+            } catch (error: Exception) {
+                Log.e("BancoDeDados", "Falha ao ler ${candidate.name}; tentando copia anterior", error)
+            }
+        }
+        return null
+    }
 }
