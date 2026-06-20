@@ -12,7 +12,6 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.net.Uri
 import android.util.Log
-import android.speech.tts.TextToSpeech
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
@@ -139,6 +138,28 @@ private fun markReportMiniTutorialSeen(context: Context) {
         .apply()
 }
 
+private fun compartilharPdfsDaFrota(context: Context, uris: List<Uri>): Boolean {
+    if (uris.isEmpty()) return false
+
+    val intent = if (uris.size == 1) {
+        Intent(Intent.ACTION_SEND).apply {
+            type = "application/pdf"
+            putExtra(Intent.EXTRA_STREAM, uris.first())
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+    } else {
+        Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+            type = "application/pdf"
+            putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(uris))
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+    }
+
+    return runCatching {
+        context.startActivity(Intent.createChooser(intent, "Compartilhar relatorios da frota"))
+    }.isSuccess
+}
+
 /* ----------------- TELA PRINCIPAL (Visual Dashboard Premium) ----------------- */
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -252,6 +273,11 @@ fun ManutencaoScreen(
             AdminUsersSync.syncRemindersSnapshot(todosLembretes)
         }
     }
+    LaunchedEffect(abastecimentos) {
+        if (!isLoading) {
+            withContext(Dispatchers.IO) { BancoDeDados.salvarAbastecimentos(context, abastecimentos) }
+        }
+    }
 
     var indiceCarroAtual by remember { mutableIntStateOf(0) }
     var restoredLastCar by remember { mutableStateOf(false) }
@@ -302,11 +328,14 @@ fun ManutencaoScreen(
     var showPerfilScreen by remember { mutableStateOf(false) }
     var showShareVehicleScreen by remember { mutableStateOf(false) }
     var showAondePareiScreen by remember { mutableStateOf(openAondePareiOnStart) }
+    var showVehicleAiChatScreen by remember { mutableStateOf(false) }
+    var returnToPremiumBenefitsAfterAi by remember { mutableStateOf(false) }
     var showAiAssistantScreen by remember { mutableStateOf(false) }
     var showFleetOverviewScreen by remember { mutableStateOf(false) }
     var showFleetStockScreen by remember { mutableStateOf(false) }
     var showVehicleGuideScreen by remember { mutableStateOf(false) }
     var showEbookStoreScreen by remember { mutableStateOf(false) }
+    var showReleaseNotesScreen by remember { mutableStateOf(false) }
     var showReportMiniTutorial by rememberSaveable { mutableStateOf(false) }
     var autoScrollReportToMaintenance by rememberSaveable { mutableStateOf(false) }
     
@@ -314,7 +343,6 @@ fun ManutencaoScreen(
     var showHomeTutorial by remember { mutableStateOf(false) }
     var homeTutorialStep by remember { mutableIntStateOf(0) }
     var homeTutorialAutoStarted by rememberSaveable { mutableStateOf(false) }
-    var isTutorialVoiceMuted by rememberSaveable { mutableStateOf(false) }
     var menuButtonRect by remember { mutableStateOf<Rect?>(null) }
     var helpButtonRect by remember { mutableStateOf<Rect?>(null) }
     var notificationsButtonRect by remember { mutableStateOf<Rect?>(null) }
@@ -367,6 +395,7 @@ fun ManutencaoScreen(
     }
 
     var showAnjoDaGuardaScreen by remember { mutableStateOf(false) }
+    var showTravelAlarmScreen by remember { mutableStateOf(false) }
     var showGaragemScreen by remember { mutableStateOf(false) }
     var showCarInfoScreen by remember { mutableStateOf(false) }
     var lembreteSelecionado by remember { mutableStateOf<Lembrete?>(null) }
@@ -467,6 +496,9 @@ fun ManutencaoScreen(
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val drawerScope = rememberCoroutineScope()
     val contentScrollState = rememberScrollState()
+    BackHandler(enabled = drawerState.isOpen) {
+        drawerScope.launch { drawerState.close() }
+    }
     LaunchedEffect(showReportMiniTutorial) {
         if (showReportMiniTutorial && contentScrollState.value > 0) {
             contentScrollState.animateScrollTo(0)
@@ -499,6 +531,27 @@ fun ManutencaoScreen(
     val subscriptionManager = remember { SubscriptionManager(context) }
     val planTier by subscriptionManager.planTier.collectAsState()
     val isSubscribed by subscriptionManager.isSubscribed.collectAsState()
+    val subscriptionBillingInfo by subscriptionManager.billingInfo.collectAsState()
+    val aiFeatureChannel = remember { AdminUsersSync.getFeatureChannel(context, "ai") }
+    val userChannelForAi = remember { AdminUsersSync.getChannelStatus(context) }
+    val isAiBlocked = remember { AdminUsersSync.getCachedAiBlocked(context) }
+    var isWebBlocked by remember { mutableStateOf(AdminUsersSync.getCachedWebBlocked(context)) }
+    val hasVehicleAiAccess = planTier in setOf(PlanTier.LITE, PlanTier.FROTA, PlanTier.ENTERPRISE) &&
+        (aiFeatureChannel != "beta" || userChannelForAi == "beta") &&
+        !isAiBlocked
+    var featureChannelVersion by remember { mutableStateOf(0) }
+    LaunchedEffect(Unit) {
+        AdminUsersSync.syncFeatureChannels(context) { featureChannelVersion++ }
+        AdminUsersSync.syncUserConfig(context) {
+            isWebBlocked = AdminUsersSync.getCachedWebBlocked(context)
+        }
+    }
+    fun featureAllowed(key: String): Boolean {
+        @Suppress("UNUSED_EXPRESSION")
+        featureChannelVersion
+        val ch = AdminUsersSync.getFeatureChannel(context, key)
+        return ch != "beta" || userChannelForAi == "beta"
+    }
     val maxVehiclesCurrentPlan by remember(planTier) { mutableIntStateOf(vehicleLimitForPlan(planTier)) }
     val planNameCurrent by remember(planTier) { mutableStateOf(planNameLabel(planTier)) }
     var showPremiumDialog by remember { mutableStateOf(false) }
@@ -506,6 +559,13 @@ fun ManutencaoScreen(
     var showPremiumBeneficiosScreen by remember { mutableStateOf(false) }
     var showAvisosNotificacoesDialog by remember { mutableStateOf(false) }
     var notificacoesDisparadas by remember { mutableStateOf<List<NotificacaoDisparada>>(emptyList()) }
+    fun closeVehicleAiChat() {
+        showVehicleAiChatScreen = false
+        if (returnToPremiumBenefitsAfterAi) {
+            returnToPremiumBenefitsAfterAi = false
+            showPremiumHubScreen = true
+        }
+    }
     val lifecycleOwner = LocalLifecycleOwner.current
     val refreshNotificacoes = remember(context) {
         {
@@ -515,17 +575,17 @@ fun ManutencaoScreen(
 
     DisposableEffect(Unit) {
         subscriptionManager.connect()
-        AdminUsersSync.applyRemoteAdminOverride(
-            getCurrentOverride = { SubscriptionManager.isAdminPremiumOverrideEnabled(context) },
-            setOverride = { enabled -> SubscriptionManager.setAdminPremiumOverride(context, enabled) },
-            setPlan = { plan -> SubscriptionManager.setAdminPremiumOverridePlan(context, plan) },
-            onChanged = { subscriptionManager.refreshLocalEntitlements() }
-        )
+        // Aplica override do cache (salvo por syncUserConfig no login) — zero reads extras.
+        val cachedOverride = AdminUsersSync.getCachedAdminPremiumOverride(context)
+        val cachedPlan = AdminUsersSync.getCachedAdminPremiumPlan(context)
+        if (cachedOverride != SubscriptionManager.isAdminPremiumOverrideEnabled(context)) {
+            SubscriptionManager.setAdminPremiumOverride(context, cachedOverride)
+            SubscriptionManager.setAdminPremiumOverridePlan(context, cachedPlan)
+            subscriptionManager.refreshLocalEntitlements()
+        } else if (cachedOverride) {
+            SubscriptionManager.setAdminPremiumOverridePlan(context, cachedPlan)
+        }
         onDispose { subscriptionManager.disconnect() }
-    }
-    LaunchedEffect(planTier) {
-        val plan = if (planTier == PlanTier.FREE) "free" else "premium"
-        AdminUsersSync.syncCurrentUser(plan = plan)
     }
     LaunchedEffect(todosLembretes) {
         notificacoesDisparadas = withContext(Dispatchers.IO) { NotificacaoHelper.carregarNotificacoesDisparadas(context) }
@@ -806,17 +866,33 @@ fun ManutencaoScreen(
     if (showTipoAvisoDialog) {
         val isBike = isBikeCategory(carroAtual.tipoVeiculo)
         val tiposAviso = tiposAvisoPorVeiculo(carroAtual.tipoVeiculo)
-        val itensAviso = listOf(
-            AvisoItem(
+            .filterNot { tipo ->
+                fluxoInicialRegistroServico == false && tipo == TipoManutencao.ABASTECIMENTO
+            }
+        val itensEspeciais = buildList {
+            add(AvisoItem(
                 label = tr("Lembrar aonde parei", "Remember where I parked"),
                 icon = Icons.Default.LocalParking,
                 color = accentBlue,
+                textIcon = "E",
                 wide = true
             ) {
                 showTipoAvisoDialog = false
                 showAondePareiScreen = true
+            })
+            if (fluxoInicialRegistroServico == false) {
+                add(AvisoItem(
+                    label = tr("Me acorde ao chegar", "Wake me when I arrive"),
+                    icon = Icons.Rounded.Alarm,
+                    color = Color(0xFF0D9488),
+                    wide = true
+                ) {
+                    showTipoAvisoDialog = false
+                    showTravelAlarmScreen = true
+                })
             }
-        ) + tiposAviso.map { tipo ->
+        }
+        val itensAviso = itensEspeciais + tiposAviso.map { tipo ->
             val label = if (isBike && tipo == TipoManutencao.REVISAO) tr("Peças", "Parts") else tipoManutencaoLabel(tipo)
             AvisoItem(
                 label,
@@ -857,6 +933,7 @@ fun ManutencaoScreen(
             }
         )
     }
+    BackHandler(enabled = showConfiguracoes) { showConfiguracoes = false }
     if (showConfiguracoes) {
         ConfiguracoesScreen(
             onDismiss = { showConfiguracoes = false },
@@ -867,6 +944,9 @@ fun ManutencaoScreen(
             carros = listaCarros,
             lembretes = todosLembretes,
             contatos = listaContatos,
+            planTier = planTier,
+            subscriptionBillingInfo = subscriptionBillingInfo,
+            onRefreshPlan = { subscriptionManager.refreshBillingStatus() },
             onThemeModeChanged = onThemeModeChanged
         )
         return
@@ -907,6 +987,11 @@ fun ManutencaoScreen(
                 showPremiumHubScreen = false
                 showAnjoDaGuardaScreen = true
             },
+            onOpenVehicleAiChat = {
+                showPremiumHubScreen = false
+                returnToPremiumBenefitsAfterAi = true
+                showVehicleAiChatScreen = true
+            },
             onOpenAiAssistant = {
                 showPremiumHubScreen = false
                 showAiAssistantScreen = true
@@ -922,7 +1007,9 @@ fun ManutencaoScreen(
             onOpenSubscribe = {
                 showPremiumHubScreen = false
                 activity?.let { subscriptionManager.launchPurchaseFlow(it) }
-            }
+            },
+            isAiBlocked = isAiBlocked,
+            isWebBlocked = isWebBlocked
         )
         return
     }
@@ -963,6 +1050,11 @@ fun ManutencaoScreen(
         EbookStoreScreen(
             onDismiss = { showEbookStoreScreen = false }
         )
+        return
+    }
+    BackHandler(enabled = showReleaseNotesScreen) { showReleaseNotesScreen = false }
+    if (showReleaseNotesScreen) {
+        ReleaseNotesScreen(onDismiss = { showReleaseNotesScreen = false })
         return
     }
     BackHandler(enabled = showLembreteDetalhesScreen) { showLembreteDetalhesScreen = false }
@@ -1073,43 +1165,47 @@ fun ManutencaoScreen(
             content = if (isEnglishUi()) """
                 1. Acceptance: by using Zellu, you agree to these Terms and the Privacy Policy.
 
-                2. Service scope: the app includes vehicle management, reminders, maintenance, trips, fleet, and stock features.
+                2. Service scope: the app includes vehicle management, reminders, maintenance, trips, fleet, stock, and artificial intelligence features.
 
-                3. Proper use: you must use the app lawfully, without fraud, abuse, or rights violations.
+                3. AI features: Zellu AI is a support tool to interpret registered data, answer questions, and prepare requested actions. It may make mistakes and does not replace technical diagnosis, inspection, mechanics, insurance, or user decisions.
 
-                4. Account security: you are responsible for account data and access credentials.
+                4. Proper use: you must use the app lawfully, without fraud, abuse, or rights violations.
 
-                5. Plans and billing: paid plans (such as Lite/Fleet) follow store/payment platform rules for renewal, cancellation, and refunds.
+                5. Account security: you are responsible for account data and access credentials.
 
-                6. Limitation: Zellu is a support tool and does not replace technical diagnosis, inspection, insurance, mechanical assistance, or professional advice.
+                6. Plans and billing: paid plans (such as Lite/Fleet) follow store/payment platform rules for renewal, cancellation, and refunds.
 
-                7. Availability: features may be updated, fixed, suspended, or discontinued due to product evolution, security, or legal obligations.
+                7. Limitation: Zellu is a support tool and does not replace technical diagnosis, inspection, insurance, mechanical assistance, or professional advice.
 
-                8. Intellectual property: brand, software, layout, and content are legally protected.
+                8. Availability: features may be updated, fixed, suspended, or discontinued due to product evolution, security, or legal obligations.
 
-                9. Governing law and venue: Brazilian law applies, with venue in Sao Carlos/SP, except where mandatory law states otherwise.
+                9. Intellectual property: brand, software, layout, and content are legally protected.
 
-                10. Legal/support contact: guilhermedevsistemas@gmail.com
+                10. Governing law and venue: Brazilian law applies, with venue in Sao Carlos/SP, except where mandatory law states otherwise.
+
+                11. Legal/support contact: guilhermedevsistemas@gmail.com
             """.trimIndent() else """
                 1. Aceite: ao usar o Zellu, você concorda com estes Termos e com a Política de Privacidade.
 
-                2. Objeto: o app oferece gestão de veículos, lembretes, manutenções, viagens, frota e estoque.
+                2. Objeto: o app oferece gestão de veículos, lembretes, manutenções, viagens, frota, estoque e recursos de inteligência artificial.
 
-                3. Uso adequado: você se compromete a usar o app de forma lícita, sem fraude, abuso técnico ou violação de direitos de terceiros.
+                3. Recursos de IA: a Zellu AI é ferramenta de apoio para interpretar dados cadastrados, responder perguntas e preparar ações solicitadas. Ela pode cometer erros e não substitui diagnóstico técnico, vistoria, mecânico, seguro ou decisão do usuário.
 
-                4. Conta e segurança: você é responsável pelos dados da conta e pela guarda do acesso.
+                4. Uso adequado: você se compromete a usar o app de forma lícita, sem fraude, abuso técnico ou violação de direitos de terceiros.
 
-                5. Planos e cobrança: planos pagos (como Lite/Frota) seguem regras da loja/plataforma de pagamento para renovação, cancelamento e reembolso.
+                5. Conta e segurança: você é responsável pelos dados da conta e pela guarda do acesso.
 
-                6. Limitação: o Zellu é ferramenta de apoio e não substitui diagnóstico técnico, vistoria, seguro, assistência mecânica ou orientação profissional.
+                6. Planos e cobrança: planos pagos (como Lite/Frota) seguem regras da loja/plataforma de pagamento para renovação, cancelamento e reembolso.
 
-                7. Disponibilidade: funcionalidades podem ser alteradas, corrigidas, suspensas ou descontinuadas por evolução do produto, segurança ou obrigação legal.
+                7. Limitação: o Zellu é ferramenta de apoio e não substitui diagnóstico técnico, vistoria, seguro, assistência mecânica ou orientação profissional.
 
-                8. Propriedade intelectual: marca, software, layout e conteúdo do app são protegidos por lei.
+                8. Disponibilidade: funcionalidades podem ser alteradas, corrigidas, suspensas ou descontinuadas por evolução do produto, segurança ou obrigação legal.
 
-                9. Legislação e foro: aplica-se a legislação brasileira, com foro da comarca de São Carlos/SP, salvo competência legal específica.
+                9. Propriedade intelectual: marca, software, layout e conteúdo do app são protegidos por lei.
 
-                10. Contato legal e suporte: guilhermedevsistemas@gmail.com
+                10. Legislação e foro: aplica-se a legislação brasileira, com foro da comarca de São Carlos/SP, salvo competência legal específica.
+
+                11. Contato legal e suporte: guilhermedevsistemas@gmail.com
             """.trimIndent(),
             onDismiss = { showTermsScreen = false }
         )
@@ -1121,53 +1217,57 @@ fun ManutencaoScreen(
             title = tr("Política de privacidade", "Privacy policy"),
             icon = Icons.Default.Lock,
             content = if (isEnglishUi()) """
-                1. Data processed: account data (name, e-mail, identifiers), vehicle records, reminders, contacts, trips, stock items, location, camera, notifications, and essential technical data.
+                1. Data processed: account data (name, e-mail, identifiers), vehicle records, reminders, contacts, trips, stock items, location, camera, notifications, essential technical data, and interactions with AI features.
 
-                2. Purposes: authentication, feature execution, security, abuse/fraud prevention, support, and continuous improvement.
+                2. Purposes: authentication, feature execution, intelligent/AI features, security, abuse/fraud prevention, support, and continuous improvement.
 
                 3. Legal bases (LGPD): contract execution, consent where required, legitimate interest for security/stability, and legal/regulatory obligations.
 
                 4. Permissions: camera, location, and notifications are used only with your authorization and can be revoked in device settings.
 
-                5. Sharing: we do not sell personal data. Data may be shared with technical operators/providers required for app operation and with authorities when legally required.
+                5. AI and technical providers: Zellu AI may use registered data and chat messages to respond and prepare actions. When online features are enabled, required content may be processed by infrastructure and/or AI technical providers.
 
-                6. Storage and retention: data may be stored on device and cloud, for as long as necessary for service purposes and legal obligations.
+                6. Sharing: we do not sell personal data. Data may be shared with technical operators/providers required for app operation and with authorities when legally required.
 
-                7. Data subject rights: under LGPD, you can request confirmation, access, correction, anonymization, deletion, and consent revocation.
+                7. Storage and retention: data may be stored on device and cloud, for as long as necessary for service purposes and legal obligations.
 
-                8. Account/data deletion: when requested, personal and linked records are removed, except mandatory legal retention.
+                8. Data subject rights: under LGPD, you can request confirmation, access, correction, anonymization, deletion, and consent revocation.
 
-                9. International transfer: some providers may process data outside Brazil under appropriate safeguards.
+                9. Account/data deletion: when requested, personal and linked records are removed, except mandatory legal retention.
 
-                10. Official privacy/support contact:
+                10. International transfer: some providers may process data outside Brazil under appropriate safeguards.
+
+                11. Official privacy/support contact:
                 guilhermedevsistemas@gmail.com
                 Official pages:
-                https://account-deletion-site-eight.vercel.app/privacy-policy.html
-                https://account-deletion-site-eight.vercel.app/terms-of-use.html
+                https://zellu-privacidade.vercel.app/privacy-policy.html
+                https://zellu-privacidade.vercel.app/terms-of-use.html
             """.trimIndent() else """
-                1. Dados tratados: o app pode tratar dados de conta (nome, e-mail e identificadores), cadastro de veículos, lembretes, contatos, viagens, itens de estoque, localização, câmera, notificações e dados técnicos essenciais.
+                1. Dados tratados: o app pode tratar dados de conta (nome, e-mail e identificadores), cadastro de veículos, lembretes, contatos, viagens, itens de estoque, localização, câmera, notificações, dados técnicos essenciais e interações com recursos de IA.
 
-                2. Finalidades: autenticação, execução das funcionalidades, segurança, prevenção de abuso/fraude, suporte e melhoria contínua.
+                2. Finalidades: autenticação, execução das funcionalidades, recursos inteligentes/IA, segurança, prevenção de abuso/fraude, suporte e melhoria contínua.
 
                 3. Bases legais (LGPD): execução de contrato, consentimento quando exigido, legítimo interesse para segurança/estabilidade e cumprimento de obrigação legal.
 
                 4. Permissões: câmera, localização e notificações são usadas somente com autorização e podem ser revogadas a qualquer momento no dispositivo.
 
-                5. Compartilhamento: não vendemos dados pessoais. Podemos compartilhar com operadores/provedores técnicos necessários ao funcionamento do app e com autoridades quando houver obrigação legal.
+                5. IA e provedores técnicos: a Zellu AI pode usar dados cadastrados e mensagens do chat para responder e preparar ações. Quando recursos online estiverem habilitados, o conteúdo necessário pode ser processado por provedores técnicos de infraestrutura e/ou IA.
 
-                6. Retenção e armazenamento: parte dos dados pode ficar no dispositivo e parte em nuvem, pelo tempo necessário às finalidades e obrigações legais.
+                6. Compartilhamento: não vendemos dados pessoais. Podemos compartilhar com operadores/provedores técnicos necessários ao funcionamento do app e com autoridades quando houver obrigação legal.
 
-                7. Direitos do titular: você pode solicitar confirmação de tratamento, acesso, correção, anonimização, exclusão e revogação do consentimento, nos termos da LGPD.
+                7. Retenção e armazenamento: parte dos dados pode ficar no dispositivo e parte em nuvem, pelo tempo necessário às finalidades e obrigações legais.
 
-                8. Exclusão de conta e dados: ao solicitar exclusão, removemos dados pessoais e registros vinculados, ressalvadas retenções legais obrigatórias.
+                8. Direitos do titular: você pode solicitar confirmação de tratamento, acesso, correção, anonimização, exclusão e revogação do consentimento, nos termos da LGPD.
 
-                9. Transferência internacional: alguns provedores podem processar dados fora do Brasil, com salvaguardas adequadas.
+                9. Exclusão de conta e dados: ao solicitar exclusão, removemos dados pessoais e registros vinculados, ressalvadas retenções legais obrigatórias.
 
-                10. Contato oficial de privacidade, remoção de dados, dúvidas e suporte:
+                10. Transferência internacional: alguns provedores podem processar dados fora do Brasil, com salvaguardas adequadas.
+
+                11. Contato oficial de privacidade, remoção de dados, dúvidas e suporte:
                 guilhermedevsistemas@gmail.com
                 Páginas oficiais:
-                https://account-deletion-site-eight.vercel.app/privacy-policy.html
-                https://account-deletion-site-eight.vercel.app/terms-of-use.html
+                https://zellu-privacidade.vercel.app/privacy-policy.html
+                https://zellu-privacidade.vercel.app/terms-of-use.html
             """.trimIndent(),
             onDismiss = { showPrivacyScreen = false }
         )
@@ -1328,6 +1428,7 @@ fun ManutencaoScreen(
         PerfilScreen(
             onDismiss = { showPerfilScreen = false },
             planTier = planTier,
+            subscriptionBillingInfo = subscriptionBillingInfo,
             totalVeiculos = listaCarros.size
         )
         return
@@ -1352,6 +1453,91 @@ fun ManutencaoScreen(
     if (showAondePareiScreen) {
         AondePareiScreen(onDismiss = { showAondePareiScreen = false })
         return
+    }
+    BackHandler(enabled = showTravelAlarmScreen) { showTravelAlarmScreen = false }
+    if (showTravelAlarmScreen) {
+        TravelAlarmScreen(onDismiss = { showTravelAlarmScreen = false })
+        return
+    }
+    BackHandler(enabled = showVehicleAiChatScreen) { closeVehicleAiChat() }
+    if (showVehicleAiChatScreen && hasVehicleAiAccess) {
+        VehicleAiChatScreen(
+            carros = listaCarros,
+            currentCarroId = carroAtual.id,
+            lembretesAtivos = todosLembretes.filterNot(::isLembreteRealizado),
+            abastecimentos = abastecimentos,
+            onCreateReminders = { novosAvisos ->
+                todosLembretes = todosLembretes + novosAvisos
+                AdminUsageMetrics.markReminderCreated(novosAvisos.size)
+                // Mesmo padrão do cadastro manual: agenda a notificação de cada aviso
+                // (avisos por data disparam alarme; por km ficam só no monitoramento).
+                val ctxAgendar = context.applicationContext
+                novosAvisos.filterNot(::isLembreteRealizado).forEach { aviso ->
+                    NotificacaoHelper.agendarNotificacao(ctxAgendar, aviso, aviso.horaAviso)
+                }
+            },
+            onCreateFuelRecords = { novosAbastecimentos ->
+                abastecimentos = abastecimentos + novosAbastecimentos
+                val maiorKmPorCarro = novosAbastecimentos
+                    .mapNotNull { abastecimento ->
+                        abastecimento.km?.takeIf { it > 0 }?.let { km -> abastecimento.carroId to km }
+                    }
+                    .groupBy({ it.first }, { it.second })
+                    .mapValues { (_, kms) -> kms.maxOrNull() ?: 0 }
+                if (maiorKmPorCarro.isNotEmpty()) {
+                    listaCarros = listaCarros.map { carro ->
+                        val novoKm = maiorKmPorCarro[carro.id]
+                        if (novoKm != null && novoKm > carro.kmAtual) {
+                            carro.copy(kmAtual = novoKm)
+                        } else {
+                            carro
+                        }
+                    }
+                }
+            },
+            onShareVehicleReport = { carro ->
+                drawerScope.launch {
+                    val uri = withContext(Dispatchers.IO) {
+                        gerarPdfRelatorio(
+                            context = context,
+                            carro = carro,
+                            lembretes = todosLembretes.filter { it.carroId == carro.id },
+                            isPremium = planTier != PlanTier.FREE
+                        )
+                    }
+                    if (uri != null) {
+                        compartilharPdf(context, uri)
+                    } else {
+                        Toast.makeText(context, "Nao consegui gerar o PDF desse veiculo agora.", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            },
+            onShareFleetReports = {
+                drawerScope.launch {
+                    val uris = withContext(Dispatchers.IO) {
+                        listaCarros.mapNotNull { carro ->
+                            gerarPdfRelatorio(
+                                context = context,
+                                carro = carro,
+                                lembretes = todosLembretes.filter { it.carroId == carro.id },
+                                isPremium = true
+                            )
+                        }
+                    }
+                    if (!compartilharPdfsDaFrota(context, uris)) {
+                        Toast.makeText(context, "Nao consegui abrir o compartilhamento da frota agora.", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            },
+            onDismiss = { closeVehicleAiChat() },
+            planTier = planTier
+        )
+        return
+    }
+    if (showVehicleAiChatScreen && !hasVehicleAiAccess) {
+        showVehicleAiChatScreen = false
+        returnToPremiumBenefitsAfterAi = false
+        showPremiumBeneficiosScreen = true
     }
     BackHandler(enabled = showAiAssistantScreen) { showAiAssistantScreen = false }
     if (showAiAssistantScreen) {
@@ -1482,85 +1668,7 @@ fun ManutencaoScreen(
                 drawerContainerColor = if (isDark) Color.Black else fuelCardEnd,
                 drawerContentColor = textLight
             ) {
-                // CabeÃ§alho do Drawer com Gradiente
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(
-                            if (isDark) {
-                                Brush.verticalGradient(listOf(Color.Black, Color.Black))
-                            } else {
-                                Brush.verticalGradient(listOf(fuelCardStart, fuelCardEnd))
-                            }
-                        )
-                        .padding(24.dp)
-                ) {
-                    val fotoGoogle = FirebaseAuth.getInstance().currentUser?.photoUrl?.toString()
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 12.dp)
-                            .clickable {
-                                showPerfilScreen = true
-                                drawerScope.launch { drawerState.close() }
-                            },
-                        shape = RoundedCornerShape(14.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = if (isDark) Color(0xFF111827) else Color.White.copy(alpha = 0.08f)
-                        ),
-                        border = BorderStroke(1.dp, drawerItemBorderColor)
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 12.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(42.dp)
-                                    .clip(CircleShape)
-                                    .border(2.dp, accentBlue, CircleShape)
-                                    .background(Color.White.copy(0.1f)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                if (!fotoGoogle.isNullOrBlank()) {
-                                    AsyncImage(
-                                        model = fotoGoogle,
-                                        contentDescription = null,
-                                        modifier = Modifier.fillMaxSize().clip(CircleShape),
-                                        contentScale = ContentScale.Crop
-                                    )
-                                } else {
-                                    Image(
-                                        painter = painterResource(id = R.mipmap.ic_launcher_foreground),
-                                        contentDescription = "Imagem padrão de perfil",
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .clip(CircleShape),
-                                        contentScale = ContentScale.Crop
-                                    )
-                                }
-                            }
-                            Spacer(Modifier.width(12.dp))
-                            Column {
-                                Text(
-                                    text = nomeExibido,
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = textLight,
-                                )
-                                Text(
-                                    text = stringResource(R.string.home_welcome_user),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = textDim
-                                )
-                            }
-                        }
-                    }
-                }
-
-                HorizontalDivider(color = drawerItemBorderColor, thickness = 1.dp)
+                Spacer(Modifier.height(16.dp))
 
                 // Itens do Menu
                 Column(
@@ -1603,7 +1711,7 @@ fun ManutencaoScreen(
                     if (planTier != PlanTier.FREE) {
                         DrawerMenuItem(
                             icon = Icons.Default.WorkspacePremium,
-                            label = stringResource(R.string.drawer_item_zellu_premium),
+                            label = "Benefícios do seu plano",
                             highlighted = true
                         ) {
                             showPremiumHubScreen = true
@@ -1615,6 +1723,13 @@ fun ManutencaoScreen(
                         label = stringResource(R.string.drawer_item_ebooks)
                     ) {
                         showEbookStoreScreen = true
+                        drawerScope.launch { drawerState.close() }
+                    }
+                    DrawerMenuItem(
+                        icon = Icons.Default.Campaign,
+                        label = "Novidades do App"
+                    ) {
+                        showReleaseNotesScreen = true
                         drawerScope.launch { drawerState.close() }
                     }
                     Spacer(Modifier.height(8.dp))
@@ -1640,6 +1755,10 @@ fun ManutencaoScreen(
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold
                     )
+                    DrawerMenuItem(Icons.Default.Person, "Conta") {
+                        showPerfilScreen = true
+                        drawerScope.launch { drawerState.close() }
+                    }
                     DrawerMenuItem(Icons.Default.Settings, stringResource(R.string.drawer_item_settings)) {
                         showConfiguracoes = true
                         drawerScope.launch { drawerState.close() }
@@ -1869,6 +1988,7 @@ fun ManutencaoScreen(
                         statusLabel = { textoStatusPrazoLocal(it) },
                         statusColor = { tipo -> calcularCorStatusLocal(lembretesAtivosDoCarroAtual, tipo) },
                         textDim = textDim,
+                        accentColor = carroAtual.getCorUI(),
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp)
@@ -1932,10 +2052,6 @@ fun ManutencaoScreen(
                     "fuel_history" -> "Histórico de abastecimento"
                     else -> "Guia rápido"
                 }
-                HomeTutorialVoiceNarration(
-                    enabled = !isTutorialVoiceMuted,
-                    text = message
-                )
                 HomeTutorialSpotlightOverlay(
                     targetRect = targetRect,
                     message = message,
@@ -1945,8 +2061,10 @@ fun ManutencaoScreen(
                     accentBlue = accentBlue,
                     stepIcon = tutorialHeaderIcon,
                     stepTitle = tutorialHeaderTitle,
-                    isVoiceMuted = isTutorialVoiceMuted,
-                    onToggleVoice = { isTutorialVoiceMuted = !isTutorialVoiceMuted },
+                    onClose = {
+                        showHomeTutorial = false
+                        markHomeTutorialSeen(context)
+                    },
                     onNext = {
                         if (safeStep < homeTutorialSteps.lastIndex) {
                             homeTutorialStep = safeStep + 1
@@ -1967,8 +2085,10 @@ fun ManutencaoScreen(
                     accentBlue = accentBlue,
                     stepIcon = Icons.Default.Description,
                     stepTitle = "Abrir relatório",
-                    isVoiceMuted = true,
-                    onToggleVoice = {},
+                    onClose = {
+                        showReportMiniTutorial = false
+                        markReportMiniTutorialSeen(context)
+                    },
                     onNext = {
                         showReportMiniTutorial = false
                         markReportMiniTutorialSeen(context)
@@ -2287,67 +2407,6 @@ fun ActionButton(
     }
 }
 
-@Composable
-private fun HomeTutorialVoiceNarration(
-    enabled: Boolean,
-    text: String
-) {
-    val context = LocalContext.current
-    var isReady by remember { mutableStateOf(false) }
-    var tts by remember { mutableStateOf<TextToSpeech?>(null) }
-
-    DisposableEffect(context) {
-        var engine: TextToSpeech? = null
-        engine = TextToSpeech(context.applicationContext) { status ->
-            if (status == TextToSpeech.SUCCESS) {
-                val result = engine?.setLanguage(Locale("pt", "BR")) ?: TextToSpeech.LANG_NOT_SUPPORTED
-                isReady = result != TextToSpeech.LANG_MISSING_DATA && result != TextToSpeech.LANG_NOT_SUPPORTED
-                engine?.let { configureHomeTutorialVoice(it) }
-            }
-        }
-        tts = engine
-        onDispose {
-            tts?.stop()
-            tts?.shutdown()
-            tts = null
-        }
-    }
-
-    LaunchedEffect(enabled, text, isReady) {
-        if (enabled && isReady) {
-            tts?.stop()
-            tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "home_tutorial_step")
-        } else {
-            // Para a fala imediatamente quando o usuÃ¡rio muta o guia.
-            tts?.stop()
-        }
-    }
-}
-
-private fun configureHomeTutorialVoice(tts: TextToSpeech) {
-    tts.setSpeechRate(1.0f)
-    tts.setPitch(0.92f)
-    val maleHints = listOf("male", "masc", "homem", "m")
-    val preferred = runCatching {
-        tts.voices
-            ?.filter { voice -> voice.locale?.language == "pt" }
-            ?.sortedBy { voice ->
-                val name = voice.name.lowercase(Locale.ROOT)
-                when {
-                    name.contains("pt-br") -> 0
-                    name.contains("brazil") -> 1
-                    else -> 2
-                }
-            }
-            ?.firstOrNull { voice ->
-                val name = voice.name.lowercase(Locale.ROOT)
-                val features = voice.features?.joinToString(" ")?.lowercase(Locale.ROOT).orEmpty()
-                maleHints.any { hint -> name.contains(hint) || features.contains(hint) }
-            }
-            ?: tts.voices?.firstOrNull { it.locale?.language == "pt" }
-    }.getOrNull()
-    preferred?.let { tts.voice = it }
-}
 
 @Composable
 private fun HomeTutorialSpotlightOverlay(
@@ -2359,8 +2418,7 @@ private fun HomeTutorialSpotlightOverlay(
     accentBlue: Color,
     stepIcon: ImageVector,
     stepTitle: String,
-    isVoiceMuted: Boolean,
-    onToggleVoice: () -> Unit,
+    onClose: () -> Unit,
     onNext: () -> Unit
 ) {
     val density = LocalDensity.current
@@ -2458,17 +2516,6 @@ private fun HomeTutorialSpotlightOverlay(
                             )
                         }
                     }
-                    IconButton(
-                        onClick = onToggleVoice,
-                        modifier = Modifier.size(30.dp)
-                    ) {
-                        Icon(
-                            imageVector = if (isVoiceMuted) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
-                            contentDescription = if (isVoiceMuted) "Ativar voz do guia" else "Mutar voz do guia",
-                            tint = if (isVoiceMuted) Color(0xFFF97316) else Color(0xFF60A5FA),
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
                 }
                 Surface(
                     modifier = Modifier
@@ -2489,12 +2536,31 @@ private fun HomeTutorialSpotlightOverlay(
                 Spacer(modifier = Modifier.height(6.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
+                    OutlinedButton(
+                        onClick = onClose,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(50.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        border = BorderStroke(1.dp, Color(0xFF64748B)),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = Color(0xFFE2E8F0)
+                        )
+                    ) {
+                        Text(
+                            text = "Fechar tutorial",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            textAlign = TextAlign.Center
+                        )
+                    }
                     Button(
                         onClick = onNext,
                         modifier = Modifier
-                            .widthIn(min = 170.dp)
+                            .weight(1f)
                             .height(50.dp),
                         shape = RoundedCornerShape(14.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = accentBlue, contentColor = Color.White)
@@ -3118,33 +3184,16 @@ private fun LembreteDetalhesScreen(
 
     var editando by remember(lembrete.id) { mutableStateOf(false) }
     var titulo by remember(lembrete.id) { mutableStateOf(lembrete.titulo) }
+    var tipoSelecionadoEdicao by remember(lembrete.id) { mutableStateOf(lembrete.tipo) }
     var descricaoEdicao by remember(lembrete.id) { mutableStateOf(lembrete.peca) }
-    var totalBrutoTexto by remember(lembrete.id) {
-        mutableStateOf(
-            extrairValorNumericoLinhaResumo(lembrete.peca) { n ->
-                n.startsWith("total") || n.startsWith("valor total")
-            }
-                ?: lembrete.valor.takeIf { it > 0.0 }?.let { String.format(Locale.US, "%.2f", it) }
-                ?: ""
-        )
-    }
-    var totalComDescontoTexto by remember(lembrete.id) {
-        mutableStateOf(
-            extrairValorNumericoLinhaResumo(lembrete.peca) { n ->
-                n.contains("valor final") || n.contains("valor a pagar")
-            }
-                ?: lembrete.valor.takeIf { it > 0.0 }?.let { String.format(Locale.US, "%.2f", it) }
-                ?: ""
-        )
-    }
     var dataAviso by remember(lembrete.id) { mutableStateOf(lembrete.dataLimite) }
     var horaAviso by remember(lembrete.id) { mutableStateOf(lembrete.horaAviso) }
     var kmLimite by remember(lembrete.id) { mutableStateOf(lembrete.kmLimite) }
-    var contatoSelecionadoId by remember(lembrete.id) { mutableStateOf(lembrete.contatoId) }
     var repetirAviso by remember(lembrete.id) { mutableStateOf(false) }
     var recorrenciaUnit by remember(lembrete.id) { mutableStateOf(NotificacaoHelper.REC_UNIT_DAY) }
     var recorrenciaIntervaloTexto by remember(lembrete.id) { mutableStateOf("1") }
     var menuRecorrenciaExpanded by remember(lembrete.id) { mutableStateOf(false) }
+    var menuTipoExpanded by remember(lembrete.id) { mutableStateOf(false) }
     var showConfirmarFeitoDialog by remember(lembrete.id) { mutableStateOf(false) }
     var showFinalizarEncerrarDialog by remember(lembrete.id) { mutableStateOf(false) }
     var showConfirmarExclusaoDialog by remember(lembrete.id) { mutableStateOf(false) }
@@ -3174,10 +3223,10 @@ private fun LembreteDetalhesScreen(
             true
         ).show()
     }
-    val tipoPermiteRepeticaoEdicao = lembrete.tipo != TipoManutencao.LICENCIAMENTO &&
-        lembrete.tipo != TipoManutencao.SEGURO &&
-        lembrete.tipo != TipoManutencao.IPVA &&
-        lembrete.tipo != TipoManutencao.ABASTECIMENTO
+    val tipoPermiteRepeticaoEdicao = tipoSelecionadoEdicao != TipoManutencao.LICENCIAMENTO &&
+        tipoSelecionadoEdicao != TipoManutencao.SEGURO &&
+        tipoSelecionadoEdicao != TipoManutencao.IPVA &&
+        tipoSelecionadoEdicao != TipoManutencao.ABASTECIMENTO
     val tipoPermiteRepeticao = lembrete.tipo != TipoManutencao.LICENCIAMENTO &&
         lembrete.tipo != TipoManutencao.SEGURO &&
         lembrete.tipo != TipoManutencao.IPVA &&
@@ -3279,26 +3328,17 @@ private fun LembreteDetalhesScreen(
 
     val resetarEdicao = {
         titulo = lembrete.titulo
+        tipoSelecionadoEdicao = lembrete.tipo
         descricaoEdicao = lembrete.peca
-        totalBrutoTexto = extrairValorNumericoLinhaResumo(lembrete.peca) { n ->
-            n.startsWith("total") || n.startsWith("valor total")
-        }
-            ?: lembrete.valor.takeIf { it > 0.0 }?.let { String.format(Locale.US, "%.2f", it) }
-            ?: ""
-        totalComDescontoTexto = extrairValorNumericoLinhaResumo(lembrete.peca) { n ->
-            n.contains("valor final") || n.contains("valor a pagar")
-        }
-            ?: lembrete.valor.takeIf { it > 0.0 }?.let { String.format(Locale.US, "%.2f", it) }
-            ?: ""
         dataAviso = lembrete.dataLimite
         horaAviso = lembrete.horaAviso
         kmLimite = lembrete.kmLimite
-        contatoSelecionadoId = lembrete.contatoId
         val recorrenciaAtual = NotificacaoHelper.obterRecorrencia(context.applicationContext, lembrete.id)
         repetirAviso = recorrenciaAtual != null && tipoPermiteRepeticao
         recorrenciaUnit = recorrenciaAtual?.unit ?: NotificacaoHelper.REC_UNIT_DAY
         recorrenciaIntervaloTexto = (recorrenciaAtual?.interval ?: 1).coerceAtLeast(1).toString()
         menuRecorrenciaExpanded = false
+        menuTipoExpanded = false
     }
     val categoriaColor = remember(lembrete.tipo, statusVencido) {
         if (statusVencido) {
@@ -3449,173 +3489,225 @@ private fun LembreteDetalhesScreen(
                         HorizontalDivider(color = cardBorder)
 
                         if (editando) {
-                            OutlinedTextField(
-                                value = titulo,
-                                onValueChange = { titulo = it },
-                                label = { Text(tr("Título", "Title")) },
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                            OutlinedTextField(
-                                value = descricaoEdicao,
-                                onValueChange = { descricaoEdicao = it },
-                                label = { Text(tr("Descrição do aviso", "Reminder description")) },
-                                modifier = Modifier.fillMaxWidth(),
-                                minLines = 3,
-                                maxLines = 8
-                            )
-                            OutlinedTextField(
-                                value = dataAviso,
-                                onValueChange = {},
-                                label = { Text(tr("Data do aviso (dd/MM/yyyy)", "Reminder date (dd/MM/yyyy)")) },
-                                trailingIcon = {
-                                    IconButton(onClick = { abrirSeletorDataAviso() }) {
-                                        Icon(
-                                            imageVector = Icons.Default.Event,
-                                            contentDescription = tr("Selecionar data", "Select date"),
-                                            tint = textSecondary
-                                        )
-                                    }
-                                },
-                                readOnly = true,
-                                singleLine = true,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { abrirSeletorDataAviso() }
-                            )
-                            OutlinedTextField(
-                                value = horaAviso,
-                                onValueChange = {},
-                                label = { Text(tr("Hora do aviso (HH:mm)", "Reminder time (HH:mm)")) },
-                                trailingIcon = {
-                                    IconButton(onClick = { abrirSeletorHoraAviso() }) {
-                                        Icon(
-                                            imageVector = Icons.Default.Schedule,
-                                            contentDescription = tr("Selecionar hora", "Select time"),
-                                            tint = textSecondary
-                                        )
-                                    }
-                                },
-                                readOnly = true,
-                                singleLine = true,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { abrirSeletorHoraAviso() }
-                            )
-                            OutlinedTextField(
-                                value = kmLimite,
-                                onValueChange = { if (it.all(Char::isDigit)) kmLimite = it },
-                                label = { Text(tr("KM limite", "Mileage limit")) },
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                            OutlinedTextField(
-                                value = totalComDescontoTexto,
-                                onValueChange = {},
-                                readOnly = true,
-                                enabled = false,
-                                trailingIcon = {
-                                    Icon(
-                                        imageVector = Icons.Default.Lock,
-                                        contentDescription = tr("Valor final bloqueado", "Final value locked"),
-                                        tint = textSecondary
-                                    )
-                                },
-                                label = { Text(tr("Total com desconto (R$)", "Discounted total (R$)")) },
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                            OutlinedTextField(
-                                value = totalBrutoTexto,
-                                onValueChange = {
-                                    if (it.all { c -> c.isDigit() || c == '.' || c == ',' }) {
-                                        val brutoNormalizado = it.replace(',', '.')
-                                        totalBrutoTexto = brutoNormalizado
-                                        totalComDescontoTexto = brutoNormalizado
-                                    }
-                                },
-                                label = { Text(tr("Total bruto (R$)", "Gross total (R$)")) },
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                            if (tipoPermiteRepeticaoEdicao) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .clickable { repetirAviso = !repetirAviso }
-                                        .padding(vertical = 2.dp),
-                                    verticalAlignment = Alignment.CenterVertically
+                            val tiposDisponiveisEdicao = remember(carro.tipoVeiculo, lembrete.tipo) {
+                                (tiposAvisoPorVeiculo(carro.tipoVeiculo) + lembrete.tipo)
+                                    .distinct()
+                                    .filter { it != TipoManutencao.ABASTECIMENTO || showFuelReminder(carro.tipoVeiculo) }
+                            }
+
+                            EditReminderSection(
+                                title = tr("Identificação", "Identification"),
+                                icon = Icons.Default.Edit,
+                                cardBg = cardBg,
+                                cardBorder = cardBorder,
+                                textPrimary = textPrimary
+                            ) {
+                                OutlinedTextField(
+                                    value = titulo,
+                                    onValueChange = { titulo = it },
+                                    label = { Text(tr("Título", "Title")) },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                ExposedDropdownMenuBox(
+                                    expanded = menuTipoExpanded,
+                                    onExpandedChange = { menuTipoExpanded = !menuTipoExpanded },
+                                    modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Checkbox(
-                                        checked = repetirAviso,
-                                        onCheckedChange = { repetirAviso = it }
-                                    )
-                                    Text(
-                                        text = tr("Repetir esse aviso", "Repeat this reminder"),
-                                        color = textPrimary,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
-                                }
-                                if (repetirAviso) {
-                                    ExposedDropdownMenuBox(
-                                        expanded = menuRecorrenciaExpanded,
-                                        onExpandedChange = { menuRecorrenciaExpanded = !menuRecorrenciaExpanded },
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        OutlinedTextField(
-                                            value = textoRecorrencia(recorrenciaUnit, recorrenciaIntervaloTexto.toIntOrNull() ?: 1),
-                                            onValueChange = {},
-                                            readOnly = true,
-                                            label = { Text(tr("Frequência da repetição", "Repeat frequency")) },
-                                            modifier = Modifier
-                                                .menuAnchor()
-                                                .fillMaxWidth(),
-                                            trailingIcon = {
-                                                ExposedDropdownMenuDefaults.TrailingIcon(expanded = menuRecorrenciaExpanded)
-                                            },
-                                            singleLine = true,
-                                            shape = RoundedCornerShape(12.dp)
-                                        )
-                                        ExposedDropdownMenu(
-                                            expanded = menuRecorrenciaExpanded,
-                                            onDismissRequest = { menuRecorrenciaExpanded = false }
-                                        ) {
-                                            listOf(
-                                                NotificacaoHelper.REC_UNIT_DAY to tr("Dias", "Days"),
-                                                NotificacaoHelper.REC_UNIT_MONTH to tr("Meses", "Months"),
-                                                NotificacaoHelper.REC_UNIT_YEAR to tr("Anos", "Years")
-                                            ).forEach { (unitKey, label) ->
-                                                DropdownMenuItem(
-                                                    text = { Text(label) },
-                                                    onClick = {
-                                                        recorrenciaUnit = unitKey
-                                                        menuRecorrenciaExpanded = false
-                                                    }
-                                                )
-                                            }
-                                        }
-                                    }
                                     OutlinedTextField(
-                                        value = recorrenciaIntervaloTexto,
-                                        onValueChange = { recorrenciaIntervaloTexto = it.filter(Char::isDigit).take(2) },
-                                        label = {
-                                            Text(
-                                                when (recorrenciaUnit) {
-                                                    NotificacaoHelper.REC_UNIT_DAY -> tr("Repetir a cada quantos dias?", "Repeat every how many days?")
-                                                    NotificacaoHelper.REC_UNIT_MONTH -> tr("Repetir a cada quantos meses?", "Repeat every how many months?")
-                                                    else -> tr("Repetir a cada quantos anos?", "Repeat every how many years?")
-                                                }
+                                        value = tipoSelecionadoEdicao.label,
+                                        onValueChange = {},
+                                        readOnly = true,
+                                        label = { Text(tr("Categoria", "Category")) },
+                                        leadingIcon = {
+                                            TipoIcon(
+                                                tipo = tipoSelecionadoEdicao,
+                                                tint = corCategoria(tipoSelecionadoEdicao),
+                                                size = 18.dp
                                             )
                                         },
-                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                        singleLine = true,
-                                        modifier = Modifier.fillMaxWidth(),
-                                        shape = RoundedCornerShape(12.dp)
+                                        trailingIcon = {
+                                            ExposedDropdownMenuDefaults.TrailingIcon(expanded = menuTipoExpanded)
+                                        },
+                                        modifier = Modifier
+                                            .menuAnchor()
+                                            .fillMaxWidth()
                                     )
+                                    ExposedDropdownMenu(
+                                        expanded = menuTipoExpanded,
+                                        onDismissRequest = { menuTipoExpanded = false }
+                                    ) {
+                                        tiposDisponiveisEdicao.forEach { tipo ->
+                                            DropdownMenuItem(
+                                                text = { Text(tipo.label) },
+                                                leadingIcon = {
+                                                    TipoIcon(
+                                                        tipo = tipo,
+                                                        tint = corCategoria(tipo),
+                                                        size = 18.dp
+                                                    )
+                                                },
+                                                onClick = {
+                                                    tipoSelecionadoEdicao = tipo
+                                                    menuTipoExpanded = false
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
+                                OutlinedTextField(
+                                    value = descricaoEdicao,
+                                    onValueChange = { descricaoEdicao = it },
+                                    label = { Text(tr("Descrição / peça / observações", "Description / item / notes")) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    minLines = 4,
+                                    maxLines = 10
+                                )
+                            }
+
+                            EditReminderSection(
+                                title = tr("Quando avisar", "When to notify"),
+                                icon = Icons.Default.Event,
+                                cardBg = cardBg,
+                                cardBorder = cardBorder,
+                                textPrimary = textPrimary
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    OutlinedTextField(
+                                        value = dataAviso,
+                                        onValueChange = {},
+                                        label = { Text(tr("Data", "Date")) },
+                                        trailingIcon = {
+                                            IconButton(onClick = { abrirSeletorDataAviso() }) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Event,
+                                                    contentDescription = tr("Selecionar data", "Select date"),
+                                                    tint = textSecondary
+                                                )
+                                            }
+                                        },
+                                        readOnly = true,
+                                        singleLine = true,
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clickable { abrirSeletorDataAviso() }
+                                    )
+                                    OutlinedTextField(
+                                        value = horaAviso,
+                                        onValueChange = {},
+                                        label = { Text(tr("Hora", "Time")) },
+                                        trailingIcon = {
+                                            IconButton(onClick = { abrirSeletorHoraAviso() }) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Schedule,
+                                                    contentDescription = tr("Selecionar hora", "Select time"),
+                                                    tint = textSecondary
+                                                )
+                                            }
+                                        },
+                                        readOnly = true,
+                                        singleLine = true,
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clickable { abrirSeletorHoraAviso() }
+                                    )
+                                }
+                                OutlinedTextField(
+                                    value = kmLimite,
+                                    onValueChange = { kmLimite = it.filter(Char::isDigit) },
+                                    label = { Text(tr("KM limite", "Mileage limit")) },
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+
+                            if (tipoPermiteRepeticaoEdicao) {
+                                EditReminderSection(
+                                    title = tr("Repetição", "Repeat"),
+                                    icon = Icons.Default.Repeat,
+                                    cardBg = cardBg,
+                                    cardBorder = cardBorder,
+                                    textPrimary = textPrimary
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .clickable { repetirAviso = !repetirAviso }
+                                            .padding(vertical = 2.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Checkbox(
+                                            checked = repetirAviso,
+                                            onCheckedChange = { repetirAviso = it }
+                                        )
+                                        Text(
+                                            text = tr("Repetir esse aviso", "Repeat this reminder"),
+                                            color = textPrimary,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    }
+                                    if (repetirAviso) {
+                                        ExposedDropdownMenuBox(
+                                            expanded = menuRecorrenciaExpanded,
+                                            onExpandedChange = { menuRecorrenciaExpanded = !menuRecorrenciaExpanded },
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            OutlinedTextField(
+                                                value = textoRecorrencia(recorrenciaUnit, recorrenciaIntervaloTexto.toIntOrNull() ?: 1),
+                                                onValueChange = {},
+                                                readOnly = true,
+                                                label = { Text(tr("Frequência da repetição", "Repeat frequency")) },
+                                                modifier = Modifier
+                                                    .menuAnchor()
+                                                    .fillMaxWidth(),
+                                                trailingIcon = {
+                                                    ExposedDropdownMenuDefaults.TrailingIcon(expanded = menuRecorrenciaExpanded)
+                                                },
+                                                singleLine = true,
+                                                shape = RoundedCornerShape(12.dp)
+                                            )
+                                            ExposedDropdownMenu(
+                                                expanded = menuRecorrenciaExpanded,
+                                                onDismissRequest = { menuRecorrenciaExpanded = false }
+                                            ) {
+                                                listOf(
+                                                    NotificacaoHelper.REC_UNIT_DAY to tr("Dias", "Days"),
+                                                    NotificacaoHelper.REC_UNIT_MONTH to tr("Meses", "Months"),
+                                                    NotificacaoHelper.REC_UNIT_YEAR to tr("Anos", "Years")
+                                                ).forEach { (unitKey, label) ->
+                                                    DropdownMenuItem(
+                                                        text = { Text(label) },
+                                                        onClick = {
+                                                            recorrenciaUnit = unitKey
+                                                            menuRecorrenciaExpanded = false
+                                                        }
+                                                    )
+                                                }
+                                            }
+                                        }
+                                        OutlinedTextField(
+                                            value = recorrenciaIntervaloTexto,
+                                            onValueChange = { recorrenciaIntervaloTexto = it.filter(Char::isDigit).take(2) },
+                                            label = {
+                                                Text(
+                                                    when (recorrenciaUnit) {
+                                                        NotificacaoHelper.REC_UNIT_DAY -> tr("Repetir a cada quantos dias?", "Repeat every how many days?")
+                                                        NotificacaoHelper.REC_UNIT_MONTH -> tr("Repetir a cada quantos meses?", "Repeat every how many months?")
+                                                        else -> tr("Repetir a cada quantos anos?", "Repeat every how many years?")
+                                                    }
+                                                )
+                                            },
+                                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                            singleLine = true,
+                                            modifier = Modifier.fillMaxWidth(),
+                                            shape = RoundedCornerShape(12.dp)
+                                        )
+                                    }
                                 }
                             }
                         } else {
@@ -3841,21 +3933,13 @@ private fun LembreteDetalhesScreen(
                 if (editando) {
                     Button(
                         onClick = {
-                            val totalBrutoEditado = totalBrutoTexto.toDoubleOrNull()
-                            val totalFinalEditado = totalComDescontoTexto.toDoubleOrNull()
-                            val descricaoComResumoFinanceiro = atualizarDescricaoComResumoFinanceiro(
-                                descricaoAtual = descricaoEdicao,
-                                totalBruto = totalBrutoEditado,
-                                valorFinal = totalFinalEditado
-                            )
                             val atualizado = lembrete.copy(
                                 titulo = titulo.ifBlank { lembrete.titulo },
-                                peca = descricaoComResumoFinanceiro.ifBlank { lembrete.peca },
+                                tipo = tipoSelecionadoEdicao,
+                                peca = descricaoEdicao.ifBlank { lembrete.peca },
                                 dataLimite = dataAviso.ifBlank { lembrete.dataLimite },
                                 horaAviso = horaAviso.ifBlank { lembrete.horaAviso },
-                                kmLimite = kmLimite,
-                                contatoId = contatoSelecionadoId,
-                                valor = totalFinalEditado ?: totalBrutoEditado ?: lembrete.valor
+                                kmLimite = kmLimite
                             )
                             val intervaloRecorrencia = (recorrenciaIntervaloTexto.toIntOrNull() ?: 1).coerceAtLeast(1)
                             val atualizadoPermiteRepeticao = atualizado.tipo != TipoManutencao.LICENCIAMENTO &&
@@ -4334,6 +4418,49 @@ private fun abreviarTituloAvisoDetalhes(texto: String, maxChars: Int = 34): Stri
 
 // ----------------- OUTROS COMPONENTES DA TELA DE DETALHES -----------------
 
+
+@Composable
+private fun EditReminderSection(
+    title: String,
+    icon: ImageVector,
+    cardBg: Color,
+    cardBorder: Color,
+    textPrimary: Color,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = cardBg),
+        border = BorderStroke(1.dp, cardBorder)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = Color(0xFF2563EB),
+                    modifier = Modifier.size(18.dp)
+                )
+                Text(
+                    text = title,
+                    color = textPrimary,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp
+                )
+            }
+            content()
+        }
+    }
+}
 
 
 @Composable

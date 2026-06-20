@@ -61,7 +61,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -89,6 +92,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.animation.animateContentSize
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusManager
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -129,6 +133,7 @@ import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -164,7 +169,7 @@ private enum class FluxoCadastroAviso {
     REGISTRAR_SERVICO
 }
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
 fun NovoAgendamentoDialog(
     carroAtual: CarroInfo,
@@ -224,6 +229,9 @@ fun NovoAgendamentoDialog(
         )
     }
     var valorInput by remember { mutableStateOf("") }
+    var precoLitroInput by remember { mutableStateOf("5,60") }
+    var tipoCombustivelPosto by remember { mutableStateOf("Gasolina") }
+    var combustivelPostoExpanded by remember { mutableStateOf(false) }
     var quantidadeManualInput by remember { mutableStateOf("1") }
     var tipoSelecionado by remember { mutableStateOf(initialTipo) }
     val anoAtual = remember { LocalDate.now().year }
@@ -268,7 +276,7 @@ fun NovoAgendamentoDialog(
             }
         )
     }
-    val isFluxoPosto = tipoSelecionado == TipoManutencao.ABASTECIMENTO
+    val isFluxoPosto = isInitialPosto || tipoSelecionado == TipoManutencao.ABASTECIMENTO
     val isRegistroServico = fluxoCadastro == FluxoCadastroAviso.REGISTRAR_SERVICO
     var textosDetectados by remember { mutableStateOf<List<String>>(emptyList()) }
     var showTextosDialog by remember { mutableStateOf(false) }
@@ -348,16 +356,28 @@ fun NovoAgendamentoDialog(
     }
 
     LaunchedEffect(carroAtual.tipoVeiculo) {
-        if (tipoSelecionado !in categoriasDisponiveis) {
+        if (isInitialPosto) {
+            tipoSelecionado = TipoManutencao.ABASTECIMENTO
+        } else if (tipoSelecionado !in categoriasDisponiveis) {
             tipoSelecionado = categoriasDisponiveis.firstOrNull() ?: TipoManutencao.OUTROS
         }
         val categoriaFallback = categoriasDisponiveis.firstOrNull() ?: TipoManutencao.OUTROS
         itemTipoOverrides = itemTipoOverrides.mapValues { (_, tipoAtual) ->
-            if (tipoAtual in categoriasDisponiveis) tipoAtual else categoriaFallback
+            if (isInitialPosto) {
+                TipoManutencao.ABASTECIMENTO
+            } else if (tipoAtual in categoriasDisponiveis) {
+                tipoAtual
+            } else {
+                categoriaFallback
+            }
         }
     }
 
     LaunchedEffect(tipoSelecionado) {
+        if (isInitialPosto && tipoSelecionado != TipoManutencao.ABASTECIMENTO) {
+            tipoSelecionado = TipoManutencao.ABASTECIMENTO
+            return@LaunchedEffect
+        }
         if (tituloAviso.isBlank()) {
             tituloAviso = tipoSelecionado.label
         }
@@ -369,14 +389,25 @@ fun NovoAgendamentoDialog(
     val dataFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
     val scope = rememberCoroutineScope()
     val etapasScrollState = rememberScrollState()
+    val imeBottomPadding = WindowInsets.ime.asPaddingValues().calculateBottomPadding()
+    val totalPagoBringIntoViewRequester = remember { BringIntoViewRequester() }
+    var onSpeechResult by remember { mutableStateOf<((String) -> Unit)?>(null) }
     val speechLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
-            val textoReconhecido = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
-            if (!textoReconhecido.isNullOrBlank()) {
-                descricao = textoReconhecido
-                tipoSelecionado = detectarTipoPeloTexto(textoReconhecido)
-            }
+                val textoReconhecido = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
+                if (!textoReconhecido.isNullOrBlank()) {
+                    val handler = onSpeechResult
+                    if (handler != null) {
+                        handler(textoReconhecido)
+                    } else {
+                        descricao = textoReconhecido
+                        if (!isFluxoPosto) {
+                            tipoSelecionado = detectarTipoPeloTexto(textoReconhecido)
+                        }
+                    }
+                }
         }
+        onSpeechResult = null
     }
     fun limparDadosFinanceirosNotaScan() {
         qrQuantidadeTotalItens = null
@@ -431,7 +462,9 @@ fun NovoAgendamentoDialog(
             itemHoraAvisoOverrides = emptyMap()
             itemValorOverrides = emptyMap()
             itemTituloOverrides = emptyMap()
-            itemTipoOverrides = itensQr.associate { item -> item.id to item.tipo }
+            itemTipoOverrides = itensQr.associate { item ->
+                item.id to if (isFluxoPosto) TipoManutencao.ABASTECIMENTO else item.tipo
+            }
         } else {
             itemDataAvisoOverrides = emptyMap()
             itemHoraAvisoOverrides = emptyMap()
@@ -669,17 +702,40 @@ fun NovoAgendamentoDialog(
         }
     }
 
-    fun iniciarCapturaVoz() {
+    fun iniciarCapturaVoz(
+        prompt: String = "Descreva o serviço realizado",
+        aoResultado: (String) -> Unit = { textoReconhecido ->
+            descricao = textoReconhecido
+            if (!isFluxoPosto) {
+                tipoSelecionado = detectarTipoPeloTexto(textoReconhecido)
+            }
+        }
+    ) {
+        onSpeechResult = aoResultado
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
-
-            putExtra(RecognizerIntent.EXTRA_PROMPT, "Descreva o serviço realizado")
+            putExtra(RecognizerIntent.EXTRA_PROMPT, prompt)
         }
         try {
             speechLauncher.launch(intent)
         } catch (_: ActivityNotFoundException) {
+            onSpeechResult = null
             Toast.makeText(context, "Recursos de voz indisponíveis", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    @Composable
+    fun MicrofoneCampoButton(
+        contentDescription: String,
+        onClick: () -> Unit
+    ) {
+        IconButton(onClick = onClick) {
+            Icon(
+                Icons.Default.Mic,
+                contentDescription = contentDescription,
+                tint = modalPrimaryAction
+            )
         }
     }
 
@@ -792,6 +848,16 @@ fun NovoAgendamentoDialog(
                         onValueChange = { telefoneCompletarInput = it },
                         label = { Text("Telefone") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                        trailingIcon = {
+                            MicrofoneCampoButton(
+                                contentDescription = "Falar telefone",
+                                onClick = {
+                                    iniciarCapturaVoz("Diga o telefone") { texto ->
+                                        telefoneCompletarInput = texto.filter(Char::isDigit)
+                                    }
+                                }
+                            )
+                        },
                         singleLine = true
                     )
                 }
@@ -840,11 +906,15 @@ fun NovoAgendamentoDialog(
         val kmAtualBase = kmBase.toIntOrNull() ?: carroAtual.kmAtual
         val valoresAbastecimento = if (isModoLista) {
             listaItensDetectados.mapNotNull { item ->
-                val tipoItem = itemTipoOverrides[item.id] ?: tipoSelecionado
+                val tipoItem = if (isFluxoPosto) {
+                    TipoManutencao.ABASTECIMENTO
+                } else {
+                    itemTipoOverrides[item.id] ?: tipoSelecionado
+                }
                 if (tipoItem != TipoManutencao.ABASTECIMENTO) return@mapNotNull null
                 itemValorOverrides[item.id]?.replace(",", ".")?.toDoubleOrNull() ?: item.valor
             }.filter { it > 0.0 }
-        } else if (tipoSelecionado == TipoManutencao.ABASTECIMENTO) {
+        } else if (isFluxoPosto) {
             listOf(valorInput.replace(",", ".").toDoubleOrNull() ?: 0.0).filter { it > 0.0 }
         } else {
             emptyList()
@@ -852,7 +922,8 @@ fun NovoAgendamentoDialog(
         if (valoresAbastecimento.isEmpty()) return null
 
         val abastecimentosExistentes = BancoDeDados.carregarAbastecimentos(context)
-        val precoReferencia = abastecimentosExistentes
+        val precoInformadoPosto = precoLitroInput.replace(",", ".").toDoubleOrNull()?.takeIf { it > 0.0 }
+        val precoReferencia = precoInformadoPosto ?: abastecimentosExistentes
             .asReversed()
             .firstOrNull { it.carroId == carroAtual.id && it.precoLitro > 0.0 }
             ?.precoLitro
@@ -888,13 +959,15 @@ fun NovoAgendamentoDialog(
     fun salvarAvisos(kmAtualBaseForcado: Int? = null) {
         fun registrarAbastecimentosNoHistorico(
             valores: List<Double>,
-            itensRegistrados: List<ItemAbastecimento> = emptyList()
+            itensRegistrados: List<ItemAbastecimento> = emptyList(),
+            kmRegistro: Int? = null
         ) {
             val valoresValidos = valores.filter { it > 0.0 }
             if (valoresValidos.isEmpty()) return
             scope.launch(Dispatchers.IO) {
                 val existentes = BancoDeDados.carregarAbastecimentos(context)
-                val precoReferencia = existentes
+                val precoInformadoPosto = precoLitroInput.replace(",", ".").toDoubleOrNull()?.takeIf { it > 0.0 }
+                val precoReferencia = precoInformadoPosto ?: existentes
                     .asReversed()
                     .firstOrNull { it.carroId == carroAtual.id && it.precoLitro > 0.0 }
                     ?.precoLitro
@@ -907,7 +980,9 @@ fun NovoAgendamentoDialog(
                         precoLitro = precoReferencia,
                         valorPago = total,
                         litros = litrosEstimados,
-                        itens = itensRegistrados
+                        itens = itensRegistrados,
+                        tipoCombustivel = tipoCombustivelPosto,
+                        km = kmRegistro
                     )
                 }
                 BancoDeDados.salvarAbastecimentos(context, existentes + novosRegistros)
@@ -915,6 +990,9 @@ fun NovoAgendamentoDialog(
         }
 
         val kmAtualBase = kmAtualBaseForcado ?: (kmBase.toIntOrNull() ?: 0)
+        if (isFluxoPosto && AppPreferences.getFuelStartKm(context, carroAtual.id) == null) {
+            AppPreferences.setFuelStartKm(context, carroAtual.id, carroAtual.kmAtual)
+        }
         if (kmAtualBase > carroAtual.kmAtual) onUpdateKmCarro(kmAtualBase)
         val recorrenciaConfig = recorrenciaSelecionadaConfig()
         val dataAvisoStr = when {
@@ -931,7 +1009,11 @@ fun NovoAgendamentoDialog(
         )
         if (isModoLista) {
             val novosLembretes = listaItensDetectados.flatMap { item ->
-                val tipoItem = itemTipoOverrides[item.id] ?: tipoSelecionado
+                val tipoItem = if (isFluxoPosto) {
+                    TipoManutencao.ABASTECIMENTO
+                } else {
+                    itemTipoOverrides[item.id] ?: tipoSelecionado
+                }
                 val rep = if (qrModoSeparado) 1 else maxOf(1, item.quantidade)
                 val kmFuturo = kmOuEstadoPorTipo(tipoItem, kmAtualBase)
                 val dataItem = if (!isRegistroServico && recorrenciaConfig != null) {
@@ -940,7 +1022,7 @@ fun NovoAgendamentoDialog(
                     itemDataAvisoOverrides[item.id] ?: dataAvisoStr
                 }
                 val horaItem = itemHoraAvisoOverrides[item.id] ?: horaNotificacao
-                val valorItem = itemValorOverrides[item.id]?.toDoubleOrNull() ?: item.valor
+                val valorItem = itemValorOverrides[item.id]?.replace(",", ".")?.toDoubleOrNull() ?: item.valor
                 (1..rep).map { indice ->
                     val tituloCustom = itemTituloOverrides[item.id]?.trim().orEmpty()
                     val tituloBase = when {
@@ -994,7 +1076,10 @@ fun NovoAgendamentoDialog(
                     }
                 }
             }
-            registrarAbastecimentosNoHistorico(valoresAbastecimento)
+            registrarAbastecimentosNoHistorico(
+                valores = valoresAbastecimento,
+                kmRegistro = kmAtualBase.takeIf { it > 0 }
+            )
             if (lembretesSemPosto.isNotEmpty()) {
                 val resultado = if (isRegistroServico) {
                     lembretesSemPosto.map { marcarLembreteComoRealizado(it) }
@@ -1005,27 +1090,33 @@ fun NovoAgendamentoDialog(
             } else if (valoresAbastecimento.any { it > 0.0 }) {
                                                     Toast.makeText(context, "Salvo no historico.", Toast.LENGTH_SHORT).show()
             }
-        } else if (tituloAviso.isNotBlank() && descricao.isNotBlank()) {
-            val tituloLembrete = localServicoInput.ifBlank { qrNomeEstabelecimento.ifBlank { descricao } }
-            val quantidadeManual = quantidadeManualInput.toIntOrNull()?.coerceAtLeast(1) ?: 1
-            val descricaoComQuantidade = if (qrQuantidadeTotalItens == null && quantidadeManual > 1) {
-                "${descricao.trim()} (Qtd: $quantidadeManual)"
-            } else {
-                descricao.trim()
+        } else if (isFluxoPosto || (tituloAviso.isNotBlank() && descricao.isNotBlank())) {
+            val tipoCadastro = if (isFluxoPosto) TipoManutencao.ABASTECIMENTO else tipoSelecionado
+            val tituloLembrete = localServicoInput.ifBlank {
+                qrNomeEstabelecimento.ifBlank {
+                    descricao.ifBlank { tipoCadastro.label }
+                }
             }
+            val quantidadeManual = if (tipoCadastro.permiteQuantidadeAviso()) {
+                quantidadeManualInput.toIntOrNull()?.coerceAtLeast(1) ?: 1
+            } else {
+                1
+            }
+            val descricaoFinal = descricao.trim().ifBlank { tipoCadastro.label }
             val novoLembrete = Lembrete(
                 titulo = tituloAviso.trim().ifBlank { tituloLembrete },
-                peca = descricaoComQuantidade,
+                peca = descricaoFinal,
                 dataLimite = dataAvisoStr,
-                kmLimite = kmOuEstadoPorTipo(tipoSelecionado, kmAtualBase),
-                tipo = tipoSelecionado,
+                kmLimite = kmOuEstadoPorTipo(tipoCadastro, kmAtualBase),
+                tipo = tipoCadastro,
                 valor = valorInput.replace(",", ".").toDoubleOrNull() ?: 0.0,
                 carroId = "",
                 contatoId = contatoSelecionado?.id,
                 fotoPath = fotoCaminho,
                 horaAviso = horaNotificacao,
                 estabelecimentoNome = qrNomeEstabelecimento,
-                estabelecimentoEndereco = qrEnderecoEstabelecimento
+                estabelecimentoEndereco = qrEnderecoEstabelecimento,
+                quantidade = quantidadeManual
             )
             if (novoLembrete.tipo == TipoManutencao.ABASTECIMENTO) {
                 val itensAbastecimento = listaItensDetectados.mapNotNull { item ->
@@ -1038,7 +1129,8 @@ fun NovoAgendamentoDialog(
                 }
                 registrarAbastecimentosNoHistorico(
                     valores = listOf(novoLembrete.valor),
-                    itensRegistrados = itensAbastecimento
+                    itensRegistrados = itensAbastecimento,
+                    kmRegistro = kmAtualBase.takeIf { it > 0 }
                 )
                                             Toast.makeText(context, "Salvo no historico.", Toast.LENGTH_SHORT).show()
             } else if (isRegistroServico) {
@@ -1230,7 +1322,7 @@ fun NovoAgendamentoDialog(
                     itemTipoOverrides = emptyMap()
                     itemCategoriaMenuAbertoId = null
                     descricao = sugestaoOcrLimpa ?: "Nota fiscal lida (itens indisponiveis)"
-                    if (!sugestaoOcrLimpa.isNullOrBlank()) {
+                    if (!isFluxoPosto && !sugestaoOcrLimpa.isNullOrBlank()) {
                         tipoSelecionado = detectarTipoPeloTexto(sugestaoOcrLimpa)
                     }
                     Log.i(
@@ -1267,7 +1359,9 @@ fun NovoAgendamentoDialog(
                         itemHoraAvisoOverrides = emptyMap()
                         itemValorOverrides = emptyMap()
                         itemTituloOverrides = emptyMap()
-                        itemTipoOverrides = itensQr.associate { item -> item.id to item.tipo }
+                        itemTipoOverrides = itensQr.associate { item ->
+                            item.id to if (isFluxoPosto) TipoManutencao.ABASTECIMENTO else item.tipo
+                        }
                     } else {
                         itemDataAvisoOverrides = emptyMap()
                         itemHoraAvisoOverrides = emptyMap()
@@ -1326,7 +1420,9 @@ fun NovoAgendamentoDialog(
             if (resultado.itensEncontrados.isNotEmpty()) {
                 listaItensDetectados = resultado.itensEncontrados
                 qrPossuiItensSeparaveis = resultado.itensEncontrados.size > 1
-                itemTipoOverrides = resultado.itensEncontrados.associate { item -> item.id to item.tipo }
+                itemTipoOverrides = resultado.itensEncontrados.associate { item ->
+                    item.id to if (isFluxoPosto) TipoManutencao.ABASTECIMENTO else item.tipo
+                }
                 val totalItens = resultado.itensEncontrados.sumOf { it.valor }
                 if (totalItens > 0.0) {
                     valorInput = String.format(Locale.US, "%.2f", totalItens)
@@ -1339,7 +1435,9 @@ fun NovoAgendamentoDialog(
                 val principalLimpo = principal?.let { limparTextoProdutosRemovendoTotal(it) }?.takeIf { it.isNotBlank() }
                 if (!principalLimpo.isNullOrBlank()) {
                     descricao = principalLimpo
-                    tipoSelecionado = detectarTipoPeloTexto(principalLimpo)
+                    if (!isFluxoPosto) {
+                        tipoSelecionado = detectarTipoPeloTexto(principalLimpo)
+                    }
                 } else {
                     descricao = "Produto (Foto Anexada)"
                 }
@@ -1671,7 +1769,9 @@ fun NovoAgendamentoDialog(
                                     ) {
                                         textoSelecionadoDialog = texto
                                         descricao = texto
-                                        tipoSelecionado = detectarTipoPeloTexto(texto)
+                                        if (!isFluxoPosto) {
+                                            tipoSelecionado = detectarTipoPeloTexto(texto)
+                                        }
                                     },
                                 colors = CardDefaults.cardColors(
                                     containerColor = if (isSelected) modalOptionSelectedContainer else modalOptionContainer
@@ -1843,14 +1943,22 @@ fun NovoAgendamentoDialog(
 
     val valorTotalManual = valorInput.replace(",", ".").toDoubleOrNull()
     val valorTotalValido = valorTotalManual != null && valorTotalManual > 0.0
+    val permiteQuantidadeManual = !isFluxoPosto && tipoSelecionado.permiteQuantidadeAviso()
     val quantidadeManualValida = quantidadeManualInput.toIntOrNull()?.let { it > 0 } == true
+    val kmPostoInformado = kmBase.filter(Char::isDigit).toIntOrNull()
+    val kmPostoValido = kmPostoInformado != null &&
+        kmPostoInformado > 0 &&
+        kmPostoInformado != carroAtual.kmAtual
     val podeAvancarEtapa1 = if (isModoLista && listaItensDetectados.isNotEmpty()) {
         true
+    } else if (isFluxoPosto) {
+        tituloAviso.isNotBlank() &&
+            valorTotalValido
     } else {
         tituloAviso.isNotBlank() &&
             descricao.isNotBlank() &&
             valorTotalValido &&
-            quantidadeManualValida
+            (!permiteQuantidadeManual || quantidadeManualValida)
     }
 
     if (showKmSugeridoDialog) {
@@ -2020,7 +2128,13 @@ fun NovoAgendamentoDialog(
         dataAvisoSelecionada != null &&
         dataAvisoSelecionada.isEqual(dataServicoSelecionada)
 
-    val podeAvancarEtapa2 = if (isRegistroServico) {
+    val podeAvancarEtapa2 = if (isFluxoPosto) {
+        dataItemValida(data) &&
+            kmPostoValido &&
+            valorInput.replace(",", ".").toDoubleOrNull()?.let { it > 0.0 } == true &&
+            precoLitroInput.replace(",", ".").toDoubleOrNull()?.let { it > 0.0 } == true &&
+            tipoCombustivelPosto.isNotBlank()
+    } else if (isRegistroServico) {
         dataItemValida(data)
     } else {
         dataItemValida(dataAviso) && !dataAvisoMesmoDiaDoServico
@@ -2041,7 +2155,7 @@ fun NovoAgendamentoDialog(
     }
     fun etapaAnteriorAtual(etapa: Int): Int = when {
         !deveExibirEtapaModoCriacao && etapa == 4 -> 2
-        isFluxoPosto && etapa == 4 -> 1
+        isFluxoPosto && etapa == 4 -> 2
         isRegistroServico && etapa == 4 -> 2
         etapa > 1 -> etapa - 1
         else -> 1
@@ -2140,7 +2254,7 @@ fun NovoAgendamentoDialog(
                         start = 16.dp,
                         end = 16.dp,
                         top = 0.dp,
-                        bottom = 12.dp
+                        bottom = 12.dp + imeBottomPadding
                     ),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
@@ -2246,38 +2360,65 @@ fun NovoAgendamentoDialog(
                                     }
                                 )
                             },
+                            trailingIcon = {
+                                MicrofoneCampoButton(
+                                    contentDescription = tr("Falar título", "Speak title"),
+                                    onClick = {
+                                        iniciarCapturaVoz(
+                                            prompt = if (isRegistroServico) "Diga o título do serviço" else "Diga o título do aviso"
+                                        ) { texto ->
+                                            tituloAviso = texto
+                                        }
+                                    }
+                                )
+                            },
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(12.dp)
                         )
-                        OutlinedTextField(
-                            value = TextFieldValue(
-                                text = descricao,
-                                selection = TextRange(descricao.length)
-                            ),
-                            onValueChange = { descricao = it.text },
-                            label = {
-                                Text(
-                                    when {
-                                        isRegistroServico -> tr("Descrição do serviço", "Service description")
-                                        else -> tr("Descrição do aviso", "Reminder description")
+                        if (!isFluxoPosto) {
+                            OutlinedTextField(
+                                value = TextFieldValue(
+                                    text = descricao,
+                                    selection = TextRange(descricao.length)
+                                ),
+                                onValueChange = { descricao = it.text },
+                                label = {
+                                    Text(
+                                        when {
+                                            isRegistroServico -> tr("Descrição do serviço", "Service description")
+                                            else -> tr("Descrição do aviso", "Reminder description")
+                                        }
+                                    )
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 280.dp)
+                                    .animateContentSize(),
+                                maxLines = 12,
+                                keyboardOptions = KeyboardOptions.Default.copy(imeAction = ImeAction.Done),
+                                keyboardActions = KeyboardActions(
+                                    onDone = {
+                                        keyboardController?.hide()
+                                        focusManager.clearFocus()
                                     }
-                                )
-                            },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(max = 280.dp)
-                                .animateContentSize(),
-                            maxLines = 12,
-                            keyboardOptions = KeyboardOptions.Default.copy(imeAction = ImeAction.Done),
-                            keyboardActions = KeyboardActions(
-                                onDone = {
-                                    keyboardController?.hide()
-                                    focusManager.clearFocus()
-                                }
-                            ),
-                            shape = RoundedCornerShape(12.dp)
-                        )
+                                ),
+                                trailingIcon = {
+                                    MicrofoneCampoButton(
+                                        contentDescription = tr("Falar descrição", "Speak description"),
+                                        onClick = {
+                                            iniciarCapturaVoz(
+                                                prompt = if (isRegistroServico) "Descreva o serviço realizado" else "Descreva o aviso"
+                                            ) { texto ->
+                                                descricao = texto
+                                                tipoSelecionado = detectarTipoPeloTexto(texto)
+                                            }
+                                        }
+                                    )
+                                },
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                        }
                         if (!qrModoSeparado) {
                             val valorBrutoExibicao = qrValorTotalBruto
                             val valorDescontoExibicao = qrValorDesconto
@@ -2307,14 +2448,91 @@ fun NovoAgendamentoDialog(
                             )
 
                             if (!veioDeEscaneamento) {
+                            if (isFluxoPosto) {
+                                val opcoesCombustivelPosto = if (isEnglishUi()) {
+                                    listOf("Gasoline", "Ethanol", "Diesel", "CNG", "Flex")
+                                } else {
+                                    listOf("Gasolina", "Etanol", "Diesel", "GNV", "Flex")
+                                }
+                                ExposedDropdownMenuBox(
+                                    expanded = combustivelPostoExpanded,
+                                    onExpandedChange = { combustivelPostoExpanded = !combustivelPostoExpanded }
+                                ) {
+                                    OutlinedTextField(
+                                        value = tipoCombustivelPosto,
+                                        onValueChange = {},
+                                        readOnly = true,
+                                        label = { Text(tr("Combustível *", "Fuel type *")) },
+                                        modifier = Modifier
+                                            .menuAnchor()
+                                            .fillMaxWidth(),
+                                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = combustivelPostoExpanded) },
+                                        shape = RoundedCornerShape(12.dp)
+                                    )
+                                    ExposedDropdownMenu(
+                                        expanded = combustivelPostoExpanded,
+                                        onDismissRequest = { combustivelPostoExpanded = false }
+                                    ) {
+                                        opcoesCombustivelPosto.forEach { opcao ->
+                                            DropdownMenuItem(
+                                                text = { Text(opcao) },
+                                                onClick = {
+                                                    tipoCombustivelPosto = opcao
+                                                    combustivelPostoExpanded = false
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
+                                OutlinedTextField(
+                                    value = precoLitroInput,
+                                    onValueChange = { novo ->
+                                        precoLitroInput = formatarValorMonetarioCampo(novo)
+                                    },
+                                    label = { Text(tr("Preço por litro *", "Price per liter *")) },
+                                    prefix = { Text("R$") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    keyboardOptions = KeyboardOptions(
+                                        keyboardType = KeyboardType.Decimal,
+                                        imeAction = ImeAction.Done
+                                    ),
+                                    keyboardActions = KeyboardActions(
+                                        onDone = {
+                                            keyboardController?.hide()
+                                            focusManager.clearFocus()
+                                        }
+                                    ),
+                                    trailingIcon = {
+                                        MicrofoneCampoButton(
+                                            contentDescription = tr("Falar preço por litro", "Speak price per liter"),
+                                            onClick = {
+                                                iniciarCapturaVoz("Diga o preço por litro") { texto ->
+                                                    precoLitroInput = formatarValorMonetarioCampo(texto)
+                                                }
+                                            }
+                                        )
+                                    },
+                                    shape = RoundedCornerShape(12.dp)
+                                )
+                            }
                             OutlinedTextField(
                                 value = valorInput,
                                 onValueChange = { novo ->
                                     valorInput = formatarValorMonetarioCampo(novo)
                                 },
-                                label = { Text("Total *") },
+                                label = { Text(if (isFluxoPosto) tr("Total pago *", "Total paid *") else "Total *") },
                                 prefix = { Text("R$") },
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier
+                                    .bringIntoViewRequester(totalPagoBringIntoViewRequester)
+                                    .onFocusChanged { state ->
+                                        if (state.isFocused) {
+                                            scope.launch {
+                                                delay(220)
+                                                totalPagoBringIntoViewRequester.bringIntoView()
+                                            }
+                                        }
+                                    }
+                                    .fillMaxWidth(),
                                 keyboardOptions = KeyboardOptions(
                                     keyboardType = KeyboardType.Decimal,
                                     imeAction = ImeAction.Done
@@ -2325,8 +2543,19 @@ fun NovoAgendamentoDialog(
                                         focusManager.clearFocus()
                                     }
                                 ),
+                                trailingIcon = {
+                                    MicrofoneCampoButton(
+                                        contentDescription = tr("Falar valor", "Speak amount"),
+                                        onClick = {
+                                            iniciarCapturaVoz("Diga o valor total") { texto ->
+                                                valorInput = formatarValorMonetarioCampo(texto)
+                                            }
+                                        }
+                                    )
+                                },
                                 shape = RoundedCornerShape(12.dp)
                             )
+                            if (permiteQuantidadeManual) {
                             OutlinedTextField(
                                 value = quantidadeManualInput,
                                 onValueChange = { quantidadeManualInput = it.filter(Char::isDigit).take(3) },
@@ -2336,9 +2565,23 @@ fun NovoAgendamentoDialog(
                                     keyboardType = KeyboardType.Number,
                                     imeAction = ImeAction.Done
                                 ),
+                                trailingIcon = {
+                                    MicrofoneCampoButton(
+                                        contentDescription = tr("Falar quantidade", "Speak quantity"),
+                                        onClick = {
+                                            iniciarCapturaVoz("Diga a quantidade") { texto ->
+                                                quantidadeManualInput = extrairQuantidadeDaVoz(texto)
+                                                    ?.coerceIn(1, 999)
+                                                    ?.toString()
+                                                    ?: texto.filter(Char::isDigit).take(3)
+                                            }
+                                        }
+                                    )
+                                },
                                 singleLine = true,
                                 shape = RoundedCornerShape(12.dp)
                             )
+                            }
                             }
                             if (mostrarResumoNota) {
                                 Surface(
@@ -2432,7 +2675,7 @@ fun NovoAgendamentoDialog(
                         Button(
                             onClick = {
                                 etapaAtual = when {
-                                    isFluxoPosto -> 4
+                                    isFluxoPosto -> 2
                                     isRegistroServico -> 2
                                     else -> 2
                                 }
@@ -2480,6 +2723,8 @@ fun NovoAgendamentoDialog(
                             Text(
                                 if (exigeEstadoUf) {
                                     tr("Estado e data", "State and date")
+                                } else if (isFluxoPosto) {
+                                    tr("KM do abastecimento", "Fuel mileage")
                                 } else if (isRegistroServico) {
                                     tr("KM e data do serviço", "Mileage and service date")
                                 } else {
@@ -2531,20 +2776,41 @@ fun NovoAgendamentoDialog(
                                 }
                             } else {
                                 OutlinedTextField(
-                                    value = formatarKmCampo(kmBase),
+                                    value = kmBase,
                                     onValueChange = { kmBase = it.filter(Char::isDigit) },
-                                    label = { Text(tr("KM Atual", "Current mileage")) },
+                                    label = { Text(if (isFluxoPosto) tr("KM do abastecimento", "Fuel mileage") else tr("KM Atual", "Current mileage")) },
                                     modifier = Modifier.fillMaxWidth(),
                                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                     trailingIcon = {
-                                        Icon(
-                                            Icons.Rounded.Speed,
-                                            contentDescription = null
-                                        )
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(
+                                                Icons.Rounded.Speed,
+                                                contentDescription = null
+                                            )
+                                            MicrofoneCampoButton(
+                                                contentDescription = tr("Falar KM atual", "Speak current mileage"),
+                                                onClick = {
+                                                    iniciarCapturaVoz("Diga o KM atual") { texto ->
+                                                        kmBase = texto.filter(Char::isDigit)
+                                                    }
+                                                }
+                                            )
+                                        }
                                     },
                                     singleLine = true,
                                     shape = RoundedCornerShape(12.dp)
                                 )
+                                if (isFluxoPosto && !kmPostoValido) {
+                                    Text(
+                                        text = tr(
+                                            "Informe um KM diferente do KM atual do veículo.",
+                                            "Enter mileage different from the vehicle current mileage."
+                                        ),
+                                        color = Color(0xFFEF4444),
+                                        fontSize = 12.sp,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
                             }
                             OutlinedTextField(
                                 value = data,
@@ -2569,7 +2835,7 @@ fun NovoAgendamentoDialog(
                                 shape = RoundedCornerShape(12.dp)
                             )
                         }
-                        if (!isRegistroServico) {
+                        if (!isRegistroServico && !isFluxoPosto) {
                             Column(
                                 modifier = Modifier.fillMaxWidth(),
                                 verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -2738,6 +3004,16 @@ fun NovoAgendamentoDialog(
                                                 keyboardType = KeyboardType.Number,
                                                 imeAction = ImeAction.Done
                                             ),
+                                            trailingIcon = {
+                                                MicrofoneCampoButton(
+                                                    contentDescription = tr("Falar intervalo", "Speak interval"),
+                                                    onClick = {
+                                                        iniciarCapturaVoz("Diga o intervalo de repetição") { texto ->
+                                                            atualizarIntervaloAtual(texto)
+                                                        }
+                                                    }
+                                                )
+                                            },
                                             suffix = {
                                                 Text(
                                                     when (frequenciaLembreteKey) {
@@ -3204,6 +3480,20 @@ fun NovoAgendamentoDialog(
                                                         Text(tr("Título obrigatório.", "Title is required."))
                                                     }
                                                 },
+                                                trailingIcon = {
+                                                    MicrofoneCampoButton(
+                                                        contentDescription = tr("Falar título do aviso", "Speak reminder title"),
+                                                        onClick = {
+                                                            iniciarCapturaVoz("Diga o título deste aviso") { texto ->
+                                                                itemTituloOverrides = if (texto == tituloItemPadrao) {
+                                                                    itemTituloOverrides - item.id
+                                                                } else {
+                                                                    itemTituloOverrides + (item.id to texto)
+                                                                }
+                                                            }
+                                                        }
+                                                    )
+                                                },
                                                 modifier = Modifier.fillMaxWidth(),
                                                 shape = RoundedCornerShape(12.dp)
                                             )
@@ -3401,9 +3691,13 @@ fun NovoAgendamentoDialog(
                             tipoSelecionado = tipoSelecionado,
                             isModoLista = isModoLista,
                             listaItensDetectados = listaItensDetectados,
-                            quantidadeTotalItens = qrQuantidadeTotalItens
-                                ?: listaItensDetectados.takeIf { it.isNotEmpty() }?.sumOf { it.quantidade.coerceAtLeast(1) }
-                                ?: (quantidadeManualInput.toIntOrNull()?.coerceAtLeast(1) ?: 1),
+                            quantidadeTotalItens = if (tipoSelecionado.permiteQuantidadeAviso()) {
+                                qrQuantidadeTotalItens
+                                    ?: listaItensDetectados.takeIf { it.isNotEmpty() }?.sumOf { it.quantidade.coerceAtLeast(1) }
+                                    ?: (quantidadeManualInput.toIntOrNull()?.coerceAtLeast(1) ?: 1)
+                            } else {
+                                1
+                            },
                             kmBase = kmBase,
                             data = data,
                             dataAviso = dataAviso,

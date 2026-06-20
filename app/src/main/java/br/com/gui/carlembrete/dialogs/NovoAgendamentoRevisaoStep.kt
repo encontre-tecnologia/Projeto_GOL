@@ -228,6 +228,14 @@ private fun AvisoResumoCardPosto(
                 itemBg = if (bgCard.luminance() < 0.5f) Color(0xFF0B1220) else Color(0xFFF8FAFC),
                 borderColor = borderColor
             )
+            LinhaResumo(
+                titulo = tr("KM informado", "Mileage informed"),
+                valor = formatarKmResumo(aviso.km),
+                textPrimary = textPrimary,
+                textSecondary = textSecondary,
+                itemBg = if (bgCard.luminance() < 0.5f) Color(0xFF0B1220) else Color(0xFFF8FAFC),
+                borderColor = borderColor
+            )
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp),
@@ -353,14 +361,16 @@ private fun AvisoResumoCard(
                     itemBg = itemBg,
                     borderColor = borderColor
                 )
-                LinhaResumo(
-                    titulo = tr("Quantidade", "Quantity"),
-                    valor = aviso.quantidadeResumo,
-                    textPrimary = textPrimary,
-                    textSecondary = textSecondary,
-                    itemBg = itemBg,
-                    borderColor = borderColor
-                )
+                if (aviso.tipo.permiteQuantidadeAviso() && aviso.quantidadeResumo != "1") {
+                    LinhaResumo(
+                        titulo = tr("Quantidade", "Quantity"),
+                        valor = aviso.quantidadeResumo,
+                        textPrimary = textPrimary,
+                        textSecondary = textSecondary,
+                        itemBg = itemBg,
+                        borderColor = borderColor
+                    )
+                }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)

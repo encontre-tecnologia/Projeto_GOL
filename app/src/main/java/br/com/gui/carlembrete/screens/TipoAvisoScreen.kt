@@ -66,6 +66,7 @@ data class AvisoItem(
     val color: Color,
     val tipo: TipoManutencao? = null,
     val iconOverride: ImageVector? = null,
+    val textIcon: String? = null,
     val wide: Boolean = false,
     val onClick: () -> Unit
 )
@@ -102,7 +103,7 @@ fun TipoAvisoScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .verticalScroll(rememberScrollState())
-                        .padding(horizontal = 16.dp, vertical = 0.dp),
+                        .padding(start = 16.dp, end = 16.dp, bottom = 48.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
@@ -141,13 +142,13 @@ fun TipoAvisoScreen(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 10.dp, bottom = 2.dp),
+                            .padding(top = 6.dp, bottom = 2.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(56.dp)
+                                .size(50.dp)
                                 .background(titleIconTint.copy(alpha = 0.14f), CircleShape)
                                 .padding(0.dp),
                             contentAlignment = Alignment.Center
@@ -156,7 +157,7 @@ fun TipoAvisoScreen(
                                 imageVector = Icons.Rounded.EventNote,
                                 contentDescription = null,
                                 tint = titleIconTint,
-                                modifier = Modifier.size(30.dp)
+                                modifier = Modifier.size(27.dp)
                             )
                         }
                         Text(
@@ -170,9 +171,9 @@ fun TipoAvisoScreen(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 8.dp)
+                            .padding(top = 6.dp)
                             .widthIn(max = 620.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         val wideItems = itensAviso.filter { it.wide }
                         val gridItems = itensAviso.filter { !it.wide }
@@ -187,21 +188,21 @@ fun TipoAvisoScreen(
                                 shape = RoundedCornerShape(14.dp),
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(54.dp)
+                                    .height(50.dp)
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
-                                    if (item.label.contains("estacionei", ignoreCase = true)) {
+                                    if (item.textIcon != null) {
                                         Box(
                                             modifier = Modifier
-                                                .size(26.dp)
+                                                .size(30.dp)
                                                 .background(item.color.copy(alpha = 0.15f), CircleShape),
                                             contentAlignment = Alignment.Center
                                         ) {
                                             Text(
-                                                "E",
+                                                item.textIcon,
                                                 color = item.color,
                                                 fontWeight = FontWeight.Bold,
                                                 fontSize = 14.sp
@@ -248,7 +249,7 @@ fun TipoAvisoScreen(
                                         shape = RoundedCornerShape(14.dp),
                                         modifier = Modifier
                                             .weight(1f)
-                                            .height(60.dp)
+                                            .height(54.dp)
                                     ) {
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
