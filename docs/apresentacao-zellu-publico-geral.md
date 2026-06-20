@@ -2,11 +2,12 @@
 
 ## O que e o Zellu?
 O Zellu e um aplicativo que ajuda voce a cuidar do seu carro, moto ou bike sem esquecer manutencoes importantes.
-
+ 
 Ele funciona como um "organizador do veiculo" no celular.
 
 ## O que ele resolve na pratica?
-Muita gente esquece:
+Muita gente esquece: 
+
 - troca de oleo;
 - revisao;
 - pneu e freio;
