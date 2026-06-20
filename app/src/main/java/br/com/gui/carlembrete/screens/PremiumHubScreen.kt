@@ -24,6 +24,8 @@ import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.ArrowBackIosNew
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.ArrowForwardIos
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
@@ -42,6 +44,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
@@ -52,6 +55,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -97,6 +101,8 @@ private data class OperationalRecord(
     val kmStart: Int = 0,
     val kmEnd: Int? = null,
     val cost: Double = 0.0,
+    val quantity: Int = 1,
+    val recordDate: String = "",
     val revenue: Double? = null,
     val taxPercent: Double? = null,
     val driverId: String = "",
@@ -108,7 +114,10 @@ private data class OperationalRecord(
 private data class OperationalDriver(
     val id: String = UUID.randomUUID().toString(),
     val name: String = "",
+    val code: String = "",
     val phone: String = "",
+    val salary: Double = 0.0,
+    val taxCost: Double = 0.0,
     val defaultCost: Double = 0.0,
     val createdAt: Long = System.currentTimeMillis()
 )
@@ -138,15 +147,18 @@ fun PremiumHubScreen(
     planTier: PlanTier,
     onDismiss: () -> Unit,
     onOpenGuardian: () -> Unit,
+    onOpenVehicleAiChat: () -> Unit,
     onOpenAiAssistant: () -> Unit,
     onOpenFleetOverview: () -> Unit,
     onOpenFleetStock: () -> Unit,
-    onOpenSubscribe: (SubscriptionPlan) -> Unit
+    onOpenSubscribe: (SubscriptionPlan) -> Unit,
+    isAiBlocked: Boolean = false,
+    isWebBlocked: Boolean = false
 ) {
     val view = LocalView.current
     val context = LocalContext.current
     val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
-    val screenBg = if (isDark) Color(0xFF020617) else PHScreenBg
+    val screenBg = if (isDark) Color.Black else PHScreenBg
     val cardBg = if (isDark) Color(0xFF0B1220) else PHCardBg
     val cardBorder = if (isDark) Color.White.copy(alpha = 0.12f) else PHCardBorder
     val titleColor = if (isDark) Color(0xFFE2E8F0) else PHTitle
@@ -162,7 +174,20 @@ fun PremiumHubScreen(
         ?: FirebaseAuth.getInstance().currentUser?.email
         ?: "cliente"
     val hasFleetOperationalModules = planTier == PlanTier.FROTA || planTier == PlanTier.ENTERPRISE
+    var featureChannelVersion by remember { mutableStateOf(0) }
+    LaunchedEffect(Unit) {
+        AdminUsersSync.syncFeatureChannels(context) { featureChannelVersion++ }
+    }
+    val userChannel = AdminUsersSync.getChannelStatus(context)
+    fun featureAllowed(key: String): Boolean {
+        @Suppress("UNUSED_EXPRESSION")
+        featureChannelVersion
+        val ch = AdminUsersSync.getFeatureChannel(context, key)
+        return ch != "beta" || userChannel == "beta"
+    }
     var selectedOperationalFeature by remember { mutableStateOf<OperationalFeature?>(null) }
+    var showAiBlockedDialog by remember { mutableStateOf(false) }
+    var showWebBlockedDialog by remember { mutableStateOf(false) }
 
     DisposableEffect(view, isDark) {
         val activity = view.context as? Activity
@@ -180,6 +205,118 @@ fun PremiumHubScreen(
                 if (oldLightStatus != null) insetsController.isAppearanceLightStatusBars = oldLightStatus
             }
         }
+    }
+
+    if (showAiBlockedDialog) {
+        val emailSubject = tr("Revisão de bloqueio - Zellu AI", "AI block review - Zellu")
+        val emailBody = tr(
+            "Olá, meu nome é $userName e gostaria de solicitar a revisão da suspensão do meu acesso à Zellu AI.",
+            "Hello, my name is $userName and I would like to request a review of my Zellu AI access suspension."
+        )
+        AlertDialog(
+            onDismissRequest = { showAiBlockedDialog = false },
+            icon = {
+                Icon(
+                    Icons.Default.Block,
+                    contentDescription = null,
+                    tint = Color(0xFFEF4444),
+                    modifier = Modifier.size(32.dp)
+                )
+            },
+            title = {
+                Text(
+                    tr("Acesso à IA suspenso", "AI access suspended"),
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center
+                )
+            },
+            text = {
+                Text(
+                    tr(
+                        "Seu acesso à Zellu AI foi suspenso por uso indevido ou violação dos termos de uso.\n\nCaso acredite que isso foi um engano, entre em contato pelo e-mail de suporte.",
+                        "Your access to Zellu AI has been suspended due to misuse or violation of terms of use.\n\nIf you believe this was a mistake, please contact us via support email."
+                    ),
+                    textAlign = TextAlign.Center,
+                    fontSize = 14.sp
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showAiBlockedDialog = false 
+                        val intent = android.content.Intent(android.content.Intent.ACTION_SENDTO).apply {
+                            data = android.net.Uri.parse("mailto:guilhermedevsistemas@gmail.com")
+                            putExtra(android.content.Intent.EXTRA_SUBJECT, emailSubject)
+                            putExtra(android.content.Intent.EXTRA_TEXT, emailBody)
+                        }
+                        context.startActivity(android.content.Intent.createChooser(intent, null))
+                    }
+                ) {
+                    Text(tr("Enviar e-mail", "Send email"))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAiBlockedDialog = false }) {
+                    Text(tr("Fechar", "Close"))
+                }
+            }
+        )
+    }
+
+    if (showWebBlockedDialog) {
+        val emailSubject = tr("Revisão de bloqueio - Dashboard Web", "Web Dashboard block review - Zellu")
+        val emailBody = tr(
+            "Olá, meu nome é $userName e gostaria de solicitar a revisão da suspensão do meu acesso ao Dashboard Web.",
+            "Hello, my name is $userName and I would like to request a review of my Web Dashboard access suspension."
+        )
+        AlertDialog(
+            onDismissRequest = { showWebBlockedDialog = false },
+            icon = {
+                Icon(
+                    Icons.Default.Block,
+                    contentDescription = null,
+                    tint = Color(0xFFEF4444),
+                    modifier = Modifier.size(32.dp)
+                )
+            },
+            title = {
+                Text(
+                    tr("Acesso ao Dashboard suspenso", "Dashboard access suspended"),
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center
+                )
+            },
+            text = {
+                Text(
+                    tr(
+                        "Seu acesso ao Dashboard Web foi suspenso por uso indevido ou violação dos termos de uso.\n\nCaso acredite que isso foi um engano, entre em contato pelo e-mail de suporte.",
+                        "Your Web Dashboard access has been suspended due to misuse or violation of terms of use.\n\nIf you believe this was a mistake, please contact us via support email."
+                    ),
+                    textAlign = TextAlign.Center,
+                    fontSize = 14.sp
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showWebBlockedDialog = false
+                        val intent = android.content.Intent(android.content.Intent.ACTION_SENDTO).apply {
+                            data = android.net.Uri.parse("mailto:guilhermedevsistemas@gmail.com")
+                            putExtra(android.content.Intent.EXTRA_SUBJECT, emailSubject)
+                            putExtra(android.content.Intent.EXTRA_TEXT, emailBody)
+                        }
+                        context.startActivity(android.content.Intent.createChooser(intent, null))
+                    }
+                ) {
+                    Text(tr("Enviar e-mail", "Send email"))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showWebBlockedDialog = false }) {
+                    Text(tr("Fechar", "Close"))
+                }
+            }
+        )
     }
 
     selectedOperationalFeature?.takeIf { hasFleetOperationalModules }?.let { feature ->
@@ -335,69 +472,88 @@ fun PremiumHubScreen(
                 )
 
                 val hubFeatures = buildList {
-                    add(
-                        HubFeatureCubeData(
+                    if (planTier in setOf(PlanTier.LITE, PlanTier.FROTA, PlanTier.ENTERPRISE) && featureAllowed("ai")) {
+                        add(HubFeatureCubeData(
+                            icon = if (isAiBlocked) Icons.Default.Block else Icons.Default.AutoAwesome,
+                            iconColor = if (isAiBlocked) Color(0xFF94A3B8) else Color(0xFF2563EB),
+                            iconBg = if (isAiBlocked) {
+                                if (isDark) Color(0xFF1E293B) else Color(0xFFF1F5F9)
+                            } else {
+                                if (isDark) Color(0xFF172554) else Color(0xFFEAF2FF)
+                            },
+                            title = tr("Zellu AI", "Zellu AI"),
+                            subtitle = if (isAiBlocked)
+                                tr("Acesso suspenso", "Access suspended")
+                            else
+                                tr("Todos os veiculos em uma conversa", "All vehicles in one chat"),
+                            onClick = if (isAiBlocked) ({ showAiBlockedDialog = true }) else onOpenVehicleAiChat,
+                            blocked = isAiBlocked
+                        ))
+                    }
+                    if (featureAllowed("viagens")) {
+                        add(HubFeatureCubeData(
                             icon = Icons.Default.Route,
                             iconColor = Color(0xFFEA580C),
                             iconBg = if (isDark) Color(0xFF431407) else Color(0xFFFDEEDB),
                             title = tr("Viagens", "Trips"),
                             subtitle = tr("Rotas, despesas e historico", "Routes, expenses and history"),
                             onClick = onOpenAiAssistant
-                        )
-                    )
+                        ))
+                    }
                     if (hasFleetOperationalModules) {
-                        add(HubFeatureCubeData(
-                        icon = Icons.Default.TireRepair,
-                        iconColor = Color(0xFF16A34A),
-                        iconBg = if (isDark) Color(0xFF052E16) else Color(0xFFDCFCE7),
-                        title = tr("Controle de pneus", "Tire tracking"),
-                        subtitle = tr("Marca, posicao, KM e durabilidade", "Brand, position, mileage and durability"),
-                        onClick = { selectedOperationalFeature = OperationalFeature.TIRE_ROI }
-                    ))
-                        add(HubFeatureCubeData(
-                        icon = Icons.Default.Build,
-                        iconColor = Color(0xFF7C3AED),
-                        iconBg = if (isDark) Color(0xFF2E1065) else Color(0xFFF3E8FF),
-                        title = tr("Durabilidade de pecas", "Parts durability"),
-                        subtitle = tr("Pecas por marca e quilometragem", "Parts by brand and mileage"),
-                        onClick = { selectedOperationalFeature = OperationalFeature.PARTS_DURABILITY }
-                    ))
-                        add(HubFeatureCubeData(
-                        icon = Icons.Default.Route,
-                        iconColor = Color(0xFF0891B2),
-                        iconBg = if (isDark) Color(0xFF083344) else Color(0xFFE0F2FE),
-                        title = tr("Rentabilidade de rotas fixas", "Fixed-route profitability"),
-                        subtitle = tr("Lucro ou prejuizo por linha", "Profit or loss by line"),
-                        onClick = { selectedOperationalFeature = OperationalFeature.ROUTE_PROFITABILITY }
-                    ))
-                        add(HubFeatureCubeData(
-                        icon = Icons.Default.DirectionsCar,
-                        iconColor = Color(0xFF0284C7),
-                        iconBg = if (isDark) Color(0xFF082F49) else Color(0xFFE0F2FE),
-                        title = tr("Visão geral da frota", "Fleet overview"),
-                        subtitle = tr("Todos os veiculos da garagem", "All garage vehicles"),
-                        onClick = onOpenFleetOverview
-                    ))
-                        add(HubFeatureCubeData(
-                        icon = Icons.Default.OpenInNew,
-                        iconColor = Color(0xFF0F766E),
-                        iconBg = if (isDark) Color(0xFF134E4A) else Color(0xFFCCFBF1),
-                        title = tr("Dashboard web", "Web dashboard"),
-                        subtitle = tr("dasbord-frota-six.vercel.app", "dasbord-frota-six.vercel.app"),
-                        onClick = {
-                            context.startActivity(
-                                Intent(Intent.ACTION_VIEW, Uri.parse(dashboardUrl))
-                            )
-                        }
-                    ))
-                        add(HubFeatureCubeData(
-                        icon = Icons.Default.Inventory2,
-                        iconColor = Color(0xFF7C3AED),
-                        iconBg = if (isDark) Color(0xFF2E1065) else Color(0xFFF3E8FF),
-                        title = tr("Estoque da Frota", "Fleet Stock"),
-                        subtitle = tr("Itens, codigo de barras e reposicao", "Items, barcode and replenishment"),
-                        onClick = onOpenFleetStock
-                    ))
+                        if (featureAllowed("frota_pneus")) add(HubFeatureCubeData(
+                            icon = Icons.Default.TireRepair,
+                            iconColor = Color(0xFF16A34A),
+                            iconBg = if (isDark) Color(0xFF052E16) else Color(0xFFDCFCE7),
+                            title = tr("Controle de pneus", "Tire tracking"),
+                            subtitle = tr("Marca, posicao, KM e durabilidade", "Brand, position, mileage and durability"),
+                            onClick = { selectedOperationalFeature = OperationalFeature.TIRE_ROI }
+                        ))
+                        if (featureAllowed("frota_pecas")) add(HubFeatureCubeData(
+                            icon = Icons.Default.Build,
+                            iconColor = Color(0xFF7C3AED),
+                            iconBg = if (isDark) Color(0xFF2E1065) else Color(0xFFF3E8FF),
+                            title = tr("Durabilidade de pecas", "Parts durability"),
+                            subtitle = tr("Pecas por marca e quilometragem", "Parts by brand and mileage"),
+                            onClick = { selectedOperationalFeature = OperationalFeature.PARTS_DURABILITY }
+                        ))
+                        if (featureAllowed("frota_rotas")) add(HubFeatureCubeData(
+                            icon = Icons.Default.Route,
+                            iconColor = Color(0xFF0891B2),
+                            iconBg = if (isDark) Color(0xFF083344) else Color(0xFFE0F2FE),
+                            title = tr("Rentabilidade de rotas fixas", "Fixed-route profitability"),
+                            subtitle = tr("Lucro ou prejuizo por linha", "Profit or loss by line"),
+                            onClick = { selectedOperationalFeature = OperationalFeature.ROUTE_PROFITABILITY }
+                        ))
+                        if (featureAllowed("frota")) add(HubFeatureCubeData(
+                            icon = Icons.Default.DirectionsCar,
+                            iconColor = Color(0xFF0284C7),
+                            iconBg = if (isDark) Color(0xFF082F49) else Color(0xFFE0F2FE),
+                            title = tr("Visão geral da frota", "Fleet overview"),
+                            subtitle = tr("Todos os veiculos da garagem", "All garage vehicles"),
+                            onClick = onOpenFleetOverview
+                        ))
+                        if (featureAllowed("frota_web")) add(HubFeatureCubeData(
+                            icon = if (isWebBlocked) Icons.Default.Block else Icons.Default.OpenInNew,
+                            iconColor = if (isWebBlocked) Color(0xFF94A3B8) else Color(0xFF0F766E),
+                            iconBg = if (isDark) Color(0xFF134E4A) else Color(0xFFCCFBF1),
+                            title = tr("Dashboard web", "Web dashboard"),
+                            subtitle = if (isWebBlocked) tr("Acesso suspenso", "Access suspended") else tr("Acesse o painel web da sua frota", "Access your fleet web panel"),
+                            onClick = if (isWebBlocked) ({ showWebBlockedDialog = true }) else ({
+                                context.startActivity(
+                                    Intent(Intent.ACTION_VIEW, Uri.parse(dashboardUrl))
+                                )
+                            }),
+                            blocked = isWebBlocked
+                        ))
+                        if (featureAllowed("frota_estoque")) add(HubFeatureCubeData(
+                            icon = Icons.Default.Inventory2,
+                            iconColor = Color(0xFF7C3AED),
+                            iconBg = if (isDark) Color(0xFF2E1065) else Color(0xFFF3E8FF),
+                            title = tr("Estoque da Frota", "Fleet Stock"),
+                            subtitle = tr("Itens, codigo de barras e reposicao", "Items, barcode and replenishment"),
+                            onClick = onOpenFleetStock
+                        ))
                     }
                 }
 
@@ -577,17 +733,19 @@ private fun OperationalFeatureScreen(
     }
     var kmEnd by remember(feature) { mutableStateOf("") }
     var cost by remember(feature) { mutableStateOf("") }
+    var quantity by remember(feature) { mutableStateOf("1") }
+    var recordDate by remember(feature) { mutableStateOf(currentOperationalDate()) }
     var revenue by remember(feature) { mutableStateOf("") }
     var taxPercent by remember(feature) { mutableStateOf("") }
     var selectedDriverId by remember(feature) { mutableStateOf("") }
     var driverName by remember(feature) { mutableStateOf("") }
+    var driverCode by remember(feature) { mutableStateOf("") }
     var driverPhone by remember(feature) { mutableStateOf("") }
+    var driverSalary by remember(feature) { mutableStateOf("") }
+    var driverTaxCost by remember(feature) { mutableStateOf("") }
     var driverCost by remember(feature) { mutableStateOf("") }
     var showReportOptions by remember(feature) { mutableStateOf(false) }
-    var showDriverDialog by remember(feature) { mutableStateOf(false) }
-    var driverDialogName by remember(feature) { mutableStateOf("") }
-    var driverDialogPhone by remember(feature) { mutableStateOf("") }
-    var driverDialogCost by remember(feature) { mutableStateOf("") }
+    var showDriversManager by remember(feature) { mutableStateOf(false) }
 
     val nameLabel = when (feature) {
         OperationalFeature.TIRE_ROI -> tr("Pneu/modelo", "Tire/model")
@@ -644,11 +802,16 @@ private fun OperationalFeatureScreen(
         }
         kmEnd = ""
         cost = ""
+        quantity = "1"
+        recordDate = currentOperationalDate()
         revenue = ""
         taxPercent = ""
         selectedDriverId = ""
         driverName = ""
+        driverCode = ""
         driverPhone = ""
+        driverSalary = ""
+        driverTaxCost = ""
         driverCost = ""
     }
 
@@ -665,32 +828,89 @@ private fun OperationalFeatureScreen(
     }
 
     fun openDriverDialog() {
-        driverDialogName = ""
-        driverDialogPhone = ""
-        driverDialogCost = ""
-        showDriverDialog = true
+        showDriversManager = true
     }
 
-    fun saveDriverFromDialog() {
-        val driver = upsertOperationalDriver(
-            context = context,
-            drivers = drivers,
-            selectedDriverId = "",
-            name = driverDialogName,
-            phone = driverDialogPhone,
-            defaultCost = parseMoneyInput(driverDialogCost) ?: 0.0
-        )
+    fun refreshSelectedDriver(driver: OperationalDriver?) {
         if (driver == null) {
-            Toast.makeText(context, trNow("Informe o nome do motorista.", "Enter the driver name."), Toast.LENGTH_SHORT).show()
+            selectedDriverId = ""
+            driverName = ""
+            driverCode = ""
+            driverPhone = ""
+            driverSalary = ""
+            driverTaxCost = ""
+            driverCost = ""
             return
         }
-        drivers = loadOperationalDrivers(context)
         selectedDriverId = driver.id
         driverName = driver.name
+        driverCode = driver.code
         driverPhone = driver.phone
-        driverCost = driver.defaultCost.takeIf { it > 0.0 }?.let { formatPlainDecimal(it) }.orEmpty()
-        showDriverDialog = false
-        Toast.makeText(context, trNow("Motorista cadastrado.", "Driver saved."), Toast.LENGTH_SHORT).show()
+        driverSalary = driver.salary.takeIf { it > 0.0 }?.let { formatPlainDecimal(it) }.orEmpty()
+        driverTaxCost = driver.taxCost.takeIf { it > 0.0 }?.let { formatPlainDecimal(it) }.orEmpty()
+        if (driverCost.isBlank()) {
+            driverCost = driver.defaultCost.takeIf { it > 0.0 }?.let { formatPlainDecimal(it) }.orEmpty()
+        }
+    }
+
+    fun saveDriverFromManager(
+        editingDriverId: String?,
+        editedName: String,
+        editedCode: String,
+        editedPhone: String,
+        editedSalary: String,
+        editedTaxCost: String,
+        editedDefaultCost: String
+    ): Boolean {
+        val savedDriver = upsertOperationalDriver(
+            context = context,
+            drivers = drivers,
+            selectedDriverId = editingDriverId.orEmpty(),
+            name = editedName,
+            code = editedCode,
+            phone = editedPhone,
+            salary = parseMoneyInput(editedSalary) ?: 0.0,
+            taxCost = parseMoneyInput(editedTaxCost) ?: 0.0,
+            defaultCost = parseMoneyInput(editedDefaultCost) ?: 0.0
+        ) ?: run {
+            Toast.makeText(context, trNow("Informe o nome do motorista.", "Enter the driver name."), Toast.LENGTH_SHORT).show()
+            return false
+        }
+        val currentAll = loadOperationalRecords(context)
+        val updatedAll = currentAll.map { record ->
+            if (record.driverId == savedDriver.id) {
+                record.copy(driverName = savedDriver.name)
+            } else {
+                record
+            }
+        }
+        saveOperationalRecords(context, updatedAll)
+        drivers = loadOperationalDrivers(context)
+        records = updatedAll.filter { it.feature == feature.name }
+        if (selectedDriverId == savedDriver.id || editingDriverId == null) {
+            refreshSelectedDriver(savedDriver)
+        }
+        Toast.makeText(context, trNow("Motorista salvo.", "Driver saved."), Toast.LENGTH_SHORT).show()
+        return true
+    }
+
+    fun deleteDriverFromManager(driver: OperationalDriver) {
+        val currentAll = loadOperationalRecords(context)
+        val updatedAll = currentAll.map { record ->
+            if (record.driverId == driver.id) {
+                record.copy(driverId = "", driverName = "", driverCost = 0.0)
+            } else {
+                record
+            }
+        }
+        saveOperationalRecords(context, updatedAll)
+        saveOperationalDrivers(context, loadOperationalDrivers(context).filterNot { it.id == driver.id })
+        drivers = loadOperationalDrivers(context)
+        records = updatedAll.filter { it.feature == feature.name }
+        if (selectedDriverId == driver.id) {
+            refreshSelectedDriver(null)
+        }
+        Toast.makeText(context, trNow("Motorista removido.", "Driver removed."), Toast.LENGTH_SHORT).show()
     }
 
     fun openEditRegistration(record: OperationalRecord) {
@@ -703,12 +923,17 @@ private fun OperationalFeatureScreen(
         kmStart = record.kmStart.takeIf { it > 0 }?.toString().orEmpty()
         kmEnd = record.kmEnd?.toString().orEmpty()
         cost = formatPlainDecimal(record.cost)
+        quantity = record.quantity.coerceAtLeast(1).toString()
+        recordDate = record.recordDate.ifBlank { currentOperationalDate() }
         revenue = record.revenue?.let { formatPlainDecimal(it) }.orEmpty()
         taxPercent = record.taxPercent?.let { formatPlainDecimal(it) }.orEmpty()
         selectedDriverId = record.driverId
         val selectedDriver = drivers.firstOrNull { it.id == record.driverId }
         driverName = record.driverName.ifBlank { selectedDriver?.name.orEmpty() }
+        driverCode = selectedDriver?.code.orEmpty()
         driverPhone = selectedDriver?.phone.orEmpty()
+        driverSalary = selectedDriver?.salary?.takeIf { it > 0.0 }?.let { formatPlainDecimal(it) }.orEmpty()
+        driverTaxCost = selectedDriver?.taxCost?.takeIf { it > 0.0 }?.let { formatPlainDecimal(it) }.orEmpty()
         driverCost = (record.driverCost.takeIf { it > 0.0 } ?: selectedDriver?.defaultCost)
             ?.let { formatPlainDecimal(it) }
             .orEmpty()
@@ -717,6 +942,10 @@ private fun OperationalFeatureScreen(
 
     BackHandler(enabled = showRegistrationScreen) {
         closeRegistrationScreen()
+    }
+
+    BackHandler(enabled = showDriversManager) {
+        showDriversManager = false
     }
 
     LaunchedEffect(selectedVehicleId, feature) {
@@ -733,6 +962,7 @@ private fun OperationalFeatureScreen(
         val kmStartValue = kmStart.toIntOrNull()
         val kmEndValue = kmEnd.toIntOrNull()
         val costValue = parseMoneyInput(cost)
+        val quantityValue = quantity.toIntOrNull()?.coerceAtLeast(1) ?: 1
         val revenueValue = parseMoneyInput(revenue)
         val taxValue = parseMoneyInput(taxPercent)
         val driverCostValue = parseMoneyInput(driverCost) ?: 0.0
@@ -763,6 +993,8 @@ private fun OperationalFeatureScreen(
                     kmStart = kmStartValue ?: 0,
                     kmEnd = if (isRoute) null else kmEndValue,
                     cost = costValue ?: 0.0,
+                    quantity = quantityValue,
+                    recordDate = recordDate.ifBlank { currentOperationalDate() },
                     revenue = if (isRoute) revenueValue else null,
                     taxPercent = if (isRoute) taxValue ?: 0.0 else null,
                     driverId = driverForRecord?.id.orEmpty(),
@@ -850,23 +1082,6 @@ private fun OperationalFeatureScreen(
                 onDismiss = { showReportOptions = false }
             )
         }
-        if (showDriverDialog) {
-            DriverRegistrationDialog(
-                name = driverDialogName,
-                onNameChange = { driverDialogName = it },
-                phone = driverDialogPhone,
-                onPhoneChange = { driverDialogPhone = formatDriverPhoneInput(it) },
-                cost = driverDialogCost,
-                onCostChange = { driverDialogCost = keepDecimalInput(it) },
-                cardBg = cardBg,
-                cardBorder = cardBorder,
-                titleColor = titleColor,
-                subColor = subColor,
-                onSave = { saveDriverFromDialog() },
-                onDismiss = { showDriverDialog = false }
-            )
-        }
-
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -896,7 +1111,7 @@ private fun OperationalFeatureScreen(
                 }
                 if (isRoute) {
                     IconButton(
-                        onClick = { openDriverDialog() },
+                        onClick = { showDriversManager = true },
                         modifier = Modifier
                             .align(Alignment.CenterEnd)
                             .padding(end = 44.dp)
@@ -904,7 +1119,7 @@ private fun OperationalFeatureScreen(
                     ) {
                         Icon(
                             Icons.Default.PersonAdd,
-                            contentDescription = tr("Cadastrar motorista", "Add driver"),
+                            contentDescription = tr("Gerenciar motoristas", "Manage drivers"),
                             tint = titleColor,
                             modifier = Modifier.size(22.dp)
                         )
@@ -1169,19 +1384,31 @@ private fun OperationalFeatureScreen(
                                 onSelect = { picked ->
                                     selectedDriverId = picked.id
                                     driverName = picked.name
+                                    driverCode = picked.code
                                     driverPhone = picked.phone
+                                    driverSalary = picked.salary.takeIf { it > 0.0 }?.let { formatPlainDecimal(it) }.orEmpty()
+                                    driverTaxCost = picked.taxCost.takeIf { it > 0.0 }?.let { formatPlainDecimal(it) }.orEmpty()
                                     driverCost = picked.defaultCost.takeIf { it > 0.0 }?.let { formatPlainDecimal(it) }.orEmpty()
                                 },
                                 onClear = {
                                     selectedDriverId = ""
                                     driverName = ""
+                                    driverCode = ""
                                     driverPhone = ""
+                                    driverSalary = ""
+                                    driverTaxCost = ""
                                     driverCost = ""
                                 },
                                 onRequestAdd = { openDriverDialog() },
                                 label = tr("Motorista da linha", "Route driver")
                             )
                             val hasSelectedDriver = selectedDriverId.isNotBlank()
+                            OperationalTextField(
+                                value = driverCode,
+                                onValueChange = {},
+                                label = tr("Codigo do motorista", "Driver code"),
+                                enabled = false
+                            )
                             OperationalTextField(
                                 value = driverName,
                                 onValueChange = {},
@@ -1194,6 +1421,22 @@ private fun OperationalFeatureScreen(
                                 label = tr("Telefone/observacao", "Phone/note"),
                                 enabled = false
                             )
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                                OperationalTextField(
+                                    value = driverSalary,
+                                    onValueChange = {},
+                                    label = tr("Salario", "Salary"),
+                                    enabled = false,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                OperationalTextField(
+                                    value = driverTaxCost,
+                                    onValueChange = {},
+                                    label = tr("Impostos/custos", "Taxes/costs"),
+                                    enabled = false,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
                             OperationalTextField(
                                 value = driverCost,
                                 onValueChange = { driverCost = keepDecimalInput(it) },
@@ -1210,6 +1453,23 @@ private fun OperationalFeatureScreen(
                         subColor = subColor
                     ) {
                         OperationalTextField(value = positionOrRoute, onValueChange = { positionOrRoute = it }, label = positionLabel)
+                        if (feature == OperationalFeature.TIRE_ROI) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                                OperationalTextField(
+                                    value = quantity,
+                                    onValueChange = { quantity = keepNumericInput(it).take(3).ifBlank { "1" } },
+                                    label = tr("Quantidade", "Quantity"),
+                                    keyboardType = KeyboardType.Number,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                OperationalTextField(
+                                    value = recordDate,
+                                    onValueChange = { recordDate = it.take(10) },
+                                    label = tr("Data", "Date"),
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
                         OperationalTextField(
                             value = kmStart,
                             onValueChange = { kmStart = keepNumericInput(it) },
@@ -1285,6 +1545,32 @@ private fun OperationalFeatureScreen(
                 Spacer(Modifier.height(8.dp))
             }
         }
+
+        if (showDriversManager) {
+            DriverManagerScreen(
+                drivers = drivers,
+                routeRecords = loadOperationalRecords(context)
+                    .filter { it.feature == OperationalFeature.ROUTE_PROFITABILITY.name },
+                cardBg = cardBg,
+                cardBorder = cardBorder,
+                titleColor = titleColor,
+                subColor = subColor,
+                screenBg = screenBg,
+                onDismiss = { showDriversManager = false },
+                onSaveDriver = { editingDriverId, editedName, editedCode, editedPhone, editedSalary, editedTaxCost, editedDefaultCost ->
+                    saveDriverFromManager(
+                        editingDriverId = editingDriverId,
+                        editedName = editedName,
+                        editedCode = editedCode,
+                        editedPhone = editedPhone,
+                        editedSalary = editedSalary,
+                        editedTaxCost = editedTaxCost,
+                        editedDefaultCost = editedDefaultCost
+                    )
+                },
+                onDeleteDriver = { driver -> deleteDriverFromManager(driver) }
+            )
+        }
     }
 }
 
@@ -1304,6 +1590,10 @@ private fun OperationalSummaryCard(
 ) {
     val finished = records.filter { it.kmEnd != null && it.kmEnd > it.kmStart }
     val routeRecords = records.filter { it.revenue != null }
+    val currentMonthTag = SimpleDateFormat("MM/yyyy", Locale("pt", "BR")).format(Date())
+    val currentMonthRouteBalance = routeRecords
+        .filter { SimpleDateFormat("MM/yyyy", Locale("pt", "BR")).format(Date(it.createdAt)) == currentMonthTag }
+        .sumOf { routeProfit(it) }
     val bestRouteProfitMetric = routeRecords.maxByOrNull { routeProfit(it) }?.let {
         val margin = routeMargin(it)
         "${formatMoney(routeProfit(it))} • ${formatPlainDecimal(margin)}%"
@@ -1393,6 +1683,13 @@ private fun OperationalSummaryCard(
                     subColor = subColor
                 )
             }
+            SummaryPill(
+                label = tr("Saldo do mes", "Monthly balance"),
+                value = formatMoney(currentMonthRouteBalance),
+                modifier = Modifier.fillMaxWidth(),
+                titleColor = titleColor,
+                subColor = subColor
+            )
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
                 SummaryPill(
                     label = tr("Custo/km real", "Real cost/km"),
@@ -1598,7 +1895,10 @@ private fun DriverPickerField(
                             Text(driver.name, fontWeight = FontWeight.SemiBold)
                             Text(
                                 listOf(
+                                    driver.code.takeIf { it.isNotBlank() }?.let { "Cod: $it" },
                                     driver.phone,
+                                    driver.salary.takeIf { it > 0.0 }?.let { tr("Salario", "Salary") + ": ${formatMoney(it)}" },
+                                    driver.taxCost.takeIf { it > 0.0 }?.let { tr("Custos", "Costs") + ": ${formatMoney(it)}" },
                                     driver.defaultCost.takeIf { it > 0.0 }?.let { formatMoney(it) }
                                 ).filterNotNull().filter { it.isNotBlank() }.joinToString(" • ")
                                     .ifBlank { tr("Sem custo padrao", "No default cost") },
@@ -1673,7 +1973,8 @@ private fun OperationalTextField(
     onValueChange: (String) -> Unit,
     label: String,
     keyboardType: KeyboardType = KeyboardType.Text,
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    modifier: Modifier = Modifier.fillMaxWidth()
 ) {
     OutlinedTextField(
         value = value,
@@ -1682,7 +1983,7 @@ private fun OperationalTextField(
         singleLine = true,
         enabled = enabled,
         keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier,
         shape = RoundedCornerShape(14.dp)
     )
 }
@@ -1731,6 +2032,10 @@ private fun OperationalRecordCard(
     var kmEndDraft by remember(record.id, record.kmEnd) { mutableStateOf(record.kmEnd?.toString().orEmpty()) }
     var kmEndError by remember(record.id, record.kmEnd) { mutableStateOf<String?>(null) }
     var showDeleteConfirm by remember(record.id) { mutableStateOf(false) }
+    val context = LocalContext.current
+    val recordDriver = remember(record.driverId) {
+        loadOperationalDrivers(context).firstOrNull { it.id == record.driverId }
+    }
     val isWearRecord = feature != OperationalFeature.ROUTE_PROFITABILITY
     val durability = record.kmEnd?.let { it - record.kmStart }
     val isPendingWear = isWearRecord && (durability == null || durability <= 0)
@@ -1777,6 +2082,7 @@ private fun OperationalRecordCard(
         }
         if (feature == OperationalFeature.ROUTE_PROFITABILITY && record.driverName.isNotBlank()) {
             add(tr("Motorista", "Driver") to record.driverName)
+            recordDriver?.code?.takeIf { it.isNotBlank() }?.let { add(tr("Codigo", "Code") to it) }
         }
         if (record.brandOrClient.isNotBlank()) {
             val label = if (feature == OperationalFeature.ROUTE_PROFITABILITY) tr("Cliente", "Client") else tr("Marca/origem", "Brand/source")
@@ -1792,6 +2098,22 @@ private fun OperationalRecordCard(
             }
             add(label to record.positionOrRoute)
         }
+        if (feature == OperationalFeature.TIRE_ROI) {
+            add(tr("Quantidade", "Quantity") to record.quantity.coerceAtLeast(1).toString())
+            if (record.recordDate.isNotBlank()) add(tr("Data", "Date") to record.recordDate)
+        }
+    }
+    val routeDetailItems = buildList {
+        if (record.vehicle.isNotBlank()) add(tr("Veiculo", "Vehicle") to record.vehicle)
+        if (record.brandOrClient.isNotBlank()) add(tr("Cliente", "Client") to record.brandOrClient)
+        if (record.positionOrRoute.isNotBlank()) add(tr("Rota", "Route") to record.positionOrRoute)
+        if (record.kmStart > 0) add(tr("Distancia", "Distance") to "${record.kmStart} km")
+    }
+    val routeDriverItems = buildList {
+        if (record.driverName.isNotBlank()) add(tr("Nome", "Name") to record.driverName)
+        recordDriver?.code?.takeIf { it.isNotBlank() }?.let { add(tr("Codigo", "Code") to it) }
+        recordDriver?.salary?.takeIf { it > 0.0 }?.let { add(tr("Salario", "Salary") to formatMoney(it)) }
+        recordDriver?.taxCost?.takeIf { it > 0.0 }?.let { add(tr("Impostos/custos", "Taxes/costs") to formatMoney(it)) }
     }
     val kmItems = buildList {
         if (feature == OperationalFeature.ROUTE_PROFITABILITY) {
@@ -1813,22 +2135,21 @@ private fun OperationalRecordCard(
         }
     }
     val infoGroups = buildList {
-        if (financialItems.isNotEmpty()) {
+        if (feature != OperationalFeature.ROUTE_PROFITABILITY && financialItems.isNotEmpty()) {
             add(OperationalInfoGroup(tr("Financeiro", "Financial"), financialItems))
         }
-        if (routeMoneyItems.isNotEmpty()) {
-            add(OperationalInfoGroup(tr("Financeiro", "Financial"), routeMoneyItems))
-        }
-        if (vehicleItems.isNotEmpty()) {
+        if (feature != OperationalFeature.ROUTE_PROFITABILITY && vehicleItems.isNotEmpty()) {
             add(OperationalInfoGroup(tr("Veiculo", "Vehicle"), vehicleItems))
         }
         if (detailItems.isNotEmpty()) {
             add(OperationalInfoGroup(tr("Detalhes", "Details"), detailItems))
         }
-        if (kmItems.isNotEmpty()) {
+        if (feature != OperationalFeature.ROUTE_PROFITABILITY && kmItems.isNotEmpty()) {
             add(OperationalInfoGroup(if (feature == OperationalFeature.ROUTE_PROFITABILITY) tr("Distancia", "Distance") else "KM", kmItems))
         }
-        add(OperationalInfoGroup(metricLabel, listOf(metricLabel to metric), emphasize = true))
+        if (feature != OperationalFeature.ROUTE_PROFITABILITY) {
+            add(OperationalInfoGroup(metricLabel, listOf(metricLabel to metric), emphasize = true))
+        }
     }
     val emptyKmEndError = tr("Informe o KM final.", "Enter final mileage.")
     val invalidKmEndError = tr("KM final deve ser maior que o inicial.", "Final mileage must be greater than initial.")
@@ -1885,18 +2206,30 @@ private fun OperationalRecordCard(
             }
         }
 
-        Column(
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            infoGroups.forEach { group ->
-                OperationalInfoGroupCard(
-                    title = group.title,
-                    items = group.items,
-                    valueColor = subColor,
-                    accentColor = accentColor,
-                    emphasize = group.emphasize
-                )
+        if (feature == OperationalFeature.ROUTE_PROFITABILITY) {
+            OperationalRouteRecordInfo(
+                financialItems = routeMoneyItems,
+                driverItems = routeDriverItems,
+                detailItems = routeDetailItems,
+                result = metric,
+                subColor = subColor,
+                titleColor = titleColor,
+                accentColor = accentColor
+            )
+        } else {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                infoGroups.forEach { group ->
+                    OperationalInfoGroupCard(
+                        title = group.title,
+                        items = group.items,
+                        valueColor = subColor,
+                        accentColor = accentColor,
+                        emphasize = group.emphasize
+                    )
+                }
             }
         }
 
@@ -2067,6 +2400,220 @@ private fun OperationalInfoGroupCard(
     }
 }
 
+@Composable
+private fun OperationalRouteRecordInfo(
+    financialItems: List<Pair<String, String>>,
+    driverItems: List<Pair<String, String>>,
+    detailItems: List<Pair<String, String>>,
+    result: String,
+    subColor: Color,
+    titleColor: Color,
+    accentColor: Color
+) {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        OperationalRouteSection(
+            title = tr("Rota", "Route"),
+            items = detailItems,
+            subColor = subColor,
+            titleColor = titleColor,
+            accentColor = accentColor
+        )
+
+        if (financialItems.isNotEmpty()) {
+            OperationalRouteMoneyGrid(
+                title = tr("Custos da rota", "Route costs"),
+                items = financialItems,
+                subColor = subColor,
+                titleColor = titleColor,
+                accentColor = accentColor
+            )
+        }
+
+        if (driverItems.isNotEmpty()) {
+            OperationalRouteSection(
+                title = tr("Motorista", "Driver"),
+                items = driverItems,
+                subColor = subColor,
+                titleColor = titleColor,
+                accentColor = accentColor
+            )
+        }
+
+        OperationalRouteResultPill(
+            result = result,
+            subColor = subColor,
+            accentColor = accentColor
+        )
+    }
+}
+
+@Composable
+private fun OperationalRouteSection(
+    title: String,
+    items: List<Pair<String, String>>,
+    subColor: Color,
+    titleColor: Color,
+    accentColor: Color
+) {
+    if (items.isEmpty()) return
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(accentColor.copy(alpha = 0.055f))
+            .border(BorderStroke(1.dp, accentColor.copy(alpha = 0.11f)), RoundedCornerShape(14.dp))
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(
+            text = title.uppercase(Locale.getDefault()),
+            color = accentColor,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Black
+        )
+        items.forEach { (label, value) ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.Top
+            ) {
+                Text(
+                    text = label,
+                    color = subColor.copy(alpha = 0.78f),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.width(76.dp)
+                )
+                Text(
+                    text = value,
+                    color = titleColor,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    lineHeight = 16.sp,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun OperationalRouteMoneyGrid(
+    title: String,
+    items: List<Pair<String, String>>,
+    subColor: Color,
+    titleColor: Color,
+    accentColor: Color
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(accentColor.copy(alpha = 0.055f))
+            .border(BorderStroke(1.dp, accentColor.copy(alpha = 0.11f)), RoundedCornerShape(14.dp))
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(9.dp)
+    ) {
+        Text(
+            text = title.uppercase(Locale.getDefault()),
+            color = accentColor,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Black
+        )
+        items.chunked(2).forEach { rowItems ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                rowItems.forEach { (label, value) ->
+                    OperationalRouteMoneyCell(
+                        label = label,
+                        value = value,
+                        subColor = subColor,
+                        titleColor = titleColor,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                if (rowItems.size == 1) {
+                    Spacer(modifier = Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun OperationalRouteMoneyCell(
+    label: String,
+    value: String,
+    subColor: Color,
+    titleColor: Color,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(Color.White.copy(alpha = 0.48f))
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp)
+    ) {
+        Text(
+            text = label,
+            color = subColor.copy(alpha = 0.78f),
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            lineHeight = 14.sp,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
+        Text(
+            text = value,
+            color = titleColor,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Black,
+            lineHeight = 15.sp,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
+private fun OperationalRouteResultPill(
+    result: String,
+    subColor: Color,
+    accentColor: Color
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(accentColor.copy(alpha = 0.13f))
+            .border(BorderStroke(1.dp, accentColor.copy(alpha = 0.22f)), RoundedCornerShape(14.dp))
+            .padding(horizontal = 12.dp, vertical = 11.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = tr("Resultado", "Result"),
+            color = subColor.copy(alpha = 0.78f),
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Black
+        )
+        Text(
+            text = result,
+            color = accentColor,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Black,
+            textAlign = TextAlign.End,
+            modifier = Modifier.weight(1f)
+        )
+    }
+}
+
 private fun loadOperationalRecords(context: Context): List<OperationalRecord> {
     val json = context.getSharedPreferences(OPERATIONAL_PREFS, Context.MODE_PRIVATE)
         .getString(OPERATIONAL_RECORDS_KEY, "[]")
@@ -2106,7 +2653,10 @@ private fun upsertOperationalDriver(
     drivers: List<OperationalDriver>,
     selectedDriverId: String,
     name: String,
+    code: String,
     phone: String,
+    salary: Double,
+    taxCost: Double,
     defaultCost: Double
 ): OperationalDriver? {
     val cleanName = name.trim()
@@ -2116,7 +2666,10 @@ private fun upsertOperationalDriver(
         ?: current.firstOrNull { it.name.equals(cleanName, ignoreCase = true) }
     val driver = (existing ?: OperationalDriver()).copy(
         name = cleanName,
+        code = code.trim(),
         phone = phone.trim(),
+        salary = salary.coerceAtLeast(0.0),
+        taxCost = taxCost.coerceAtLeast(0.0),
         defaultCost = defaultCost.coerceAtLeast(0.0),
         createdAt = existing?.createdAt ?: System.currentTimeMillis()
     )
@@ -2441,6 +2994,10 @@ private fun formatPlainDecimal(value: Double): String {
     return "%.2f".format(Locale.US, value).replace(".", ",")
 }
 
+private fun currentOperationalDate(): String {
+    return SimpleDateFormat("dd/MM/yyyy", Locale("pt", "BR")).format(Date())
+}
+
 private fun splitOperationalTitle(raw: String): OperationalTitleParts {
     val lines = raw
         .lines()
@@ -2661,70 +3218,476 @@ private fun OperationalReportOptionsDialog(
 }
 
 @Composable
-private fun DriverRegistrationDialog(
+private fun DriverManagerScreen(
+    drivers: List<OperationalDriver>,
+    routeRecords: List<OperationalRecord>,
+    cardBg: Color,
+    cardBorder: Color,
+    titleColor: Color,
+    subColor: Color,
+    screenBg: Color,
+    onDismiss: () -> Unit,
+    onSaveDriver: (
+        editingDriverId: String?,
+        name: String,
+        code: String,
+        phone: String,
+        salary: String,
+        taxCost: String,
+        defaultCost: String
+    ) -> Boolean,
+    onDeleteDriver: (OperationalDriver) -> Unit
+) {
+    var editingDriver by remember { mutableStateOf<OperationalDriver?>(null) }
+    var showEditor by remember { mutableStateOf(false) }
+    var deleteCandidate by remember { mutableStateOf<OperationalDriver?>(null) }
+    var name by remember { mutableStateOf("") }
+    var code by remember { mutableStateOf("") }
+    var phone by remember { mutableStateOf("") }
+    var salary by remember { mutableStateOf("") }
+    var taxCost by remember { mutableStateOf("") }
+    var defaultCost by remember { mutableStateOf("") }
+
+    fun openEditor(driver: OperationalDriver?) {
+        editingDriver = driver
+        name = driver?.name.orEmpty()
+        code = driver?.code.orEmpty()
+        phone = driver?.phone.orEmpty()
+        salary = driver?.salary?.takeIf { it > 0.0 }?.let { formatPlainDecimal(it) }.orEmpty()
+        taxCost = driver?.taxCost?.takeIf { it > 0.0 }?.let { formatPlainDecimal(it) }.orEmpty()
+        defaultCost = driver?.defaultCost?.takeIf { it > 0.0 }?.let { formatPlainDecimal(it) }.orEmpty()
+        showEditor = true
+    }
+
+    val sortedDrivers = remember(drivers) {
+        drivers.sortedWith(compareBy<OperationalDriver> { it.name.lowercase(Locale.getDefault()) }.thenBy { it.code })
+    }
+
+    if (showEditor) {
+        DriverEditorScreen(
+            title = if (editingDriver == null) tr("Cadastrar motorista", "Add driver") else tr("Editar motorista", "Edit driver"),
+            subtitle = tr(
+                "Os vinculos com linhas serao mantidos pelo identificador interno.",
+                "Route links are kept by the internal identifier."
+            ),
+            name = name,
+            onNameChange = { name = it },
+            code = code,
+            onCodeChange = { code = it },
+            phone = phone,
+            onPhoneChange = { phone = formatDriverPhoneInput(it) },
+            salary = salary,
+            onSalaryChange = { salary = keepDecimalInput(it) },
+            taxCost = taxCost,
+            onTaxCostChange = { taxCost = keepDecimalInput(it) },
+            cost = defaultCost,
+            onCostChange = { defaultCost = keepDecimalInput(it) },
+            cardBg = cardBg,
+            cardBorder = cardBorder,
+            titleColor = titleColor,
+            subColor = subColor,
+            screenBg = screenBg,
+            onSave = {
+                val saved = onSaveDriver(editingDriver?.id, name, code, phone, salary, taxCost, defaultCost)
+                if (saved) showEditor = false
+            },
+            onDismiss = { showEditor = false }
+        )
+        return
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(screenBg)
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 20.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Box(modifier = Modifier.fillMaxWidth()) {
+            IconButton(
+                onClick = onDismiss,
+                modifier = Modifier.align(Alignment.CenterStart).size(40.dp)
+            ) {
+                Icon(Icons.Default.ArrowBackIosNew, contentDescription = tr("Voltar", "Back"), tint = titleColor)
+            }
+            IconButton(
+                onClick = { openEditor(null) },
+                modifier = Modifier.align(Alignment.CenterEnd).size(40.dp)
+            ) {
+                Icon(Icons.Default.PersonAdd, contentDescription = tr("Cadastrar motorista", "Add driver"), tint = titleColor)
+            }
+        }
+
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(18.dp))
+                .background(cardBg)
+                .border(BorderStroke(1.dp, cardBorder), RoundedCornerShape(18.dp))
+                .padding(18.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(54.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFF2563EB).copy(alpha = 0.14f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Default.PersonAdd, contentDescription = null, tint = Color(0xFF2563EB), modifier = Modifier.size(29.dp))
+            }
+            Text(
+                text = tr("Gerenciar Motoristas", "Manage Drivers"),
+                color = titleColor,
+                fontWeight = FontWeight.Black,
+                fontSize = 22.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Text(
+                text = tr(
+                    "Edite os motoristas usados nas linhas sem criar cadastro duplicado.",
+                    "Edit the drivers used on routes without creating duplicate records."
+                ),
+                color = subColor,
+                fontSize = 12.sp,
+                lineHeight = 17.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+
+        Button(
+            onClick = { openEditor(null) },
+            modifier = Modifier.fillMaxWidth().height(54.dp),
+            shape = RoundedCornerShape(16.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF357AE8), contentColor = Color.White)
+        ) {
+            Icon(Icons.Default.AddCircle, contentDescription = null, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(tr("Novo motorista", "New driver"), fontWeight = FontWeight.Bold)
+        }
+
+        if (sortedDrivers.isEmpty()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(cardBg)
+                    .border(BorderStroke(1.dp, cardBorder), RoundedCornerShape(18.dp))
+                    .padding(22.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = tr("Nenhum motorista cadastrado", "No drivers registered"),
+                    color = titleColor,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 17.sp,
+                    textAlign = TextAlign.Center
+                )
+                Text(
+                    text = tr("Cadastre aqui e use no seletor das linhas.", "Add one here and use it in route selectors."),
+                    color = subColor,
+                    fontSize = 12.sp,
+                    textAlign = TextAlign.Center
+                )
+            }
+        } else {
+            sortedDrivers.forEach { driver ->
+                DriverManagerCard(
+                    driver = driver,
+                    linkedRoutes = routeRecords.filter { it.driverId == driver.id },
+                    cardBg = cardBg,
+                    cardBorder = cardBorder,
+                    titleColor = titleColor,
+                    subColor = subColor,
+                    onEdit = { openEditor(driver) },
+                    onDelete = { deleteCandidate = driver }
+                )
+            }
+        }
+
+        Spacer(Modifier.height(10.dp))
+    }
+
+    deleteCandidate?.let { driver ->
+        val linkedRoutes = routeRecords.filter { it.driverId == driver.id }
+        AlertDialog(
+            onDismissRequest = { deleteCandidate = null },
+            title = {
+                Text(
+                    if (linkedRoutes.isEmpty()) tr("Excluir motorista?", "Delete driver?")
+                    else tr("Motorista vinculado", "Driver linked")
+                )
+            },
+            text = {
+                Text(
+                    if (linkedRoutes.isEmpty()) {
+                        tr("Esse motorista sera removido do cadastro.", "This driver will be removed.")
+                    } else {
+                        tr(
+                            "Esse motorista esta vinculado a ${linkedRoutes.size} linha(s). Ao excluir, essas linhas ficarao sem motorista para evitar referencia quebrada.",
+                            "This driver is linked to ${linkedRoutes.size} route(s). Deleting will leave those routes without a driver to avoid broken references."
+                        )
+                    }
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onDeleteDriver(driver)
+                        deleteCandidate = null
+                    }
+                ) {
+                    Text(tr("Excluir", "Delete"), color = Color(0xFFDC2626), fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteCandidate = null }) {
+                    Text(tr("Cancelar", "Cancel"))
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun DriverManagerCard(
+    driver: OperationalDriver,
+    linkedRoutes: List<OperationalRecord>,
+    cardBg: Color,
+    cardBorder: Color,
+    titleColor: Color,
+    subColor: Color,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(cardBg)
+            .border(BorderStroke(1.dp, cardBorder), RoundedCornerShape(18.dp))
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    text = driver.name,
+                    color = titleColor,
+                    fontWeight = FontWeight.Black,
+                    fontSize = 18.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = listOf(
+                        driver.code.takeIf { it.isNotBlank() }?.let { "Cod: $it" },
+                        driver.phone.takeIf { it.isNotBlank() }
+                    ).filterNotNull().joinToString(" • ").ifBlank { tr("Sem codigo ou telefone", "No code or phone") },
+                    color = subColor,
+                    fontSize = 12.sp,
+                    lineHeight = 16.sp
+                )
+            }
+            IconButton(onClick = onEdit, modifier = Modifier.size(38.dp)) {
+                Icon(Icons.Default.Edit, contentDescription = tr("Editar", "Edit"), tint = Color(0xFF60A5FA))
+            }
+            IconButton(onClick = onDelete, modifier = Modifier.size(38.dp)) {
+                Icon(Icons.Default.Delete, contentDescription = tr("Excluir", "Delete"), tint = Color(0xFFEF4444))
+            }
+        }
+
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+            DriverMetricChip(
+                label = tr("Salario", "Salary"),
+                value = formatMoney(driver.salary),
+                titleColor = titleColor,
+                subColor = subColor,
+                modifier = Modifier.weight(1f)
+            )
+            DriverMetricChip(
+                label = tr("Custos/impostos", "Taxes/costs"),
+                value = formatMoney(driver.taxCost),
+                titleColor = titleColor,
+                subColor = subColor,
+                modifier = Modifier.weight(1f)
+            )
+        }
+        DriverMetricChip(
+            label = tr("Custo padrao por linha", "Default cost per route"),
+            value = formatMoney(driver.defaultCost),
+            titleColor = titleColor,
+            subColor = subColor,
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(14.dp))
+                .background(Color(0xFF2563EB).copy(alpha = 0.08f))
+                .border(BorderStroke(1.dp, Color(0xFF2563EB).copy(alpha = 0.18f)), RoundedCornerShape(14.dp))
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text(
+                text = tr("Linhas vinculadas", "Linked routes"),
+                color = subColor,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = if (linkedRoutes.isEmpty()) {
+                    tr("Nenhuma linha vinculada", "No linked routes")
+                } else {
+                    linkedRoutes
+                        .take(4)
+                        .joinToString(" • ") { splitOperationalTitle(it.name).title.ifBlank { it.positionOrRoute } }
+                        .let { names ->
+                            if (linkedRoutes.size > 4) "$names +${linkedRoutes.size - 4}" else names
+                        }
+                },
+                color = titleColor,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                lineHeight = 17.sp
+            )
+        }
+    }
+}
+
+@Composable
+private fun DriverMetricChip(
+    label: String,
+    value: String,
+    titleColor: Color,
+    subColor: Color,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(14.dp))
+            .background(Color(0xFF0F172A).copy(alpha = 0.05f))
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Text(label, color = subColor, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+        Text(value, color = titleColor, fontSize = 13.sp, fontWeight = FontWeight.Black)
+    }
+}
+
+@Composable
+private fun DriverEditorScreen(
+    title: String,
+    subtitle: String,
     name: String,
     onNameChange: (String) -> Unit,
+    code: String,
+    onCodeChange: (String) -> Unit,
     phone: String,
     onPhoneChange: (String) -> Unit,
+    salary: String,
+    onSalaryChange: (String) -> Unit,
+    taxCost: String,
+    onTaxCostChange: (String) -> Unit,
     cost: String,
     onCostChange: (String) -> Unit,
     cardBg: Color,
     cardBorder: Color,
     titleColor: Color,
     subColor: Color,
+    screenBg: Color,
     onSave: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    Dialog(onDismissRequest = onDismiss) {
-        Card(
-            colors = CardDefaults.cardColors(containerColor = cardBg),
-            border = BorderStroke(1.dp, cardBorder),
-            shape = RoundedCornerShape(24.dp)
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+    BackHandler(onBack = onDismiss)
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(screenBg)
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 20.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Box(modifier = Modifier.fillMaxWidth()) {
+            IconButton(
+                onClick = onDismiss,
+                modifier = Modifier.align(Alignment.CenterStart).size(40.dp)
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(58.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFF2563EB).copy(alpha = 0.14f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        Icons.Default.PersonAdd,
-                        contentDescription = null,
-                        tint = Color(0xFF2563EB),
-                        modifier = Modifier.size(30.dp)
-                    )
-                }
-                Text(
-                    text = tr("Cadastrar motorista", "Add driver"),
-                    color = titleColor,
-                    fontWeight = FontWeight.Black,
-                    fontSize = 20.sp,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth()
+                Icon(Icons.Default.ArrowBackIosNew, contentDescription = tr("Voltar", "Back"), tint = titleColor)
+            }
+        }
+
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(58.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFF2563EB).copy(alpha = 0.14f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Default.PersonAdd,
+                    contentDescription = null,
+                    tint = Color(0xFF2563EB),
+                    modifier = Modifier.size(30.dp)
                 )
-                Text(
-                    text = tr(
-                        "Depois de salvo, ele pode ser usado em uma ou varias linhas.",
-                        "After saving, this driver can be used on one or many routes."
-                    ),
-                    color = subColor,
-                    fontSize = 12.sp,
-                    lineHeight = 16.sp,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth()
-                )
+            }
+            Text(
+                text = title,
+                color = titleColor,
+                fontWeight = FontWeight.Black,
+                fontSize = 22.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Text(
+                text = subtitle,
+                color = subColor,
+                fontSize = 12.sp,
+                lineHeight = 17.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(18.dp))
+                .background(cardBg)
+                .border(BorderStroke(1.dp, cardBorder), RoundedCornerShape(18.dp))
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
                 OperationalTextField(
                     value = name,
                     onValueChange = onNameChange,
                     label = tr("Nome do motorista", "Driver name")
+                )
+                OperationalTextField(
+                    value = code,
+                    onValueChange = onCodeChange,
+                    label = tr("Codigo/identificador", "Code/identifier")
                 )
                 OperationalTextField(
                     value = phone,
@@ -2732,35 +3695,53 @@ private fun DriverRegistrationDialog(
                     label = tr("Telefone", "Phone"),
                     keyboardType = KeyboardType.Phone
                 )
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                    OperationalTextField(
+                        value = salary,
+                        onValueChange = onSalaryChange,
+                        label = tr("Salario", "Salary"),
+                        keyboardType = KeyboardType.Decimal,
+                        modifier = Modifier.weight(1f)
+                    )
+                    OperationalTextField(
+                        value = taxCost,
+                        onValueChange = onTaxCostChange,
+                        label = tr("Custos/impostos", "Taxes/costs"),
+                        keyboardType = KeyboardType.Decimal,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
                 OperationalTextField(
                     value = cost,
                     onValueChange = onCostChange,
                     label = tr("Custo padrao por linha", "Default cost per route"),
                     keyboardType = KeyboardType.Decimal
                 )
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    OutlinedButton(
-                        onClick = onDismiss,
-                        border = BorderStroke(1.dp, cardBorder),
-                        modifier = Modifier.weight(1f).height(48.dp),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Text(tr("Cancelar", "Cancel"))
-                    }
-                    Button(
-                        onClick = onSave,
-                        modifier = Modifier.weight(1f).height(48.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB))
-                    ) {
-                        Text(tr("Salvar", "Save"), color = Color.White, fontWeight = FontWeight.Bold)
-                    }
-                }
+        }
+
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            OutlinedButton(
+                onClick = onDismiss,
+                border = BorderStroke(1.dp, cardBorder),
+                modifier = Modifier.weight(1f).height(52.dp),
+                shape = RoundedCornerShape(14.dp)
+            ) {
+                Text(tr("Cancelar", "Cancel"))
+            }
+            Button(
+                onClick = onSave,
+                modifier = Modifier.weight(1f).height(52.dp),
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB))
+            ) {
+                Text(tr("Salvar", "Save"), color = Color.White, fontWeight = FontWeight.Bold)
             }
         }
+
+        Spacer(Modifier.height(8.dp))
     }
 }
 
@@ -2903,11 +3884,16 @@ private fun generateOperationalReportPdf(
 
     val finished = records.filter { it.kmEnd != null && it.kmEnd > it.kmStart }
     val routeRecords = records.filter { it.revenue != null }
+    val drivers = if (feature == OperationalFeature.ROUTE_PROFITABILITY) loadOperationalDrivers(context) else emptyList()
     val bestDurability = finished.maxByOrNull { (it.kmEnd ?: 0) - it.kmStart }?.let { "${(it.kmEnd ?: 0) - it.kmStart} km" }
         ?: trNow("Aguardando KM final", "Waiting for final mileage")
     val lowestCost = finished.minByOrNull { costPerKm(it) }?.let { "${formatMoney(costPerKm(it))}/km" }
         ?: trNow("Aguardando KM", "Waiting mileage")
     val totalBalance = routeRecords.sumOf { routeProfit(it) }
+    val currentMonthTag = SimpleDateFormat("MM/yyyy", Locale("pt", "BR")).format(Date())
+    val currentMonthRouteBalance = routeRecords
+        .filter { SimpleDateFormat("MM/yyyy", Locale("pt", "BR")).format(Date(it.createdAt)) == currentMonthTag }
+        .sumOf { routeProfit(it) }
     val bestRoute = routeRecords.maxByOrNull { routeProfit(it) }
     val bestRouteValue = bestRoute?.let { "${formatMoney(routeProfit(it))} • ${formatPlainDecimal(routeMargin(it))}%" }
         ?: trNow("Sem rotas calculadas", "No calculated routes")
@@ -2921,12 +3907,17 @@ private fun generateOperationalReportPdf(
     y += 72f
     drawMetric("Importados", importedRecordsCount.toString(), marginX, y, metricWidth)
     if (feature == OperationalFeature.ROUTE_PROFITABILITY) {
+        val totalDriverCost = drivers.sumOf { it.salary + it.taxCost + it.defaultCost }
         drawMetric("Saldo total", formatMoney(totalBalance), marginX + metricWidth + metricGap, y, metricWidth, if (totalBalance >= 0) successColor else dangerColor)
         y += 72f
         drawMetric("Custo/km real", formatMoney(realCostPerKm), marginX, y, metricWidth)
         drawMetric("Sugestao rota", formatMoney(routeSuggestedCost), marginX + metricWidth + metricGap, y, metricWidth)
         y += 72f
-        drawMetric("Melhor lucro", bestRouteValue, marginX, y, contentWidth, successColor)
+        drawMetric("Motoristas", drivers.size.toString(), marginX, y, metricWidth)
+        drawMetric("Custos motoristas", formatMoney(totalDriverCost), marginX + metricWidth + metricGap, y, metricWidth)
+        y += 72f
+        drawMetric("Saldo mes $currentMonthTag", formatMoney(currentMonthRouteBalance), marginX, y, metricWidth, if (currentMonthRouteBalance >= 0) successColor else dangerColor)
+        drawMetric("Melhor lucro", bestRouteValue, marginX + metricWidth + metricGap, y, metricWidth, successColor)
     } else {
         drawMetric("Menor custo/km", lowestCost, marginX + metricWidth + metricGap, y, metricWidth)
         y += 72f
@@ -2934,13 +3925,43 @@ private fun generateOperationalReportPdf(
     }
     y += 88f
 
+    if (feature == OperationalFeature.ROUTE_PROFITABILITY) {
+        drawSection("MOTORISTAS")
+        if (drivers.isEmpty()) {
+            canvas.drawText("Nenhum motorista cadastrado.", marginX, y + 6f, valuePaint)
+            y += 24f
+        } else {
+            drivers.sortedBy { it.name.lowercase(Locale.ROOT) }.forEach { driver ->
+                val linkedRoutes = records
+                    .filter { it.driverId == driver.id }
+                    .map { splitOperationalTitle(it.name).title }
+                    .distinct()
+                val height = 108f
+                val bottomGap = 32f
+                ensureSpace(height + bottomGap)
+                val top = y
+                canvas.drawRoundRect(android.graphics.RectF(marginX, top, marginX + contentWidth, top + height), 12f, 12f, cardPaint)
+                canvas.drawRoundRect(android.graphics.RectF(marginX, top, marginX + contentWidth, top + height), 12f, 12f, cardBorderPaint)
+                canvas.drawText(fit(driver.name, 38), marginX + 12f, top + 22f, valueBoldPaint)
+                drawKeyValue("Codigo", driver.code.ifBlank { "-" }, marginX + 12f, top + 42f, marginX + 72f, 24)
+                drawKeyValue("Salario", formatMoney(driver.salary), marginX + 190f, top + 42f, marginX + 250f, 24)
+                drawKeyValue("Custos/imp.", formatMoney(driver.taxCost), marginX + 360f, top + 42f, marginX + 430f, 22)
+                val linhas = linkedRoutes.joinToString(", ").ifBlank { "-" }
+                drawKeyValue("Linhas", fit(linhas, 62), marginX + 12f, top + 66f, marginX + 72f, 62)
+                y += height + bottomGap
+            }
+        }
+        y += 30f
+    }
+
+    ensureSpace(46f)
     drawSection("HISTORICO")
     if (records.isEmpty()) {
         canvas.drawText("Nenhum registro encontrado para este relatorio.", marginX, y + 6f, valuePaint)
         y += 24f
     } else {
         records.sortedByDescending { it.createdAt }.forEachIndexed { index, record ->
-            val height = if (feature == OperationalFeature.ROUTE_PROFITABILITY) 214f else 154f
+            val height = if (feature == OperationalFeature.ROUTE_PROFITABILITY) 232f else 154f
             ensureSpace(height + 16f)
             val top = y
             canvas.drawRoundRect(android.graphics.RectF(marginX, top, marginX + contentWidth, top + height), 12f, 12f, cardPaint)
@@ -2950,6 +3971,7 @@ private fun generateOperationalReportPdf(
             canvas.drawText("${index + 1}. ${fit(parts.title, 58)}", marginX + 14f, top + 22f, valueBoldPaint)
             var rowY = top + 48f
             if (feature == OperationalFeature.ROUTE_PROFITABILITY) {
+                val recordDriver = drivers.firstOrNull { it.id == record.driverId }
                 val routeRows = listOf(
                     "Receita" to (record.revenue?.let(::formatMoney) ?: "-"),
                     "Custo operacional" to formatMoney(record.cost),
@@ -2959,6 +3981,7 @@ private fun generateOperationalReportPdf(
                     "Resultado" to "${formatMoney(routeProfit(record))} • ${formatPlainDecimal(routeMargin(record))}%",
                     "Veiculo" to record.vehicle.ifBlank { "-" },
                     "Motorista" to record.driverName.ifBlank { "-" },
+                    "Codigo" to (recordDriver?.code?.ifBlank { "-" } ?: "-"),
                     "Rota" to record.positionOrRoute.ifBlank { "-" },
                     "Distancia" to "${record.kmStart} km"
                 )
@@ -2968,8 +3991,14 @@ private fun generateOperationalReportPdf(
                 }
             } else {
                 drawKeyValue("Marca/origem", record.brandOrClient.ifBlank { "-" }, marginX + 14f, rowY, marginX + 108f, 62)
+                if (feature == OperationalFeature.TIRE_ROI) {
+                    drawKeyValue("Quantidade", record.quantity.coerceAtLeast(1).toString(), marginX + 330f, rowY, marginX + 405f)
+                }
                 rowY += 20f
                 drawKeyValue("Veiculo", record.vehicle.ifBlank { "-" }, marginX + 14f, rowY, marginX + 108f, 68)
+                if (feature == OperationalFeature.TIRE_ROI) {
+                    drawKeyValue("Data", record.recordDate.ifBlank { "-" }, marginX + 330f, rowY, marginX + 405f)
+                }
                 rowY += 20f
                 drawKeyValue("Posicao/local", record.positionOrRoute.ifBlank { "-" }, marginX + 14f, rowY, marginX + 100f)
                 drawKeyValue("Custo", formatMoney(record.cost), marginX + 330f, rowY, marginX + 390f)
@@ -3089,7 +4118,8 @@ private data class HubFeatureCubeData(
     val iconBg: Color,
     val title: String,
     val subtitle: String,
-    val onClick: (() -> Unit)?
+    val onClick: (() -> Unit)?,
+    val blocked: Boolean = false
 )
 
 @Composable
@@ -3105,22 +4135,23 @@ private fun HubFeatureCube(
 ) {
     Column(
         modifier = modifier
-            .heightIn(min = 150.dp)
+            .aspectRatio(1f)
             .clip(RoundedCornerShape(18.dp))
             .background(cardBg)
+            .then(if (feature.blocked) Modifier.alpha(0.55f) else Modifier)
             .border(BorderStroke(1.dp, cardBorder), RoundedCornerShape(18.dp))
             .then(if (feature.onClick != null) Modifier.clickable(onClick = feature.onClick) else Modifier)
-            .padding(13.dp),
-        verticalArrangement = Arrangement.spacedBy(9.dp)
+            .padding(11.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Box(
             modifier = Modifier
-                .size(42.dp)
+                .size(38.dp)
                 .clip(RoundedCornerShape(14.dp))
                 .background(feature.iconBg),
             contentAlignment = Alignment.Center
         ) {
-            Icon(feature.icon, contentDescription = null, tint = feature.iconColor, modifier = Modifier.size(22.dp))
+            Icon(feature.icon, contentDescription = null, tint = feature.iconColor, modifier = Modifier.size(21.dp))
         }
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
@@ -3128,13 +4159,17 @@ private fun HubFeatureCube(
                 color = titleColor,
                 fontWeight = FontWeight.Black,
                 fontSize = 14.sp,
-                lineHeight = 17.sp
+                lineHeight = 16.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
             )
             Text(
                 feature.subtitle,
                 color = subtitleColor,
                 fontSize = 11.sp,
-                lineHeight = 15.sp
+                lineHeight = 14.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
             )
         }
         Spacer(Modifier.weight(1f))

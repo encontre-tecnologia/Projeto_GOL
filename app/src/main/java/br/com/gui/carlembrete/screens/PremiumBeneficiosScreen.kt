@@ -11,19 +11,26 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBackIosNew
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Diamond
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.WorkspacePremium
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -50,11 +57,27 @@ fun PremiumBeneficiosScreen(
     onPlanSelected: ((SubscriptionPlan) -> Unit)? = null
 ) {
     var selectedPlan by rememberSaveable { mutableStateOf(SubscriptionPlan.FROTA) }
+    var planPrices by remember { mutableStateOf(RemotePlanPricing.defaultPrices) }
+    val colorScheme = MaterialTheme.colorScheme
+    val isDark = colorScheme.background.luminance() < 0.5f
+    val screenBg = if (isDark) Color.Black else PBScreenBg
+    val cardBg = if (isDark) Color(0xFF0F172A) else PBCardBg
+    val titleColor = if (isDark) Color(0xFFF8FAFC) else PBTitleColor
+    val subColor = if (isDark) Color(0xFFCBD5E1) else PBSubColor
+    val dimColor = if (isDark) Color(0xFF94A3B8) else PBDimColor
+    val goldTitle = if (isDark) Color(0xFFFFD85A) else PBGoldStart
+
+    DisposableEffect(Unit) {
+        val listener = RemotePlanPricing.listen { prices ->
+            planPrices = prices
+        }
+        onDispose { listener.remove() }
+    }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(PBScreenBg)
+            .background(screenBg)
     ) {
         Column(
             modifier = Modifier
@@ -64,42 +87,42 @@ fun PremiumBeneficiosScreen(
                 .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // --- HEADER ---
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 12.dp),
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
                 contentAlignment = Alignment.Center
             ) {
                 if (showBackButton) {
                     IconButton(
                         onClick = onDismiss,
-                        modifier = Modifier.align(Alignment.CenterStart).size(40.dp)
+                        modifier = Modifier
+                            .align(Alignment.CenterStart)
+                            .size(40.dp)
                     ) {
                         Icon(
                             Icons.Default.ArrowBackIosNew,
                             contentDescription = tr("Voltar", "Back"),
-                            tint = PBTitleColor,
+                            tint = titleColor,
                             modifier = Modifier.size(20.dp)
                         )
                     }
                 }
                 Text(
                     text = tr("Zellu Premium", "Zellu Premium"),
-                    color = PBTitleColor,
-                    fontWeight = FontWeight.Bold,
+                    color = titleColor,
+                    fontWeight = FontWeight.Black,
                     fontSize = 20.sp
                 )
             }
 
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(10.dp))
 
-            // --- HERO ---
             Box(
                 modifier = Modifier
                     .size(72.dp)
                     .clip(CircleShape)
-                    .background(Brush.radialGradient(listOf(Color(0xFFD4A017).copy(alpha = 0.3f), Color.Transparent))),
+                    .background(Brush.radialGradient(listOf(PBGoldEnd.copy(alpha = if (isDark) 0.38f else 0.30f), Color.Transparent))),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
@@ -113,24 +136,43 @@ fun PremiumBeneficiosScreen(
             Spacer(Modifier.height(14.dp))
 
             Text(
-                text = tr("Escolha seu plano", "Choose your plan"),
-                color = PBGoldStart,
+                text = tr("Deixe sua garagem mais inteligente", "Make your garage smarter"),
+                color = goldTitle,
                 fontWeight = FontWeight.Black,
                 fontSize = 26.sp,
-                textAlign = TextAlign.Center
+                lineHeight = 31.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(horizontal = 24.dp)
             )
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(6.dp))
             Text(
-                text = tr("7 dias grátis • cancele quando quiser", "7 free days • cancel anytime"),
-                color = Color(0xFF34D399),
+                text = tr("IA, avisos, viagens e relatorios em um so lugar.", "AI, reminders, trips and reports in one place."),
+                color = subColor,
+                fontSize = 14.sp,
+                lineHeight = 19.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(horizontal = 28.dp)
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = tr("7 dias gratis - cancele quando quiser", "7 free days - cancel anytime"),
+                color = Color(0xFF059669),
                 fontSize = 13.sp,
-                fontWeight = FontWeight.SemiBold,
+                fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center
             )
 
-            Spacer(Modifier.height(28.dp))
+            Spacer(Modifier.height(18.dp))
 
-            // --- PLAN CARDS ---
+            PremiumAiSpotlightCard(
+                isDark = isDark,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp)
+            )
+
+            Spacer(Modifier.height(18.dp))
+
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -139,21 +181,26 @@ fun PremiumBeneficiosScreen(
             ) {
                 PlanCard(
                     name = tr("Plano Lite", "Lite Plan"),
-                    price = "10,50",
-                    tagLabel = null,
-                    nameColor = Color(0xFF93C5FD),
-                    borderColorSelected = Color(0xFF60A5FA),
-                    borderColorIdle = Color(0xFFD7E6FF),
-                    tagBg = Color.Transparent,
-                    tagTextColor = Color.Transparent,
+                    price = planPrices.priceFor(SubscriptionPlan.LITE),
+                    tagLabel = tr("IA INCLUSA", "AI INCLUDED"),
+                    nameColor = Color(0xFF2563EB),
+                    borderColorSelected = Color(0xFF2563EB),
+                    borderColorIdle = if (isDark) Color(0xFF1E3A8A) else Color(0xFFD7E6FF),
+                    tagBg = if (isDark) Color(0xFF172554) else Color(0xFFEAF2FF),
+                    tagTextColor = if (isDark) Color(0xFF93C5FD) else Color(0xFF1D4ED8),
                     isSelected = selectedPlan == SubscriptionPlan.LITE,
-                    description = tr("Módulo de viagens com custos por rota.", "Trip module with route cost tracking."),
+                    cardBg = cardBg,
+                    titleColor = titleColor,
+                    subColor = subColor,
+                    dimColor = dimColor,
+                    description = tr("Para quem quer a IA ajudando no dia a dia do carro.", "For users who want AI helping with daily vehicle care."),
                     features = listOf(
-                        tr("Registro de viagens", "Trip logging"),
-                        tr("Controle de custos por rota", "Route cost tracking"),
-                        tr("Histórico completo de viagens", "Full trip history")
+                        tr("Pergunte sobre avisos, consumo, pneus, oleo e viagem", "Ask about reminders, fuel, tires, oil and trips"),
+                        tr("Crie avisos e registros conversando com a Zellu AI", "Create reminders and records by chatting with Zellu AI"),
+                        tr("Veja se o veiculo parece bom para viajar", "Check if the vehicle looks ready for a trip"),
+                        tr("Controle custos e historico de viagens", "Track trip costs and history")
                     ),
-                    featureColor = Color(0xFF93C5FD),
+                    featureColor = Color(0xFF2563EB),
                     onClick = {
                         selectedPlan = SubscriptionPlan.LITE
                         onPlanSelected?.invoke(SubscriptionPlan.LITE)
@@ -162,22 +209,27 @@ fun PremiumBeneficiosScreen(
 
                 PlanCard(
                     name = tr("Plano Frota", "Fleet Plan"),
-                    price = "29,90",
-                    tagLabel = tr("COMPLETO", "COMPLETE"),
-                    nameColor = PBGoldStart,
-                    borderColorSelected = PBGoldStart,
-                    borderColorIdle = Color(0xFFFFE7A3),
-                    tagBg = Color(0xFFFFF3CC),
-                    tagTextColor = Color(0xFF7A5900),
+                    price = planPrices.priceFor(SubscriptionPlan.FROTA),
+                    tagLabel = tr("MAIS ESCOLHIDO", "MOST PICKED"),
+                    nameColor = PBGoldEnd,
+                    borderColorSelected = PBGoldEnd,
+                    borderColorIdle = if (isDark) Color(0xFF854D0E) else Color(0xFFFFE7A3),
+                    tagBg = if (isDark) Color(0xFF422006) else Color(0xFFFFF3CC),
+                    tagTextColor = if (isDark) Color(0xFFFDE68A) else Color(0xFF7A5900),
                     isSelected = selectedPlan == SubscriptionPlan.FROTA,
-                    description = tr("Viagens, gestão de frota e estoque.", "Trips, fleet management and stock."),
+                    cardBg = cardBg,
+                    titleColor = titleColor,
+                    subColor = subColor,
+                    dimColor = dimColor,
+                    description = tr("Para controlar varios veiculos sem se perder.", "For managing several vehicles without getting lost."),
                     features = listOf(
                         tr("Tudo do plano Lite", "Everything from Lite"),
-                        tr("Visão geral da frota", "Fleet overview"),
-                        tr("Sistema de estoque completo", "Full stock system"),
-                        tr("Gestão avançada e relatórios", "Advanced management")
+                        tr("Zellu AI comparando todos os veiculos da garagem", "Zellu AI comparing all vehicles in the garage"),
+                        tr("Resumo da frota e prioridade de revisao", "Fleet summary and revision priority"),
+                        tr("Relatorios para compartilhar em poucos toques", "Shareable reports in a few taps"),
+                        tr("Estoque completo para pecas, produtos e operacao", "Full stock for parts, products and operations")
                     ),
-                    featureColor = PBGoldStart,
+                    featureColor = PBGoldEnd,
                     onClick = {
                         selectedPlan = SubscriptionPlan.FROTA
                         onPlanSelected?.invoke(SubscriptionPlan.FROTA)
@@ -186,22 +238,27 @@ fun PremiumBeneficiosScreen(
 
                 PlanCard(
                     name = tr("Plano Enterprise", "Enterprise Plan"),
-                    price = "59,90",
-                    tagLabel = tr("MÁXIMO", "MAX"),
-                    nameColor = Color(0xFF22D3EE),
-                    borderColorSelected = Color(0xFF22D3EE),
-                    borderColorIdle = Color(0xFFBFEFF7),
-                    tagBg = Color(0xFFE6FAFE),
-                    tagTextColor = Color(0xFF0E7490),
+                    price = planPrices.priceFor(SubscriptionPlan.ENTERPRISE),
+                    tagLabel = tr("MAXIMO", "MAX"),
+                    nameColor = Color(0xFF0891B2),
+                    borderColorSelected = Color(0xFF0891B2),
+                    borderColorIdle = if (isDark) Color(0xFF155E75) else Color(0xFFBFEFF7),
+                    tagBg = if (isDark) Color(0xFF083344) else Color(0xFFE6FAFE),
+                    tagTextColor = if (isDark) Color(0xFF67E8F9) else Color(0xFF0E7490),
                     isSelected = selectedPlan == SubscriptionPlan.ENTERPRISE,
-                    description = tr("Tudo do Frota com mais capacidade de veículos.", "Everything from Fleet with more vehicle capacity."),
+                    cardBg = cardBg,
+                    titleColor = titleColor,
+                    subColor = subColor,
+                    dimColor = dimColor,
+                    description = tr("Para operacao maior, com mais veiculos e mais controle.", "For larger operations with more vehicles and more control."),
                     features = listOf(
                         tr("Tudo do plano Frota", "Everything from Fleet"),
-                        tr("Viagens e custos avançados", "Advanced trips and costs"),
-                        tr("Estoque para operação em escala", "Stock for large operations"),
-                        tr("Maior capacidade de veículos", "Highest vehicle capacity")
+                        tr("Zellu AI para uma garagem maior", "Zellu AI for a larger garage"),
+                        tr("Mais capacidade de veiculos cadastrados", "More registered vehicle capacity"),
+                        tr("Gestao, estoque e relatorios em escala", "Management, stock and reports at scale"),
+                        tr("Mais organizacao para crescer sem bagunca", "More organization to grow without mess")
                     ),
-                    featureColor = Color(0xFF22D3EE),
+                    featureColor = Color(0xFF0891B2),
                     onClick = {
                         selectedPlan = SubscriptionPlan.ENTERPRISE
                         onPlanSelected?.invoke(SubscriptionPlan.ENTERPRISE)
@@ -211,7 +268,6 @@ fun PremiumBeneficiosScreen(
 
             Spacer(Modifier.height(24.dp))
 
-            // --- CTA ---
             if (showSubscribeButton) {
                 Box(
                     modifier = Modifier
@@ -225,29 +281,87 @@ fun PremiumBeneficiosScreen(
                 ) {
                     Text(
                         text = when (selectedPlan) {
-                            SubscriptionPlan.LITE -> tr("ASSINAR LITE • 7 DIAS GRÁTIS", "SUBSCRIBE LITE • 7 FREE DAYS")
-                            SubscriptionPlan.FROTA -> tr("ASSINAR FROTA • 7 DIAS GRÁTIS", "SUBSCRIBE FLEET • 7 FREE DAYS")
-                            SubscriptionPlan.ENTERPRISE -> tr("ASSINAR ENTERPRISE • 7 DIAS GRÁTIS", "SUBSCRIBE ENTERPRISE • 7 FREE DAYS")
+                            SubscriptionPlan.LITE -> tr("COMECAR LITE - 7 DIAS GRATIS", "START LITE - 7 FREE DAYS")
+                            SubscriptionPlan.FROTA -> tr("COMECAR FROTA - 7 DIAS GRATIS", "START FLEET - 7 FREE DAYS")
+                            SubscriptionPlan.ENTERPRISE -> tr("COMECAR ENTERPRISE - 7 DIAS GRATIS", "START ENTERPRISE - 7 FREE DAYS")
                         },
                         fontWeight = FontWeight.Black,
                         fontSize = 14.sp,
                         color = Color(0xFF1A0800),
-                        letterSpacing = 0.5.sp
+                        letterSpacing = 0.5.sp,
+                        textAlign = TextAlign.Center
                     )
                 }
 
                 Spacer(Modifier.height(12.dp))
 
                 Text(
-                    text = tr("Renovação automática. Cancele a qualquer momento.", "Auto-renewal. Cancel anytime."),
-                    color = PBDimColor,
+                    text = tr("Teste primeiro. Se nao fizer sentido para sua garagem, cancele quando quiser.", "Try it first. If it does not fit your garage, cancel anytime."),
+                    color = dimColor,
                     fontSize = 11.sp,
+                    lineHeight = 15.sp,
                     textAlign = TextAlign.Center,
                     modifier = Modifier.padding(horizontal = 24.dp)
                 )
             }
 
             Spacer(Modifier.height(32.dp))
+        }
+    }
+}
+
+@Composable
+private fun PremiumAiSpotlightCard(
+    isDark: Boolean,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(22.dp))
+            .background(
+                Brush.horizontalGradient(
+                    if (isDark) {
+                        listOf(Color(0xFF111827), Color(0xFF020617))
+                    } else {
+                        listOf(Color(0xFF0F172A), Color(0xFF111827))
+                    }
+                )
+            )
+            .border(BorderStroke(1.dp, Color(0xFF334155)), RoundedCornerShape(22.dp))
+            .padding(16.dp),
+        horizontalArrangement = Arrangement.spacedBy(13.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(44.dp)
+                .clip(CircleShape)
+                .background(Color.White.copy(alpha = 0.10f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Default.AutoAwesome,
+                contentDescription = null,
+                tint = PBGoldStart,
+                modifier = Modifier.size(24.dp)
+            )
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Text(
+                text = tr("Agora com Zellu AI", "Now with Zellu AI"),
+                color = Color.White,
+                fontWeight = FontWeight.Black,
+                fontSize = 16.sp
+            )
+            Text(
+                text = tr(
+                    "Pergunte como esta sua garagem, crie avisos, registre servicos e receba respostas simples sobre mecanica.",
+                    "Ask about your garage, create reminders, register services and get simple maintenance answers."
+                ),
+                color = Color(0xFFCBD5E1),
+                fontSize = 13.sp,
+                lineHeight = 18.sp
+            )
         }
     }
 }
@@ -266,32 +380,43 @@ private fun PlanCard(
     description: String,
     features: List<String>,
     featureColor: Color,
+    cardBg: Color,
+    titleColor: Color,
+    subColor: Color,
+    dimColor: Color,
     onClick: () -> Unit
 ) {
     val borderColor = if (isSelected) borderColorSelected else borderColorIdle
     val borderWidth = if (isSelected) 2.dp else 1.dp
+    val selectedBg = if (isSelected) featureColor.copy(alpha = 0.10f) else cardBg
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
-            .background(PBCardBg)
-            .border(BorderStroke(borderWidth, borderColor), RoundedCornerShape(20.dp))
+            .clip(RoundedCornerShape(22.dp))
+            .background(selectedBg)
+            .border(BorderStroke(borderWidth, borderColor), RoundedCornerShape(22.dp))
             .clickable(onClick = onClick)
-            .padding(20.dp),
+            .padding(18.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Text(name, color = nameColor, fontWeight = FontWeight.Bold, fontSize = 17.sp, modifier = Modifier.weight(1f))
+            Text(
+                text = name,
+                color = nameColor,
+                fontWeight = FontWeight.Black,
+                fontSize = 18.sp,
+                modifier = Modifier.weight(1f)
+            )
             if (tagLabel != null) {
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
+                        .clip(RoundedCornerShape(999.dp))
                         .background(tagBg)
-                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                        .padding(horizontal = 10.dp, vertical = 5.dp)
                 ) {
                     Text(tagLabel, color = tagTextColor, fontSize = 10.sp, fontWeight = FontWeight.Black)
                 }
@@ -299,33 +424,52 @@ private fun PlanCard(
         }
 
         Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text("R$", color = PBSubColor, fontSize = 14.sp, modifier = Modifier.padding(bottom = 4.dp))
+            Text("R$", color = subColor, fontSize = 14.sp, modifier = Modifier.padding(bottom = 4.dp))
             Text(
                 text = buildAnnotatedString {
-                    withStyle(SpanStyle(fontSize = 34.sp, fontWeight = FontWeight.Black, color = PBTitleColor)) { append(price) }
+                    withStyle(SpanStyle(fontSize = 34.sp, fontWeight = FontWeight.Black, color = titleColor)) {
+                        append(price)
+                    }
                 },
-                color = PBTitleColor
+                color = titleColor
             )
-            Text(tr("/mês", "/mo"), color = PBDimColor, fontSize = 13.sp, modifier = Modifier.padding(bottom = 6.dp))
+            Text(tr("/mes", "/mo"), color = dimColor, fontSize = 13.sp, modifier = Modifier.padding(bottom = 6.dp))
         }
 
-        Text(description, color = PBSubColor, fontSize = 13.sp, lineHeight = 18.sp)
+        Text(description, color = subColor, fontSize = 13.sp, lineHeight = 18.sp)
 
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
             features.forEach { feature ->
                 Row(
-                    verticalAlignment = Alignment.CenterVertically,
+                    verticalAlignment = Alignment.Top,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Icon(
                         Icons.Default.CheckCircle,
                         contentDescription = null,
                         tint = featureColor,
-                        modifier = Modifier.size(15.dp)
+                        modifier = Modifier
+                            .padding(top = 1.dp)
+                            .size(16.dp)
                     )
-                    Text(feature, color = PBTitleColor, fontSize = 13.sp)
+                    Text(
+                        text = feature,
+                        color = titleColor,
+                        fontSize = 13.sp,
+                        lineHeight = 18.sp,
+                        modifier = Modifier.weight(1f)
+                    )
                 }
             }
+        }
+
+        if (isSelected) {
+            Text(
+                text = tr("Selecionado", "Selected"),
+                color = featureColor,
+                fontWeight = FontWeight.Black,
+                fontSize = 12.sp
+            )
         }
     }
 }
