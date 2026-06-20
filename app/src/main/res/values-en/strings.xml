@@ -23,6 +23,12 @@
     <string name="cfg_backup_restore">Restore backup on this device</string>
     <string name="cfg_backup_none">No backup yet</string>
     <string name="cfg_backup_last">Last backup for this account: %1$s</string>
+    <string name="cfg_backup_auto_title">Automatic backup</string>
+    <string name="cfg_backup_auto_description">Save your data to Google Drive even when you do not open this screen.</string>
+    <string name="cfg_backup_auto_off">Off</string>
+    <string name="cfg_backup_auto_monthly">Monthly</string>
+    <string name="cfg_backup_auto_weekly">Weekly</string>
+    <string name="cfg_backup_auto_enabled">Automatic backup enabled.</string>
 
     <string name="cfg_backup_sent_success">Backup sent successfully!</string>
     <string name="cfg_backup_send_failed">Failed to send: %1$s</string>

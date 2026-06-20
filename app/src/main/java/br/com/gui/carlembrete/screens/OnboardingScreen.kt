@@ -238,12 +238,12 @@ fun OnboardingScreen(
     var showOutroVeiculoDialog by remember { mutableStateOf(false) }
     var onboardingVehicleFormSession by remember { mutableIntStateOf(0) }
     var selectedThemeMode by remember { mutableStateOf(AppThemeMode.DARK) }
-    var aceitouTermos by remember { mutableStateOf(false) }
-    var aceitouPrivacidade by remember { mutableStateOf(false) }
+    var backupWasRestored by remember { mutableStateOf(false) }
     val previousStep = when (step) {
+        3 -> 1
         7 -> 5
         6 -> 4
-        5 -> 1
+        5 -> 3
         9 -> 5
         4 -> 7
         2 -> 1
@@ -253,56 +253,6 @@ fun OnboardingScreen(
         step = previousStep ?: step
     }
     val maxVehicles = vehicleLimitForPlan(PlanTier.FREE)
-    val termosUsoTexto = remember {
-        """
-        1. Aceite: ao usar o Zellu, você concorda com estes Termos e com a Política de Privacidade.
-
-        2. Objeto: o app oferece gestão de veículos, lembretes, manutenções, viagens, frota e estoque.
-
-        3. Uso adequado: você se compromete a usar o app de forma lícita, sem fraude, abuso técnico ou violação de direitos de terceiros.
-
-        4. Conta e segurança: você é responsável pelos dados da conta e pela guarda do acesso.
-
-        5. Planos e cobrança: planos pagos (como Lite/Frota) seguem regras da loja/plataforma de pagamento para renovação, cancelamento e reembolso.
-
-        6. Limitação: o Zellu é ferramenta de apoio e não substitui diagnóstico técnico, vistoria, seguro, assistência mecânica ou orientação profissional.
-
-        7. Disponibilidade: funcionalidades podem ser alteradas, corrigidas, suspensas ou descontinuadas por evolução do produto, segurança ou obrigação legal.
-
-        8. Propriedade intelectual: marca, software, layout e conteúdo do app são protegidos por lei.
-
-        9. Legislação e foro: aplica-se a legislação brasileira, com foro da comarca de Sao Carlos/SP, salvo competência legal específica.
-
-        10. Contato legal e suporte: guilhermedevsistemas@gmail.com
-        """.trimIndent()
-    }
-    val politicaPrivacidadeTexto = remember {
-        """
-        1. Dados tratados: o app pode tratar dados de conta (nome, e-mail e identificadores), cadastro de veículos, lembretes, contatos, viagens, itens de estoque, localização, câmera, notificações e dados técnicos essenciais.
-
-        2. Finalidades: autenticação, execução das funcionalidades, segurança, prevenção de abuso/fraude, suporte e melhoria contínua.
-
-        3. Bases legais (LGPD): execução de contrato, consentimento quando exigido, legítimo interesse para segurança/estabilidade e cumprimento de obrigação legal.
-
-        4. Permissões: câmera, localização e notificações são usadas somente com autorização e podem ser revogadas a qualquer momento no dispositivo.
-
-        5. Compartilhamento: não vendemos dados pessoais. Podemos compartilhar com operadores/provedores técnicos necessários ao funcionamento do app e com autoridades quando houver obrigação legal.
-
-        6. Retenção e armazenamento: parte dos dados pode ficar no dispositivo e parte em nuvem, pelo tempo necessário às finalidades e obrigações legais.
-
-        7. Direitos do titular: você pode solicitar confirmação de tratamento, acesso, correção, anonimização, exclusão e revogação do consentimento, nos termos da LGPD.
-
-        8. Exclusão de conta e dados: ao solicitar exclusão, removemos dados pessoais e registros vinculados, ressalvadas retenções legais obrigatórias.
-
-        9. Transferência internacional: alguns provedores podem processar dados fora do Brasil, com salvaguardas adequadas.
-
-        10. Contato oficial de privacidade, remoção de dados, dúvidas e suporte:
-        - guilhermedevsistemas@gmail.com
-        Páginas oficiais:
-        - https://account-deletion-site-eight.vercel.app/privacy-policy.html
-        - https://account-deletion-site-eight.vercel.app/terms-of-use.html
-        """.trimIndent()
-    }
     val permissionItems = remember {
         buildList {
             add(
@@ -462,6 +412,26 @@ fun OnboardingScreen(
         }
     }
 
+    if (step == 3) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(onboardingBg)
+                .statusBarsPadding()
+        ) {
+            BackupCheckScreen(
+                onContinue = {
+                    backupWasRestored = true
+                    step = 5
+                },
+                onNoBackup = { step = 5 },
+                cardBg = onboardingCardBg,
+                accentColor = Color(0xFF22C55E)
+            )
+        }
+        return
+    }
+
     if (step == 4) {
         key(onboardingVehicleFormSession) {
             OnboardingNovoCarroScreen(
@@ -519,11 +489,11 @@ fun OnboardingScreen(
                             showButton = true
                         }
 
+                        // Scrollable content fills remaining space; button is pinned below
                         Column(
                             modifier = Modifier
-                                .fillMaxSize()
+                                .weight(1f)
                                 .verticalScroll(rememberScrollState())
-                                .navigationBarsPadding()
                                 .padding(vertical = 20.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
@@ -576,83 +546,82 @@ fun OnboardingScreen(
                                     textAlign = TextAlign.Center
                                 )
                             }
+                        }
 
-                            Spacer(Modifier.height(40.dp))
-
-                            AnimatedVisibility(
-                                visible = showButton,
-                                enter = fadeIn(animationSpec = tween(380)) +
-                                    slideInVertically(
-                                    animationSpec = tween(380),
-                                    initialOffsetY = { it / 12 }
-                                )
-                            ) {
-                                Button(
-                                    onClick = { step = 5 },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(56.dp),
-                                    shape = RoundedCornerShape(10.dp),
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6))
-                                ) { Text("Vamos lá!", fontSize = 19.sp, color = Color.White) }
-                            }
-                            Spacer(Modifier.height(16.dp))
+                        // Button pinned outside scroll — always visible
+                        AnimatedVisibility(
+                            visible = showButton,
+                            enter = fadeIn(animationSpec = tween(380)) +
+                                slideInVertically(
+                                animationSpec = tween(380),
+                                initialOffsetY = { it / 12 }
+                            )
+                        ) {
+                            Button(
+                                onClick = { step = 3 },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .navigationBarsPadding()
+                                    .padding(top = 12.dp, bottom = 8.dp)
+                                    .height(56.dp),
+                                shape = RoundedCornerShape(10.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6))
+                            ) { Text("Vamos lá!", fontSize = 19.sp, color = Color.White) }
                         }
                     }
                     5 -> {
-                        LazyColumn(
+                        // Scrollable content fills remaining space; button is pinned below
+                        Column(
                             modifier = Modifier
-                                .fillMaxSize()
-                                .navigationBarsPadding(),
-                            contentPadding = PaddingValues(bottom = 12.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                                .weight(1f)
+                                .verticalScroll(rememberScrollState())
                         ) {
-                            item {
-                                Box(
+                            // Header — sem barra azul, fundo herdado da tela
+                            Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .background(
-                                        Brush.verticalGradient(
-                                            listOf(Color(0xFF1D4ED8), Color(0xFF1E3A5F))
-                                        )
-                                    )
                                     .padding(horizontal = 24.dp, vertical = 28.dp),
-                                contentAlignment = Alignment.Center
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(64.dp)
-                                            .clip(CircleShape)
-                                            .background(Color.White.copy(alpha = 0.15f)),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Security,
-                                            contentDescription = null,
-                                            tint = Color.White,
-                                            modifier = Modifier.size(34.dp)
-                                        )
-                                    }
-                                    Spacer(Modifier.height(12.dp))
-                                    Text(
-                                        "Permissões necessárias",
-                                        fontSize = 22.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color.White
-                                    )
-                                    Spacer(Modifier.height(4.dp))
-                                    Text(
-                                        "Conceda os acessos para usar todos os recursos do Zellu.",
-                                        color = Color.White.copy(alpha = 0.75f),
-                                        textAlign = TextAlign.Center,
-                                        fontSize = 13.sp,
-                                        lineHeight = 18.sp
+                                Box(
+                                    modifier = Modifier
+                                        .size(64.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF1E3A5F)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Security,
+                                        contentDescription = null,
+                                        tint = Color(0xFF60A5FA),
+                                        modifier = Modifier.size(34.dp)
                                     )
                                 }
-                                }
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    "Permissões necessárias",
+                                    fontSize = 22.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White,
+                                    textAlign = TextAlign.Center
+                                )
+                                Text(
+                                    "Conceda os acessos para usar todos os recursos do Zellu.",
+                                    color = Color.White.copy(alpha = 0.55f),
+                                    textAlign = TextAlign.Center,
+                                    fontSize = 13.sp,
+                                    lineHeight = 18.sp
+                                )
                             }
-                            items(permissionItems) { item ->
+
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                permissionItems.forEach { item ->
                                     val granted = permissionStatus[item.permission] == true
                                     val iconTint = when (item.permission) {
                                         Manifest.permission.CAMERA -> Color(0xFF60A5FA)
@@ -669,7 +638,6 @@ fun OnboardingScreen(
                                     Column(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .padding(horizontal = 16.dp)
                                             .clip(RoundedCornerShape(16.dp))
                                             .background(Color(0xFF1E293B))
                                             .border(
@@ -702,24 +670,18 @@ fun OnboardingScreen(
                                                     verticalAlignment = Alignment.CenterVertically
                                                 ) {
                                                     Text(item.title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                                                    if (granted) {
-                                                        Box(
-                                                            modifier = Modifier
-                                                                .clip(RoundedCornerShape(20.dp))
-                                                                .background(Color(0xFF166534))
-                                                                .padding(horizontal = 8.dp, vertical = 3.dp)
-                                                        ) {
-                                                            Text("Permitido", color = Color(0xFF4ADE80), fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                                        }
-                                                    } else {
-                                                        Box(
-                                                            modifier = Modifier
-                                                                .clip(RoundedCornerShape(20.dp))
-                                                                .background(Color(0xFF7F1D1D))
-                                                                .padding(horizontal = 8.dp, vertical = 3.dp)
-                                                        ) {
-                                                            Text("Pendente", color = Color(0xFFFCA5A5), fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                                        }
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .clip(RoundedCornerShape(20.dp))
+                                                            .background(if (granted) Color(0xFF166534) else Color(0xFF7F1D1D))
+                                                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                                                    ) {
+                                                        Text(
+                                                            if (granted) "Permitido" else "Pendente",
+                                                            color = if (granted) Color(0xFF4ADE80) else Color(0xFFFCA5A5),
+                                                            fontSize = 11.sp,
+                                                            fontWeight = FontWeight.Bold
+                                                        )
                                                     }
                                                 }
                                                 Spacer(Modifier.height(2.dp))
@@ -767,32 +729,36 @@ fun OnboardingScreen(
                                             }
                                         }
                                     }
-                            }
-                            item {
-                                Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 16.dp, vertical = 12.dp)
-                            ) {
-                                Button(
-                                    onClick = { step = 7 },
-                                    enabled = allRequiredPermissionsGranted,
-                                    modifier = Modifier.fillMaxWidth().height(54.dp),
-                                    shape = RoundedCornerShape(14.dp),
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = Color(0xFF2563EB),
-                                        contentColor = Color.White,
-                                        disabledContainerColor = Color(0xFF1E293B),
-                                        disabledContentColor = Color(0xFF475569)
-                                    )
-                                ) {
-                                    Text(
-                                        if (allRequiredPermissionsGranted) "Continuar" else "Conceda os acessos acima",
-                                        fontSize = 16.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
                                 }
                             }
+
+                            Spacer(Modifier.height(12.dp))
+                        }
+
+                        // Botão sempre visível fora da área de scroll
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .navigationBarsPadding()
+                                .padding(horizontal = 16.dp, vertical = 12.dp)
+                        ) {
+                            Button(
+                                onClick = { step = 7 },
+                                enabled = allRequiredPermissionsGranted,
+                                modifier = Modifier.fillMaxWidth().height(54.dp),
+                                shape = RoundedCornerShape(14.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = Color(0xFF2563EB),
+                                    contentColor = Color.White,
+                                    disabledContainerColor = Color(0xFF1E293B),
+                                    disabledContentColor = Color(0xFF475569)
+                                )
+                            ) {
+                                Text(
+                                    if (allRequiredPermissionsGranted) "Continuar" else "Conceda os acessos acima",
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
                             }
                         }
                     }
@@ -915,189 +881,11 @@ fun OnboardingScreen(
                         }
                     }
                     7 -> {
-                        LazyColumn(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .fillMaxHeight(),
-                            verticalArrangement = Arrangement.spacedBy(14.dp),
-                            contentPadding = PaddingValues(bottom = 12.dp)
-                        ) {
-                                item {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(bottom = 6.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Shield,
-                                        contentDescription = null,
-                                        tint = Color(0xFF93C5FD),
-                                        modifier = Modifier.size(56.dp)
-                                    )
-                                }
-                                }
-                                item {
-                                Text(
-                                    "Termos e Privacidade",
-                                    style = MaterialTheme.typography.headlineMedium,
-                                    color = Color.White,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 32.sp,
-                                    textAlign = TextAlign.Center,
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                                }
-                                item {
-                                Text(
-                                    "Para continuar, aceite os Termos de Uso e a Política de Privacidade do Zellu.",
-                                    color = Color(0xFFBFDBFE),
-                                    fontSize = 16.sp,
-                                    textAlign = TextAlign.Center,
-                                    lineHeight = 22.sp,
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                                }
-                                item {
-                                Card(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    colors = CardDefaults.cardColors(containerColor = onboardingCardBg),
-                                    shape = RoundedCornerShape(14.dp),
-                                    border = BorderStroke(1.dp, Color(0xFF334155))
-                                ) {
-                                    Column(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(12.dp),
-                                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                                    ) {
-                                        Text(
-                                            "Termos de Uso",
-                                            color = Color.White,
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 18.sp,
-                                            textAlign = TextAlign.Center,
-                                            modifier = Modifier.fillMaxWidth()
-                                        )
-                                        Text(
-                                            termosUsoTexto,
-                                            color = Color(0xFFBFDBFE),
-                                            fontSize = 14.sp,
-                                            lineHeight = 21.sp
-                                        )
-                                    }
-                                }
-                                }
-                                item {
-                                Card(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    colors = CardDefaults.cardColors(containerColor = onboardingCardBg),
-                                    shape = RoundedCornerShape(14.dp),
-                                    border = BorderStroke(1.dp, Color(0xFF334155))
-                                ) {
-                                    Column(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(12.dp),
-                                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                                    ) {
-                                        Text(
-                                            "Política de Privacidade",
-                                            color = Color.White,
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 18.sp,
-                                            textAlign = TextAlign.Center,
-                                            modifier = Modifier.fillMaxWidth()
-                                        )
-                                        Text(
-                                            politicaPrivacidadeTexto,
-                                            color = Color(0xFFBFDBFE),
-                                            fontSize = 14.sp,
-                                            lineHeight = 21.sp
-                                        )
-                                    }
-                                }
-                                }
-                                item {
-                                Card(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    colors = CardDefaults.cardColors(containerColor = onboardingCardBg),
-                                    shape = RoundedCornerShape(14.dp),
-                                    border = BorderStroke(
-                                        1.dp,
-                                        if (aceitouTermos && aceitouPrivacidade) Color(0xFF22C55E) else Color(0xFF334155)
-                                    )
-                                ) {
-                                    Column(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(12.dp),
-                                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        Text(
-                                            "Confirmações obrigatórias",
-                                            color = Color.White,
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 17.sp
-                                        )
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                        ) {
-                                            Checkbox(
-                                                checked = aceitouTermos,
-                                                onCheckedChange = { aceitouTermos = it },
-                                                colors = CheckboxDefaults.colors(
-                                                    checkedColor = Color(0xFF22C55E),
-                                                    uncheckedColor = Color(0xFF94A3B8),
-                                                    checkmarkColor = Color.White
-                                                )
-                                            )
-                                            Text(
-                                                "Li e aceito os Termos de Uso.",
-                                                color = Color.White,
-                                                fontWeight = FontWeight.SemiBold,
-                                                fontSize = 15.sp
-                                            )
-                                        }
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                        ) {
-                                            Checkbox(
-                                                checked = aceitouPrivacidade,
-                                                onCheckedChange = { aceitouPrivacidade = it },
-                                                colors = CheckboxDefaults.colors(
-                                                    checkedColor = Color(0xFF22C55E),
-                                                    uncheckedColor = Color(0xFF94A3B8),
-                                                    checkmarkColor = Color.White
-                                                )
-                                            )
-                                            Text(
-                                                "Li e aceito a Política de Privacidade.",
-                                                color = Color.White,
-                                                fontWeight = FontWeight.SemiBold,
-                                                fontSize = 15.sp
-                                            )
-                                        }
-                                    }
-                                }
-                                }
-                                item {
-                                Button(
-                                onClick = { step = 4 },
-                                enabled = aceitouTermos && aceitouPrivacidade,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(56.dp),
-                                shape = RoundedCornerShape(10.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = if (aceitouTermos && aceitouPrivacidade) Color(0xFF2563EB) else Color(0xFF475569),
-                                    contentColor = Color.White
-                                )
-                            ) { Text("Próximo", fontSize = 19.sp) }
-                                }
-                        }
+                        TermsAcceptScreen(
+                            onAccepted = { step = if (backupWasRestored) 6 else 4 },
+                            cardBg = onboardingCardBg,
+                            accentColor = Color(0xFF22C55E)
+                        )
                     }
                     4 -> Unit
                     2 -> {

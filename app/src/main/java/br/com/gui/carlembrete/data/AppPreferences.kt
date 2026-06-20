@@ -25,6 +25,7 @@ object AppPreferences {
     private const val KEY_PARKING_PHOTO_URIS = "parking_photo_uris"
     private const val KEY_FIPE_CACHE_VALUE_PREFIX = "fipe_cache_value_"
     private const val KEY_FIPE_CACHE_TIME_PREFIX = "fipe_cache_time_"
+    private const val KEY_NEEDS_TERMS_AFTER_RESTORE = "needs_terms_after_restore"
 
     fun needsOnboarding(context: Context): Boolean {
         return context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getBoolean(KEY_FIRST_RUN, true)
@@ -271,6 +272,18 @@ object AppPreferences {
             hourlyValue = hourlyValue,
             selectedHours = selectedHours
         )
+    }
+
+    fun needsTermsAfterRestore(context: Context): Boolean {
+        return context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+            .getBoolean(KEY_NEEDS_TERMS_AFTER_RESTORE, false)
+    }
+
+    fun setNeedsTermsAfterRestore(context: Context, value: Boolean) {
+        context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+            .edit()
+            .putBoolean(KEY_NEEDS_TERMS_AFTER_RESTORE, value)
+            .apply()
     }
 }
 

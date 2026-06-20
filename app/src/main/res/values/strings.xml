@@ -23,6 +23,12 @@
     <string name="cfg_backup_restore">Restaurar backup neste aparelho</string>
     <string name="cfg_backup_none">Nenhum backup ainda</string>
     <string name="cfg_backup_last">Último backup desta conta: %1$s</string>
+    <string name="cfg_backup_auto_title">Backup automático</string>
+    <string name="cfg_backup_auto_description">Salve seus dados no Google Drive mesmo quando não abrir esta tela.</string>
+    <string name="cfg_backup_auto_off">Desativado</string>
+    <string name="cfg_backup_auto_monthly">Mensal</string>
+    <string name="cfg_backup_auto_weekly">Semanal</string>
+    <string name="cfg_backup_auto_enabled">Backup automático ativado.</string>
 
     <string name="cfg_backup_sent_success">Backup enviado com sucesso!</string>
     <string name="cfg_backup_send_failed">Falha ao enviar: %1$s</string>
@@ -45,7 +51,7 @@
     <string name="drawer_item_my_vehicles">Meus Veículos</string>
     <string name="drawer_item_add_vehicle">Adicionar Veículo</string>
     <string name="drawer_item_zellu_premium">Zellu Premium</string>
-    <string name="drawer_item_ebooks">Loja de eBooks</string>
+    <string name="drawer_item_ebooks">Biblioteca Zellu</string>
     <string name="drawer_item_terms">Termos de uso</string>
     <string name="drawer_item_privacy">Privacidade</string>
     <string name="drawer_item_settings">Configurações</string>
