@@ -2,6 +2,7 @@
 
 import android.widget.Toast
 import HistoricoAbastecimentoScreen
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -255,6 +256,14 @@ fun CarroInfoScreen(
         delay(180)
         val target = (completedMaintenanceSectionTop - 120f).coerceAtLeast(0f).toInt()
         contentScrollState.animateScrollTo(target)
+    }
+
+    BackHandler {
+        if (showHistoricoConsumo) {
+            showHistoricoConsumo = false
+        } else {
+            onDismiss()
+        }
     }
 
     if (showHistoricoConsumo) {

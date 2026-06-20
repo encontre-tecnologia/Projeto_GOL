@@ -1,4 +1,6 @@
+import android.app.DatePickerDialog
 import android.content.Context
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -36,10 +38,12 @@ import br.com.gui.carlembrete.Abastecimento
 import br.com.gui.carlembrete.AppPreferences
 import br.com.gui.carlembrete.BancoDeDados
 import br.com.gui.carlembrete.formatarMoedaLocal
+import br.com.gui.carlembrete.isEnglishUi
 import br.com.gui.carlembrete.tr
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.text.NumberFormat
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -75,7 +79,19 @@ fun HistoricoAbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
     var kmAtualCarro by remember { mutableStateOf(0) }
     var itemEdicao by remember { mutableStateOf<Abastecimento?>(null) }
     var itemExcluir by remember { mutableStateOf<Abastecimento?>(null) }
+    var filtroCombustivel by remember { mutableStateOf<String?>(null) }
+    var filtroExpanded by remember { mutableStateOf(false) }
     val formatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
+
+    BackHandler {
+        if (itemEdicao != null) {
+            itemEdicao = null
+        } else if (itemExcluir != null) {
+            itemExcluir = null
+        } else {
+            onDismiss()
+        }
+    }
 
     LaunchedEffect(Unit) {
         scope.launch {
@@ -89,8 +105,27 @@ fun HistoricoAbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
         }
     }
 
-    val ordenados = remember(abastecimentos) {
-        abastecimentos.sortedByDescending { parseLocalDateFlexible(it.data, formatter) }
+    val opcoesCombustivel = remember(abastecimentos) {
+        abastecimentos
+            .map { tipoCombustivelHistorico(it) }
+            .distinct()
+            .sorted()
+    }
+    LaunchedEffect(opcoesCombustivel, filtroCombustivel) {
+        if (filtroCombustivel != null && filtroCombustivel !in opcoesCombustivel) {
+            filtroCombustivel = null
+        }
+    }
+    val abastecimentosFiltrados = remember(abastecimentos, filtroCombustivel) {
+        val filtro = filtroCombustivel
+        if (filtro == null) {
+            abastecimentos
+        } else {
+            abastecimentos.filter { tipoCombustivelHistorico(it) == filtro }
+        }
+    }
+    val ordenados = remember(abastecimentosFiltrados) {
+        abastecimentosFiltrados.sortedByDescending { parseLocalDateFlexible(it.data, formatter) }
     }
     val resumoGastos = remember(ordenados) {
         calcularResumoGastosAbastecimento(
@@ -172,84 +207,136 @@ fun HistoricoAbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
             )
         }
     ) { innerPadding ->
-        Column(
+        LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
                 .padding(horizontal = 20.dp),
+            contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(18.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.Transparent),
-                border = BorderStroke(1.dp, cardBorderColor)
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(
-                            Brush.verticalGradient(
-                                colors = if (isDark) {
-                                    listOf(Color(0xFF0B1220), Color(0xFF111827))
-                                } else {
-                                    listOf(Color(0xFFF8FAFC), Color(0xFFFFFFFF))
-                                }
-                            )
-                        )
-                        .padding(horizontal = 14.dp, vertical = 14.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+                    border = BorderStroke(1.dp, cardBorderColor)
                 ) {
-                    Text(
-                        text = tr("Resumo de consumo", "Consumption summary"),
-                        color = if (isDark) Color(0xFF93C5FD) else Color(0xFF1D4ED8),
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 12.sp
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(
+                                Brush.verticalGradient(
+                                    colors = if (isDark) {
+                                        listOf(Color(0xFF0B1220), Color(0xFF111827))
+                                    } else {
+                                        listOf(Color(0xFFF8FAFC), Color(0xFFFFFFFF))
+                                    }
+                                )
+                            )
+                            .padding(horizontal = 14.dp, vertical = 14.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        MiniResumoDestaque(
-                            label = tr("Total do mes", "Month total"),
-                            value = formatarMoedaLocal(resumoGastos.gastoMes),
-                            isDark = isDark,
-                            valueColor = if (isDark) Color(0xFF86EFAC) else Color(0xFF166534),
-                            modifier = Modifier.weight(1f)
+                        Text(
+                            text = tr("Resumo de consumo", "Consumption summary"),
+                            color = if (isDark) Color(0xFF93C5FD) else Color(0xFF1D4ED8),
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 12.sp
                         )
-                        MiniResumoDestaque(
-                            label = tr("Litros", "Liters"),
-                            value = String.format(Locale("pt", "BR"), "%.2f L", resumoConsumo.litrosTotais),
-                            isDark = isDark,
-                            valueColor = if (isDark) Color(0xFF93C5FD) else Color(0xFF1D4ED8),
-                            modifier = Modifier.weight(1f)
-                        )
+                        if (opcoesCombustivel.isNotEmpty()) {
+                            ExposedDropdownMenuBox(
+                                expanded = filtroExpanded,
+                                onExpandedChange = { filtroExpanded = !filtroExpanded }
+                            ) {
+                                OutlinedTextField(
+                                    value = filtroCombustivel ?: tr("Todos os combustiveis", "All fuel types"),
+                                    onValueChange = {},
+                                    readOnly = true,
+                                    label = { Text(tr("Filtro", "Filter")) },
+                                    modifier = Modifier
+                                        .menuAnchor()
+                                        .fillMaxWidth(),
+                                    shape = RoundedCornerShape(12.dp),
+                                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = filtroExpanded) },
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedTextColor = titleColor,
+                                        unfocusedTextColor = titleColor,
+                                        focusedBorderColor = AccentBlue,
+                                        unfocusedBorderColor = cardBorderColor,
+                                        focusedLabelColor = AccentBlue,
+                                        unfocusedLabelColor = bodyColor
+                                    )
+                                )
+                                ExposedDropdownMenu(
+                                    expanded = filtroExpanded,
+                                    onDismissRequest = { filtroExpanded = false }
+                                ) {
+                                    DropdownMenuItem(
+                                        text = { Text(tr("Todos os combustiveis", "All fuel types")) },
+                                        onClick = {
+                                            filtroCombustivel = null
+                                            filtroExpanded = false
+                                        }
+                                    )
+                                    opcoesCombustivel.forEach { tipo ->
+                                        DropdownMenuItem(
+                                            text = { Text(tipo) },
+                                            onClick = {
+                                                filtroCombustivel = tipo
+                                                filtroExpanded = false
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            MiniResumoDestaque(
+                                label = tr("Total do mes", "Month total"),
+                                value = formatarMoedaLocal(resumoGastos.gastoMes),
+                                isDark = isDark,
+                                valueColor = if (isDark) Color(0xFF86EFAC) else Color(0xFF166534),
+                                modifier = Modifier.weight(1f)
+                            )
+                            MiniResumoDestaque(
+                                label = tr("Litros", "Liters"),
+                                value = String.format(Locale("pt", "BR"), "%.2f L", resumoConsumo.litrosTotais),
+                                isDark = isDark,
+                                valueColor = if (isDark) Color(0xFF93C5FD) else Color(0xFF1D4ED8),
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
                     }
                 }
             }
 
             if (ordenados.isEmpty()) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(360.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(Icons.Rounded.LocalGasStation, null, tint = bodyColor.copy(alpha = 0.35f), modifier = Modifier.size(60.dp))
                         Spacer(Modifier.height(16.dp))
                         Text("Sem registros ainda", color = bodyColor, fontSize = 16.sp)
                     }
                 }
+                }
             } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(vertical = 8.dp)
-                ) {
-                    itemsIndexed(ordenados) { index, item ->
-                        TimelineItem(
-                            item = item,
-                            isLast = index == ordenados.lastIndex,
-                            onEdit = { itemEdicao = item },
-                            onDelete = { itemExcluir = item },
-                            isDark = isDark
-                        )
-                    }
+                itemsIndexed(ordenados) { index, item ->
+                    TimelineItem(
+                        item = item,
+                        isLast = index == ordenados.lastIndex,
+                        onEdit = { itemEdicao = item },
+                        onDelete = { itemExcluir = item },
+                        isDark = isDark
+                    )
                 }
             }
         }
@@ -382,6 +469,55 @@ fun TimelineItem(
 
 
                     // --- RODAPÃ‰ COM INFORMAÃ‡Ã•ES INVERTIDAS ---
+                    val tipoCombustivelCard = tipoCombustivelHistorico(item)
+                    if (tipoCombustivelCard != "Não informado") {
+                        Surface(
+                            color = AccentBlue.copy(alpha = 0.10f),
+                            shape = RoundedCornerShape(999.dp),
+                            border = BorderStroke(1.dp, AccentBlue.copy(alpha = 0.28f))
+                        ) {
+                            Text(
+                                text = tipoCombustivelCard,
+                                color = if (isDark) Color(0xFF93C5FD) else AccentBlue,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                            )
+                        }
+                        Spacer(Modifier.height(12.dp))
+                    }
+
+                    item.km?.takeIf { it > 0 }?.let { kmRegistrado ->
+                        Surface(
+                            color = AccentBlue.copy(alpha = 0.10f),
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(1.dp, AccentBlue.copy(alpha = 0.28f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "KM registrado",
+                                    color = cardBody,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = formatarKmHistorico(kmRegistrado),
+                                    color = if (isDark) Color(0xFF93C5FD) else AccentBlue,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(12.dp))
+                    }
+
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -584,8 +720,26 @@ fun DialogEditar(
     val context = LocalContext.current
     var precoTexto by remember { mutableStateOf(String.format(Locale("pt", "BR"), "%.2f", item.precoLitro)) }
     var totalTexto by remember { mutableStateOf(String.format(Locale("pt", "BR"), "%.2f", item.valorPago)) }
-    var dataTexto by remember { mutableStateOf(item.data) }
-    var descricaoTexto by remember { mutableStateOf(carregarDescricaoAbastecimento(context, item)) }
+    var dataSelecionada by remember { mutableStateOf(parseLocalDateFlexible(item.data, formatter) ?: LocalDate.now()) }
+    var kmTexto by remember { mutableStateOf(item.km?.toString().orEmpty()) }
+    var tipoCombustivel by remember { mutableStateOf(item.tipoCombustivel.orEmpty().ifBlank { "Gasolina" }) }
+    var combustivelExpanded by remember { mutableStateOf(false) }
+    val opcoesCombustivel = if (isEnglishUi()) {
+        listOf("Gasoline", "Ethanol", "Diesel", "CNG", "Flex")
+    } else {
+        listOf("Gasolina", "Etanol", "Diesel", "GNV", "Flex")
+    }
+    val abrirDatePicker = {
+        DatePickerDialog(
+            context,
+            { _, year, month, dayOfMonth ->
+                dataSelecionada = LocalDate.of(year, month + 1, dayOfMonth)
+            },
+            dataSelecionada.year,
+            dataSelecionada.monthValue - 1,
+            dataSelecionada.dayOfMonth
+        ).show()
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -593,9 +747,43 @@ fun DialogEditar(
         title = { Text("Editar Abastecimento", color = titleColor, fontWeight = FontWeight.Bold) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                ExposedDropdownMenuBox(
+                    expanded = combustivelExpanded,
+                    onExpandedChange = { combustivelExpanded = !combustivelExpanded }
+                ) {
+                    OutlinedTextField(
+                        value = tipoCombustivel,
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("Combustivel") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = combustivelExpanded) },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = fieldTextColor, unfocusedTextColor = fieldTextColor,
+                            focusedBorderColor = AccentBlue, unfocusedBorderColor = fieldBorderColor,
+                            focusedLabelColor = AccentBlue, unfocusedLabelColor = fieldLabelColor
+                        ),
+                        modifier = Modifier
+                            .menuAnchor()
+                            .fillMaxWidth()
+                    )
+                    ExposedDropdownMenu(
+                        expanded = combustivelExpanded,
+                        onDismissRequest = { combustivelExpanded = false }
+                    ) {
+                        opcoesCombustivel.forEach { opcao ->
+                            DropdownMenuItem(
+                                text = { Text(opcao) },
+                                onClick = {
+                                    tipoCombustivel = opcao
+                                    combustivelExpanded = false
+                                }
+                            )
+                        }
+                    }
+                }
                 OutlinedTextField(
                     value = precoTexto,
-                    onValueChange = { precoTexto = it },
+                    onValueChange = { precoTexto = formatarDecimalAbastecimentoInput(it) },
                     label = { Text("Preco por Litro") },
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = fieldTextColor, unfocusedTextColor = fieldTextColor,
@@ -607,7 +795,7 @@ fun DialogEditar(
                 )
                 OutlinedTextField(
                     value = totalTexto,
-                    onValueChange = { totalTexto = it },
+                    onValueChange = { totalTexto = formatarDecimalAbastecimentoInput(it) },
                     label = { Text("Total Pago (R$)") },
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = fieldTextColor, unfocusedTextColor = fieldTextColor,
@@ -618,20 +806,31 @@ fun DialogEditar(
                     modifier = Modifier.fillMaxWidth()
                 )
                 OutlinedTextField(
-                    value = descricaoTexto,
-                    onValueChange = { descricaoTexto = it },
-                    label = { Text("Descricao") },
+                    value = kmTexto,
+                    onValueChange = { kmTexto = it.filter(Char::isDigit).take(7) },
+                    label = { Text("KM registrado") },
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = fieldTextColor, unfocusedTextColor = fieldTextColor,
                         focusedBorderColor = AccentBlue, unfocusedBorderColor = fieldBorderColor,
                         focusedLabelColor = AccentBlue, unfocusedLabelColor = fieldLabelColor
                     ),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.fillMaxWidth()
                 )
                 OutlinedTextField(
-                    value = dataTexto,
-                    onValueChange = { dataTexto = it },
+                    value = dataSelecionada.format(formatter),
+                    onValueChange = {},
+                    readOnly = true,
                     label = { Text("Data") },
+                    trailingIcon = {
+                        IconButton(onClick = abrirDatePicker) {
+                            Icon(
+                                imageVector = Icons.Rounded.CalendarMonth,
+                                contentDescription = "Selecionar data",
+                                tint = fieldLabelColor
+                            )
+                        }
+                    },
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = fieldTextColor, unfocusedTextColor = fieldTextColor,
                         focusedBorderColor = AccentBlue, unfocusedBorderColor = fieldBorderColor,
@@ -646,13 +845,14 @@ fun DialogEditar(
                 val preco = precoTexto.replace(",", ".").toDoubleOrNull()
                 val total = totalTexto.replace(",", ".").toDoubleOrNull()
                 val litros = if (preco != null && total != null && preco > 0.0) total / preco else item.litros
-                salvarDescricaoAbastecimento(context, item.id, descricaoTexto)
                 onConfirm(
                     item.copy(
-                        data = dataTexto.ifBlank { item.data },
+                        data = dataSelecionada.format(formatter),
                         precoLitro = preco ?: item.precoLitro,
                         valorPago = total ?: item.valorPago,
-                        litros = litros
+                        litros = litros,
+                        tipoCombustivel = tipoCombustivel,
+                        km = kmTexto.filter(Char::isDigit).toIntOrNull()
                     )
                 )
             }, colors = ButtonDefaults.buttonColors(containerColor = AccentBlue)) { Text("Salvar", color = Color.White) }
@@ -673,6 +873,33 @@ private fun salvarDescricaoAbastecimento(context: Context, id: String, descricao
         .edit()
         .putString(id, descricao.trim())
         .apply()
+}
+
+private fun tipoCombustivelHistorico(item: Abastecimento): String {
+    return item.tipoCombustivel.orEmpty().trim().ifBlank { "Não informado" }
+}
+
+private fun formatarKmHistorico(km: Int): String {
+    return "${NumberFormat.getIntegerInstance(Locale("pt", "BR")).format(km)} km"
+}
+
+private fun formatarKmInputAbastecimento(raw: String): String {
+    val digits = raw.filter(Char::isDigit).take(7)
+    if (digits.isBlank()) return ""
+    return NumberFormat.getIntegerInstance(Locale("pt", "BR")).format(digits.toInt())
+}
+
+private fun formatarDecimalAbastecimentoInput(raw: String): String {
+    val normalizado = raw.replace('.', ',')
+    val filtrado = normalizado.filter { it.isDigit() || it == ',' }
+    val partes = filtrado.split(',', limit = 2)
+    val inteiro = partes.getOrNull(0).orEmpty().filter(Char::isDigit).take(7)
+    val decimal = partes.getOrNull(1)?.filter(Char::isDigit)?.take(2)
+    return if (decimal != null) {
+        "${inteiro.ifBlank { "0" }},$decimal"
+    } else {
+        inteiro
+    }
 }
 
 @Composable

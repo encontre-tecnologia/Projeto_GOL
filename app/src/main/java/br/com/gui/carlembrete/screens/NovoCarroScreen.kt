@@ -10,6 +10,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -21,6 +22,8 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -49,6 +52,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -86,7 +90,7 @@ import retrofit2.http.Path
 import retrofit2.converter.gson.GsonConverterFactory
 import com.google.gson.annotations.SerializedName
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
 fun NovoCarroScreen(
     onDismiss: () -> Unit,
@@ -100,7 +104,7 @@ fun NovoCarroScreen(
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
 internal fun NovoCarroScreenContent(
     onDismiss: () -> Unit,
@@ -182,6 +186,8 @@ internal fun NovoCarroScreenContent(
     var marcasFipeOnibus by remember { mutableStateOf<List<String>>(emptyList()) }
     var tipoEscolhidoManualmente by remember { mutableStateOf(false) }
     val contentScrollState = rememberScrollState()
+    val anoBringIntoViewRequester = remember { BringIntoViewRequester() }
+    val anoFocusScope = rememberCoroutineScope()
     val sugestoesNomeExibidas = remember(modelosFipe) { modelosFipe }
     var filtroNomeVeiculo by remember { mutableStateOf("") }
     val sugestoesNomeFiltradas = remember(sugestoesNomeExibidas, filtroNomeVeiculo) {
@@ -483,6 +489,7 @@ internal fun NovoCarroScreenContent(
                 modifier = Modifier
                     .fillMaxWidth()
                     .verticalScroll(contentScrollState)
+                    .imePadding()
                     .padding(horizontal = 16.dp, vertical = 12.dp)
                     .padding(bottom = if (isOnboardingVariant) 20.dp else 88.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -857,6 +864,15 @@ internal fun NovoCarroScreenContent(
                                 ),
                                 modifier = Modifier
                                     .menuAnchor()
+                                    .bringIntoViewRequester(anoBringIntoViewRequester)
+                                    .onFocusChanged { focusState ->
+                                        if (focusState.isFocused) {
+                                            anoFocusScope.launch {
+                                                delay(250)
+                                                anoBringIntoViewRequester.bringIntoView()
+                                            }
+                                        }
+                                    }
                                     .fillMaxWidth(),
                                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = anoExpanded) },
                                 colors = selectorFieldColors

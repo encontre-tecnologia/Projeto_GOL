@@ -1,6 +1,7 @@
 ﻿package br.com.gui.carlembrete
 
 import HistoricoAbastecimentoScreen
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -55,6 +56,8 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
     val scope = rememberCoroutineScope()
     var precoGasolina by remember { mutableStateOf("5,60") }
     var valorAbastecido by remember { mutableStateOf("20,00") }
+    var litrosAbastecidos by remember { mutableStateOf("") }
+    var kmRegistro by remember { mutableStateOf("") }
     val opcoesCombustivel = if (isEnglishUi()) {
         listOf("Gasoline", "Ethanol", "Diesel", "CNG", "Flex")
     } else {
@@ -64,6 +67,7 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
     var combustivelExpanded by remember { mutableStateOf(false) }
     var precoEditado by remember { mutableStateOf(false) }
     var valorEditado by remember { mutableStateOf(false) }
+    var litrosEditado by remember { mutableStateOf(false) }
     var abastecimentos by remember { mutableStateOf<List<Abastecimento>>(emptyList()) }
     var kmAtualVeiculo by remember { mutableStateOf(0) }
     var isSaving by remember { mutableStateOf(false) }
@@ -73,9 +77,18 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
     var dataSelecionada by remember { mutableStateOf(LocalDate.now()) }
     val preco = precoGasolina.replace(",", ".").toDoubleOrNull()
     val total = valorAbastecido.replace(",", ".").toDoubleOrNull()
-    val litros = if (preco != null && total != null && preco > 0.0) total / preco else null
+    val litrosInformados = litrosAbastecidos.replace(",", ".").toDoubleOrNull()
+    val litros = litrosInformados?.takeIf { it > 0.0 }
+        ?: if (preco != null && total != null && preco > 0.0) total / preco else null
     val litrosTexto = litros?.let { String.format(Locale("pt", "BR"), "%.2f L", it) } ?: "--"
     val gastoTexto = total?.let { formatarMoeda(it) } ?: "--"
+    LaunchedEffect(precoGasolina, litrosAbastecidos) {
+        val precoValue = precoGasolina.replace(",", ".").toDoubleOrNull()
+        val litrosValue = litrosAbastecidos.replace(",", ".").toDoubleOrNull()
+        if (!valorEditado && precoValue != null && litrosValue != null && precoValue > 0.0 && litrosValue > 0.0) {
+            valorAbastecido = String.format(Locale("pt", "BR"), "%.2f", precoValue * litrosValue)
+        }
+    }
     val resumoConsumo = remember(abastecimentos, kmAtualVeiculo) {
         calcularResumoConsumo(
             abastecimentos = abastecimentos.filter { it.carroId == carroId },
@@ -90,7 +103,7 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
         total > 0.0 &&
         tipoCombustivel.isNotBlank() &&
         precoEditado &&
-        valorEditado &&
+        (valorEditado || litrosEditado) &&
         !isSaving
     val fieldColors = OutlinedTextFieldDefaults.colors(
         focusedTextColor = textPrimary,
@@ -111,6 +124,14 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
         kmAtualVeiculo = BancoDeDados.carregarCarros(context)
             ?.firstOrNull { it.id == carroId }
             ?.kmAtual ?: 0
+    }
+
+    BackHandler {
+        if (showHistoricoScreen) {
+            showHistoricoScreen = false
+        } else {
+            onDismiss()
+        }
     }
 
     if (showHistoricoScreen) {
@@ -200,7 +221,7 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
                     OutlinedTextField(
                         value = precoGasolina,
                         onValueChange = {
-                            precoGasolina = it
+                            precoGasolina = formatarDecimalCombustivelInput(it)
                             precoEditado = true
                         },
                         label = { Text(tr("Valor do combustivel (R$/L)", "Fuel price (R$/L)")) },
@@ -220,9 +241,32 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
                         colors = fieldColors
                     )
                     OutlinedTextField(
+                        value = litrosAbastecidos,
+                        onValueChange = {
+                            litrosAbastecidos = formatarDecimalCombustivelInput(it)
+                            litrosEditado = true
+                            valorEditado = false
+                        },
+                        label = { Text(tr("Litros abastecidos", "Fueled liters")) },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.LocalGasStation,
+                                contentDescription = null,
+                                tint = if (isDark) Color(0xFFCBD5F5) else Color(0xFF334155)
+                            )
+                        },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(58.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = fieldColors
+                    )
+                    OutlinedTextField(
                         value = valorAbastecido,
                         onValueChange = {
-                            valorAbastecido = it
+                            valorAbastecido = formatarDecimalCombustivelInput(it)
                             valorEditado = true
                         },
                         label = { Text(tr("Valor abastecido (R$)", "Refuel amount (R$)")) },
@@ -234,6 +278,18 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
                             )
                         },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(58.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = fieldColors
+                    )
+                    OutlinedTextField(
+                        value = kmRegistro,
+                        onValueChange = { kmRegistro = it.filter(Char::isDigit).take(7) },
+                        label = { Text(tr("KM do abastecimento", "Fuel mileage")) },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         singleLine = true,
                         modifier = Modifier
                             .fillMaxWidth()
@@ -344,14 +400,16 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
                 onClick = {
                     val precoValue = preco ?: return@Button
                     val totalValue = total ?: return@Button
-                    val litrosCalculados = totalValue / precoValue
+                    val litrosCalculados = litros ?: (totalValue / precoValue)
                     val data = dataSelecionada.format(dateFormatter)
                     val novo = Abastecimento(
                         carroId = carroId,
                         data = data,
                         precoLitro = precoValue,
                         valorPago = totalValue,
-                        litros = litrosCalculados
+                        litros = litrosCalculados,
+                        tipoCombustivel = tipoCombustivel,
+                        km = kmRegistro.toIntOrNull()
                     )
                     val carroAtual = BancoDeDados.carregarCarros(context)
                         ?.firstOrNull { it.id == carroId }
@@ -367,9 +425,12 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
                         abastecimentos = atualizada
                         precoGasolina = "5,60"
                         valorAbastecido = "20,00"
+                        litrosAbastecidos = ""
+                        kmRegistro = ""
                         tipoCombustivel = ""
                         precoEditado = false
                         valorEditado = false
+                        litrosEditado = false
                         isSaving = false
                         showSalvarSucessoDialog = true
                     }
@@ -512,6 +573,19 @@ private data class ResumoConsumo(
     val custoSemana: Double?,
     val custoMes: Double?
 )
+
+private fun formatarDecimalCombustivelInput(raw: String): String {
+    val normalizado = raw.replace('.', ',')
+    val filtrado = normalizado.filter { it.isDigit() || it == ',' }
+    val partes = filtrado.split(',', limit = 2)
+    val inteiro = partes.getOrNull(0).orEmpty().filter(Char::isDigit).take(7)
+    val decimal = partes.getOrNull(1)?.filter(Char::isDigit)?.take(2)
+    return if (decimal != null) {
+        "${inteiro.ifBlank { "0" }},$decimal"
+    } else {
+        inteiro
+    }
+}
 
 private fun calcularResumoConsumo(
     abastecimentos: List<Abastecimento>,
