@@ -27,6 +27,15 @@ fun propOrEnv(key: String): String? {
         ?: localProps.getProperty(key)?.takeIf { it.isNotBlank() }
 }
 
+fun buildConfigString(value: String): String {
+    return "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+}
+
+val groqApiKey = propOrEnv("GROQ_API_KEY").orEmpty()
+val groqModel = propOrEnv("GROQ_MODEL") ?: "llama-3.1-8b-instant"
+val aiProxyUrl = propOrEnv("AI_PROXY_URL").orEmpty()
+val aiProxyToken = propOrEnv("AI_PROXY_TOKEN").orEmpty()
+val aiOnlineEnabled = propOrEnv("AI_ONLINE_ENABLED")?.toBooleanStrictOrNull() ?: false
 val releaseStoreFile = propOrEnv("RELEASE_STORE_FILE")
 val releaseStorePassword = propOrEnv("RELEASE_STORE_PASSWORD")
 val releaseKeyAlias = propOrEnv("RELEASE_KEY_ALIAS")
@@ -43,7 +52,7 @@ val isReleaseSigningReady = !releaseStoreFile.isNullOrBlank() &&
 
 android {
     namespace = "br.com.gui.carlembrete"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "br.com.gui.carlembrete"
@@ -54,6 +63,11 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "FIPE_BASE_URL", "\"$fipeBaseUrl\"")
+        buildConfigField("String", "GROQ_API_KEY", buildConfigString(groqApiKey))
+        buildConfigField("String", "GROQ_MODEL", buildConfigString(groqModel))
+        buildConfigField("String", "AI_PROXY_URL", buildConfigString(aiProxyUrl))
+        buildConfigField("String", "AI_PROXY_TOKEN", buildConfigString(aiProxyToken))
+        buildConfigField("boolean", "AI_ONLINE_ENABLED", aiOnlineEnabled.toString())
     }
 
     signingConfigs {
@@ -119,6 +133,7 @@ dependencies {
     implementation(platform("com.google.firebase:firebase-bom:33.3.0"))
     implementation("com.google.firebase:firebase-auth-ktx")
     implementation("com.google.android.gms:play-services-auth:21.2.0")
+    implementation("com.google.android.gms:play-services-location:21.3.0")
     implementation(libs.androidx.core.ktx)
     implementation("androidx.core:core-splashscreen:1.0.1")
     implementation(libs.androidx.lifecycle.runtime.ktx)
@@ -155,14 +170,14 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.test.manifest)
 
     // CÃ¢mera (CameraX)
-    implementation("androidx.camera:camera-camera2:1.3.1")
-    implementation("androidx.camera:camera-lifecycle:1.3.1")
-    implementation("androidx.camera:camera-view:1.3.1")
+    implementation("androidx.camera:camera-camera2:1.6.1")
+    implementation("androidx.camera:camera-lifecycle:1.6.1")
+    implementation("androidx.camera:camera-view:1.6.1")
     implementation("com.google.guava:guava:31.1-android")
 
     // InteligÃªncia Artificial (Google ML Kit - OCR)
     implementation("com.google.android.gms:play-services-mlkit-text-recognition:19.0.0")
-    implementation("com.google.mlkit:barcode-scanning:17.3.0")
+    implementation("com.google.android.gms:play-services-mlkit-barcode-scanning:18.3.1")
     implementation("org.jsoup:jsoup:1.15.4")
 
     // PermissÃµes

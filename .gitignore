@@ -13,9 +13,18 @@
 .externalNativeBuild
 .cxx
 local.properties
+.env
+.env.*
 app/google-services.json
 *.jks
 *.keystore
 
 .gradle-local/
 .android-local/
+.kotlin/
+
+# Local/generated tooling
+ai-proxy/node_modules/
+ai-proxy/.wrangler/
+outputs/
+.codex-remote-attachments/

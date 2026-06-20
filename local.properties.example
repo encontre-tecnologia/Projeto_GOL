@@ -3,3 +3,13 @@ sdk.dir=C:\\Users\\SEU_USUARIO\\AppData\\Local\\Android\\Sdk
 
 # Configuracoes de API
 FIPE_BASE_URL=https://parallelum.com.br/fipe/
+
+# Somente para teste local/debug. Nao publique APK com chave de IA embutida.
+GROQ_API_KEY=
+GROQ_MODEL=llama-3.1-8b-instant
+
+# Producao/beta: use o proxy serverless, sem chave Groq no APK.
+# Se bater limite gratuito, o app volta para a analise local.
+AI_ONLINE_ENABLED=true
+AI_PROXY_URL=https://jolly-silence-4b08.encontretecnologia2.workers.dev
+AI_PROXY_TOKEN=
