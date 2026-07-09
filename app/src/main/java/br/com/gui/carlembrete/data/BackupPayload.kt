@@ -11,6 +11,8 @@ data class BackupPayload(
     val travelTripsJson: String = "",
     val fleetStockItemsJson: String = "",
     val fleetStockMovementsJson: String = "",
+    // KM inicial por veículo para cálculo de eficiência de combustível (carroId → km)
+    val fuelStartKms: Map<String, Int> = emptyMap(),
     val geradoEm: Long = System.currentTimeMillis()
 ) : Serializable
 
@@ -42,7 +44,16 @@ fun BackupPayload.toMap(): Map<String, Any> = mapOf(
             "tipo" to lembrete.tipo.name,
             "valor" to lembrete.valor,
             "fotoPath" to (lembrete.fotoPath ?: ""),
-            "horaAviso" to lembrete.horaAviso
+            "horaAviso" to lembrete.horaAviso,
+            "quantidade" to lembrete.quantidade,
+            "estabelecimentoNome" to lembrete.estabelecimentoNome,
+            "estabelecimentoEndereco" to lembrete.estabelecimentoEndereco,
+            "operationalRecordId" to lembrete.operationalRecordId,
+            "operationalFeature" to lembrete.operationalFeature,
+            "operationalBrand" to lembrete.operationalBrand,
+            "operationalPosition" to lembrete.operationalPosition,
+            "operationalKmStart" to (lembrete.operationalKmStart ?: -1),
+            "operationalKmEnd" to (lembrete.operationalKmEnd ?: -1)
         )
     },
     "contatos" to contatos.map { contato ->
@@ -61,6 +72,8 @@ fun BackupPayload.toMap(): Map<String, Any> = mapOf(
             "precoLitro" to item.precoLitro,
             "valorPago" to item.valorPago,
             "litros" to item.litros,
+            "tipoCombustivel" to item.tipoCombustivel,
+            "km" to (item.km ?: -1),
             "itens" to item.itens.map { detalhe ->
                 mapOf(
                     "nome" to detalhe.nome,
@@ -80,6 +93,7 @@ fun BackupPayload.toMap(): Map<String, Any> = mapOf(
     "travelTripsJson" to travelTripsJson,
     "fleetStockItemsJson" to fleetStockItemsJson,
     "fleetStockMovementsJson" to fleetStockMovementsJson,
+    "fuelStartKms" to fuelStartKms,
     "geradoEm" to geradoEm
 )
 
@@ -116,7 +130,16 @@ fun backupPayloadFromMap(data: Map<String, Any>): BackupPayload {
             tipo = runCatching { TipoManutencao.valueOf(tipoRaw) }.getOrDefault(TipoManutencao.OUTROS),
             valor = (mapa["valor"] as? Number)?.toDouble() ?: 0.0,
             fotoPath = (mapa["fotoPath"] as? String)?.ifBlank { null },
-            horaAviso = mapa["horaAviso"] as? String ?: "09:00"
+            horaAviso = mapa["horaAviso"] as? String ?: "09:00",
+            quantidade = (mapa["quantidade"] as? Number)?.toInt()?.coerceAtLeast(1) ?: 1,
+            estabelecimentoNome = mapa["estabelecimentoNome"] as? String ?: "",
+            estabelecimentoEndereco = mapa["estabelecimentoEndereco"] as? String ?: "",
+            operationalRecordId = mapa["operationalRecordId"] as? String ?: "",
+            operationalFeature = mapa["operationalFeature"] as? String ?: "",
+            operationalBrand = mapa["operationalBrand"] as? String ?: "",
+            operationalPosition = mapa["operationalPosition"] as? String ?: "",
+            operationalKmStart = (mapa["operationalKmStart"] as? Number)?.toInt()?.takeIf { it >= 0 },
+            operationalKmEnd = (mapa["operationalKmEnd"] as? Number)?.toInt()?.takeIf { it >= 0 }
         )
     } ?: emptyList()
 
@@ -139,12 +162,14 @@ fun backupPayloadFromMap(data: Map<String, Any>): BackupPayload {
             precoLitro = (mapa["precoLitro"] as? Number)?.toDouble() ?: 0.0,
             valorPago = (mapa["valorPago"] as? Number)?.toDouble() ?: 0.0,
             litros = (mapa["litros"] as? Number)?.toDouble() ?: 0.0,
+            tipoCombustivel = mapa["tipoCombustivel"] as? String ?: "",
             itens = (mapa["itens"] as? List<*>)?.mapNotNull { itemDetalhe ->
                 val itemMap = itemDetalhe as? Map<*, *> ?: return@mapNotNull null
                 val nome = itemMap["nome"] as? String ?: return@mapNotNull null
                 val valor = (itemMap["valor"] as? Number)?.toDouble() ?: 0.0
                 br.com.gui.carlembrete.ItemAbastecimento(nome = nome, valor = valor)
-            } ?: emptyList()
+            } ?: emptyList(),
+            km = (mapa["km"] as? Number)?.toInt()?.takeIf { it >= 0 }
         )
     } ?: emptyList()
 
@@ -161,7 +186,19 @@ fun backupPayloadFromMap(data: Map<String, Any>): BackupPayload {
     val travelTripsJson = data["travelTripsJson"] as? String ?: ""
     val fleetStockItemsJson = data["fleetStockItemsJson"] as? String ?: ""
     val fleetStockMovementsJson = data["fleetStockMovementsJson"] as? String ?: ""
+
+    @Suppress("UNCHECKED_CAST")
+    val fuelStartKms = (data["fuelStartKms"] as? Map<*, *>)
+        ?.mapNotNull { (k, v) ->
+            val key = k as? String ?: return@mapNotNull null
+            val value = (v as? Number)?.toInt() ?: return@mapNotNull null
+            key to value
+        }
+        ?.toMap()
+        ?: emptyMap()
+
     val geradoEm = (data["geradoEm"] as? Number)?.toLong() ?: System.currentTimeMillis()
+
     return BackupPayload(
         carros = carros,
         lembretes = lembretes,
@@ -171,6 +208,7 @@ fun backupPayloadFromMap(data: Map<String, Any>): BackupPayload {
         travelTripsJson = travelTripsJson,
         fleetStockItemsJson = fleetStockItemsJson,
         fleetStockMovementsJson = fleetStockMovementsJson,
+        fuelStartKms = fuelStartKms,
         geradoEm = geradoEm
     )
 }

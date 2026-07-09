@@ -1,13 +1,15 @@
-﻿package br.com.gui.carlembrete
+package br.com.gui.carlembrete
 
 import android.content.Context
 import android.app.Activity
 import android.content.ContextWrapper
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.util.Log
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
@@ -16,8 +18,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -32,7 +36,11 @@ import androidx.compose.material.icons.filled.ArrowBackIosNew
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.CloudUpload
-import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Contrast
+import androidx.compose.material.icons.filled.CreditCard
+import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.LightMode
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -42,7 +50,9 @@ import androidx.compose.material3.Divider
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
@@ -58,31 +68,26 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
-import androidx.work.Constraints
-import androidx.work.ExistingPeriodicWorkPolicy
-import androidx.work.NetworkType
-import androidx.work.PeriodicWorkRequestBuilder
-import androidx.work.WorkManager
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInAccount
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.android.gms.common.api.ApiException
 import com.google.android.gms.common.api.Scope
 import com.google.api.services.drive.DriveScopes
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.security.MessageDigest
 import java.util.Locale
-import java.util.concurrent.TimeUnit
 
 private tailrec fun Context.findActivity(): Activity? = when (this) {
     is Activity -> this
@@ -233,8 +238,9 @@ fun ConfiguracoesScreen(
     carros: List<CarroInfo>,
     lembretes: List<Lembrete>,
     contatos: List<ContatoProfissional>,
-    planTier: PlanTier = PlanTier.FREE,
-    onRequestPremium: (String) -> Unit = {},
+    planTier: PlanTier,
+    subscriptionBillingInfo: SubscriptionBillingInfo,
+    onRefreshPlan: () -> Unit,
     onThemeModeChanged: (AppThemeMode) -> Unit
 ) {
     val colorScheme = MaterialTheme.colorScheme
@@ -259,23 +265,30 @@ fun ConfiguracoesScreen(
     }
     val driveBackupManager = remember { DriveBackupManager(context) }
     var pendingBackupAction by remember { mutableStateOf<BackupAction?>(null) }
+    var pendingBackupInterval by remember { mutableStateOf<BackupInterval?>(null) }
     var backupInProgressAction by remember { mutableStateOf<BackupAction?>(null) }
-    val canUseDriveBackup = planTier != PlanTier.FREE
+    var restoreProgressStep by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(canUseDriveBackup) {
+    BackHandler {
+        when {
+            showBackupDoneDialog -> showBackupDoneDialog = false
+            showRestoreRestartDialog -> showRestoreRestartDialog = false
+            pendingBackupAction != null -> pendingBackupAction = null
+            pendingBackupInterval != null -> pendingBackupInterval = null
+            else -> onDismiss()
+        }
+    }
+
+    LaunchedEffect(Unit) {
         lastBackupTime = getLastBackupTime(context)
         backupInterval = getBackupInterval(context)
-        if (canUseDriveBackup) {
-            scheduleBackupWork(context, backupInterval)
-        } else {
-            backupInterval = BackupInterval.OFF
-            scheduleBackupWork(context, BackupInterval.OFF)
-        }
+        scheduleDriveBackupWork(context, backupInterval)
     }
 
     fun criarBackup(account: GoogleSignInAccount) {
         scope.launch(Dispatchers.IO) {
             try {
+                BancoDeDados.validarDadosParaBackup(context)
                 BancoDeDados.salvarCarros(context, carros)
                 BancoDeDados.salvarLembretes(context, lembretes)
                 BancoDeDados.salvarContatos(context, contatos)
@@ -284,6 +297,10 @@ fun ConfiguracoesScreen(
                 val travelTripsJson = loadTravelTripsBackupJson(context)
                 val fleetStockItemsJson = loadFleetStockItemsBackupJson(context)
                 val fleetStockMovementsJson = loadFleetStockMovementsBackupJson(context)
+                val fuelStartKms = carros.mapNotNull { carro ->
+                    val km = AppPreferences.getFuelStartKm(context, carro.id)
+                    if (km != null) carro.id to km else null
+                }.toMap()
                 val payload = BackupPayload(
                     carros = carros,
                     lembretes = lembretes,
@@ -292,7 +309,8 @@ fun ConfiguracoesScreen(
                     pedaladas = pedaladas,
                     travelTripsJson = travelTripsJson,
                     fleetStockItemsJson = fleetStockItemsJson,
-                    fleetStockMovementsJson = fleetStockMovementsJson
+                    fleetStockMovementsJson = fleetStockMovementsJson,
+                    fuelStartKms = fuelStartKms
                 )
                 driveBackupManager.uploadBackup(payload, account)
                 withContext(Dispatchers.Main) {
@@ -319,44 +337,77 @@ fun ConfiguracoesScreen(
     }
 
     fun recuperarBackup(account: GoogleSignInAccount) {
-        scope.launch(Dispatchers.IO) {
+        scope.launch {
             try {
-                val payload = driveBackupManager.downloadBackup(account)
-                if (payload == null) {
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(context, context.getString(R.string.cfg_backup_not_found), Toast.LENGTH_SHORT).show()
-                    }
+                // Passo 1: Buscando backup local
+                restoreProgressStep = "local"
+                val localAbastecimentos = withContext(Dispatchers.IO) { BancoDeDados.carregarAbastecimentos(context) }
+                val localPedaladas = withContext(Dispatchers.IO) { BancoDeDados.carregarPedaladas(context) }
+                val localCount = carros.size + lembretes.size + contatos.size + localAbastecimentos.size + localPedaladas.size
+                delay(600)
+
+                // Passo 2: Buscando backup no Drive
+                restoreProgressStep = "drive"
+                val drivePayload = withContext(Dispatchers.IO) { driveBackupManager.downloadBackup(account) }
+
+                if (drivePayload == null) {
+                    restoreProgressStep = null
+                    backupInProgressAction = null
+                    Toast.makeText(context, context.getString(R.string.cfg_backup_not_found), Toast.LENGTH_SHORT).show()
                     return@launch
                 }
-                BancoDeDados.salvarCarros(context, payload.carros)
-                BancoDeDados.salvarLembretes(context, payload.lembretes)
-                BancoDeDados.salvarContatos(context, payload.contatos)
-                BancoDeDados.salvarAbastecimentos(context, payload.abastecimentos)
-                BancoDeDados.salvarPedaladas(context, payload.pedaladas)
-                saveTravelTripsBackupJson(context, payload.travelTripsJson)
-                saveFleetStockBackupJson(
-                    context,
-                    itemsJson = payload.fleetStockItemsJson,
-                    movementsJson = payload.fleetStockMovementsJson
-                )
-                NotificacaoHelper.reagendarExistentes(context.applicationContext, payload.lembretes)
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(context, context.getString(R.string.cfg_backup_restore_success), Toast.LENGTH_SHORT).show()
-                    showRestoreRestartDialog = true
-                }
-            } catch (err: Exception) {
-                Log.e("Backup", "Falha ao obter backup", err)
-                withContext(Dispatchers.Main) {
+                delay(300)
+
+                // Passo 3: Comparando
+                restoreProgressStep = "comparing"
+                val driveCount = drivePayload.carros.size + drivePayload.lembretes.size + drivePayload.contatos.size + drivePayload.abastecimentos.size + drivePayload.pedaladas.size
+                delay(700)
+
+                // Passo 4: Restaurando
+                restoreProgressStep = "restoring"
+                if (localCount > driveCount) {
+                    delay(400)
+                    restoreProgressStep = null
+                    backupInProgressAction = null
                     Toast.makeText(
                         context,
-                        context.toBackupErrorMessage(BackupAction.RESTORE, err),
+                        "Seus dados locais estão mais completos (${localCount} vs ${driveCount} registros). Nenhuma alteração foi feita.",
                         Toast.LENGTH_LONG
                     ).show()
+                    return@launch
                 }
+
+                withContext(Dispatchers.IO) {
+                    BancoDeDados.salvarCarros(context, drivePayload.carros)
+                    BancoDeDados.salvarLembretes(context, drivePayload.lembretes)
+                    BancoDeDados.salvarContatos(context, drivePayload.contatos)
+                    BancoDeDados.salvarAbastecimentos(context, drivePayload.abastecimentos)
+                    BancoDeDados.salvarPedaladas(context, drivePayload.pedaladas)
+                    saveTravelTripsBackupJson(context, drivePayload.travelTripsJson)
+                    saveFleetStockBackupJson(
+                        context,
+                        itemsJson = drivePayload.fleetStockItemsJson,
+                        movementsJson = drivePayload.fleetStockMovementsJson
+                    )
+                    drivePayload.fuelStartKms.forEach { (carroId, km) ->
+                        AppPreferences.setFuelStartKm(context, carroId, km)
+                    }
+                    NotificacaoHelper.reagendarExistentes(context.applicationContext, drivePayload.lembretes)
+                }
+                restoreProgressStep = null
+                backupInProgressAction = null
+                showRestoreRestartDialog = true
+            } catch (err: Exception) {
+                Log.e("Backup", "Falha ao obter backup", err)
+                restoreProgressStep = null
+                Toast.makeText(
+                    context,
+                    context.toBackupErrorMessage(BackupAction.RESTORE, err),
+                    Toast.LENGTH_LONG
+                ).show()
             } finally {
-                withContext(Dispatchers.Main) {
-                    backupInProgressAction = null
-                }
+                restoreProgressStep = null
+                backupInProgressAction = null
             }
         }
     }
@@ -370,6 +421,7 @@ fun ConfiguracoesScreen(
             if (account == null || !GoogleSignIn.hasPermissions(account, driveScope)) {
                 Toast.makeText(context, context.getString(R.string.cfg_drive_permission_denied), Toast.LENGTH_SHORT).show()
                 pendingBackupAction = null
+                pendingBackupInterval = null
                 backupInProgressAction = null
                 return@rememberLauncherForActivityResult
             }
@@ -377,6 +429,12 @@ fun ConfiguracoesScreen(
                 BackupAction.BACKUP -> criarBackup(account)
                 BackupAction.RESTORE -> recuperarBackup(account)
                 null -> {}
+            }
+            pendingBackupInterval?.let { interval ->
+                setBackupInterval(context, interval)
+                scheduleDriveBackupWork(context, interval)
+                backupInterval = interval
+                Toast.makeText(context, context.getString(R.string.cfg_backup_auto_enabled), Toast.LENGTH_SHORT).show()
             }
         } catch (e: ApiException) {
             val msg = if (e.statusCode == 10) {
@@ -394,15 +452,11 @@ fun ConfiguracoesScreen(
             backupInProgressAction = null
         } finally {
             pendingBackupAction = null
+            pendingBackupInterval = null
         }
     }
 
-
     fun executarBackup(action: BackupAction) {
-        if (!canUseDriveBackup) {
-            onRequestPremium("drive_backup")
-            return
-        }
         if (backupInProgressAction != null) return
         backupInProgressAction = action
         val account = GoogleSignIn.getLastSignedInAccount(context)
@@ -416,6 +470,28 @@ fun ConfiguracoesScreen(
             driveLauncher.launch(googleSignInClient.signInIntent)
         }
     }
+
+    fun alterarIntervaloBackup(interval: BackupInterval) {
+        if (interval == BackupInterval.OFF) {
+            pendingBackupInterval = null
+            setBackupInterval(context, interval)
+            scheduleDriveBackupWork(context, interval)
+            backupInterval = interval
+            return
+        }
+
+        val account = GoogleSignIn.getLastSignedInAccount(context)
+        if (account != null && GoogleSignIn.hasPermissions(account, driveScope)) {
+            setBackupInterval(context, interval)
+            scheduleDriveBackupWork(context, interval)
+            backupInterval = interval
+            Toast.makeText(context, context.getString(R.string.cfg_backup_auto_enabled), Toast.LENGTH_SHORT).show()
+        } else {
+            pendingBackupInterval = interval
+            driveLauncher.launch(googleSignInClient.signInIntent)
+        }
+    }
+
     if (showBackupDoneDialog) {
         BackupRestartDialog(
             title = "Backup concluido",
@@ -436,24 +512,13 @@ fun ConfiguracoesScreen(
             context.restartApp()
         }
     }
+
+    val cardBg = if (isDark) Color(0xFF0F172A) else Color.White
+    val cardBorder = if (isDark) Color.White.copy(alpha = 0.09f) else Color(0xFF000000).copy(alpha = 0.06f)
+
     Scaffold(
         modifier = Modifier.fillMaxSize(),
-        containerColor = if (isDark) Color.Black else colorScheme.background,
-        bottomBar = {
-            Divider(color = colorScheme.outlineVariant, thickness = 1.dp)
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 8.dp, bottom = 24.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    stringResource(R.string.cfg_version_label, BuildConfig.VERSION_NAME),
-                    color = colorScheme.onSurfaceVariant,
-                    fontSize = 12.sp
-                )
-            }
-        }
+        containerColor = if (isDark) Color.Black else colorScheme.background
     ) { innerPadding ->
         Column(
             modifier = Modifier
@@ -461,53 +526,53 @@ fun ConfiguracoesScreen(
                 .padding(innerPadding)
                 .verticalScroll(scrollState)
         ) {
-            Row(
+            // ── Top bar ──────────────────────────────────────────────────
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
+                    .padding(start = 4.dp, end = 4.dp, top = 8.dp, bottom = 0.dp)
+                    .height(52.dp)
             ) {
-                IconButton(onClick = onDismiss) {
-                    Icon(Icons.Default.ArrowBackIosNew, contentDescription = stringResource(R.string.common_back), tint = colorScheme.onSurface)
-                }
-            }
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(54.dp)
-                        .padding(top = 2.dp)
-                        .background(
-                            color = colorScheme.primary.copy(alpha = if (colorScheme.background.luminance() < 0.5f) 0.22f else 0.14f),
-                            shape = RoundedCornerShape(18.dp)
-                        ),
-                    contentAlignment = Alignment.Center
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.align(Alignment.CenterStart)
                 ) {
                     Icon(
-                        Icons.Default.Settings,
-                        contentDescription = null,
-                        tint = colorScheme.primary,
-                        modifier = Modifier.size(28.dp)
+                        Icons.Default.ArrowBackIosNew,
+                        contentDescription = stringResource(R.string.common_back),
+                        tint = colorScheme.onSurface
                     )
                 }
                 Text(
                     stringResource(R.string.cfg_title),
                     color = colorScheme.onSurface,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 24.sp
+                    fontSize = 20.sp,
+                    modifier = Modifier.align(Alignment.Center)
                 )
             }
 
-            Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(8.dp))
 
-            SectionHeader(title = stringResource(R.string.cfg_section_appearance))
-            Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            // ── Aparência ────────────────────────────────────────────────
+            SectionHeader(title = "Aparência")
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = cardBg),
+                border = BorderStroke(1.dp, cardBorder)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                     ThemeModeOptionButton(
                         label = stringResource(R.string.cfg_theme_system),
+                        icon = Icons.Default.Contrast,
                         selected = themeMode == AppThemeMode.SYSTEM,
                         onClick = {
                             themeMode = AppThemeMode.SYSTEM
@@ -518,6 +583,7 @@ fun ConfiguracoesScreen(
                     )
                     ThemeModeOptionButton(
                         label = stringResource(R.string.cfg_theme_light),
+                        icon = Icons.Default.LightMode,
                         selected = themeMode == AppThemeMode.LIGHT,
                         onClick = {
                             themeMode = AppThemeMode.LIGHT
@@ -528,6 +594,7 @@ fun ConfiguracoesScreen(
                     )
                     ThemeModeOptionButton(
                         label = stringResource(R.string.cfg_theme_dark),
+                        icon = Icons.Default.DarkMode,
                         selected = themeMode == AppThemeMode.DARK,
                         onClick = {
                             themeMode = AppThemeMode.DARK
@@ -539,147 +606,480 @@ fun ConfiguracoesScreen(
                 }
             }
 
-            SectionHeader(title = stringResource(R.string.cfg_section_backup))
-
-            Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)) {
-                val backupBusy = backupInProgressAction != null
-                if (!canUseDriveBackup) {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = if (isDark) Color(0xFF111827) else Color(0xFFFFFBF2)
-                        ),
-                        border = BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = if (isDark) 0.55f else 0.85f))
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.Lock, null, tint = Color(0xFFF59E0B), modifier = Modifier.size(20.dp))
-                                Spacer(Modifier.width(8.dp))
-                                Text(
-                                    "Backup no Drive é Lite+",
-                                    color = colorScheme.onSurface,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 14.sp
-                                )
-                            }
-                            Text(
-                                "No plano grátis, seus dados ficam salvos neste aparelho. Assine o Lite para proteger veículos, avisos e históricos no Google Drive.",
-                                color = colorScheme.onSurfaceVariant,
-                                fontSize = 12.sp,
-                                lineHeight = 16.sp
-                            )
-                        }
-                    }
-                    Spacer(Modifier.height(12.dp))
-                }
-                if (backupBusy) {
-                    Text(
-                        text = when (backupInProgressAction) {
-                            BackupAction.BACKUP -> stringResource(R.string.cfg_backup_sending)
-                            BackupAction.RESTORE -> stringResource(R.string.cfg_backup_restoring)
-                            null -> ""
-                        },
-                        color = colorScheme.onSurface,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                    Spacer(Modifier.height(12.dp))
-                }
-
-                Spacer(Modifier.height(12.dp))
-                Button(
-                    onClick = {
-                        executarBackup(BackupAction.BACKUP)
+            // ── Assinatura ───────────────────────────────────────────────
+            SectionHeader(title = "Assinatura")
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = cardBg),
+                border = BorderStroke(1.dp, cardBorder)
+            ) {
+                PlanSubscriptionCard(
+                    planTier = planTier,
+                    billingInfo = subscriptionBillingInfo,
+                    isDark = isDark,
+                    onRefresh = {
+                        onRefreshPlan()
+                        Toast.makeText(context, "Plano atualizado.", Toast.LENGTH_SHORT).show()
                     },
-                    enabled = !backupBusy,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (canUseDriveBackup) Color(0xFF2563EB) else Color(0xFFF59E0B)
-                    )
-                ) {
-                    Icon(
-                        if (canUseDriveBackup) Icons.Default.CloudUpload else Icons.Default.Lock,
-                        null,
-                        tint = if (canUseDriveBackup) Color.White else Color.Black,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        if (canUseDriveBackup) stringResource(R.string.cfg_backup_save) else "Liberar backup no Lite",
-                        fontWeight = FontWeight.Bold,
-                        color = if (canUseDriveBackup) Color.White else Color.Black
-                    )
-                }
-
-                if (canUseDriveBackup) {
-                    Spacer(Modifier.height(12.dp))
-
-                    OutlinedButton(
-                        onClick = {
-                            executarBackup(BackupAction.RESTORE)
-                        },
-                        enabled = !backupBusy,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
-                        border = BorderStroke(1.dp, Color(0xFF475569)),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = if (colorScheme.background.luminance() < 0.5f) Color.White else Color(0xFF0F172A)
+                    onManage = {
+                        abrirGerenciamentoAssinaturaGooglePlay(
+                            context = context,
+                            productId = subscriptionBillingInfo.productId
                         )
-                    ) {
-                        Icon(Icons.Default.CloudDownload, null, modifier = Modifier.size(20.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text(stringResource(R.string.cfg_backup_restore), fontWeight = FontWeight.Bold)
                     }
-                }
-
-                Spacer(Modifier.height(12.dp))
-                val lastBackupLabel = if (lastBackupTime > 0L) {
-                    SimpleDateFormat("dd/MM/yyyy HH:mm", Locale("pt", "BR")).format(lastBackupTime)
-                } else {
-                    stringResource(R.string.cfg_backup_none)
-                }
-                Text(
-                    stringResource(R.string.cfg_backup_last, lastBackupLabel),
-                    color = Color(0xFF94A3B8),
-                    fontSize = 12.sp,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth()
                 )
             }
 
+            // ── Backup ───────────────────────────────────────────────────
+            SectionHeader(title = stringResource(R.string.cfg_section_backup))
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = cardBg),
+                border = BorderStroke(1.dp, cardBorder)
+            ) {
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp)) {
+                    val backupBusy = backupInProgressAction != null
+                    Text(
+                        text = stringResource(R.string.cfg_backup_auto_title),
+                        color = colorScheme.onSurface,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = stringResource(R.string.cfg_backup_auto_description),
+                        color = Color(0xFF94A3B8),
+                        fontSize = 12.sp
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        BackupIntervalButton(
+                            label = stringResource(R.string.cfg_backup_auto_off),
+                            selected = backupInterval == BackupInterval.OFF,
+                            onClick = { alterarIntervaloBackup(BackupInterval.OFF) },
+                            modifier = Modifier.weight(1f)
+                        )
+                        BackupIntervalButton(
+                            label = stringResource(R.string.cfg_backup_auto_monthly),
+                            selected = backupInterval == BackupInterval.MONTHLY,
+                            onClick = { alterarIntervaloBackup(BackupInterval.MONTHLY) },
+                            modifier = Modifier.weight(1f)
+                        )
+                        BackupIntervalButton(
+                            label = stringResource(R.string.cfg_backup_auto_weekly),
+                            selected = backupInterval == BackupInterval.WEEKLY,
+                            onClick = { alterarIntervaloBackup(BackupInterval.WEEKLY) },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    Spacer(Modifier.height(18.dp))
+                    if (backupInProgressAction == BackupAction.BACKUP) {
+                        Text(
+                            text = stringResource(R.string.cfg_backup_sending),
+                            color = colorScheme.onSurface,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        LinearProgressIndicator(
+                            modifier = Modifier.fillMaxWidth(),
+                            color = Color(0xFF2563EB),
+                            trackColor = Color(0xFF2563EB).copy(alpha = 0.15f)
+                        )
+                        Spacer(Modifier.height(14.dp))
+                    } else if (backupInProgressAction == BackupAction.RESTORE) {
+                        val stepOrder = listOf("local", "drive", "comparing", "restoring")
+                        val stepLabels = mapOf(
+                            "local" to "Buscando backup local...",
+                            "drive" to "Buscando backup no Google Drive...",
+                            "comparing" to "Comparando qual possui mais dados...",
+                            "restoring" to "Restaurando..."
+                        )
+                        val currentIndex = stepOrder.indexOf(restoreProgressStep)
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            stepOrder.forEachIndexed { i, step ->
+                                val isDone = i < currentIndex
+                                val isActive = i == currentIndex
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier.size(22.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        when {
+                                            isDone -> Icon(
+                                                Icons.Default.CheckCircle,
+                                                contentDescription = null,
+                                                tint = Color(0xFF22C55E),
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                            isActive -> CircularProgressIndicator(
+                                                modifier = Modifier.size(18.dp),
+                                                color = Color(0xFF2563EB),
+                                                strokeWidth = 2.dp
+                                            )
+                                            else -> Box(
+                                                modifier = Modifier
+                                                    .size(14.dp)
+                                                    .background(Color(0xFF334155), CircleShape)
+                                            )
+                                        }
+                                    }
+                                    Spacer(Modifier.width(10.dp))
+                                    Text(
+                                        text = stepLabels[step] ?: step,
+                                        color = when {
+                                            isDone -> Color(0xFF22C55E)
+                                            isActive -> Color.White
+                                            else -> Color(0xFF475569)
+                                        },
+                                        fontSize = 13.sp,
+                                        fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal
+                                    )
+                                }
+                            }
+                        }
+                        Spacer(Modifier.height(14.dp))
+                    }
+
+                    Button(
+                        onClick = { executarBackup(BackupAction.BACKUP) },
+                        enabled = !backupBusy,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(50.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB))
+                    ) {
+                        Icon(
+                            Icons.Default.CloudUpload,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Text(
+                            stringResource(R.string.cfg_backup_save),
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            fontSize = 15.sp
+                        )
+                    }
+
+                    Spacer(Modifier.height(10.dp))
+
+                    OutlinedButton(
+                        onClick = { executarBackup(BackupAction.RESTORE) },
+                        enabled = !backupBusy,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(50.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(
+                            1.dp,
+                            if (isDark) Color(0xFF334155) else Color(0xFFCBD5E1)
+                        ),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = if (isDark) Color.White else Color(0xFF0F172A)
+                        )
+                    ) {
+                        Icon(
+                            Icons.Default.CloudDownload,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Text(
+                            stringResource(R.string.cfg_backup_restore),
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp
+                        )
+                    }
+
+                    Spacer(Modifier.height(14.dp))
+
+                    val lastBackupLabel = if (lastBackupTime > 0L) {
+                        SimpleDateFormat("dd/MM/yyyy HH:mm", Locale("pt", "BR")).format(lastBackupTime)
+                    } else {
+                        stringResource(R.string.cfg_backup_none)
+                    }
+                    Text(
+                        stringResource(R.string.cfg_backup_last, lastBackupLabel),
+                        color = Color(0xFF94A3B8),
+                        fontSize = 12.sp,
+                        modifier = Modifier.fillMaxWidth(),
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+                }
+            }
+
             Spacer(Modifier.height(16.dp))
+            AppVersionFooter(isDark = isDark)
+            Spacer(Modifier.height(32.dp))
         }
     }
 }
 
-private enum class BackupAction {
-    BACKUP,
-    RESTORE
+private enum class BackupAction { BACKUP, RESTORE }
+
+@Composable
+fun SectionHeader(title: String, isDark: Boolean = MaterialTheme.colorScheme.background.luminance() < 0.5f) {
+    Text(
+        text = title.uppercase(),
+        color = if (isDark) Color.White else Color(0xFF0F172A),
+        fontSize = 11.sp,
+        fontWeight = FontWeight.Bold,
+        letterSpacing = 0.8.sp,
+        modifier = Modifier.padding(start = 20.dp, top = 24.dp, bottom = 8.dp, end = 16.dp)
+    )
 }
 
-// Componente Reutilizável para o Cabeçalho da Seção (Estilo Android Settings)
 @Composable
-fun SectionHeader(title: String) {
+private fun PlanSubscriptionCard(
+    planTier: PlanTier,
+    billingInfo: SubscriptionBillingInfo,
+    isDark: Boolean,
+    onRefresh: () -> Unit,
+    onManage: () -> Unit
+) {
     val colorScheme = MaterialTheme.colorScheme
-    val isDark = colorScheme.background.luminance() < 0.5f
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Text(
-            text = title,
-            color = colorScheme.onSurfaceVariant,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(start = 24.dp, bottom = 8.dp)
+    val textColor = if (isDark) Color.White else Color(0xFF0F172A)
+    val subColor = if (isDark) Color(0xFF94A3B8) else Color(0xFF475569)
+    val planName = planNameLabel(planTier)
+    val isAdminPlan = planTier != PlanTier.FREE && billingInfo.planTier != planTier
+    val hasGooglePlaySubscription = billingInfo.productId.isNotBlank()
+    val billingBelongsToCurrentPlan = hasGooglePlaySubscription && billingInfo.planTier == planTier
+    val statusText = statusAssinaturaTexto(planTier, billingInfo, billingBelongsToCurrentPlan)
+
+    val statusColor = when (billingInfo.status) {
+        SubscriptionPaymentStatus.CONFIRMED -> if (billingBelongsToCurrentPlan) Color(0xFF10B981) else if (planTier == PlanTier.FREE) subColor else Color(0xFF10B981)
+        SubscriptionPaymentStatus.WAITING_CONFIRMATION -> if (billingBelongsToCurrentPlan) Color(0xFFF59E0B) else if (planTier == PlanTier.FREE) subColor else Color(0xFF10B981)
+        SubscriptionPaymentStatus.PENDING -> if (billingBelongsToCurrentPlan) Color(0xFFF59E0B) else if (planTier == PlanTier.FREE) subColor else Color(0xFF10B981)
+        SubscriptionPaymentStatus.NOT_FOUND -> if (planTier == PlanTier.FREE) subColor else Color(0xFF10B981)
+    }
+
+    val planAccentColor = when (planTier) {
+        PlanTier.FREE -> subColor
+        PlanTier.LITE -> Color(0xFF60A5FA)
+        PlanTier.FROTA -> Color(0xFF34D399)
+        PlanTier.ENTERPRISE -> Color(0xFFF59E0B)
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onRefresh() }
+            .padding(horizontal = 16.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .background(planAccentColor.copy(alpha = 0.16f), RoundedCornerShape(13.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.CreditCard,
+                    contentDescription = null,
+                    tint = planAccentColor,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    "Plano atual",
+                    color = subColor,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    planName,
+                    color = planAccentColor,
+                    fontSize = 19.sp,
+                    fontWeight = FontWeight.ExtraBold
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .background(statusColor.copy(alpha = 0.15f), RoundedCornerShape(8.dp))
+                    .padding(horizontal = 9.dp, vertical = 4.dp)
+            ) {
+                Text(
+                    statusText,
+                    color = statusColor,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+
+        Divider(color = if (isDark) Color.White.copy(alpha = 0.08f) else Color(0xFF000000).copy(alpha = 0.06f))
+
+        PlanInfoLine(
+            label = "Cobrança",
+            value = dataCobrancaTexto(planTier, billingInfo, billingBelongsToCurrentPlan),
+            textColor = textColor,
+            subColor = subColor
         )
-        Divider(
-            color = if (isDark) Color.White.copy(alpha = 0.10f) else colorScheme.outlineVariant,
-            thickness = 1.dp
+        PlanInfoLine(
+            label = "Renovação",
+            value = when {
+                billingBelongsToCurrentPlan && billingInfo.autoRenewing -> "Automática"
+                billingBelongsToCurrentPlan -> "Consulte no Google Play"
+                planTier != PlanTier.FREE -> "Plano administrativo"
+                else -> "Sem assinatura ativa"
+            },
+            textColor = textColor,
+            subColor = subColor
+        )
+        PlanInfoLine(
+            label = "Origem",
+            value = when {
+                billingBelongsToCurrentPlan -> "Google Play"
+                planTier != PlanTier.FREE -> "Admin Zellu"
+                else -> "App Zellu"
+            },
+            textColor = textColor,
+            subColor = subColor
+        )
+        if (!isAdminPlan && !billingBelongsToCurrentPlan && hasGooglePlaySubscription) {
+            PlanInfoLine(
+                label = "Google Play",
+                value = "${planNameLabel(billingInfo.planTier)} neste aparelho",
+                textColor = textColor,
+                subColor = subColor
+            )
+        }
+
+        Button(
+            onClick = onManage,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp),
+            shape = RoundedCornerShape(12.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB))
+        ) {
+            Icon(
+                Icons.Default.OpenInNew,
+                contentDescription = null,
+                tint = Color.White,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(Modifier.width(8.dp))
+            Text("Gerenciar assinatura", color = Color.White, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
+private fun PlanInfoLine(
+    label: String,
+    value: String,
+    textColor: Color,
+    subColor: Color
+) {
+    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, color = subColor, fontSize = 12.sp, modifier = Modifier.weight(1f))
+        Text(value, color = textColor, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+private fun statusAssinaturaTexto(
+    planTier: PlanTier,
+    billingInfo: SubscriptionBillingInfo,
+    billingBelongsToCurrentPlan: Boolean
+): String {
+    if (!billingBelongsToCurrentPlan) {
+        return if (planTier == PlanTier.FREE) "Sem assinatura" else "Ativo"
+    }
+    return when (billingInfo.status) {
+        SubscriptionPaymentStatus.CONFIRMED -> "Pagamento ok"
+        SubscriptionPaymentStatus.WAITING_CONFIRMATION -> "Confirmando"
+        SubscriptionPaymentStatus.PENDING -> "Pendente"
+        SubscriptionPaymentStatus.NOT_FOUND -> if (planTier == PlanTier.FREE) "Sem assinatura" else "Ativo"
+    }
+}
+
+private fun dataCobrancaTexto(
+    planTier: PlanTier,
+    billingInfo: SubscriptionBillingInfo,
+    billingBelongsToCurrentPlan: Boolean
+): String {
+    if (!billingBelongsToCurrentPlan) {
+        return if (planTier == PlanTier.FREE) "Confira no Google Play" else "Via admin"
+    }
+    return when {
+        billingInfo.nextBillingTimeMillis > 0L -> "Próxima: ${formatarDataCobranca(billingInfo.nextBillingTimeMillis)}"
+        billingInfo.purchaseTimeMillis > 0L -> "Última: ${formatarDataCobranca(billingInfo.purchaseTimeMillis)}"
+        else -> "Confira no Google Play"
+    }
+}
+
+private fun formatarDataCobranca(millis: Long): String =
+    SimpleDateFormat("dd/MM/yyyy", Locale("pt", "BR")).format(millis)
+
+private fun abrirGerenciamentoAssinaturaGooglePlay(context: Context, productId: String) {
+    val baseUrl = "https://play.google.com/store/account/subscriptions"
+    val url = if (productId.isNotBlank()) {
+        "$baseUrl?sku=$productId&package=${context.packageName}"
+    } else {
+        baseUrl
+    }
+    val uri = Uri.parse(url)
+    val playIntent = Intent(Intent.ACTION_VIEW, uri).setPackage("com.android.vending")
+    runCatching {
+        context.startActivity(playIntent)
+    }.recoverCatching {
+        context.startActivity(Intent(Intent.ACTION_VIEW, uri))
+    }.onFailure {
+        Toast.makeText(context, "Não deu para abrir o Google Play.", Toast.LENGTH_LONG).show()
+    }
+}
+
+@Composable
+private fun AppVersionFooter(isDark: Boolean) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val remoteChannel = AdminUsersSync.getChannelStatus(context)
+    val isBeta = when (remoteChannel) {
+        "beta"   -> true
+        "oficial" -> false
+        else     -> BuildConfig.DEBUG || BuildConfig.VERSION_NAME.contains("beta", ignoreCase = true)
+    }
+    val versionText = "Versão ${BuildConfig.VERSION_NAME}"
+    val subColor = if (isDark) Color(0xFF64748B) else Color(0xFF94A3B8)
+    val betaBg = if (isDark) Color(0xFF1E3A5F) else Color(0xFFEFF6FF)
+    val betaColor = Color(0xFF60A5FA)
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 24.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(versionText, color = subColor, fontSize = 12.sp)
+        Spacer(Modifier.width(8.dp))
+        Text(
+            text = if (isBeta) "BETA" else "OFICIAL",
+            color = if (isBeta) betaColor else Color(0xFF10B981),
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier
+                .background(
+                    if (isBeta) betaBg else Color(0xFF10B981).copy(alpha = 0.14f),
+                    RoundedCornerShape(8.dp)
+                )
+                .padding(horizontal = 8.dp, vertical = 3.dp)
         )
     }
 }
@@ -698,26 +1098,6 @@ fun BeneficioItem(texto: String) {
     }
 }
 
-private fun scheduleBackupWork(context: android.content.Context, interval: BackupInterval) {
-    val workManager = WorkManager.getInstance(context)
-    if (interval == BackupInterval.OFF) {
-        workManager.cancelUniqueWork("drive_backup")
-        return
-    }
-    val days = if (interval == BackupInterval.WEEKLY) 7L else 30L
-    val constraints = Constraints.Builder()
-        .setRequiredNetworkType(NetworkType.CONNECTED)
-        .build()
-    val request = PeriodicWorkRequestBuilder<DriveBackupWorker>(days, TimeUnit.DAYS)
-        .setConstraints(constraints)
-        .build()
-    workManager.enqueueUniquePeriodicWork(
-        "drive_backup",
-        ExistingPeriodicWorkPolicy.UPDATE,
-        request
-    )
-}
-
 @Composable
 private fun BackupIntervalButton(
     label: String,
@@ -729,18 +1109,20 @@ private fun BackupIntervalButton(
         onClick = onClick,
         modifier = modifier.height(40.dp),
         shape = RoundedCornerShape(10.dp),
+        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
         colors = ButtonDefaults.buttonColors(
             containerColor = if (selected) Color(0xFF2563EB) else Color(0xFF1F2937),
             contentColor = Color.White
         )
     ) {
-        Text(label, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        Text(label, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
     }
 }
 
 @Composable
 private fun ThemeModeOptionButton(
     label: String,
+    icon: ImageVector,
     selected: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
@@ -749,22 +1131,39 @@ private fun ThemeModeOptionButton(
     val isDark = colorScheme.background.luminance() < 0.5f
     OutlinedButton(
         onClick = onClick,
-        modifier = modifier.height(40.dp),
-        shape = RoundedCornerShape(10.dp),
+        modifier = modifier.height(60.dp),
+        shape = RoundedCornerShape(12.dp),
         border = BorderStroke(
-            width = 1.dp,
-            color = if (selected) colorScheme.primary else colorScheme.outline
+            width = 1.5.dp,
+            color = if (selected) colorScheme.primary else colorScheme.outline.copy(alpha = 0.5f)
         ),
         colors = ButtonDefaults.outlinedButtonColors(
             containerColor = if (selected) {
-                colorScheme.primary.copy(alpha = 0.16f)
+                colorScheme.primary.copy(alpha = 0.14f)
             } else {
-                if (isDark) Color(0xFF111827) else colorScheme.surface
+                if (isDark) Color(0xFF0F172A) else colorScheme.surface
             },
-            contentColor = colorScheme.onSurface
-        )
+            contentColor = if (selected) colorScheme.primary else colorScheme.onSurface.copy(alpha = 0.65f)
+        ),
+        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp)
     ) {
-        Text(label, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+            modifier = Modifier.fillMaxHeight()
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                modifier = Modifier.size(17.dp)
+            )
+            Spacer(Modifier.height(3.dp))
+            Text(
+                label,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1
+            )
+        }
     }
 }
-

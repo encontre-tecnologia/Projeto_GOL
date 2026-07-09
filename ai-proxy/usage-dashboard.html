@@ -1,0 +1,437 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Zellu AI - Painel simples</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #05070b;
+      --card: #0c1320;
+      --soft: #101a2b;
+      --line: #243249;
+      --text: #edf4ff;
+      --muted: #9fb0c7;
+      --blue: #2563eb;
+      --green: #22c55e;
+      --yellow: #f59e0b;
+      --red: #ef4444;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at 20% 8%, rgba(37, 99, 235, 0.24), transparent 32%),
+        radial-gradient(circle at 80% 0%, rgba(34, 197, 94, 0.12), transparent 28%),
+        var(--bg);
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    main {
+      width: min(980px, calc(100% - 30px));
+      margin: 0 auto;
+      padding: 28px 0;
+    }
+
+    header {
+      display: grid;
+      gap: 14px;
+      margin-bottom: 18px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(30px, 6vw, 50px);
+      line-height: 1;
+      letter-spacing: 0;
+    }
+
+    h2, h3, p { margin: 0; }
+
+    p {
+      color: var(--muted);
+      line-height: 1.55;
+    }
+
+    a {
+      color: #93c5fd;
+      font-weight: 800;
+      text-decoration: none;
+    }
+
+    .top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      flex-wrap: wrap;
+    }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      border: 1px solid var(--line);
+      background: rgba(12, 19, 32, 0.85);
+      border-radius: 999px;
+      padding: 10px 13px;
+      color: var(--muted);
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--yellow);
+      box-shadow: 0 0 22px currentColor;
+    }
+
+    .dot.ok { background: var(--green); }
+    .dot.bad { background: var(--red); }
+
+    .panel {
+      border: 1px solid var(--line);
+      background: rgba(12, 19, 32, 0.88);
+      border-radius: 24px;
+      padding: 20px;
+      box-shadow: 0 26px 90px rgba(0, 0, 0, 0.32);
+    }
+
+    .hero {
+      display: grid;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .hero strong {
+      color: var(--text);
+    }
+
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .card {
+      border: 1px solid var(--line);
+      background: var(--soft);
+      border-radius: 18px;
+      padding: 17px;
+      min-height: 150px;
+      display: grid;
+      align-content: space-between;
+      gap: 14px;
+    }
+
+    .card h2 {
+      font-size: 15px;
+      color: var(--muted);
+      font-weight: 800;
+    }
+
+    .number {
+      font-size: 44px;
+      line-height: 1;
+      font-weight: 950;
+      letter-spacing: 0;
+    }
+
+    .bar {
+      height: 11px;
+      border-radius: 999px;
+      background: #1f2937;
+      overflow: hidden;
+    }
+
+    .bar span {
+      display: block;
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, var(--blue), var(--green));
+      transition: width 280ms ease;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 16px;
+      align-items: center;
+    }
+
+    button {
+      border: 0;
+      border-radius: 14px;
+      padding: 13px 16px;
+      background: var(--blue);
+      color: white;
+      font: inherit;
+      font-weight: 900;
+      cursor: pointer;
+    }
+
+    button.secondary {
+      background: #0a101c;
+      border: 1px solid var(--line);
+      color: var(--text);
+    }
+
+    details {
+      margin-top: 16px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: #070d17;
+      padding: 14px;
+    }
+
+    summary {
+      cursor: pointer;
+      font-weight: 900;
+    }
+
+    .details-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-top: 14px;
+    }
+
+    label {
+      display: grid;
+      gap: 7px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    input {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #050912;
+      color: var(--text);
+      padding: 12px;
+      font: inherit;
+    }
+
+    pre {
+      white-space: pre-wrap;
+      color: #cbd5e1;
+      background: #050912;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 12px;
+      overflow: auto;
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    .links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .links a {
+      border: 1px solid var(--line);
+      background: #070d17;
+      border-radius: 999px;
+      padding: 9px 12px;
+      color: var(--text);
+      font-size: 13px;
+    }
+
+    @media (max-width: 760px) {
+      .cards, .details-grid { grid-template-columns: 1fr; }
+      .number { font-size: 38px; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div class="top">
+        <div>
+          <h1>Painel da Zellu AI</h1>
+          <p>Um resumo simples para saber se a IA esta no ar e quantas respostas ainda da para usar hoje.</p>
+        </div>
+        <div class="status"><span id="statusDot" class="dot"></span><span id="statusText">Verificando...</span></div>
+      </div>
+    </header>
+
+    <section class="panel">
+      <div class="hero">
+        <h2 id="headline">Carregando consumo...</h2>
+        <p id="explanation">Estou consultando o servidor da IA. Isso nao gasta resposta da Groq.</p>
+      </div>
+
+      <div class="cards">
+        <article class="card">
+          <div>
+            <h2>Usos hoje</h2>
+            <div class="number" id="usedToday">0</div>
+          </div>
+          <p>Quantidade de respostas usadas no limite diario.</p>
+        </article>
+
+        <article class="card">
+          <div>
+            <h2>Ainda disponivel hoje</h2>
+            <div class="number" id="remainingToday">0</div>
+          </div>
+          <p>Se chegar em zero, a IA para de responder e volta quando o limite renovar.</p>
+        </article>
+
+        <article class="card">
+          <div>
+            <h2>Ritmo agora</h2>
+            <div class="number" id="remainingMinute">0</div>
+          </div>
+          <p>Respostas que ainda cabem neste minuto, para evitar abuso.</p>
+        </article>
+      </div>
+
+      <div style="margin-top: 16px;">
+        <p id="dailyLabel">Uso diario</p>
+        <div class="bar"><span id="dailyBar"></span></div>
+      </div>
+
+      <div class="actions">
+        <button id="refresh">Atualizar agora</button>
+        <button id="save" class="secondary">Salvar painel neste navegador</button>
+      </div>
+
+      <details>
+        <summary>Detalhes para quando precisar investigar</summary>
+        <div class="details-grid">
+          <label>Endereco do servidor da IA
+            <input id="workerUrl" value="https://jolly-silence-4b08.encontretecnologia2.workers.dev" />
+          </label>
+          <label>Limite manual da Groq para acompanhar
+            <input id="groqLimitManual" type="number" min="1" value="1000" />
+          </label>
+        </div>
+        <div class="links">
+          <a href="https://console.groq.com/usage" target="_blank" rel="noreferrer">Ver uso oficial na Groq</a>
+          <a href="https://console.groq.com/settings/billing" target="_blank" rel="noreferrer">Ver cobranca Groq</a>
+          <a href="https://dash.cloudflare.com/?to=/:account/workers-and-pages" target="_blank" rel="noreferrer">Ver Cloudflare</a>
+        </div>
+        <pre id="log">Aguardando primeira consulta...</pre>
+      </details>
+    </section>
+  </main>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const storageKey = "zellu-ai-simple-dashboard";
+
+    function loadState() {
+      try {
+        const data = JSON.parse(localStorage.getItem(storageKey) || "{}");
+        if (data.workerUrl) $("workerUrl").value = data.workerUrl;
+        if (data.groqLimitManual) $("groqLimitManual").value = data.groqLimitManual;
+      } catch {}
+    }
+
+    function saveState() {
+      localStorage.setItem(storageKey, JSON.stringify({
+        workerUrl: $("workerUrl").value.trim(),
+        groqLimitManual: Number($("groqLimitManual").value || 1000),
+      }));
+    }
+
+    function setStatus(kind, text) {
+      $("statusDot").className = `dot ${kind || ""}`;
+      $("statusText").textContent = text;
+    }
+
+    function percent(used, limit) {
+      if (!limit) return 0;
+      return Math.max(0, Math.min(100, (used / limit) * 100));
+    }
+
+    function friendlyHeadline(used, remaining, limit) {
+      const usedPct = percent(used, limit);
+      if (remaining <= 0) return "A IA bateu o limite de hoje.";
+      if (usedPct >= 80) return "A IA esta quase no limite diario.";
+      if (usedPct >= 50) return "A IA ja usou metade do limite de hoje.";
+      return "A IA esta tranquila hoje.";
+    }
+
+    function friendlyExplanation(used, remaining, limit) {
+      if (remaining <= 0) {
+        return "Por seguranca de custo, ela deve parar de responder ate o limite renovar. O app ainda pode usar respostas locais quando existir fallback.";
+      }
+      return `Hoje foram ${used} uso(s) de ${limit}. Ainda restam ${remaining} resposta(s) neste limite diario.`;
+    }
+
+    async function refreshUsage() {
+      const base = $("workerUrl").value.trim().replace(/\/+$/, "");
+      if (!base) {
+        setStatus("bad", "Faltou endereco");
+        $("headline").textContent = "Nao achei o endereco da IA.";
+        $("explanation").textContent = "Abra os detalhes e confira o endereco do servidor.";
+        return;
+      }
+
+      setStatus("", "Atualizando...");
+      $("headline").textContent = "Consultando a IA...";
+      $("explanation").textContent = "Essa consulta e so leitura. Nao gasta uma resposta da Groq.";
+
+      try {
+        const response = await fetch(`${base}/usage`);
+        const text = await response.text();
+        let data;
+        try { data = JSON.parse(text); } catch { data = { raw: text }; }
+
+        if (!response.ok) {
+          setStatus("bad", "Com erro");
+          $("headline").textContent = "Nao consegui ler o consumo.";
+          $("explanation").textContent = "A IA pode estar online, mas o painel nao conseguiu ler o resumo agora.";
+          $("log").textContent = JSON.stringify(data, null, 2);
+          return;
+        }
+
+        const limit = Number(data?.limits?.perDay || 0);
+        const used = Number(data?.usage?.dayUsed || 0);
+        const remaining = Number(data?.usage?.dayRemaining || 0);
+        const minuteRemaining = Number(data?.usage?.minuteRemaining || 0);
+
+        $("usedToday").textContent = used;
+        $("remainingToday").textContent = remaining;
+        $("remainingMinute").textContent = minuteRemaining;
+        $("dailyBar").style.width = `${percent(used, limit)}%`;
+        $("dailyLabel").textContent = `Uso diario: ${used} de ${limit}`;
+        $("headline").textContent = friendlyHeadline(used, remaining, limit);
+        $("explanation").textContent = friendlyExplanation(used, remaining, limit);
+        $("log").textContent = JSON.stringify(data, null, 2);
+        setStatus("ok", "Online");
+      } catch (error) {
+        setStatus("bad", "Offline ou bloqueado");
+        $("headline").textContent = "Nao consegui falar com o servidor da IA.";
+        $("explanation").textContent = "Pode ser internet, servidor fora do ar ou bloqueio do navegador. Tente atualizar de novo.";
+        $("log").textContent = String(error);
+      }
+    }
+
+    $("refresh").addEventListener("click", refreshUsage);
+    $("save").addEventListener("click", () => {
+      saveState();
+      refreshUsage();
+    });
+
+    loadState();
+    refreshUsage();
+  </script>
+</body>
+</html>

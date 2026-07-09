@@ -12,7 +12,6 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.net.Uri
 import android.util.Log
-import android.speech.tts.TextToSpeech
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
@@ -23,6 +22,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.*
@@ -110,7 +110,6 @@ private const val CURRENT_HOME_TUTORIAL_VERSION = 1
 private const val FORCE_HOME_TUTORIAL_ALWAYS = false
 private const val ONBOARDING_PREFS = "onboarding_prefs"
 private const val KEY_REPORT_MINI_TUTORIAL_SEEN = "report_mini_tutorial_seen"
-private const val KEY_FUEL_REPORT_MINI_TUTORIAL_SEEN = "fuel_report_mini_tutorial_seen"
 
 private fun shouldAutoStartHomeTutorial(context: Context): Boolean {
     if (FORCE_HOME_TUTORIAL_ALWAYS) return true
@@ -139,94 +138,26 @@ private fun markReportMiniTutorialSeen(context: Context) {
         .apply()
 }
 
-private fun shouldShowFuelReportMiniTutorial(context: Context): Boolean {
-    return !context.getSharedPreferences(ONBOARDING_PREFS, Context.MODE_PRIVATE)
-        .getBoolean(KEY_FUEL_REPORT_MINI_TUTORIAL_SEEN, false)
-}
+private fun compartilharPdfsDaFrota(context: Context, uris: List<Uri>): Boolean {
+    if (uris.isEmpty()) return false
 
-private fun markFuelReportMiniTutorialSeen(context: Context) {
-    context.getSharedPreferences(ONBOARDING_PREFS, Context.MODE_PRIVATE)
-        .edit()
-        .putBoolean(KEY_FUEL_REPORT_MINI_TUTORIAL_SEEN, true)
-        .apply()
-}
-
-@Composable
-private fun PremiumRequirementDialog(
-    title: String,
-    message: String,
-    isDark: Boolean,
-    onDismiss: () -> Unit,
-    onViewPlans: () -> Unit
-) {
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
-    ) {
-        val limitDialogBg = if (isDark) Color(0xFF0F172A) else Color(0xFFFFFBF2)
-        val limitDialogBorder = if (isDark) Color(0xFFF59E0B).copy(alpha = 0.58f) else Color(0xFFF2D57A)
-        val limitTitle = if (isDark) Color(0xFFFBBF24) else Color(0xFF9A6A00)
-        val limitText = if (isDark) Color(0xFFCBD5E1) else Color(0xFF334155)
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 24.dp),
-            shape = RoundedCornerShape(24.dp),
-            color = limitDialogBg,
-            tonalElevation = 8.dp,
-            shadowElevation = 16.dp,
-            border = BorderStroke(1.dp, limitDialogBorder.copy(alpha = if (isDark) 0.55f else 1f))
-        ) {
-            Column(
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                Text(
-                    title,
-                    color = limitTitle,
-                    fontWeight = FontWeight.ExtraBold,
-                    fontSize = 20.sp
-                )
-                Text(
-                    message,
-                    color = limitText,
-                    fontSize = 14.sp,
-                    lineHeight = 19.sp
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    OutlinedButton(
-                        onClick = onDismiss,
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(46.dp),
-                        shape = RoundedCornerShape(24.dp),
-                        border = BorderStroke(1.dp, Color(0xFFF59E0B)),
-                        colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.Transparent)
-                    ) {
-                        Text(
-                            "Agora não",
-                            color = Color(0xFFF59E0B),
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                    Button(
-                        onClick = onViewPlans,
-                        modifier = Modifier
-                            .weight(1.12f)
-                            .height(46.dp),
-                        shape = RoundedCornerShape(24.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF59E0B))
-                    ) {
-                        Text("Ver planos", color = Color.Black, fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
+    val intent = if (uris.size == 1) {
+        Intent(Intent.ACTION_SEND).apply {
+            type = "application/pdf"
+            putExtra(Intent.EXTRA_STREAM, uris.first())
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+    } else {
+        Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+            type = "application/pdf"
+            putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(uris))
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
     }
+
+    return runCatching {
+        context.startActivity(Intent.createChooser(intent, "Compartilhar relatorios da frota"))
+    }.isSuccess
 }
 
 /* ----------------- TELA PRINCIPAL (Visual Dashboard Premium) ----------------- */
@@ -342,6 +273,11 @@ fun ManutencaoScreen(
             AdminUsersSync.syncRemindersSnapshot(todosLembretes)
         }
     }
+    LaunchedEffect(abastecimentos) {
+        if (!isLoading) {
+            withContext(Dispatchers.IO) { BancoDeDados.salvarAbastecimentos(context, abastecimentos) }
+        }
+    }
 
     var indiceCarroAtual by remember { mutableIntStateOf(0) }
     var restoredLastCar by remember { mutableStateOf(false) }
@@ -392,20 +328,21 @@ fun ManutencaoScreen(
     var showPerfilScreen by remember { mutableStateOf(false) }
     var showShareVehicleScreen by remember { mutableStateOf(false) }
     var showAondePareiScreen by remember { mutableStateOf(openAondePareiOnStart) }
+    var showVehicleAiChatScreen by remember { mutableStateOf(false) }
+    var returnToPremiumBenefitsAfterAi by remember { mutableStateOf(false) }
     var showAiAssistantScreen by remember { mutableStateOf(false) }
     var showFleetOverviewScreen by remember { mutableStateOf(false) }
     var showFleetStockScreen by remember { mutableStateOf(false) }
     var showVehicleGuideScreen by remember { mutableStateOf(false) }
     var showEbookStoreScreen by remember { mutableStateOf(false) }
+    var showReleaseNotesScreen by remember { mutableStateOf(false) }
     var showReportMiniTutorial by rememberSaveable { mutableStateOf(false) }
-    var showFuelReportMiniTutorial by rememberSaveable { mutableStateOf(false) }
     var autoScrollReportToMaintenance by rememberSaveable { mutableStateOf(false) }
     
     val density = LocalDensity.current
     var showHomeTutorial by remember { mutableStateOf(false) }
     var homeTutorialStep by remember { mutableIntStateOf(0) }
     var homeTutorialAutoStarted by rememberSaveable { mutableStateOf(false) }
-    var isTutorialVoiceMuted by rememberSaveable { mutableStateOf(false) }
     var menuButtonRect by remember { mutableStateOf<Rect?>(null) }
     var helpButtonRect by remember { mutableStateOf<Rect?>(null) }
     var notificationsButtonRect by remember { mutableStateOf<Rect?>(null) }
@@ -458,11 +395,11 @@ fun ManutencaoScreen(
     }
 
     var showAnjoDaGuardaScreen by remember { mutableStateOf(false) }
+    var showTravelAlarmScreen by remember { mutableStateOf(false) }
     var showGaragemScreen by remember { mutableStateOf(false) }
     var showCarInfoScreen by remember { mutableStateOf(false) }
     var lembreteSelecionado by remember { mutableStateOf<Lembrete?>(null) }
     var showLembreteDetalhesScreen by remember { mutableStateOf(false) }
-    var abrirDetalhesEmEdicao by remember { mutableStateOf(false) }
     var contatoDetalheSelecionado by remember { mutableStateOf<ContatoProfissional?>(null) }
     LaunchedEffect(openReminderIdOnStart, isLoading, listaCarros, todosLembretes) {
         val alvo = openReminderIdOnStart.orEmpty()
@@ -559,8 +496,11 @@ fun ManutencaoScreen(
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val drawerScope = rememberCoroutineScope()
     val contentScrollState = rememberScrollState()
-    LaunchedEffect(showReportMiniTutorial, showFuelReportMiniTutorial) {
-        if ((showReportMiniTutorial || showFuelReportMiniTutorial) && contentScrollState.value > 0) {
+    BackHandler(enabled = drawerState.isOpen) {
+        drawerScope.launch { drawerState.close() }
+    }
+    LaunchedEffect(showReportMiniTutorial) {
+        if (showReportMiniTutorial && contentScrollState.value > 0) {
             contentScrollState.animateScrollTo(0)
         }
     }
@@ -591,69 +531,40 @@ fun ManutencaoScreen(
     val subscriptionManager = remember { SubscriptionManager(context) }
     val planTier by subscriptionManager.planTier.collectAsState()
     val isSubscribed by subscriptionManager.isSubscribed.collectAsState()
-    var adminReminderLimitOverride by remember { mutableStateOf<Int?>(null) }
+    val subscriptionBillingInfo by subscriptionManager.billingInfo.collectAsState()
+    val aiFeatureChannel = remember { AdminUsersSync.getFeatureChannel(context, "ai") }
+    val userChannelForAi = remember { AdminUsersSync.getChannelStatus(context) }
+    val isAiBlocked = remember { AdminUsersSync.getCachedAiBlocked(context) }
+    var isWebBlocked by remember { mutableStateOf(AdminUsersSync.getCachedWebBlocked(context)) }
+    val hasVehicleAiAccess = planTier in setOf(PlanTier.LITE, PlanTier.FROTA, PlanTier.ENTERPRISE) &&
+        (aiFeatureChannel != "beta" || userChannelForAi == "beta") &&
+        !isAiBlocked
+    var featureChannelVersion by remember { mutableStateOf(0) }
+    LaunchedEffect(Unit) {
+        AdminUsersSync.syncFeatureChannels(context) { featureChannelVersion++ }
+        AdminUsersSync.syncUserConfig(context) {
+            isWebBlocked = AdminUsersSync.getCachedWebBlocked(context)
+        }
+    }
+    fun featureAllowed(key: String): Boolean {
+        @Suppress("UNUSED_EXPRESSION")
+        featureChannelVersion
+        val ch = AdminUsersSync.getFeatureChannel(context, key)
+        return ch != "beta" || userChannelForAi == "beta"
+    }
     val maxVehiclesCurrentPlan by remember(planTier) { mutableIntStateOf(vehicleLimitForPlan(planTier)) }
     val planNameCurrent by remember(planTier) { mutableStateOf(planNameLabel(planTier)) }
-    val reminderLimitCurrentPlan = effectiveReminderLimitForPlan(planTier, adminReminderLimitOverride)
-    val maintenanceUsageCurrent = todosLembretes.count { it.tipo != TipoManutencao.ABASTECIMENTO }
-    val adminReminderLimitValue = adminReminderLimitOverride
-    val hasAdminReminderBoost = adminReminderLimitValue != null &&
-        adminReminderLimitValue > reminderLimitForPlan(planTier)
     var showPremiumDialog by remember { mutableStateOf(false) }
-    var premiumDialogReason by remember { mutableStateOf("generic") }
     var showPremiumInfo by remember { mutableStateOf(false) }
     var showPremiumBeneficiosScreen by remember { mutableStateOf(false) }
     var showAvisosNotificacoesDialog by remember { mutableStateOf(false) }
     var notificacoesDisparadas by remember { mutableStateOf<List<NotificacaoDisparada>>(emptyList()) }
-    fun currentPremiumDialogCopy(): Pair<String, String> {
-        val activeReminderCount = todosLembretes.count {
-            it.tipo != TipoManutencao.ABASTECIMENTO && !isLembreteRealizado(it)
+    fun closeVehicleAiChat() {
+        showVehicleAiChatScreen = false
+        if (returnToPremiumBenefitsAfterAi) {
+            returnToPremiumBenefitsAfterAi = false
+            showPremiumHubScreen = true
         }
-        val activeRecordCount = todosLembretes.count {
-            it.tipo != TipoManutencao.ABASTECIMENTO && isLembreteRealizado(it)
-        }
-        val activeMaintenanceCount = activeReminderCount + activeRecordCount
-        val currentReminderLimit = effectiveReminderLimitForPlan(planTier, adminReminderLimitOverride)
-        val currentFuelRecordLimit = fuelRecordLimitForPlan(planTier)
-        val currentScannerLimit = scannerLimitForPlan(planTier)
-        val liteReminderLimit = reminderLimitForPlan(PlanTier.LITE)
-        val liteFuelRecordLimit = fuelRecordLimitForPlan(PlanTier.LITE)
-        val liteScannerLimit = scannerLimitForPlan(PlanTier.LITE)
-        val displayedMaintenanceCount = if (currentReminderLimit == Int.MAX_VALUE) {
-            activeMaintenanceCount
-        } else {
-            activeMaintenanceCount.coerceAtMost(currentReminderLimit)
-        }
-        val displayedFuelCount = if (currentFuelRecordLimit == Int.MAX_VALUE) {
-            abastecimentos.size
-        } else {
-            abastecimentos.size.coerceAtMost(currentFuelRecordLimit)
-        }
-        val maintenanceUsageText =
-            "Voce esta no plano $planNameCurrent e ja usa $displayedMaintenanceCount de $currentReminderLimit avisos/registros."
-        val fuelUsageText =
-            "Voce esta no plano $planNameCurrent e ja cadastrou $displayedFuelCount de $currentFuelRecordLimit abastecimentos."
-        val dialogTitle = when (premiumDialogReason) {
-            "reminder_limit" -> "Limite de avisos atingido"
-            "record_limit" -> "Limite de registros atingido"
-            "fuel_limit" -> "Limite de abastecimentos atingido"
-            "scanner_limit" -> "Limite de scanner atingido"
-            "parking_pdf" -> "PDF do estacionamento no Lite"
-            "recurrence_premium" -> "Repetição automática no Lite"
-            "drive_backup" -> "Backup no Drive é Lite+"
-            else -> "Recurso Premium"
-        }
-        val dialogText = when (premiumDialogReason) {
-            "reminder_limit" -> "$maintenanceUsageText Para criar mais lembretes de manutencao, assine o Lite e libere ate $liteReminderLimit avisos/registros."
-            "record_limit" -> "$maintenanceUsageText Para salvar mais servicos que ja aconteceram, assine o Lite e libere ate $liteReminderLimit avisos/registros."
-            "fuel_limit" -> "$fuelUsageText Para continuar acompanhando consumo e km/L, assine o Lite e libere ate $liteFuelRecordLimit abastecimentos."
-            "scanner_limit" -> "Voce esta no plano $planNameCurrent e ja usou os $currentScannerLimit scans de QR deste mes. O Lite libera $liteScannerLimit scans por mes para preencher notas mais rapido."
-            "parking_pdf" -> "O PDF do Onde parei fica disponivel no Lite, Frota e Enterprise. Gere comprovantes de parada e compartilhe quando precisar."
-            "recurrence_premium" -> "A repeticao automatica fica disponivel no Lite, Frota e Enterprise. Avisos normais continuam funcionando no plano gratis."
-            "drive_backup" -> "No plano gratis, seus dados ficam neste aparelho. O Lite libera backup e restauracao no Google Drive para proteger veiculos, avisos e historicos."
-            else -> "Escolha um plano para liberar mais avisos, scans de QR, viagens, frota e recursos avancados."
-        }
-        return dialogTitle to dialogText
     }
     val lifecycleOwner = LocalLifecycleOwner.current
     val refreshNotificacoes = remember(context) {
@@ -664,23 +575,17 @@ fun ManutencaoScreen(
 
     DisposableEffect(Unit) {
         subscriptionManager.connect()
-        AdminUsersSync.applyRemoteAdminOverride(
-            getCurrentOverride = { SubscriptionManager.isAdminPremiumOverrideEnabled(context) },
-            setOverride = { enabled -> SubscriptionManager.setAdminPremiumOverride(context, enabled) },
-            setPlan = { plan -> SubscriptionManager.setAdminPremiumOverridePlan(context, plan) },
-            onChanged = { subscriptionManager.refreshLocalEntitlements() }
-        )
-        onDispose { subscriptionManager.disconnect() }
-    }
-    DisposableEffect(Unit) {
-        val reminderLimitListener = AdminUsersSync.listenReminderLimitOverride { remoteLimit ->
-            adminReminderLimitOverride = remoteLimit
+        // Aplica override do cache (salvo por syncUserConfig no login) — zero reads extras.
+        val cachedOverride = AdminUsersSync.getCachedAdminPremiumOverride(context)
+        val cachedPlan = AdminUsersSync.getCachedAdminPremiumPlan(context)
+        if (cachedOverride != SubscriptionManager.isAdminPremiumOverrideEnabled(context)) {
+            SubscriptionManager.setAdminPremiumOverride(context, cachedOverride)
+            SubscriptionManager.setAdminPremiumOverridePlan(context, cachedPlan)
+            subscriptionManager.refreshLocalEntitlements()
+        } else if (cachedOverride) {
+            SubscriptionManager.setAdminPremiumOverridePlan(context, cachedPlan)
         }
-        onDispose { reminderLimitListener?.remove() }
-    }
-    LaunchedEffect(planTier) {
-        val plan = if (planTier == PlanTier.FREE) "free" else "premium"
-        AdminUsersSync.syncCurrentUser(plan = plan)
+        onDispose { subscriptionManager.disconnect() }
     }
     LaunchedEffect(todosLembretes) {
         notificacoesDisparadas = withContext(Dispatchers.IO) { NotificacaoHelper.carregarNotificacoesDisparadas(context) }
@@ -755,7 +660,6 @@ fun ManutencaoScreen(
             SelecionarPrestadorScreen(
                 tipoSelecionado = lembreteAlvo.tipo,
                 isBikeVehicle = isBikeCategory(carroAtual.tipoVeiculo),
-                prestadoresCadastrados = listaContatos,
                 onDismiss = {
                     showSelecionarPrestadorScreen = false
                     lembreteParaVincularContato = null
@@ -801,8 +705,6 @@ fun ManutencaoScreen(
         ) {
             val popupBg = if (isDark) Color.Black else Color.White
             val popupBorder = if (isDark) Color(0xFF1F2937) else Color(0xFFE2E8F0)
-            val closeButtonBorder = if (isDark) Color.White else popupBorder
-            val closeButtonText = if (isDark) Color.White else Color(0xFF0F172A)
             val popupTextPrimary = if (isDark) Color(0xFFE2E8F0) else Color(0xFF0F172A)
             val popupTextSecondary = if (isDark) Color(0xFF94A3B8) else Color(0xFF475569)
 
@@ -873,7 +775,6 @@ fun ManutencaoScreen(
             Card(
                 modifier = Modifier
                     .fillMaxWidth(0.92f)
-                    .heightIn(min = 410.dp)
                     .wrapContentHeight(),
                 shape = RoundedCornerShape(22.dp),
                 colors = CardDefaults.cardColors(containerColor = popupBg),
@@ -882,8 +783,8 @@ fun ManutencaoScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 20.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                        .padding(horizontal = 16.dp, vertical = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Column(
                         modifier = Modifier.fillMaxWidth(),
@@ -913,7 +814,7 @@ fun ManutencaoScreen(
                             textAlign = TextAlign.Center
                         )
                         Text(
-                            text = "Como você quer cadastrar?",
+                            text = "Como voce quer cadastrar?",
                             color = popupTextSecondary,
                             fontSize = 13.sp,
                             textAlign = TextAlign.Center
@@ -922,8 +823,8 @@ fun ManutencaoScreen(
 
                     FluxoOptionCard(
                         icon = Icons.Default.CheckCircle,
-                        title = "Já aconteceu",
-                        subtitle = "Registrar serviço concluído no histórico (sem lembrete futuro).",
+                        title = "Ja aconteceu",
+                        subtitle = "Registrar servico concluido no historico (sem lembrete futuro).",
                         accent = Color(0xFF10B981),
                         onClick = {
                             fluxoInicialRegistroServico = true
@@ -944,21 +845,19 @@ fun ManutencaoScreen(
                         }
                     )
 
-                    Spacer(Modifier.height(8.dp))
-
                     OutlinedButton(
                         onClick = { showFluxoCadastroDialog = false },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(52.dp),
+                            .height(46.dp),
                         shape = RoundedCornerShape(12.dp),
-                        border = BorderStroke(1.dp, closeButtonBorder),
+                        border = BorderStroke(1.dp, popupBorder),
                         colors = ButtonDefaults.outlinedButtonColors(
                             containerColor = Color.Transparent,
-                            contentColor = closeButtonText
+                            contentColor = popupTextSecondary
                         )
                     ) {
-                        Text("Fechar", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        Text("Fechar", fontWeight = FontWeight.SemiBold)
                     }
                 }
             }
@@ -966,29 +865,34 @@ fun ManutencaoScreen(
     }
     if (showTipoAvisoDialog) {
         val isBike = isBikeCategory(carroAtual.tipoVeiculo)
-        val isRegistroServico = fluxoInicialRegistroServico == true
-        val tiposAviso = if (isRegistroServico) {
-            tiposAvisoPorVeiculo(carroAtual.tipoVeiculo)
-        } else {
-            tiposAvisoPorVeiculo(carroAtual.tipoVeiculo)
-                .filterNot { it == TipoManutencao.ABASTECIMENTO }
-        }
-        val itensAondeParei = if (isRegistroServico) {
-            emptyList()
-        } else {
-            listOf(
-                AvisoItem(
-                    label = tr("Lembrar aonde parei", "Remember where I parked"),
-                    icon = Icons.Default.LocalParking,
-                    color = accentBlue,
+        val tiposAviso = tiposAvisoPorVeiculo(carroAtual.tipoVeiculo)
+            .filterNot { tipo ->
+                fluxoInicialRegistroServico == false && tipo == TipoManutencao.ABASTECIMENTO
+            }
+        val itensEspeciais = buildList {
+            add(AvisoItem(
+                label = tr("Lembrar aonde parei", "Remember where I parked"),
+                icon = Icons.Default.LocalParking,
+                color = accentBlue,
+                textIcon = "E",
+                wide = true
+            ) {
+                showTipoAvisoDialog = false
+                showAondePareiScreen = true
+            })
+            if (fluxoInicialRegistroServico == false) {
+                add(AvisoItem(
+                    label = tr("Me acorde ao chegar", "Wake me when I arrive"),
+                    icon = Icons.Rounded.Alarm,
+                    color = Color(0xFF0D9488),
                     wide = true
                 ) {
                     showTipoAvisoDialog = false
-                    showAondePareiScreen = true
-                }
-            )
+                    showTravelAlarmScreen = true
+                })
+            }
         }
-        val itensAviso = itensAondeParei + tiposAviso.map { tipo ->
+        val itensAviso = itensEspeciais + tiposAviso.map { tipo ->
             val label = if (isBike && tipo == TipoManutencao.REVISAO) tr("Peças", "Parts") else tipoManutencaoLabel(tipo)
             AvisoItem(
                 label,
@@ -1008,16 +912,6 @@ fun ManutencaoScreen(
         val avisoTextDim = if (isDark) textDim else Color(0xFF475569)
         TipoAvisoScreen(
             itensAviso = itensAviso,
-            title = if (isRegistroServico) {
-                tr("O que foi feito?", "What was done?")
-            } else {
-                tr("O que vamos lembrar?", "What should we remember?")
-            },
-            subtitle = if (isRegistroServico) {
-                tr("Escolha a categoria do serviço que já aconteceu.", "Choose the category of the service that already happened.")
-            } else {
-                tr("Escolha a categoria do aviso futuro.", "Choose the category for the future reminder.")
-            },
             backgroundBrush = avisoBackground,
             surfaceDark = if (isDark) surfaceDark else colorScheme.surface,
             textLight = avisoTextPrimary,
@@ -1039,6 +933,7 @@ fun ManutencaoScreen(
             }
         )
     }
+    BackHandler(enabled = showConfiguracoes) { showConfiguracoes = false }
     if (showConfiguracoes) {
         ConfiguracoesScreen(
             onDismiss = { showConfiguracoes = false },
@@ -1050,26 +945,10 @@ fun ManutencaoScreen(
             lembretes = todosLembretes,
             contatos = listaContatos,
             planTier = planTier,
-            onRequestPremium = { reason ->
-                premiumDialogReason = reason
-                showPremiumDialog = true
-            },
+            subscriptionBillingInfo = subscriptionBillingInfo,
+            onRefreshPlan = { subscriptionManager.refreshBillingStatus() },
             onThemeModeChanged = onThemeModeChanged
         )
-        if (showPremiumDialog) {
-            val (dialogTitle, dialogText) = currentPremiumDialogCopy()
-            PremiumRequirementDialog(
-                title = dialogTitle,
-                message = dialogText,
-                isDark = isDark,
-                onDismiss = { showPremiumDialog = false },
-                onViewPlans = {
-                    showPremiumDialog = false
-                    showConfiguracoes = false
-                    showPremiumBeneficiosScreen = true
-                }
-            )
-        }
         return
     }
     BackHandler(enabled = showAnjoDaGuardaScreen) { showAnjoDaGuardaScreen = false }
@@ -1108,6 +987,11 @@ fun ManutencaoScreen(
                 showPremiumHubScreen = false
                 showAnjoDaGuardaScreen = true
             },
+            onOpenVehicleAiChat = {
+                showPremiumHubScreen = false
+                returnToPremiumBenefitsAfterAi = true
+                showVehicleAiChatScreen = true
+            },
             onOpenAiAssistant = {
                 showPremiumHubScreen = false
                 showAiAssistantScreen = true
@@ -1123,7 +1007,9 @@ fun ManutencaoScreen(
             onOpenSubscribe = {
                 showPremiumHubScreen = false
                 activity?.let { subscriptionManager.launchPurchaseFlow(it) }
-            }
+            },
+            isAiBlocked = isAiBlocked,
+            isWebBlocked = isWebBlocked
         )
         return
     }
@@ -1166,39 +1052,23 @@ fun ManutencaoScreen(
         )
         return
     }
+    BackHandler(enabled = showReleaseNotesScreen) { showReleaseNotesScreen = false }
+    if (showReleaseNotesScreen) {
+        ReleaseNotesScreen(onDismiss = { showReleaseNotesScreen = false })
+        return
+    }
     BackHandler(enabled = showLembreteDetalhesScreen) { showLembreteDetalhesScreen = false }
     if (showLembreteDetalhesScreen && lembreteSelecionado != null) {
-        fun podeCriarRegistros(quantidade: Int, itensJaExistentes: Int = 0): Boolean {
-            val limite = effectiveReminderLimitForPlan(planTier, adminReminderLimitOverride)
-            if (quantidade <= 0 || limite == Int.MAX_VALUE) return true
-            val cadastrosAtuais = todosLembretes.count {
-                it.tipo != TipoManutencao.ABASTECIMENTO
-            }
-            val incrementoReal = (quantidade - itensJaExistentes).coerceAtLeast(0)
-            if (cadastrosAtuais + incrementoReal <= limite) return true
-            premiumDialogReason = "record_limit"
-            showPremiumDialog = true
-            abrirDetalhesEmEdicao = false
-            showLembreteDetalhesScreen = false
-            return false
-        }
-
         LembreteDetalhesScreen(
             lembrete = lembreteSelecionado!!,
             contato = contatoDetalheSelecionado,
             carro = carroAtual,
-            startInEditMode = abrirDetalhesEmEdicao,
-            onDismiss = {
-                abrirDetalhesEmEdicao = false
-                showLembreteDetalhesScreen = false
-            },
+            onDismiss = { showLembreteDetalhesScreen = false },
             onDelete = { selecionado ->
                 NotificacaoHelper.cancelarNotificacao(context.applicationContext, selecionado.id)
-                NotificacaoHelper.removerRecorrencia(context.applicationContext, selecionado.id)
                 todosLembretes = todosLembretes.filter { it.id != selecionado.id }
                 lembreteSelecionado = null
                 contatoDetalheSelecionado = null
-                abrirDetalhesEmEdicao = false
                 showLembreteDetalhesScreen = false
             },
             onMarkAsDone = { selecionado ->
@@ -1244,7 +1114,6 @@ fun ManutencaoScreen(
                     ).show()
                 } else {
                     Log.i("ReminderRepeat", "acao=mark_done_sem_recorrencia id=${selecionado.id} -> encerrando")
-                    if (!podeCriarRegistros(1, itensJaExistentes = 1)) return@LembreteDetalhesScreen
                     NotificacaoHelper.cancelarNotificacao(appContext, selecionado.id)
                     todosLembretes = todosLembretes.map {
                         if (it.id == selecionado.id) marcarLembreteComoRealizado(it) else it
@@ -1253,11 +1122,9 @@ fun ManutencaoScreen(
                 }
                 lembreteSelecionado = null
                 contatoDetalheSelecionado = null
-                abrirDetalhesEmEdicao = false
                 showLembreteDetalhesScreen = false
             },
             onFinalizeAndClose = { selecionado ->
-                if (!podeCriarRegistros(1, itensJaExistentes = 1)) return@LembreteDetalhesScreen
                 val appContext = context.applicationContext
                 Log.i("ReminderRepeat", "acao=finalizar_encerrar id=${selecionado.id}")
                 NotificacaoHelper.cancelarNotificacao(appContext, selecionado.id)
@@ -1267,11 +1134,10 @@ fun ManutencaoScreen(
                 }
                 lembreteSelecionado = null
                 contatoDetalheSelecionado = null
-                abrirDetalhesEmEdicao = false
                 showLembreteDetalhesScreen = false
                 Toast.makeText(
                     context,
-                    trNow("Aviso finalizado e registrado.", "Reminder finalized and recorded."),
+                    trNow("Aviso finalizado e encerrado.", "Reminder finalized and closed."),
                     Toast.LENGTH_SHORT
                 ).show()
             },
@@ -1282,11 +1148,6 @@ fun ManutencaoScreen(
                 lembreteSelecionado = atualizado
                 contatoDetalheSelecionado = listaContatos.find { it.id == atualizado.contatoId }
                 Toast.makeText(context, trNow("Aviso atualizado!", "Reminder updated!"), Toast.LENGTH_SHORT).show()
-            },
-            planTier = planTier,
-            onRequestPremium = { reason ->
-                premiumDialogReason = reason
-                showPremiumDialog = true
             },
             onAddPrestador = { lembrete ->
                 lembreteParaVincularContato = lembrete.id
@@ -1304,43 +1165,47 @@ fun ManutencaoScreen(
             content = if (isEnglishUi()) """
                 1. Acceptance: by using Zellu, you agree to these Terms and the Privacy Policy.
 
-                2. Service scope: the app includes vehicle management, reminders, maintenance, trips, fleet, and stock features.
+                2. Service scope: the app includes vehicle management, reminders, maintenance, trips, fleet, stock, and artificial intelligence features.
 
-                3. Proper use: you must use the app lawfully, without fraud, abuse, or rights violations.
+                3. AI features: Zellu AI is a support tool to interpret registered data, answer questions, and prepare requested actions. It may make mistakes and does not replace technical diagnosis, inspection, mechanics, insurance, or user decisions.
 
-                4. Account security: you are responsible for account data and access credentials.
+                4. Proper use: you must use the app lawfully, without fraud, abuse, or rights violations.
 
-                5. Plans and billing: paid plans (such as Lite/Fleet) follow store/payment platform rules for renewal, cancellation, and refunds.
+                5. Account security: you are responsible for account data and access credentials.
 
-                6. Limitation: Zellu is a support tool and does not replace technical diagnosis, inspection, insurance, mechanical assistance, or professional advice.
+                6. Plans and billing: paid plans (such as Lite/Fleet) follow store/payment platform rules for renewal, cancellation, and refunds.
 
-                7. Availability: features may be updated, fixed, suspended, or discontinued due to product evolution, security, or legal obligations.
+                7. Limitation: Zellu is a support tool and does not replace technical diagnosis, inspection, insurance, mechanical assistance, or professional advice.
 
-                8. Intellectual property: brand, software, layout, and content are legally protected.
+                8. Availability: features may be updated, fixed, suspended, or discontinued due to product evolution, security, or legal obligations.
 
-                9. Governing law and venue: Brazilian law applies, with venue in Sao Carlos/SP, except where mandatory law states otherwise.
+                9. Intellectual property: brand, software, layout, and content are legally protected.
 
-                10. Legal/support contact: guilhermedevsistemas@gmail.com
+                10. Governing law and venue: Brazilian law applies, with venue in Sao Carlos/SP, except where mandatory law states otherwise.
+
+                11. Legal/support contact: guilhermedevsistemas@gmail.com
             """.trimIndent() else """
                 1. Aceite: ao usar o Zellu, você concorda com estes Termos e com a Política de Privacidade.
 
-                2. Objeto: o app oferece gestão de veículos, lembretes, manutenções, viagens, frota e estoque.
+                2. Objeto: o app oferece gestão de veículos, lembretes, manutenções, viagens, frota, estoque e recursos de inteligência artificial.
 
-                3. Uso adequado: você se compromete a usar o app de forma lícita, sem fraude, abuso técnico ou violação de direitos de terceiros.
+                3. Recursos de IA: a Zellu AI é ferramenta de apoio para interpretar dados cadastrados, responder perguntas e preparar ações solicitadas. Ela pode cometer erros e não substitui diagnóstico técnico, vistoria, mecânico, seguro ou decisão do usuário.
 
-                4. Conta e segurança: você é responsável pelos dados da conta e pela guarda do acesso.
+                4. Uso adequado: você se compromete a usar o app de forma lícita, sem fraude, abuso técnico ou violação de direitos de terceiros.
 
-                5. Planos e cobrança: planos pagos (como Lite/Frota) seguem regras da loja/plataforma de pagamento para renovação, cancelamento e reembolso.
+                5. Conta e segurança: você é responsável pelos dados da conta e pela guarda do acesso.
 
-                6. Limitação: o Zellu é ferramenta de apoio e não substitui diagnóstico técnico, vistoria, seguro, assistência mecânica ou orientação profissional.
+                6. Planos e cobrança: planos pagos (como Lite/Frota) seguem regras da loja/plataforma de pagamento para renovação, cancelamento e reembolso.
 
-                7. Disponibilidade: funcionalidades podem ser alteradas, corrigidas, suspensas ou descontinuadas por evolução do produto, segurança ou obrigação legal.
+                7. Limitação: o Zellu é ferramenta de apoio e não substitui diagnóstico técnico, vistoria, seguro, assistência mecânica ou orientação profissional.
 
-                8. Propriedade intelectual: marca, software, layout e conteúdo do app são protegidos por lei.
+                8. Disponibilidade: funcionalidades podem ser alteradas, corrigidas, suspensas ou descontinuadas por evolução do produto, segurança ou obrigação legal.
 
-                9. Legislação e foro: aplica-se a legislação brasileira, com foro da comarca de São Carlos/SP, salvo competência legal específica.
+                9. Propriedade intelectual: marca, software, layout e conteúdo do app são protegidos por lei.
 
-                10. Contato legal e suporte: guilhermedevsistemas@gmail.com
+                10. Legislação e foro: aplica-se a legislação brasileira, com foro da comarca de São Carlos/SP, salvo competência legal específica.
+
+                11. Contato legal e suporte: guilhermedevsistemas@gmail.com
             """.trimIndent(),
             onDismiss = { showTermsScreen = false }
         )
@@ -1352,53 +1217,57 @@ fun ManutencaoScreen(
             title = tr("Política de privacidade", "Privacy policy"),
             icon = Icons.Default.Lock,
             content = if (isEnglishUi()) """
-                1. Data processed: account data (name, e-mail, identifiers), vehicle records, reminders, contacts, trips, stock items, location, camera, notifications, and essential technical data.
+                1. Data processed: account data (name, e-mail, identifiers), vehicle records, reminders, contacts, trips, stock items, location, camera, notifications, essential technical data, and interactions with AI features.
 
-                2. Purposes: authentication, feature execution, security, abuse/fraud prevention, support, and continuous improvement.
+                2. Purposes: authentication, feature execution, intelligent/AI features, security, abuse/fraud prevention, support, and continuous improvement.
 
                 3. Legal bases (LGPD): contract execution, consent where required, legitimate interest for security/stability, and legal/regulatory obligations.
 
                 4. Permissions: camera, location, and notifications are used only with your authorization and can be revoked in device settings.
 
-                5. Sharing: we do not sell personal data. Data may be shared with technical operators/providers required for app operation and with authorities when legally required.
+                5. AI and technical providers: Zellu AI may use registered data and chat messages to respond and prepare actions. When online features are enabled, required content may be processed by infrastructure and/or AI technical providers.
 
-                6. Storage and retention: data may be stored on device and cloud, for as long as necessary for service purposes and legal obligations.
+                6. Sharing: we do not sell personal data. Data may be shared with technical operators/providers required for app operation and with authorities when legally required.
 
-                7. Data subject rights: under LGPD, you can request confirmation, access, correction, anonymization, deletion, and consent revocation.
+                7. Storage and retention: data may be stored on device and cloud, for as long as necessary for service purposes and legal obligations.
 
-                8. Account/data deletion: when requested, personal and linked records are removed, except mandatory legal retention.
+                8. Data subject rights: under LGPD, you can request confirmation, access, correction, anonymization, deletion, and consent revocation.
 
-                9. International transfer: some providers may process data outside Brazil under appropriate safeguards.
+                9. Account/data deletion: when requested, personal and linked records are removed, except mandatory legal retention.
 
-                10. Official privacy/support contact:
+                10. International transfer: some providers may process data outside Brazil under appropriate safeguards.
+
+                11. Official privacy/support contact:
                 guilhermedevsistemas@gmail.com
                 Official pages:
-                https://account-deletion-site-eight.vercel.app/privacy-policy.html
-                https://account-deletion-site-eight.vercel.app/terms-of-use.html
+                https://zellu-privacidade.vercel.app/privacy-policy.html
+                https://zellu-privacidade.vercel.app/terms-of-use.html
             """.trimIndent() else """
-                1. Dados tratados: o app pode tratar dados de conta (nome, e-mail e identificadores), cadastro de veículos, lembretes, contatos, viagens, itens de estoque, localização, câmera, notificações e dados técnicos essenciais.
+                1. Dados tratados: o app pode tratar dados de conta (nome, e-mail e identificadores), cadastro de veículos, lembretes, contatos, viagens, itens de estoque, localização, câmera, notificações, dados técnicos essenciais e interações com recursos de IA.
 
-                2. Finalidades: autenticação, execução das funcionalidades, segurança, prevenção de abuso/fraude, suporte e melhoria contínua.
+                2. Finalidades: autenticação, execução das funcionalidades, recursos inteligentes/IA, segurança, prevenção de abuso/fraude, suporte e melhoria contínua.
 
                 3. Bases legais (LGPD): execução de contrato, consentimento quando exigido, legítimo interesse para segurança/estabilidade e cumprimento de obrigação legal.
 
                 4. Permissões: câmera, localização e notificações são usadas somente com autorização e podem ser revogadas a qualquer momento no dispositivo.
 
-                5. Compartilhamento: não vendemos dados pessoais. Podemos compartilhar com operadores/provedores técnicos necessários ao funcionamento do app e com autoridades quando houver obrigação legal.
+                5. IA e provedores técnicos: a Zellu AI pode usar dados cadastrados e mensagens do chat para responder e preparar ações. Quando recursos online estiverem habilitados, o conteúdo necessário pode ser processado por provedores técnicos de infraestrutura e/ou IA.
 
-                6. Retenção e armazenamento: parte dos dados pode ficar no dispositivo e parte em nuvem, pelo tempo necessário às finalidades e obrigações legais.
+                6. Compartilhamento: não vendemos dados pessoais. Podemos compartilhar com operadores/provedores técnicos necessários ao funcionamento do app e com autoridades quando houver obrigação legal.
 
-                7. Direitos do titular: você pode solicitar confirmação de tratamento, acesso, correção, anonimização, exclusão e revogação do consentimento, nos termos da LGPD.
+                7. Retenção e armazenamento: parte dos dados pode ficar no dispositivo e parte em nuvem, pelo tempo necessário às finalidades e obrigações legais.
 
-                8. Exclusão de conta e dados: ao solicitar exclusão, removemos dados pessoais e registros vinculados, ressalvadas retenções legais obrigatórias.
+                8. Direitos do titular: você pode solicitar confirmação de tratamento, acesso, correção, anonimização, exclusão e revogação do consentimento, nos termos da LGPD.
 
-                9. Transferência internacional: alguns provedores podem processar dados fora do Brasil, com salvaguardas adequadas.
+                9. Exclusão de conta e dados: ao solicitar exclusão, removemos dados pessoais e registros vinculados, ressalvadas retenções legais obrigatórias.
 
-                10. Contato oficial de privacidade, remoção de dados, dúvidas e suporte:
+                10. Transferência internacional: alguns provedores podem processar dados fora do Brasil, com salvaguardas adequadas.
+
+                11. Contato oficial de privacidade, remoção de dados, dúvidas e suporte:
                 guilhermedevsistemas@gmail.com
                 Páginas oficiais:
-                https://account-deletion-site-eight.vercel.app/privacy-policy.html
-                https://account-deletion-site-eight.vercel.app/terms-of-use.html
+                https://zellu-privacidade.vercel.app/privacy-policy.html
+                https://zellu-privacidade.vercel.app/terms-of-use.html
             """.trimIndent(),
             onDismiss = { showPrivacyScreen = false }
         )
@@ -1415,124 +1284,31 @@ fun ManutencaoScreen(
         return
     }
     if (showPremiumDialog) {
-        val activeReminderCount = todosLembretes.count {
-            it.tipo != TipoManutencao.ABASTECIMENTO && !isLembreteRealizado(it)
-        }
-        val activeRecordCount = todosLembretes.count {
-            it.tipo != TipoManutencao.ABASTECIMENTO && isLembreteRealizado(it)
-        }
-        val activeMaintenanceCount = activeReminderCount + activeRecordCount
-        val currentReminderLimit = effectiveReminderLimitForPlan(planTier, adminReminderLimitOverride)
-        val currentFuelRecordLimit = fuelRecordLimitForPlan(planTier)
-        val currentScannerLimit = scannerLimitForPlan(planTier)
-        val liteReminderLimit = reminderLimitForPlan(PlanTier.LITE)
-        val liteFuelRecordLimit = fuelRecordLimitForPlan(PlanTier.LITE)
-        val liteScannerLimit = scannerLimitForPlan(PlanTier.LITE)
-        val displayedMaintenanceCount = if (currentReminderLimit == Int.MAX_VALUE) {
-            activeMaintenanceCount
-        } else {
-            activeMaintenanceCount.coerceAtMost(currentReminderLimit)
-        }
-        val displayedFuelCount = if (currentFuelRecordLimit == Int.MAX_VALUE) {
-            abastecimentos.size
-        } else {
-            abastecimentos.size.coerceAtMost(currentFuelRecordLimit)
-        }
-        val maintenanceUsageText =
-            "Voce esta no plano $planNameCurrent e ja usa $displayedMaintenanceCount de $currentReminderLimit avisos/registros."
-        val fuelUsageText =
-            "Voce esta no plano $planNameCurrent e ja cadastrou $displayedFuelCount de $currentFuelRecordLimit abastecimentos."
-        val dialogTitle = when (premiumDialogReason) {
-            "reminder_limit" -> "Limite de avisos atingido"
-            "record_limit" -> "Limite de registros atingido"
-            "fuel_limit" -> "Limite de abastecimentos atingido"
-            "scanner_limit" -> "Limite de scanner atingido"
-            "parking_pdf" -> "PDF do estacionamento no Lite"
-            "recurrence_premium" -> "Repetição automática no Lite"
-            "drive_backup" -> "Backup no Drive é Lite+"
-            else -> "Recurso Premium"
-        }
-        val dialogText = when (premiumDialogReason) {
-            "reminder_limit" -> "$maintenanceUsageText Para criar mais lembretes de manutencao, assine o Lite e libere ate $liteReminderLimit avisos/registros."
-            "record_limit" -> "$maintenanceUsageText Para salvar mais servicos que ja aconteceram, assine o Lite e libere ate $liteReminderLimit avisos/registros."
-            "fuel_limit" -> "$fuelUsageText Para continuar acompanhando consumo e km/L, assine o Lite e libere ate $liteFuelRecordLimit abastecimentos."
-            "scanner_limit" -> "Voce esta no plano $planNameCurrent e ja usou os $currentScannerLimit scans de QR deste mes. O Lite libera $liteScannerLimit scans por mes para preencher notas mais rapido."
-            "parking_pdf" -> "O PDF do Onde parei fica disponivel no Lite, Frota e Enterprise. Gere comprovantes de parada e compartilhe quando precisar."
-            "recurrence_premium" -> "A repeticao automatica fica disponivel no Lite, Frota e Enterprise. Avisos normais continuam funcionando no plano gratis."
-            "drive_backup" -> "No plano gratis, seus dados ficam neste aparelho. O Lite libera backup e restauracao no Google Drive para proteger veiculos, avisos e historicos."
-            else -> "Escolha um plano para liberar mais avisos, scans de QR, viagens, frota e recursos avancados."
-        }
-        Dialog(
+        AlertDialog(
             onDismissRequest = { showPremiumDialog = false },
-            properties = DialogProperties(usePlatformDefaultWidth = false)
-        ) {
-            val limitDialogBg = if (isDark) Color(0xFF0F172A) else Color(0xFFFFFBF2)
-            val limitDialogBorder = if (isDark) Color(0xFFF59E0B).copy(alpha = 0.58f) else Color(0xFFF2D57A)
-            val limitTitle = if (isDark) Color(0xFFFBBF24) else Color(0xFF9A6A00)
-            val limitText = if (isDark) Color(0xFFCBD5E1) else Color(0xFF334155)
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 24.dp),
-                shape = RoundedCornerShape(24.dp),
-                color = limitDialogBg,
-                tonalElevation = 8.dp,
-                shadowElevation = 16.dp,
-                border = BorderStroke(1.dp, limitDialogBorder.copy(alpha = if (isDark) 0.55f else 1f))
-            ) {
-                Column(
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
+            title = { Text("Recurso Premium", color = Color(0xFFF59E0B), fontWeight = FontWeight.Bold) },
+            text = { Text("Agora temos 2 planos: Lite (R$ 10,50) para Viagens e Frota (R$ 29,90) com tudo, incluindo o sistema de estoque.", color = Color(0xFFCBD5E1)) },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showPremiumDialog = false
+                        activity?.let { subscriptionManager.launchPurchaseFlow(it) }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF59E0B))
                 ) {
-                    Text(
-                        dialogTitle,
-                        color = limitTitle,
-                        fontWeight = FontWeight.ExtraBold,
-                        fontSize = 20.sp
-                    )
-                    Text(
-                        dialogText,
-                        color = limitText,
-                        fontSize = 14.sp,
-                        lineHeight = 19.sp
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        OutlinedButton(
-                            onClick = { showPremiumDialog = false },
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(46.dp),
-                            shape = RoundedCornerShape(24.dp),
-                            border = BorderStroke(1.dp, Color(0xFFF59E0B)),
-                            colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.Transparent)
-                        ) {
-                            Text(
-                                "Agora não",
-                                color = Color(0xFFF59E0B),
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                        Button(
-                            onClick = {
-                                showPremiumDialog = false
-                                showPremiumBeneficiosScreen = true
-                            },
-                            modifier = Modifier
-                                .weight(1.12f)
-                                .height(46.dp),
-                            shape = RoundedCornerShape(24.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF59E0B))
-                        ) {
-                            Text("Ver planos", color = Color.Black, fontWeight = FontWeight.Bold)
-                        }
-                    }
+                    Text("Assinar Premium", color = Color.Black, fontWeight = FontWeight.Bold)
                 }
-            }
-        }
+            },
+            dismissButton = {
+                OutlinedButton(
+                    onClick = { showPremiumDialog = false },
+                    border = BorderStroke(1.dp, Color(0xFFF59E0B))
+                ) {
+                    Text("Agora não", color = Color(0xFFF59E0B))
+                }
+            },
+            containerColor = Color(0xFF0F172A)
+        )
     }
     if (showPremiumInfo) {
         val premiumDialogBg = if (isDark) Color(0xFF0F172A) else Color(0xFFFFFBF2)
@@ -1642,19 +1418,6 @@ fun ManutencaoScreen(
             lembretes = lembretesDoCarroAtual,
             isPremium = planTier != PlanTier.FREE,
             autoScrollToCompletedMaintenance = autoScrollReportToMaintenance,
-            onEditReminder = { lembrete ->
-                showCarInfoScreen = false
-                lembreteSelecionado = lembrete
-                contatoDetalheSelecionado = listaContatos.find { it.id == lembrete.contatoId }
-                abrirDetalhesEmEdicao = true
-                showLembreteDetalhesScreen = true
-            },
-            onDeleteReminder = { lembrete ->
-                NotificacaoHelper.cancelarNotificacao(context.applicationContext, lembrete.id)
-                NotificacaoHelper.removerRecorrencia(context.applicationContext, lembrete.id)
-                todosLembretes = todosLembretes.filter { it.id != lembrete.id }
-                Toast.makeText(context, trNow("Item apagado do relatório.", "Item deleted from report."), Toast.LENGTH_SHORT).show()
-            },
             onDismiss = { showCarInfoScreen = false }
         )
         autoScrollReportToMaintenance = false
@@ -1665,10 +1428,8 @@ fun ManutencaoScreen(
         PerfilScreen(
             onDismiss = { showPerfilScreen = false },
             planTier = planTier,
-            totalVeiculos = listaCarros.size,
-            avisosUsados = maintenanceUsageCurrent,
-            limiteAvisos = reminderLimitCurrentPlan,
-            limiteAvisosViaAdmin = hasAdminReminderBoost
+            subscriptionBillingInfo = subscriptionBillingInfo,
+            totalVeiculos = listaCarros.size
         )
         return
     }
@@ -1690,15 +1451,93 @@ fun ManutencaoScreen(
     }
     BackHandler(enabled = showAondePareiScreen) { showAondePareiScreen = false }
     if (showAondePareiScreen) {
-        AondePareiScreen(
-            onDismiss = { showAondePareiScreen = false },
-            planTier = planTier,
-            onRequestPremium = { reason ->
-                premiumDialogReason = reason
-                showPremiumDialog = true
-            }
+        AondePareiScreen(onDismiss = { showAondePareiScreen = false })
+        return
+    }
+    BackHandler(enabled = showTravelAlarmScreen) { showTravelAlarmScreen = false }
+    if (showTravelAlarmScreen) {
+        TravelAlarmScreen(onDismiss = { showTravelAlarmScreen = false })
+        return
+    }
+    BackHandler(enabled = showVehicleAiChatScreen) { closeVehicleAiChat() }
+    if (showVehicleAiChatScreen && hasVehicleAiAccess) {
+        VehicleAiChatScreen(
+            carros = listaCarros,
+            currentCarroId = carroAtual.id,
+            lembretesAtivos = todosLembretes.filterNot(::isLembreteRealizado),
+            abastecimentos = abastecimentos,
+            onCreateReminders = { novosAvisos ->
+                todosLembretes = todosLembretes + novosAvisos
+                AdminUsageMetrics.markReminderCreated(novosAvisos.size)
+                // Mesmo padrão do cadastro manual: agenda a notificação de cada aviso
+                // (avisos por data disparam alarme; por km ficam só no monitoramento).
+                val ctxAgendar = context.applicationContext
+                novosAvisos.filterNot(::isLembreteRealizado).forEach { aviso ->
+                    NotificacaoHelper.agendarNotificacao(ctxAgendar, aviso, aviso.horaAviso)
+                }
+            },
+            onCreateFuelRecords = { novosAbastecimentos ->
+                abastecimentos = abastecimentos + novosAbastecimentos
+                val maiorKmPorCarro = novosAbastecimentos
+                    .mapNotNull { abastecimento ->
+                        abastecimento.km?.takeIf { it > 0 }?.let { km -> abastecimento.carroId to km }
+                    }
+                    .groupBy({ it.first }, { it.second })
+                    .mapValues { (_, kms) -> kms.maxOrNull() ?: 0 }
+                if (maiorKmPorCarro.isNotEmpty()) {
+                    listaCarros = listaCarros.map { carro ->
+                        val novoKm = maiorKmPorCarro[carro.id]
+                        if (novoKm != null && novoKm > carro.kmAtual) {
+                            carro.copy(kmAtual = novoKm)
+                        } else {
+                            carro
+                        }
+                    }
+                }
+            },
+            onShareVehicleReport = { carro ->
+                drawerScope.launch {
+                    val uri = withContext(Dispatchers.IO) {
+                        gerarPdfRelatorio(
+                            context = context,
+                            carro = carro,
+                            lembretes = todosLembretes.filter { it.carroId == carro.id },
+                            isPremium = planTier != PlanTier.FREE
+                        )
+                    }
+                    if (uri != null) {
+                        compartilharPdf(context, uri)
+                    } else {
+                        Toast.makeText(context, "Nao consegui gerar o PDF desse veiculo agora.", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            },
+            onShareFleetReports = {
+                drawerScope.launch {
+                    val uris = withContext(Dispatchers.IO) {
+                        listaCarros.mapNotNull { carro ->
+                            gerarPdfRelatorio(
+                                context = context,
+                                carro = carro,
+                                lembretes = todosLembretes.filter { it.carroId == carro.id },
+                                isPremium = true
+                            )
+                        }
+                    }
+                    if (!compartilharPdfsDaFrota(context, uris)) {
+                        Toast.makeText(context, "Nao consegui abrir o compartilhamento da frota agora.", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            },
+            onDismiss = { closeVehicleAiChat() },
+            planTier = planTier
         )
         return
+    }
+    if (showVehicleAiChatScreen && !hasVehicleAiAccess) {
+        showVehicleAiChatScreen = false
+        returnToPremiumBenefitsAfterAi = false
+        showPremiumBeneficiosScreen = true
     }
     BackHandler(enabled = showAiAssistantScreen) { showAiAssistantScreen = false }
     if (showAiAssistantScreen) {
@@ -1755,20 +1594,6 @@ fun ManutencaoScreen(
         showTipoAvisoDialog = true
     }
     if (showAddLembreteDialog) {
-        fun podeCriarRegistrosDoCadastro(quantidade: Int): Boolean {
-            val limite = effectiveReminderLimitForPlan(planTier, adminReminderLimitOverride)
-            if (quantidade <= 0 || limite == Int.MAX_VALUE) return true
-            val cadastrosAtuais = todosLembretes.count {
-                it.tipo != TipoManutencao.ABASTECIMENTO
-            }
-            if (cadastrosAtuais + quantidade <= limite) return true
-            premiumDialogReason = "record_limit"
-            showPremiumDialog = true
-            showAddLembreteDialog = false
-            iniciarCameraProduto = false
-            return false
-        }
-
         NovoAgendamentoDialog(
             carroAtual = carroAtual,
             contatosDisponiveis = listaContatos,
@@ -1778,73 +1603,39 @@ fun ManutencaoScreen(
                 iniciarCameraProduto = false
                 showTipoAvisoDialog = true
             },
-            onConfirm = onConfirm@{ novo ->
+            onConfirm = { novo ->
                 val hadNoReminderBefore = todosLembretes.none { it.tipo != TipoManutencao.ABASTECIMENTO }
-                val novoNormalizado = if (fluxoInicialRegistroServico == true && !isLembreteRealizado(novo)) {
-                    marcarLembreteComoRealizado(novo)
-                } else {
-                    novo
-                }.copy(carroId = carroAtual.id)
-                if (
-                    novoNormalizado.tipo != TipoManutencao.ABASTECIMENTO &&
-                    isLembreteRealizado(novoNormalizado) &&
-                    !podeCriarRegistrosDoCadastro(1)
-                ) return@onConfirm
-                todosLembretes = todosLembretes + novoNormalizado
-                if (novoNormalizado.tipo != TipoManutencao.ABASTECIMENTO && !isLembreteRealizado(novoNormalizado)) {
-                    NotificacaoHelper.agendarNotificacao(
-                        context.applicationContext,
-                        novoNormalizado,
-                        novoNormalizado.horaAviso.ifBlank { "09:00" }
-                    )
-                }
+                todosLembretes = todosLembretes + novo.copy(carroId = carroAtual.id)
                 AdminUsageMetrics.markReminderCreated()
                 showAddLembreteDialog = false
                 iniciarCameraProduto = false
                 if (
                     hadNoReminderBefore &&
-                    novoNormalizado.tipo != TipoManutencao.ABASTECIMENTO &&
-                    isLembreteRealizado(novoNormalizado)
+                    novo.tipo != TipoManutencao.ABASTECIMENTO &&
+                    isLembreteRealizado(novo) &&
+                    shouldShowReportMiniTutorial(context)
                 ) {
                     showReportMiniTutorial = true
                 }
-                val mensagem = if (isLembreteRealizado(novoNormalizado)) {
+                val mensagem = if (isLembreteRealizado(novo)) {
                     trNow("Serviço registrado no histórico.", "Service recorded in history.")
                 } else {
                     trNow("Aviso cadastrado com sucesso!", "Reminder saved successfully!")
                 }
                 Toast.makeText(context, mensagem, Toast.LENGTH_SHORT).show()
             },
-            onMultiConfirm = onMultiConfirm@{ novosItens ->
+            onMultiConfirm = { novosItens ->
                 val hadNoReminderBefore = todosLembretes.none { it.tipo != TipoManutencao.ABASTECIMENTO }
-                val novosLembretes = novosItens.map { item ->
-                    if (fluxoInicialRegistroServico == true && !isLembreteRealizado(item)) {
-                        marcarLembreteComoRealizado(item)
-                    } else {
-                        item
-                    }.copy(carroId = carroAtual.id)
-                }
-                val novosRegistros = novosLembretes.count {
-                    it.tipo != TipoManutencao.ABASTECIMENTO && isLembreteRealizado(it)
-                }
-                if (!podeCriarRegistrosDoCadastro(novosRegistros)) return@onMultiConfirm
+                val novosLembretes = novosItens.map { it.copy(carroId = carroAtual.id) }
                 todosLembretes = todosLembretes + novosLembretes
-                novosLembretes
-                    .filter { it.tipo != TipoManutencao.ABASTECIMENTO && !isLembreteRealizado(it) }
-                    .forEach { lembrete ->
-                        NotificacaoHelper.agendarNotificacao(
-                            context.applicationContext,
-                            lembrete,
-                            lembrete.horaAviso.ifBlank { "09:00" }
-                        )
-                    }
                 AdminUsageMetrics.markReminderCreated(novosLembretes.size)
                 showAddLembreteDialog = false
                 iniciarCameraProduto = false
                 if (
                     hadNoReminderBefore &&
                     novosLembretes.any { it.tipo != TipoManutencao.ABASTECIMENTO } &&
-                    novosLembretes.any { isLembreteRealizado(it) }
+                    novosLembretes.any { isLembreteRealizado(it) } &&
+                    shouldShowReportMiniTutorial(context)
                 ) {
                     showReportMiniTutorial = true
                 }
@@ -1859,29 +1650,7 @@ fun ManutencaoScreen(
             initialTipo = tipoAvisoSelecionado,
             initialRegistroServico = fluxoInicialRegistroServico,
             planTier = planTier,
-            adminReminderLimitOverride = adminReminderLimitOverride,
-            activeReminderCount = todosLembretes.count {
-                it.tipo != TipoManutencao.ABASTECIMENTO && !isLembreteRealizado(it)
-            },
-            activeRecordCount = todosLembretes.count {
-                it.tipo != TipoManutencao.ABASTECIMENTO && isLembreteRealizado(it)
-            },
-            activeFuelRecordCount = abastecimentos.size,
-            onFuelRecordsSaved = { atualizados, novosRegistros ->
-                val hadNoFuelForCurrentCar = abastecimentos.none { it.carroId == carroAtual.id }
-                abastecimentos = atualizados
-                if (
-                    novosRegistros > 0 &&
-                    hadNoFuelForCurrentCar &&
-                    shouldShowFuelReportMiniTutorial(context)
-                ) {
-                    showFuelReportMiniTutorial = true
-                }
-            },
-            onRequestPremium = { reason ->
-                premiumDialogReason = reason
-                showPremiumDialog = true
-            },
+            onRequestPremium = { showPremiumDialog = true },
             onOpenVehicleGuide = { showVehicleGuideScreen = true }
         )
         return
@@ -1899,85 +1668,7 @@ fun ManutencaoScreen(
                 drawerContainerColor = if (isDark) Color.Black else fuelCardEnd,
                 drawerContentColor = textLight
             ) {
-                // CabeÃ§alho do Drawer com Gradiente
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(
-                            if (isDark) {
-                                Brush.verticalGradient(listOf(Color.Black, Color.Black))
-                            } else {
-                                Brush.verticalGradient(listOf(fuelCardStart, fuelCardEnd))
-                            }
-                        )
-                        .padding(24.dp)
-                ) {
-                    val fotoGoogle = FirebaseAuth.getInstance().currentUser?.photoUrl?.toString()
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 12.dp)
-                            .clickable {
-                                showPerfilScreen = true
-                                drawerScope.launch { drawerState.close() }
-                            },
-                        shape = RoundedCornerShape(14.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = if (isDark) Color(0xFF111827) else Color.White.copy(alpha = 0.08f)
-                        ),
-                        border = BorderStroke(1.dp, drawerItemBorderColor)
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 12.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(42.dp)
-                                    .clip(CircleShape)
-                                    .border(2.dp, accentBlue, CircleShape)
-                                    .background(Color.White.copy(0.1f)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                if (!fotoGoogle.isNullOrBlank()) {
-                                    AsyncImage(
-                                        model = fotoGoogle,
-                                        contentDescription = null,
-                                        modifier = Modifier.fillMaxSize().clip(CircleShape),
-                                        contentScale = ContentScale.Crop
-                                    )
-                                } else {
-                                    Image(
-                                        painter = painterResource(id = R.mipmap.ic_launcher_foreground),
-                                        contentDescription = "Imagem padrão de perfil",
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .clip(CircleShape),
-                                        contentScale = ContentScale.Crop
-                                    )
-                                }
-                            }
-                            Spacer(Modifier.width(12.dp))
-                            Column {
-                                Text(
-                                    text = nomeExibido,
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = textLight,
-                                )
-                                Text(
-                                    text = stringResource(R.string.home_welcome_user),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = textDim
-                                )
-                            }
-                        }
-                    }
-                }
-
-                HorizontalDivider(color = drawerItemBorderColor, thickness = 1.dp)
+                Spacer(Modifier.height(16.dp))
 
                 // Itens do Menu
                 Column(
@@ -2020,7 +1711,7 @@ fun ManutencaoScreen(
                     if (planTier != PlanTier.FREE) {
                         DrawerMenuItem(
                             icon = Icons.Default.WorkspacePremium,
-                            label = stringResource(R.string.drawer_item_zellu_premium),
+                            label = "Benefícios do seu plano",
                             highlighted = true
                         ) {
                             showPremiumHubScreen = true
@@ -2032,6 +1723,13 @@ fun ManutencaoScreen(
                         label = stringResource(R.string.drawer_item_ebooks)
                     ) {
                         showEbookStoreScreen = true
+                        drawerScope.launch { drawerState.close() }
+                    }
+                    DrawerMenuItem(
+                        icon = Icons.Default.Campaign,
+                        label = "Novidades do App"
+                    ) {
+                        showReleaseNotesScreen = true
                         drawerScope.launch { drawerState.close() }
                     }
                     Spacer(Modifier.height(8.dp))
@@ -2057,6 +1755,10 @@ fun ManutencaoScreen(
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold
                     )
+                    DrawerMenuItem(Icons.Default.Person, "Conta") {
+                        showPerfilScreen = true
+                        drawerScope.launch { drawerState.close() }
+                    }
                     DrawerMenuItem(Icons.Default.Settings, stringResource(R.string.drawer_item_settings)) {
                         showConfiguracoes = true
                         drawerScope.launch { drawerState.close() }
@@ -2274,10 +1976,10 @@ fun ManutencaoScreen(
                             NotificacaoHelper.cancelarNotificacao(context.applicationContext, lembrete.id)
                             todosLembretes = todosLembretes.filter { it.id != lembrete.id }
                         },
-            onAddPrestador = { lembrete ->
-                lembreteParaVincularContato = lembrete.id
-                showSelecionarPrestadorScreen = true
-            },
+                        onAddPrestador = { lembrete ->
+                            lembreteParaVincularContato = lembrete.id
+                            showSelecionarPrestadorScreen = true
+                        },
                         onOpenDetalhes = { lembrete ->
                             lembreteSelecionado = lembrete
                             contatoDetalheSelecionado = listaContatos.find { it.id == lembrete.contatoId }
@@ -2286,6 +1988,7 @@ fun ManutencaoScreen(
                         statusLabel = { textoStatusPrazoLocal(it) },
                         statusColor = { tipo -> calcularCorStatusLocal(lembretesAtivosDoCarroAtual, tipo) },
                         textDim = textDim,
+                        accentColor = carroAtual.getCorUI(),
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp)
@@ -2349,10 +2052,6 @@ fun ManutencaoScreen(
                     "fuel_history" -> "Histórico de abastecimento"
                     else -> "Guia rápido"
                 }
-                HomeTutorialVoiceNarration(
-                    enabled = !isTutorialVoiceMuted,
-                    text = message
-                )
                 HomeTutorialSpotlightOverlay(
                     targetRect = targetRect,
                     message = message,
@@ -2362,10 +2061,7 @@ fun ManutencaoScreen(
                     accentBlue = accentBlue,
                     stepIcon = tutorialHeaderIcon,
                     stepTitle = tutorialHeaderTitle,
-                    isDark = isDark,
-                    isVoiceMuted = isTutorialVoiceMuted,
-                    onToggleVoice = { isTutorialVoiceMuted = !isTutorialVoiceMuted },
-                    onDismiss = {
+                    onClose = {
                         showHomeTutorial = false
                         markHomeTutorialSeen(context)
                     },
@@ -2382,17 +2078,14 @@ fun ManutencaoScreen(
             if (showReportMiniTutorial && !showHomeTutorial) {
                 HomeTutorialSpotlightOverlay(
                     targetRect = reportButtonRect,
-                    message = "Esse serviço foi salvo como registro, não como aviso. Toque em Relatório para ver em Registros cadastrados tudo que já aconteceu com o veículo.",
+                    message = "Toque em Relatório para abrir a tela e ir direto em Registros cadastrados, onde fica o que você salvou.",
                     step = 1,
                     total = 1,
                     targetCornerRadius = 14.dp,
                     accentBlue = accentBlue,
-                    stepIcon = Icons.Default.FactCheck,
-                    stepTitle = "Registro no relatório",
-                    isDark = isDark,
-                    isVoiceMuted = true,
-                    onToggleVoice = {},
-                    onDismiss = {
+                    stepIcon = Icons.Default.Description,
+                    stepTitle = "Abrir relatório",
+                    onClose = {
                         showReportMiniTutorial = false
                         markReportMiniTutorialSeen(context)
                     },
@@ -2404,40 +2097,11 @@ fun ManutencaoScreen(
                     }
                 )
             }
-            if (showFuelReportMiniTutorial && !showHomeTutorial && !showReportMiniTutorial) {
-                HomeTutorialSpotlightOverlay(
-                    targetRect = reportButtonRect,
-                    message = "Abastecimento salvo! Para ver quanto o carro faz por litro, toque em Relatório e depois em Ver consumo.",
-                    step = 1,
-                    total = 1,
-                    targetCornerRadius = 14.dp,
-                    accentBlue = accentBlue,
-                    stepIcon = Icons.Default.LocalGasStation,
-                    stepTitle = "Consumo por litro",
-                    isDark = isDark,
-                    isVoiceMuted = true,
-                    onToggleVoice = {},
-                    onDismiss = {
-                        showFuelReportMiniTutorial = false
-                        markFuelReportMiniTutorialSeen(context)
-                    },
-                    onNext = {
-                        showFuelReportMiniTutorial = false
-                        markFuelReportMiniTutorialSeen(context)
-                        showCarInfoScreen = true
-                    }
-                )
-            }
         }
     }
     if (showAvisosNotificacoesDialog) {
         BackHandler { showAvisosNotificacoesDialog = false }
         var showConfirmarLimpezaNotificacoes by remember { mutableStateOf(false) }
-        val notificationDialogIsDark = colorScheme.background.luminance() < 0.5f
-        val notificationDialogBg = if (notificationDialogIsDark) Color(0xFF0F172A) else Color.White
-        val notificationDialogTitle = if (notificationDialogIsDark) Color(0xFFF8FAFC) else Color(0xFF0F172A)
-        val notificationDialogText = if (notificationDialogIsDark) Color(0xFF94A3B8) else Color(0xFF475569)
-        val notificationDialogCancelBorder = if (notificationDialogIsDark) Color(0xFF334155) else Color(0xFFCBD5E1)
         val nomeCarroPorId = remember(listaCarros) {
             listaCarros.associate { carro ->
                 val nome = carro.nome.ifBlank {
@@ -2560,7 +2224,7 @@ fun ManutencaoScreen(
                         }
                         Text(
                             text = tr("Limpar notificações?", "Clear notifications?"),
-                            color = notificationDialogTitle,
+                            color = Color(0xFFF8FAFC),
                             fontWeight = FontWeight.Bold,
                             textAlign = TextAlign.Center
                         )
@@ -2572,7 +2236,7 @@ fun ManutencaoScreen(
                             "Quer mesmo apagar todas as notificações removíveis agora? O aviso de parada em andamento será mantido.",
                             "Do you really want to clear all removable notifications now? The ongoing parking reminder will be kept."
                         ),
-                        color = notificationDialogText,
+                        color = Color(0xFF94A3B8),
                         textAlign = TextAlign.Center
                     )
                 },
@@ -2586,10 +2250,10 @@ fun ManutencaoScreen(
                         OutlinedButton(
                             onClick = { showConfirmarLimpezaNotificacoes = false },
                             shape = RoundedCornerShape(10.dp),
-                            border = BorderStroke(1.dp, notificationDialogCancelBorder),
+                            border = BorderStroke(1.dp, Color(0xFF334155)),
                             modifier = Modifier.widthIn(min = 120.dp)
                         ) {
-                            Text(tr("Cancelar", "Cancel"), color = notificationDialogTitle)
+                            Text(tr("Cancelar", "Cancel"), color = Color(0xFFF8FAFC))
                         }
                         Spacer(Modifier.width(10.dp))
                         Button(
@@ -2631,7 +2295,7 @@ fun ManutencaoScreen(
                     }
                 },
                 dismissButton = {},
-                containerColor = notificationDialogBg
+                containerColor = Color(0xFF0F172A)
             )
         }
     }
@@ -2743,67 +2407,6 @@ fun ActionButton(
     }
 }
 
-@Composable
-private fun HomeTutorialVoiceNarration(
-    enabled: Boolean,
-    text: String
-) {
-    val context = LocalContext.current
-    var isReady by remember { mutableStateOf(false) }
-    var tts by remember { mutableStateOf<TextToSpeech?>(null) }
-
-    DisposableEffect(context) {
-        var engine: TextToSpeech? = null
-        engine = TextToSpeech(context.applicationContext) { status ->
-            if (status == TextToSpeech.SUCCESS) {
-                val result = engine?.setLanguage(Locale("pt", "BR")) ?: TextToSpeech.LANG_NOT_SUPPORTED
-                isReady = result != TextToSpeech.LANG_MISSING_DATA && result != TextToSpeech.LANG_NOT_SUPPORTED
-                engine?.let { configureHomeTutorialVoice(it) }
-            }
-        }
-        tts = engine
-        onDispose {
-            tts?.stop()
-            tts?.shutdown()
-            tts = null
-        }
-    }
-
-    LaunchedEffect(enabled, text, isReady) {
-        if (enabled && isReady) {
-            tts?.stop()
-            tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "home_tutorial_step")
-        } else {
-            // Para a fala imediatamente quando o usuÃ¡rio muta o guia.
-            tts?.stop()
-        }
-    }
-}
-
-private fun configureHomeTutorialVoice(tts: TextToSpeech) {
-    tts.setSpeechRate(1.0f)
-    tts.setPitch(0.92f)
-    val maleHints = listOf("male", "masc", "homem", "m")
-    val preferred = runCatching {
-        tts.voices
-            ?.filter { voice -> voice.locale?.language == "pt" }
-            ?.sortedBy { voice ->
-                val name = voice.name.lowercase(Locale.ROOT)
-                when {
-                    name.contains("pt-br") -> 0
-                    name.contains("brazil") -> 1
-                    else -> 2
-                }
-            }
-            ?.firstOrNull { voice ->
-                val name = voice.name.lowercase(Locale.ROOT)
-                val features = voice.features?.joinToString(" ")?.lowercase(Locale.ROOT).orEmpty()
-                maleHints.any { hint -> name.contains(hint) || features.contains(hint) }
-            }
-            ?: tts.voices?.firstOrNull { it.locale?.language == "pt" }
-    }.getOrNull()
-    preferred?.let { tts.voice = it }
-}
 
 @Composable
 private fun HomeTutorialSpotlightOverlay(
@@ -2815,26 +2418,13 @@ private fun HomeTutorialSpotlightOverlay(
     accentBlue: Color,
     stepIcon: ImageVector,
     stepTitle: String,
-    isDark: Boolean,
-    isVoiceMuted: Boolean,
-    onToggleVoice: () -> Unit,
-    onDismiss: () -> Unit,
+    onClose: () -> Unit,
     onNext: () -> Unit
 ) {
     val density = LocalDensity.current
     val cornerRadiusPx = with(density) { targetCornerRadius.toPx() }
     val strokeWidthPx = with(density) { 2.dp.toPx() }
     val inset = strokeWidthPx / 2f
-    val cardBg = if (isDark) Color(0xFF0B1220) else Color.White
-    val cardBorder = if (isDark) Color(0xFF334155) else Color(0xFFD1D5DB)
-    val gradientTop = if (isDark) Color(0xFF0F172A) else Color(0xFFFFFFFF)
-    val gradientBottom = if (isDark) Color(0xFF0B1220) else Color(0xFFF8FAFC)
-    val titleColor = if (isDark) Color(0xFFE2E8F0) else Color(0xFF111827)
-    val secondaryColor = if (isDark) Color(0xFF94A3B8) else Color(0xFF475569)
-    val messageBg = if (isDark) Color(0xFF111827) else Color(0xFFF8FAFC)
-    val exitBorder = if (isDark) Color(0xFF475569) else Color(0xFFCBD5E1)
-    val iconBg = if (isDark) Color(0xFF1D4ED8).copy(alpha = 0.2f) else accentBlue.copy(alpha = 0.12f)
-    val iconBorder = if (isDark) Color(0xFF3B82F6).copy(alpha = 0.45f) else accentBlue.copy(alpha = 0.36f)
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -2869,16 +2459,16 @@ private fun HomeTutorialSpotlightOverlay(
                 .padding(16.dp)
                 .heightIn(min = 220.dp),
             shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = cardBg),
-            border = BorderStroke(1.dp, cardBorder)
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF0B1220)),
+            border = BorderStroke(1.dp, Color(0xFF334155))
         ) {
             Column(
                 modifier = Modifier
                     .background(
                         Brush.verticalGradient(
                             colors = listOf(
-                                gradientTop,
-                                gradientBottom
+                                Color(0xFF0F172A),
+                                Color(0xFF0B1220)
                             )
                         )
                     )
@@ -2899,8 +2489,8 @@ private fun HomeTutorialSpotlightOverlay(
                             modifier = Modifier
                                 .size(30.dp)
                                 .clip(RoundedCornerShape(10.dp))
-                                .background(iconBg)
-                                .border(1.dp, iconBorder, RoundedCornerShape(10.dp)),
+                                .background(Color(0xFF1D4ED8).copy(alpha = 0.2f))
+                                .border(1.dp, Color(0xFF3B82F6).copy(alpha = 0.45f), RoundedCornerShape(10.dp)),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
@@ -2913,42 +2503,31 @@ private fun HomeTutorialSpotlightOverlay(
                         Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
                             Text(
                                 text = stepTitle,
-                                color = titleColor,
+                                color = Color(0xFFE2E8F0),
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 18.sp,
                                 lineHeight = 18.sp
                             )
                             Text(
                                 text = "Etapa $step de $total",
-                                color = secondaryColor,
+                                color = Color(0xFF94A3B8),
                                 fontSize = 12.sp,
                                 lineHeight = 12.sp
                             )
                         }
-                    }
-                    IconButton(
-                        onClick = onToggleVoice,
-                        modifier = Modifier.size(30.dp)
-                    ) {
-                        Icon(
-                            imageVector = if (isVoiceMuted) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
-                            contentDescription = if (isVoiceMuted) "Ativar voz do guia" else "Mutar voz do guia",
-                            tint = if (isVoiceMuted) Color(0xFFF97316) else Color(0xFF60A5FA),
-                            modifier = Modifier.size(22.dp)
-                        )
                     }
                 }
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(top = 6.dp),
-                    color = messageBg,
+                    color = Color(0xFF111827),
                     shape = RoundedCornerShape(14.dp),
-                    border = BorderStroke(1.dp, cardBorder)
+                    border = BorderStroke(1.dp, Color(0xFF334155))
                 ) {
                     Text(
                         text = message,
-                        color = titleColor,
+                        color = Color(0xFFE2E8F0),
                         fontSize = 14.sp,
                         lineHeight = 21.sp,
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp)
@@ -2961,22 +2540,21 @@ private fun HomeTutorialSpotlightOverlay(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     OutlinedButton(
-                        onClick = onDismiss,
+                        onClick = onClose,
                         modifier = Modifier
                             .weight(1f)
                             .height(50.dp),
                         shape = RoundedCornerShape(14.dp),
-                        border = BorderStroke(1.dp, exitBorder),
+                        border = BorderStroke(1.dp, Color(0xFF64748B)),
                         colors = ButtonDefaults.outlinedButtonColors(
-                            containerColor = Color.Transparent,
-                            contentColor = titleColor
+                            contentColor = Color(0xFFE2E8F0)
                         )
                     ) {
                         Text(
-                            text = "Sair do tutorial",
+                            text = "Fechar tutorial",
                             fontSize = 14.sp,
                             fontWeight = FontWeight.SemiBold,
-                            maxLines = 1
+                            textAlign = TextAlign.Center
                         )
                     }
                     Button(
@@ -3534,87 +3112,17 @@ fun BadgeStatus(label: String, color: Color) {
     }
 }
 
-@Composable
-private fun EditReminderSectionCard(
-    title: String,
-    subtitle: String,
-    icon: ImageVector,
-    accent: Color,
-    cardBg: Color,
-    cardBorder: Color,
-    textPrimary: Color,
-    textSecondary: Color,
-    content: @Composable ColumnScope.() -> Unit
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = cardBg),
-        border = BorderStroke(1.dp, cardBorder.copy(alpha = 0.78f))
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(38.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(accent.copy(alpha = 0.14f))
-                        .border(1.dp, accent.copy(alpha = 0.28f), RoundedCornerShape(14.dp)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = null,
-                        tint = accent,
-                        modifier = Modifier.size(21.dp)
-                    )
-                }
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        text = title,
-                        color = textPrimary,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        text = subtitle,
-                        color = textSecondary,
-                        fontSize = 11.sp,
-                        lineHeight = 14.sp
-                    )
-                }
-            }
-            HorizontalDivider(color = cardBorder.copy(alpha = 0.5f))
-            content()
-        }
-    }
-}
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun LembreteDetalhesScreen(
     lembrete: Lembrete,
     contato: ContatoProfissional?,
     carro: CarroInfo,
-    startInEditMode: Boolean = false,
     onDismiss: () -> Unit,
     onDelete: (Lembrete) -> Unit,
     onMarkAsDone: (Lembrete) -> Unit,
     onFinalizeAndClose: (Lembrete) -> Unit,
     onSalvar: (Lembrete) -> Unit,
-    planTier: PlanTier = PlanTier.FREE,
-    onRequestPremium: (String) -> Unit = {},
     onAddPrestador: (Lembrete) -> Unit
 ) {
     val context = LocalContext.current
@@ -3674,35 +3182,18 @@ private fun LembreteDetalhesScreen(
         return linhasBase.joinToString("\n")
     }
 
-    var editando by remember(lembrete.id, startInEditMode) { mutableStateOf(startInEditMode) }
+    var editando by remember(lembrete.id) { mutableStateOf(false) }
     var titulo by remember(lembrete.id) { mutableStateOf(lembrete.titulo) }
+    var tipoSelecionadoEdicao by remember(lembrete.id) { mutableStateOf(lembrete.tipo) }
     var descricaoEdicao by remember(lembrete.id) { mutableStateOf(lembrete.peca) }
-    var totalBrutoTexto by remember(lembrete.id) {
-        mutableStateOf(
-            extrairValorNumericoLinhaResumo(lembrete.peca) { n ->
-                n.startsWith("total") || n.startsWith("valor total")
-            }
-                ?: lembrete.valor.takeIf { it > 0.0 }?.let { String.format(Locale.US, "%.2f", it) }
-                ?: ""
-        )
-    }
-    var totalComDescontoTexto by remember(lembrete.id) {
-        mutableStateOf(
-            extrairValorNumericoLinhaResumo(lembrete.peca) { n ->
-                n.contains("valor final") || n.contains("valor a pagar")
-            }
-                ?: lembrete.valor.takeIf { it > 0.0 }?.let { String.format(Locale.US, "%.2f", it) }
-                ?: ""
-        )
-    }
     var dataAviso by remember(lembrete.id) { mutableStateOf(lembrete.dataLimite) }
     var horaAviso by remember(lembrete.id) { mutableStateOf(lembrete.horaAviso) }
     var kmLimite by remember(lembrete.id) { mutableStateOf(lembrete.kmLimite) }
-    var contatoSelecionadoId by remember(lembrete.id) { mutableStateOf(lembrete.contatoId) }
     var repetirAviso by remember(lembrete.id) { mutableStateOf(false) }
     var recorrenciaUnit by remember(lembrete.id) { mutableStateOf(NotificacaoHelper.REC_UNIT_DAY) }
     var recorrenciaIntervaloTexto by remember(lembrete.id) { mutableStateOf("1") }
     var menuRecorrenciaExpanded by remember(lembrete.id) { mutableStateOf(false) }
+    var menuTipoExpanded by remember(lembrete.id) { mutableStateOf(false) }
     var showConfirmarFeitoDialog by remember(lembrete.id) { mutableStateOf(false) }
     var showFinalizarEncerrarDialog by remember(lembrete.id) { mutableStateOf(false) }
     var showConfirmarExclusaoDialog by remember(lembrete.id) { mutableStateOf(false) }
@@ -3732,15 +3223,14 @@ private fun LembreteDetalhesScreen(
             true
         ).show()
     }
-    val tipoPermiteRepeticaoEdicao = lembrete.tipo != TipoManutencao.LICENCIAMENTO &&
-        lembrete.tipo != TipoManutencao.SEGURO &&
-        lembrete.tipo != TipoManutencao.IPVA &&
-        lembrete.tipo != TipoManutencao.ABASTECIMENTO
+    val tipoPermiteRepeticaoEdicao = tipoSelecionadoEdicao != TipoManutencao.LICENCIAMENTO &&
+        tipoSelecionadoEdicao != TipoManutencao.SEGURO &&
+        tipoSelecionadoEdicao != TipoManutencao.IPVA &&
+        tipoSelecionadoEdicao != TipoManutencao.ABASTECIMENTO
     val tipoPermiteRepeticao = lembrete.tipo != TipoManutencao.LICENCIAMENTO &&
         lembrete.tipo != TipoManutencao.SEGURO &&
         lembrete.tipo != TipoManutencao.IPVA &&
         lembrete.tipo != TipoManutencao.ABASTECIMENTO
-    val podeUsarRepeticaoAutomatica = planTier != PlanTier.FREE
     fun textoRecorrencia(unit: String, interval: Int): String {
         val intervaloValido = interval.coerceAtLeast(1)
         return when (unit) {
@@ -3831,33 +3321,24 @@ private fun LembreteDetalhesScreen(
 
     LaunchedEffect(lembrete.id) {
         val recorrenciaAtual = NotificacaoHelper.obterRecorrencia(context.applicationContext, lembrete.id)
-        repetirAviso = recorrenciaAtual != null && tipoPermiteRepeticao && podeUsarRepeticaoAutomatica
+        repetirAviso = recorrenciaAtual != null && tipoPermiteRepeticao
         recorrenciaUnit = recorrenciaAtual?.unit ?: NotificacaoHelper.REC_UNIT_DAY
         recorrenciaIntervaloTexto = (recorrenciaAtual?.interval ?: 1).coerceAtLeast(1).toString()
     }
 
     val resetarEdicao = {
         titulo = lembrete.titulo
+        tipoSelecionadoEdicao = lembrete.tipo
         descricaoEdicao = lembrete.peca
-        totalBrutoTexto = extrairValorNumericoLinhaResumo(lembrete.peca) { n ->
-            n.startsWith("total") || n.startsWith("valor total")
-        }
-            ?: lembrete.valor.takeIf { it > 0.0 }?.let { String.format(Locale.US, "%.2f", it) }
-            ?: ""
-        totalComDescontoTexto = extrairValorNumericoLinhaResumo(lembrete.peca) { n ->
-            n.contains("valor final") || n.contains("valor a pagar")
-        }
-            ?: lembrete.valor.takeIf { it > 0.0 }?.let { String.format(Locale.US, "%.2f", it) }
-            ?: ""
         dataAviso = lembrete.dataLimite
         horaAviso = lembrete.horaAviso
         kmLimite = lembrete.kmLimite
-        contatoSelecionadoId = lembrete.contatoId
         val recorrenciaAtual = NotificacaoHelper.obterRecorrencia(context.applicationContext, lembrete.id)
-        repetirAviso = recorrenciaAtual != null && tipoPermiteRepeticao && podeUsarRepeticaoAutomatica
+        repetirAviso = recorrenciaAtual != null && tipoPermiteRepeticao
         recorrenciaUnit = recorrenciaAtual?.unit ?: NotificacaoHelper.REC_UNIT_DAY
         recorrenciaIntervaloTexto = (recorrenciaAtual?.interval ?: 1).coerceAtLeast(1).toString()
         menuRecorrenciaExpanded = false
+        menuTipoExpanded = false
     }
     val categoriaColor = remember(lembrete.tipo, statusVencido) {
         if (statusVencido) {
@@ -4008,118 +3489,108 @@ private fun LembreteDetalhesScreen(
                         HorizontalDivider(color = cardBorder)
 
                         if (editando) {
-                            Card(
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(22.dp),
-                                colors = CardDefaults.cardColors(containerColor = Color.Transparent),
-                                border = BorderStroke(1.dp, categoriaColor.copy(alpha = 0.32f))
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .background(
-                                            Brush.horizontalGradient(
-                                                listOf(
-                                                    categoriaColor.copy(alpha = if (isDark) 0.28f else 0.18f),
-                                                    Color(0xFF2563EB).copy(alpha = if (isDark) 0.16f else 0.10f),
-                                                    cardBg
-                                                )
-                                            )
-                                        )
-                                        .padding(14.dp)
-                                ) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                    ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(44.dp)
-                                                .clip(RoundedCornerShape(16.dp))
-                                                .background(categoriaColor.copy(alpha = 0.18f))
-                                                .border(1.dp, categoriaColor.copy(alpha = 0.38f), RoundedCornerShape(16.dp)),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.Edit,
-                                                contentDescription = null,
-                                                tint = categoriaColor,
-                                                modifier = Modifier.size(23.dp)
-                                            )
-                                        }
-                                        Column(Modifier.weight(1f)) {
-                                            Text(
-                                                text = tr("Editando aviso", "Editing reminder"),
-                                                color = textPrimary,
-                                                fontWeight = FontWeight.Black,
-                                                fontSize = 16.sp
-                                            )
-                                            Text(
-                                                text = tr("Ajuste os dados e salve para atualizar o histórico.", "Adjust the data and save to update the history."),
-                                                color = textSecondary,
-                                                fontSize = 12.sp,
-                                                lineHeight = 15.sp
-                                            )
-                                        }
-                                    }
-                                }
+                            val tiposDisponiveisEdicao = remember(carro.tipoVeiculo, lembrete.tipo) {
+                                (tiposAvisoPorVeiculo(carro.tipoVeiculo) + lembrete.tipo)
+                                    .distinct()
+                                    .filter { it != TipoManutencao.ABASTECIMENTO || showFuelReminder(carro.tipoVeiculo) }
                             }
 
-                            EditReminderSectionCard(
-                                title = tr("Informações do aviso", "Reminder information"),
-                                subtitle = tr("Nome e descrição que aparecem no relatório.", "Name and description shown in the report."),
-                                icon = Icons.Default.Description,
-                                accent = categoriaColor,
+                            EditReminderSection(
+                                title = tr("Identificação", "Identification"),
+                                icon = Icons.Default.Edit,
                                 cardBg = cardBg,
                                 cardBorder = cardBorder,
-                                textPrimary = textPrimary,
-                                textSecondary = textSecondary
+                                textPrimary = textPrimary
                             ) {
                                 OutlinedTextField(
                                     value = titulo,
                                     onValueChange = { titulo = it },
                                     label = { Text(tr("Título", "Title")) },
-                                    leadingIcon = { Icon(Icons.Default.Title, contentDescription = null) },
                                     singleLine = true,
-                                    shape = RoundedCornerShape(14.dp),
                                     modifier = Modifier.fillMaxWidth()
                                 )
+                                ExposedDropdownMenuBox(
+                                    expanded = menuTipoExpanded,
+                                    onExpandedChange = { menuTipoExpanded = !menuTipoExpanded },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    OutlinedTextField(
+                                        value = tipoSelecionadoEdicao.label,
+                                        onValueChange = {},
+                                        readOnly = true,
+                                        label = { Text(tr("Categoria", "Category")) },
+                                        leadingIcon = {
+                                            TipoIcon(
+                                                tipo = tipoSelecionadoEdicao,
+                                                tint = corCategoria(tipoSelecionadoEdicao),
+                                                size = 18.dp
+                                            )
+                                        },
+                                        trailingIcon = {
+                                            ExposedDropdownMenuDefaults.TrailingIcon(expanded = menuTipoExpanded)
+                                        },
+                                        modifier = Modifier
+                                            .menuAnchor()
+                                            .fillMaxWidth()
+                                    )
+                                    ExposedDropdownMenu(
+                                        expanded = menuTipoExpanded,
+                                        onDismissRequest = { menuTipoExpanded = false }
+                                    ) {
+                                        tiposDisponiveisEdicao.forEach { tipo ->
+                                            DropdownMenuItem(
+                                                text = { Text(tipo.label) },
+                                                leadingIcon = {
+                                                    TipoIcon(
+                                                        tipo = tipo,
+                                                        tint = corCategoria(tipo),
+                                                        size = 18.dp
+                                                    )
+                                                },
+                                                onClick = {
+                                                    tipoSelecionadoEdicao = tipo
+                                                    menuTipoExpanded = false
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
                                 OutlinedTextField(
                                     value = descricaoEdicao,
                                     onValueChange = { descricaoEdicao = it },
-                                    label = { Text(tr("Descrição do aviso", "Reminder description")) },
-                                    leadingIcon = { Icon(Icons.Default.Notes, contentDescription = null) },
+                                    label = { Text(tr("Descrição / peça / observações", "Description / item / notes")) },
                                     modifier = Modifier.fillMaxWidth(),
-                                    shape = RoundedCornerShape(14.dp),
-                                    minLines = 3,
-                                    maxLines = 8
+                                    minLines = 4,
+                                    maxLines = 10
                                 )
                             }
 
-                            EditReminderSectionCard(
-                                title = tr("Agenda", "Schedule"),
-                                subtitle = tr("Quando o Zellu deve acompanhar esse aviso.", "When Zellu should track this reminder."),
+                            EditReminderSection(
+                                title = tr("Quando avisar", "When to notify"),
                                 icon = Icons.Default.Event,
-                                accent = Color(0xFF3B82F6),
                                 cardBg = cardBg,
                                 cardBorder = cardBorder,
-                                textPrimary = textPrimary,
-                                textSecondary = textSecondary
+                                textPrimary = textPrimary
                             ) {
-                                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
                                     OutlinedTextField(
                                         value = dataAviso,
                                         onValueChange = {},
                                         label = { Text(tr("Data", "Date")) },
                                         trailingIcon = {
                                             IconButton(onClick = { abrirSeletorDataAviso() }) {
-                                                Icon(Icons.Default.Event, contentDescription = tr("Selecionar data", "Select date"), tint = textSecondary)
+                                                Icon(
+                                                    imageVector = Icons.Default.Event,
+                                                    contentDescription = tr("Selecionar data", "Select date"),
+                                                    tint = textSecondary
+                                                )
                                             }
                                         },
                                         readOnly = true,
                                         singleLine = true,
-                                        shape = RoundedCornerShape(14.dp),
                                         modifier = Modifier
                                             .weight(1f)
                                             .clickable { abrirSeletorDataAviso() }
@@ -4130,12 +3601,15 @@ private fun LembreteDetalhesScreen(
                                         label = { Text(tr("Hora", "Time")) },
                                         trailingIcon = {
                                             IconButton(onClick = { abrirSeletorHoraAviso() }) {
-                                                Icon(Icons.Default.Schedule, contentDescription = tr("Selecionar hora", "Select time"), tint = textSecondary)
+                                                Icon(
+                                                    imageVector = Icons.Default.Schedule,
+                                                    contentDescription = tr("Selecionar hora", "Select time"),
+                                                    tint = textSecondary
+                                                )
                                             }
                                         },
                                         readOnly = true,
                                         singleLine = true,
-                                        shape = RoundedCornerShape(14.dp),
                                         modifier = Modifier
                                             .weight(1f)
                                             .clickable { abrirSeletorHoraAviso() }
@@ -4143,124 +3617,41 @@ private fun LembreteDetalhesScreen(
                                 }
                                 OutlinedTextField(
                                     value = kmLimite,
-                                    onValueChange = { if (it.all(Char::isDigit)) kmLimite = it },
+                                    onValueChange = { kmLimite = it.filter(Char::isDigit) },
                                     label = { Text(tr("KM limite", "Mileage limit")) },
-                                    leadingIcon = { Icon(Icons.Default.Speed, contentDescription = null) },
                                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                     singleLine = true,
-                                    shape = RoundedCornerShape(14.dp),
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                            }
-
-                            EditReminderSectionCard(
-                                title = tr("Valores", "Values"),
-                                subtitle = tr("Use o total bruto; o valor final acompanha o registro.", "Use gross total; final value follows the record."),
-                                icon = Icons.Default.Payments,
-                                accent = Color(0xFF16A34A),
-                                cardBg = cardBg,
-                                cardBorder = cardBorder,
-                                textPrimary = textPrimary,
-                                textSecondary = textSecondary
-                            ) {
-                                OutlinedTextField(
-                                    value = totalBrutoTexto,
-                                    onValueChange = {
-                                        if (it.all { c -> c.isDigit() || c == '.' || c == ',' }) {
-                                            val brutoNormalizado = it.replace(',', '.')
-                                            totalBrutoTexto = brutoNormalizado
-                                            totalComDescontoTexto = brutoNormalizado
-                                        }
-                                    },
-                                    label = { Text(tr("Total bruto (R$)", "Gross total (R$)")) },
-                                    leadingIcon = { Icon(Icons.Default.AttachMoney, contentDescription = null) },
-                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                                    singleLine = true,
-                                    shape = RoundedCornerShape(14.dp),
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                                OutlinedTextField(
-                                    value = totalComDescontoTexto,
-                                    onValueChange = {},
-                                    readOnly = true,
-                                    leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
-                                    label = { Text(tr("Total com desconto (R$)", "Discounted total (R$)")) },
-                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                                    singleLine = true,
-                                    shape = RoundedCornerShape(14.dp),
                                     modifier = Modifier.fillMaxWidth()
                                 )
                             }
 
                             if (tipoPermiteRepeticaoEdicao) {
-                                EditReminderSectionCard(
-                                    title = tr("Repetição", "Recurrence"),
-                                    subtitle = tr("Configure ciclos automáticos para manutenções recorrentes.", "Configure automatic cycles for recurring maintenance."),
+                                EditReminderSection(
+                                    title = tr("Repetição", "Repeat"),
                                     icon = Icons.Default.Repeat,
-                                    accent = Color(0xFF8B5CF6),
                                     cardBg = cardBg,
                                     cardBorder = cardBorder,
-                                    textPrimary = textPrimary,
-                                    textSecondary = textSecondary
+                                    textPrimary = textPrimary
                                 ) {
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .clip(RoundedCornerShape(14.dp))
-                                            .background(if (isDark) Color.White.copy(alpha = 0.05f) else Color(0xFFF8FAFC))
-                                            .clickable {
-                                                if (podeUsarRepeticaoAutomatica) {
-                                                    repetirAviso = !repetirAviso
-                                                } else {
-                                                    onRequestPremium("recurrence_premium")
-                                                }
-                                            }
-                                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .clickable { repetirAviso = !repetirAviso }
+                                            .padding(vertical = 2.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Checkbox(
                                             checked = repetirAviso,
-                                            onCheckedChange = {
-                                                if (podeUsarRepeticaoAutomatica) {
-                                                    repetirAviso = it
-                                                } else {
-                                                    onRequestPremium("recurrence_premium")
-                                                }
-                                            }
+                                            onCheckedChange = { repetirAviso = it }
                                         )
-                                        Column {
-                                            Text(
-                                                text = tr("Repetir esse aviso", "Repeat this reminder"),
-                                                color = textPrimary,
-                                                fontWeight = FontWeight.SemiBold
-                                            )
-                                            Text(descricaoRecorrenciaAtual, color = textSecondary, fontSize = 12.sp)
-                                        }
-                                        if (!podeUsarRepeticaoAutomatica) {
-                                            Spacer(Modifier.width(8.dp))
-                                            AssistChip(
-                                                onClick = { onRequestPremium("recurrence_premium") },
-                                                label = { Text("Lite+") },
-                                                leadingIcon = {
-                                                    Icon(
-                                                        Icons.Default.Lock,
-                                                        contentDescription = null,
-                                                        modifier = Modifier.size(14.dp)
-                                                    )
-                                                }
-                                            )
-                                        }
+                                        Text(
+                                            text = tr("Repetir esse aviso", "Repeat this reminder"),
+                                            color = textPrimary,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
                                     }
                                     if (repetirAviso) {
-                                        Text(
-                                            text = tr(
-                                                "A repetição é calculada a partir da data deste aviso.",
-                                                "Repeat is calculated from this reminder date."
-                                            ),
-                                            color = textSecondary,
-                                            fontSize = 12.sp,
-                                            lineHeight = 16.sp
-                                        )
                                         ExposedDropdownMenuBox(
                                             expanded = menuRecorrenciaExpanded,
                                             onExpandedChange = { menuRecorrenciaExpanded = !menuRecorrenciaExpanded },
@@ -4270,13 +3661,15 @@ private fun LembreteDetalhesScreen(
                                                 value = textoRecorrencia(recorrenciaUnit, recorrenciaIntervaloTexto.toIntOrNull() ?: 1),
                                                 onValueChange = {},
                                                 readOnly = true,
-                                                label = { Text(tr("Frequência", "Frequency")) },
+                                                label = { Text(tr("Frequência da repetição", "Repeat frequency")) },
                                                 modifier = Modifier
                                                     .menuAnchor()
                                                     .fillMaxWidth(),
-                                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = menuRecorrenciaExpanded) },
+                                                trailingIcon = {
+                                                    ExposedDropdownMenuDefaults.TrailingIcon(expanded = menuRecorrenciaExpanded)
+                                                },
                                                 singleLine = true,
-                                                shape = RoundedCornerShape(14.dp)
+                                                shape = RoundedCornerShape(12.dp)
                                             )
                                             ExposedDropdownMenu(
                                                 expanded = menuRecorrenciaExpanded,
@@ -4303,17 +3696,16 @@ private fun LembreteDetalhesScreen(
                                             label = {
                                                 Text(
                                                     when (recorrenciaUnit) {
-                                                        NotificacaoHelper.REC_UNIT_DAY -> tr("Intervalo em dias", "Interval in days")
-                                                        NotificacaoHelper.REC_UNIT_MONTH -> tr("Intervalo em meses", "Interval in months")
-                                                        else -> tr("Intervalo em anos", "Interval in years")
+                                                        NotificacaoHelper.REC_UNIT_DAY -> tr("Repetir a cada quantos dias?", "Repeat every how many days?")
+                                                        NotificacaoHelper.REC_UNIT_MONTH -> tr("Repetir a cada quantos meses?", "Repeat every how many months?")
+                                                        else -> tr("Repetir a cada quantos anos?", "Repeat every how many years?")
                                                     }
                                                 )
                                             },
-                                            leadingIcon = { Icon(Icons.Default.Numbers, contentDescription = null) },
                                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                             singleLine = true,
                                             modifier = Modifier.fillMaxWidth(),
-                                            shape = RoundedCornerShape(14.dp)
+                                            shape = RoundedCornerShape(12.dp)
                                         )
                                     }
                                 }
@@ -4541,28 +3933,20 @@ private fun LembreteDetalhesScreen(
                 if (editando) {
                     Button(
                         onClick = {
-                            val totalBrutoEditado = totalBrutoTexto.toDoubleOrNull()
-                            val totalFinalEditado = totalComDescontoTexto.toDoubleOrNull()
-                            val descricaoComResumoFinanceiro = atualizarDescricaoComResumoFinanceiro(
-                                descricaoAtual = descricaoEdicao,
-                                totalBruto = totalBrutoEditado,
-                                valorFinal = totalFinalEditado
-                            )
                             val atualizado = lembrete.copy(
                                 titulo = titulo.ifBlank { lembrete.titulo },
-                                peca = descricaoComResumoFinanceiro.ifBlank { lembrete.peca },
+                                tipo = tipoSelecionadoEdicao,
+                                peca = descricaoEdicao.ifBlank { lembrete.peca },
                                 dataLimite = dataAviso.ifBlank { lembrete.dataLimite },
                                 horaAviso = horaAviso.ifBlank { lembrete.horaAviso },
-                                kmLimite = kmLimite,
-                                contatoId = contatoSelecionadoId,
-                                valor = totalFinalEditado ?: totalBrutoEditado ?: lembrete.valor
+                                kmLimite = kmLimite
                             )
                             val intervaloRecorrencia = (recorrenciaIntervaloTexto.toIntOrNull() ?: 1).coerceAtLeast(1)
                             val atualizadoPermiteRepeticao = atualizado.tipo != TipoManutencao.LICENCIAMENTO &&
                                 atualizado.tipo != TipoManutencao.SEGURO &&
                                 atualizado.tipo != TipoManutencao.IPVA &&
                                 atualizado.tipo != TipoManutencao.ABASTECIMENTO
-                            if (atualizadoPermiteRepeticao && podeUsarRepeticaoAutomatica && repetirAviso) {
+                            if (atualizadoPermiteRepeticao && repetirAviso) {
                                 NotificacaoHelper.salvarRecorrencia(
                                     context = context.applicationContext,
                                     lembreteId = atualizado.id,
@@ -4577,17 +3961,11 @@ private fun LembreteDetalhesScreen(
                         },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(54.dp),
+                            .height(50.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB), contentColor = Color.White),
-                        shape = RoundedCornerShape(16.dp)
+                        shape = RoundedCornerShape(12.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Save,
-                            contentDescription = null,
-                            tint = Color.White
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(tr("Salvar alterações", "Save changes"), fontWeight = FontWeight.Bold)
+                        Text(tr("Salvar edição", "Save edit"), fontWeight = FontWeight.Bold)
                     }
                 } else {
                     Column(
@@ -4623,18 +4001,18 @@ private fun LembreteDetalhesScreen(
                                 .height(50.dp),
                             colors = ButtonDefaults.outlinedButtonColors(
                                 containerColor = Color.Transparent,
-                                contentColor = Color(0xFF16A34A)
+                                contentColor = Color(0xFFDC2626)
                             ),
-                            border = BorderStroke(1.dp, Color(0xFF16A34A).copy(alpha = 0.65f)),
+                            border = BorderStroke(1.dp, Color(0xFFDC2626).copy(alpha = 0.55f)),
                             shape = RoundedCornerShape(12.dp)
                         ) {
                             Icon(
-                                imageVector = Icons.Default.AssignmentTurnedIn,
+                                imageVector = Icons.Default.StopCircle,
                                 contentDescription = null
                             )
                             Spacer(Modifier.width(8.dp))
                             Text(
-                                tr("Registrar no histórico", "Record in history"),
+                                tr("Finalizar e encerrar aviso", "Finalize and close reminder"),
                                 fontWeight = FontWeight.SemiBold
                             )
                         }
@@ -4735,19 +4113,19 @@ private fun LembreteDetalhesScreen(
                         modifier = Modifier
                             .size(52.dp)
                             .clip(CircleShape)
-                            .background(Color(0xFF22C55E).copy(alpha = if (isDark) 0.24f else 0.14f))
-                            .border(1.dp, Color(0xFF22C55E).copy(alpha = 0.35f), CircleShape),
+                            .background(Color(0xFFEF4444).copy(alpha = if (isDark) 0.24f else 0.14f))
+                            .border(1.dp, Color(0xFFEF4444).copy(alpha = 0.35f), CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = Icons.Default.AssignmentTurnedIn,
+                            imageVector = Icons.Default.StopCircle,
                             contentDescription = null,
-                            tint = Color(0xFF16A34A),
+                            tint = Color(0xFFDC2626),
                             modifier = Modifier.size(26.dp)
                         )
                     }
                     Text(
-                        text = tr("Registrar no histórico?", "Record in history?"),
+                        text = tr("Finalizar e encerrar aviso?", "Finalize and close this reminder?"),
                         color = textPrimary,
                         fontWeight = FontWeight.Bold,
                         textAlign = TextAlign.Center
@@ -4757,8 +4135,8 @@ private fun LembreteDetalhesScreen(
             text = {
                 Text(
                     text = tr(
-                        "Se você continuar, este aviso será registrado no histórico do veículo e removido dos avisos ativos, mesmo que tenha repetição ativa.",
-                        "If you continue, this reminder will be recorded in the vehicle history and removed from active reminders, even if recurrence is active."
+                        "Se você continuar, este aviso será encerrado de vez, mesmo que tenha repetição ativa. Você poderá criar outro depois, se quiser.",
+                        "If you continue, this reminder will be permanently closed even if recurrence is active. You can create another one later if needed."
                     ),
                     color = textSecondary
                 )
@@ -4787,10 +4165,10 @@ private fun LembreteDetalhesScreen(
                             .weight(1f)
                             .height(46.dp),
                         shape = RoundedCornerShape(10.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF16A34A), contentColor = Color.White)
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626), contentColor = Color.White)
                     ) {
                         Text(
-                            text = tr("Registrar", "Record"),
+                            text = tr("Sim, Finalizar", "Yes, Finalize"),
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 12.sp,
                             textAlign = TextAlign.Center,
@@ -5041,6 +4419,49 @@ private fun abreviarTituloAvisoDetalhes(texto: String, maxChars: Int = 34): Stri
 // ----------------- OUTROS COMPONENTES DA TELA DE DETALHES -----------------
 
 
+@Composable
+private fun EditReminderSection(
+    title: String,
+    icon: ImageVector,
+    cardBg: Color,
+    cardBorder: Color,
+    textPrimary: Color,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = cardBg),
+        border = BorderStroke(1.dp, cardBorder)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = Color(0xFF2563EB),
+                    modifier = Modifier.size(18.dp)
+                )
+                Text(
+                    text = title,
+                    color = textPrimary,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp
+                )
+            }
+            content()
+        }
+    }
+}
+
 
 @Composable
 private fun InfoRow(label: String, value: String, textLight: Color, textDim: Color) {
@@ -5100,8 +4521,7 @@ private fun AvisosNotificacoesScreen(
     onOpen: (NotificacaoDisparada) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val colorScheme = MaterialTheme.colorScheme
-    val isDark = colorScheme.background.luminance() < 0.5f
+    val isDark = isSystemInDarkTheme()
     val screenBg = if (isDark) Color(0xFF020917) else Color(0xFFF8FAFC)
     val cardBg = if (isDark) Color(0xFF0D1B2E) else Color.White
     val cardBgSoft = if (isDark) Color(0xFF0A1628) else Color(0xFFF1F5F9)

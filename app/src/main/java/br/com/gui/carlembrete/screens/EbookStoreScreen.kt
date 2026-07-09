@@ -55,18 +55,26 @@ fun EbookStoreScreen(onDismiss: () -> Unit) {
     val bundleBilling = remember { EbookBundleBillingManager(context.applicationContext) }
     val isBundlePurchased by bundleBilling.isBundleUnlocked.collectAsState(initial = false)
     var ebookOverrideVersion by remember { mutableStateOf(0) }
+    var ebookPrice by remember { mutableStateOf(RemotePlanPricing.defaultPrices.ebook) }
     val isBundleUnlocked = remember(isBundlePurchased, ebookOverrideVersion) {
         isBundlePurchased || SubscriptionManager.isAdminEbookOverrideEnabled(context)
     }
 
     DisposableEffect(Unit) {
         bundleBilling.connect()
-        AdminUsersSync.applyRemoteEbookOverride(
-            getCurrentOverride = { SubscriptionManager.isAdminEbookOverrideEnabled(context) },
-            setOverride = { enabled -> SubscriptionManager.setAdminEbookOverride(context, enabled) },
-            onChanged = { ebookOverrideVersion++ }
-        )
-        onDispose { bundleBilling.disconnect() }
+        // Aplica override do cache (salvo por syncUserConfig no login) — zero reads extras.
+        val cachedEbook = AdminUsersSync.getCachedAdminEbookOverride(context)
+        if (cachedEbook != SubscriptionManager.isAdminEbookOverrideEnabled(context)) {
+            SubscriptionManager.setAdminEbookOverride(context, cachedEbook)
+            ebookOverrideVersion++
+        }
+        val pricingListener = RemotePlanPricing.listen { prices ->
+            ebookPrice = prices.ebook
+        }
+        onDispose {
+            bundleBilling.disconnect()
+            pricingListener.remove()
+        }
     }
 
     val colorScheme = MaterialTheme.colorScheme
@@ -88,12 +96,13 @@ fun EbookStoreScreen(onDismiss: () -> Unit) {
         )
     }
 
+    val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     LazyVerticalGrid(
         columns = GridCells.Fixed(2),
         modifier = Modifier
             .fillMaxSize()
             .background(screenBg),
-        contentPadding = PaddingValues(16.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 16.dp + navBarBottom),
         verticalArrangement = Arrangement.spacedBy(16.dp),
         horizontalArrangement = Arrangement.spacedBy(16.dp)
     ) {
@@ -183,7 +192,7 @@ fun EbookStoreScreen(onDismiss: () -> Unit) {
                     ) {
                         Icon(Icons.Default.Bolt, modifier = Modifier.size(18.dp), contentDescription = null)
                         Spacer(Modifier.width(8.dp))
-                        Text(if (isBundleUnlocked) "CONTEÚDO LIBERADO" else "LIBERAR TUDO POR R$ 19,90", fontWeight = FontWeight.Black)
+                        Text(if (isBundleUnlocked) "CONTEÚDO LIBERADO" else "LIBERAR TUDO POR R$ $ebookPrice", fontWeight = FontWeight.Black)
                     }
                 }
             }

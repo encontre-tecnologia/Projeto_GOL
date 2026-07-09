@@ -4,7 +4,6 @@ import android.util.Log
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.SetOptions
 
 private const val TAG_ADMIN_SYNC = "AdminUsersSync"
@@ -19,24 +18,9 @@ object AdminUsersSync {
             "vehiclesTotal" to total,
             "veiculosTotal" to total,
             "veiculosCadastrados" to total,
-            "vehicleNames" to names,
-            "carros" to vehicles.map(::vehicleSnapshotPayload)
+            "vehicleNames" to names
         )
     }
-
-    private fun vehicleSnapshotPayload(vehicle: CarroInfo): Map<String, Any?> = mapOf(
-        "id" to vehicle.id,
-        "nome" to vehicle.nome,
-        "modelo" to vehicle.modelo,
-        "marca" to vehicle.marca,
-        "proprietario" to vehicle.proprietario,
-        "corArgb" to vehicle.corArgb,
-        "kmAtual" to vehicle.kmAtual,
-        "semControleKm" to vehicle.semControleKm,
-        "tipoVeiculo" to vehicle.tipoVeiculo.name,
-        "vezesBatido" to vehicle.vezesBatido,
-        "tempoComVeiculo" to vehicle.tempoComVeiculo
-    )
 
     private fun remindersPayload(reminders: List<Lembrete>): Map<String, Any> {
         val total = reminders.size
@@ -50,44 +34,17 @@ object AdminUsersSync {
             "recordsTotal" to completed,
             "registrosTotal" to completed,
             "registrosCriados" to completed,
-            "completedRemindersTotal" to completed,
-            "lembretes" to reminders.map(::reminderSnapshotPayload)
+            "completedRemindersTotal" to completed
         )
     }
-
-    private fun reminderSnapshotPayload(reminder: Lembrete): Map<String, Any?> = mapOf(
-        "id" to reminder.id,
-        "carroId" to reminder.carroId,
-        "titulo" to reminder.titulo,
-        "peca" to reminder.peca,
-        "dataLimite" to reminder.dataLimite,
-        "kmLimite" to reminder.kmLimite,
-        "tipo" to reminder.tipo.name,
-        "valor" to reminder.valor
-    )
-
-    private fun fuelPayload(items: List<Abastecimento>): Map<String, Any> = mapOf(
-        "abastecimentos" to items.map(::fuelSnapshotPayload)
-    )
-
-    private fun fuelSnapshotPayload(item: Abastecimento): Map<String, Any?> = mapOf(
-        "id" to item.id,
-        "carroId" to item.carroId,
-        "data" to item.data,
-        "precoLitro" to item.precoLitro,
-        "valorPago" to item.valorPago,
-        "litros" to item.litros
-    )
 
     fun syncLocalOverview(context: android.content.Context) {
         val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
         val vehicles = BancoDeDados.carregarCarros(context).orEmpty()
         val reminders = BancoDeDados.carregarLembretes(context)
-        val fuelRecords = BancoDeDados.carregarAbastecimentos(context)
         val payload = mutableMapOf<String, Any>()
         payload.putAll(vehiclePayload(vehicles))
         payload.putAll(remindersPayload(reminders))
-        payload.putAll(fuelPayload(fuelRecords))
         payload["updatedAt"] = FieldValue.serverTimestamp()
 
         firestore.collection("admin_users").document(uid)
@@ -118,6 +75,14 @@ object AdminUsersSync {
             .addOnFailureListener { Log.w(TAG_ADMIN_SYNC, "Falha ao incrementar remindersTotal", it) }
     }
 
+    fun incrementAiRequests(amount: Int = 1) {
+        if (amount <= 0) return
+        val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
+        firestore.collection("admin_users").document(uid)
+            .set(mapOf("aiRequestsTotal" to FieldValue.increment(amount.toLong())), SetOptions.merge())
+            .addOnFailureListener { Log.w(TAG_ADMIN_SYNC, "Falha ao incrementar aiRequestsTotal", it) }
+    }
+
     fun syncRemindersTotal(total: Int) {
         val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
         val sanitizedTotal = total.coerceAtLeast(0)
@@ -144,16 +109,98 @@ object AdminUsersSync {
             .addOnFailureListener { Log.w(TAG_ADMIN_SYNC, "Falha ao sincronizar snapshot de lembretes", it) }
     }
 
-    fun syncFuelSnapshot(items: List<Abastecimento>) {
+    // Lê admin_users/{uid} UMA VEZ e salva channel + overrides em cache local.
+    // Substitui syncChannelStatus + applyRemoteAdminOverride + applyRemoteEbookOverride.
+    fun syncUserConfig(context: android.content.Context, onComplete: () -> Unit = {}) {
         val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
-        val payload = fuelPayload(items).toMutableMap()
-        payload["updatedAt"] = FieldValue.serverTimestamp()
         firestore.collection("admin_users").document(uid)
-            .set(payload, SetOptions.merge())
-            .addOnFailureListener { Log.w(TAG_ADMIN_SYNC, "Falha ao sincronizar abastecimentos", it) }
+            .get()
+            .addOnSuccessListener { doc ->
+                // channel (mantém prefs separada para compatibilidade)
+                val channel = doc.getString("channel") ?: "oficial"
+                context.getSharedPreferences("admin_channel", android.content.Context.MODE_PRIVATE)
+                    .edit().putString("channel", channel).apply()
+                // overrides em cache unificado
+                context.getSharedPreferences("admin_user_config", android.content.Context.MODE_PRIVATE)
+                    .edit()
+                    .putBoolean("adminPremiumOverride", doc.getBoolean("adminPremiumOverride") ?: false)
+                    .putString("adminPremiumPlan", doc.getString("adminPremiumPlan") ?: "")
+                    .putBoolean("adminEbookOverride", doc.getBoolean("adminEbookOverride") ?: false)
+                    .putBoolean("aiBlocked", doc.getBoolean("aiBlocked") ?: false)
+                    .putBoolean("webBlocked", doc.getBoolean("webBlocked") ?: false)
+                    .apply()
+                onComplete()
+            }
+            .addOnFailureListener { Log.w(TAG_ADMIN_SYNC, "Falha ao sincronizar config do usuário", it); onComplete() }
     }
 
-    fun checkAnnouncement(context: android.content.Context, onShow: (title: String, description: String) -> Unit) {
+    fun getChannelStatus(context: android.content.Context): String {
+        return context.getSharedPreferences("admin_channel", android.content.Context.MODE_PRIVATE)
+            .getString("channel", "") ?: ""
+    }
+
+    fun getCachedAdminPremiumOverride(context: android.content.Context): Boolean =
+        context.getSharedPreferences("admin_user_config", android.content.Context.MODE_PRIVATE)
+            .getBoolean("adminPremiumOverride", false)
+
+    fun getCachedAdminPremiumPlan(context: android.content.Context): String? =
+        context.getSharedPreferences("admin_user_config", android.content.Context.MODE_PRIVATE)
+            .getString("adminPremiumPlan", null)?.takeIf { it.isNotEmpty() }
+
+    fun getCachedAdminEbookOverride(context: android.content.Context): Boolean =
+        context.getSharedPreferences("admin_user_config", android.content.Context.MODE_PRIVATE)
+            .getBoolean("adminEbookOverride", false)
+
+    fun getCachedAiBlocked(context: android.content.Context): Boolean =
+        context.getSharedPreferences("admin_user_config", android.content.Context.MODE_PRIVATE)
+            .getBoolean("aiBlocked", false)
+
+    fun getCachedWebBlocked(context: android.content.Context): Boolean =
+        context.getSharedPreferences("admin_user_config", android.content.Context.MODE_PRIVATE)
+            .getBoolean("webBlocked", false)
+
+    fun syncFeatureChannels(context: android.content.Context, onComplete: () -> Unit = {}) {
+        firestore.collection("admin_app_config").document("feature_channels")
+            .get()
+            .addOnSuccessListener { doc ->
+                if (!doc.exists()) { onComplete(); return@addOnSuccessListener }
+                val prefs = context.getSharedPreferences("feature_channels", android.content.Context.MODE_PRIVATE)
+                val editor = prefs.edit()
+                doc.data?.forEach { (key, value) ->
+                    if (value is String) editor.putString(key, value)
+                }
+                editor.apply()
+                onComplete()
+            }
+            .addOnFailureListener {
+                Log.w(TAG_ADMIN_SYNC, "Falha ao ler feature_channels", it)
+                onComplete()
+            }
+    }
+
+    fun getFeatureChannel(context: android.content.Context, featureKey: String): String {
+        return context.getSharedPreferences("feature_channels", android.content.Context.MODE_PRIVATE)
+            .getString(featureKey, "oficial") ?: "oficial"
+    }
+
+    fun recordLastAccess(context: android.content.Context) {
+        val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
+        val prefs = context.getSharedPreferences("admin_last_access", android.content.Context.MODE_PRIVATE)
+        val lastRecorded = prefs.getLong("last_recorded_at", 0L)
+        val thirtyMinutes = 30 * 60 * 1000L
+        if (System.currentTimeMillis() - lastRecorded < thirtyMinutes) return
+        firestore.collection("admin_users").document(uid)
+            .set(mapOf("lastAccess" to FieldValue.serverTimestamp()), SetOptions.merge())
+            .addOnSuccessListener {
+                prefs.edit().putLong("last_recorded_at", System.currentTimeMillis()).apply()
+            }
+            .addOnFailureListener { Log.w(TAG_ADMIN_SYNC, "Falha ao registrar lastAccess", it) }
+    }
+
+    fun checkAnnouncement(
+        context: android.content.Context,
+        onShow: (title: String, description: String, iconType: String, imageUrl: String) -> Unit
+    ) {
         firestore.collection("admin_announcements").document("current")
             .get()
             .addOnSuccessListener { doc ->
@@ -162,16 +209,22 @@ object AdminUsersSync {
                 val id = doc.getString("id") ?: return@addOnSuccessListener
                 val title = doc.getString("title") ?: return@addOnSuccessListener
                 val description = doc.getString("description") ?: return@addOnSuccessListener
+                val iconType = doc.getString("iconType") ?: "bell"
+                val imageUrl = doc.getString("imageUrl") ?: ""
+                // Filtro de audiência: "beta" → só beta testers; "todos" → todos
+                val audience = doc.getString("audience") ?: "todos"
+                val userChannel = getChannelStatus(context)
+                if (audience == "beta" && userChannel != "beta") return@addOnSuccessListener
                 val expiresAt = doc.getLong("expiresAt")
                 val now = System.currentTimeMillis()
                 if (expiresAt != null) {
                     if (now > expiresAt) return@addOnSuccessListener
-                    onShow(title, description)
+                    onShow(title, description, iconType, imageUrl)
                 } else {
                     val prefs = context.getSharedPreferences("admin_announcements", android.content.Context.MODE_PRIVATE)
                     if (prefs.getString("last_seen_id", null) == id) return@addOnSuccessListener
                     prefs.edit().putString("last_seen_id", id).apply()
-                    onShow(title, description)
+                    onShow(title, description, iconType, imageUrl)
                 }
             }
             .addOnFailureListener { Log.w(TAG_ADMIN_SYNC, "Falha ao verificar anúncio", it) }
@@ -198,42 +251,6 @@ object AdminUsersSync {
                 }
             }
             .addOnFailureListener { Log.w(TAG_ADMIN_SYNC, "Falha ao ler adminPremiumOverride", it) }
-    }
-
-    fun listenReminderLimitOverride(onChanged: (Int?) -> Unit): ListenerRegistration? {
-        val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return null
-        val userDoc = firestore.collection("admin_users").document(uid)
-        val controlsDoc = userDoc.collection("controls").document("admin")
-
-        fun readLegacyLimitOnce() {
-            userDoc.get()
-                .addOnSuccessListener { snapshot ->
-                    val legacyLimit = snapshot
-                        ?.getLong("adminReminderLimitOverride")
-                        ?.toInt()
-                        ?.takeIf { it > 0 }
-                    onChanged(legacyLimit)
-                }
-                .addOnFailureListener { Log.w(TAG_ADMIN_SYNC, "Falha ao ler limite admin legado de avisos", it) }
-        }
-
-        return controlsDoc
-            .addSnapshotListener { snapshot, error ->
-                if (error != null) {
-                    Log.w(TAG_ADMIN_SYNC, "Falha ao ouvir limite admin de avisos", error)
-                    readLegacyLimitOnce()
-                    return@addSnapshotListener
-                }
-                if (snapshot?.exists() != true) {
-                    readLegacyLimitOnce()
-                    return@addSnapshotListener
-                }
-                val remoteLimit = snapshot
-                    .getLong("adminReminderLimitOverride")
-                    ?.toInt()
-                    ?.takeIf { it > 0 }
-                onChanged(remoteLimit)
-            }
     }
 
     fun applyRemoteEbookOverride(

@@ -52,6 +52,12 @@ object AdminUsageMetrics {
         incrementMetric(metricField = "travelExpensesSaved", amount = 1L)
     }
 
+    /** Conta cada interação com a Zellu AI (requisições, não tokens). */
+    fun markAiRequest() {
+        incrementMetric(metricField = "aiRequests", amount = 1L)
+        AdminUsersSync.incrementAiRequests(1)
+    }
+
     fun markQrScanSuccess() {
         // qrScansSuccessful removido — não coberto pela política de privacidade
     }

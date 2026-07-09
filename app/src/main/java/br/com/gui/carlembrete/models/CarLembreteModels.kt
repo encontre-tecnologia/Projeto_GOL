@@ -83,7 +83,14 @@ data class Lembrete(
     val fotoPath: String? = null,
     val horaAviso: String = "09:00",
     val estabelecimentoNome: String = "",
-    val estabelecimentoEndereco: String = ""
+    val estabelecimentoEndereco: String = "",
+    val quantidade: Int = 1,
+    val operationalRecordId: String = "",
+    val operationalFeature: String = "",
+    val operationalBrand: String = "",
+    val operationalPosition: String = "",
+    val operationalKmStart: Int? = null,
+    val operationalKmEnd: Int? = null
 ) : Serializable {
     companion object {
         private const val serialVersionUID: Long = 1L
@@ -527,7 +534,9 @@ data class Abastecimento(
     val precoLitro: Double,
     val valorPago: Double,
     val litros: Double,
-    val itens: List<ItemAbastecimento> = emptyList()
+    val itens: List<ItemAbastecimento> = emptyList(),
+    val tipoCombustivel: String = "",
+    val km: Int? = null
 ) : Serializable {
     companion object {
         private const val serialVersionUID: Long = 1L
@@ -598,6 +607,16 @@ enum class TipoManutencao(val label: String) {
         SEGURO -> Icons.Rounded.Shield
         OUTROS -> Icons.Rounded.Edit
     }
+}
+
+fun TipoManutencao.permiteQuantidadeAviso(): Boolean = when (this) {
+    TipoManutencao.REVISAO,
+    TipoManutencao.LAVAGEM,
+    TipoManutencao.ABASTECIMENTO,
+    TipoManutencao.LICENCIAMENTO,
+    TipoManutencao.IPVA,
+    TipoManutencao.SEGURO -> false
+    else -> true
 }
 
 

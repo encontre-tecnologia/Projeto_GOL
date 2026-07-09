@@ -1,9 +1,7 @@
 ﻿package br.com.gui.carlembrete
 
 import HistoricoAbastecimentoScreen
-import android.app.Activity
-import android.content.Context
-import android.content.ContextWrapper
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -32,7 +30,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -42,12 +39,6 @@ import java.time.temporal.ChronoUnit
 import android.app.DatePickerDialog
 import androidx.compose.material.icons.filled.CalendarMonth
 import java.util.Locale
-
-private tailrec fun Context.findActivity(): Activity? = when (this) {
-    is Activity -> this
-    is ContextWrapper -> baseContext.findActivity()
-    else -> null
-}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -62,14 +53,11 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
     val textPrimary = if (isDark) Color.White else Color.Black
     val textDim = if (isDark) Color(0xFF94A3B8) else Color(0xFF475569)
     val context = LocalContext.current
-    val activity = remember(context) { context.findActivity() }
     val scope = rememberCoroutineScope()
-    val subscriptionManager = remember { SubscriptionManager(context) }
-    val planTier by subscriptionManager.planTier.collectAsState()
-    val fuelRecordLimit = fuelRecordLimitForPlan(planTier)
-    val planLabel = planNameLabel(planTier)
     var precoGasolina by remember { mutableStateOf("5,60") }
     var valorAbastecido by remember { mutableStateOf("20,00") }
+    var litrosAbastecidos by remember { mutableStateOf("") }
+    var kmRegistro by remember { mutableStateOf("") }
     val opcoesCombustivel = if (isEnglishUi()) {
         listOf("Gasoline", "Ethanol", "Diesel", "CNG", "Flex")
     } else {
@@ -79,20 +67,28 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
     var combustivelExpanded by remember { mutableStateOf(false) }
     var precoEditado by remember { mutableStateOf(false) }
     var valorEditado by remember { mutableStateOf(false) }
+    var litrosEditado by remember { mutableStateOf(false) }
     var abastecimentos by remember { mutableStateOf<List<Abastecimento>>(emptyList()) }
     var kmAtualVeiculo by remember { mutableStateOf(0) }
     var isSaving by remember { mutableStateOf(false) }
     var showSalvarSucessoDialog by remember { mutableStateOf(false) }
     var showHistoricoScreen by remember { mutableStateOf(false) }
-    var showFuelLimitDialog by remember { mutableStateOf(false) }
-    var showPremiumBeneficiosScreen by remember { mutableStateOf(false) }
     val dateFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
     var dataSelecionada by remember { mutableStateOf(LocalDate.now()) }
     val preco = precoGasolina.replace(",", ".").toDoubleOrNull()
     val total = valorAbastecido.replace(",", ".").toDoubleOrNull()
-    val litros = if (preco != null && total != null && preco > 0.0) total / preco else null
+    val litrosInformados = litrosAbastecidos.replace(",", ".").toDoubleOrNull()
+    val litros = litrosInformados?.takeIf { it > 0.0 }
+        ?: if (preco != null && total != null && preco > 0.0) total / preco else null
     val litrosTexto = litros?.let { String.format(Locale("pt", "BR"), "%.2f L", it) } ?: "--"
     val gastoTexto = total?.let { formatarMoeda(it) } ?: "--"
+    LaunchedEffect(precoGasolina, litrosAbastecidos) {
+        val precoValue = precoGasolina.replace(",", ".").toDoubleOrNull()
+        val litrosValue = litrosAbastecidos.replace(",", ".").toDoubleOrNull()
+        if (!valorEditado && precoValue != null && litrosValue != null && precoValue > 0.0 && litrosValue > 0.0) {
+            valorAbastecido = String.format(Locale("pt", "BR"), "%.2f", precoValue * litrosValue)
+        }
+    }
     val resumoConsumo = remember(abastecimentos, kmAtualVeiculo) {
         calcularResumoConsumo(
             abastecimentos = abastecimentos.filter { it.carroId == carroId },
@@ -107,7 +103,7 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
         total > 0.0 &&
         tipoCombustivel.isNotBlank() &&
         precoEditado &&
-        valorEditado &&
+        (valorEditado || litrosEditado) &&
         !isSaving
     val fieldColors = OutlinedTextFieldDefaults.colors(
         focusedTextColor = textPrimary,
@@ -130,19 +126,18 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
             ?.kmAtual ?: 0
     }
 
+    BackHandler {
+        if (showHistoricoScreen) {
+            showHistoricoScreen = false
+        } else {
+            onDismiss()
+        }
+    }
+
     if (showHistoricoScreen) {
         HistoricoAbastecimentoScreen(
             carroId = carroId,
             onDismiss = { showHistoricoScreen = false }
-        )
-        return
-    }
-    if (showPremiumBeneficiosScreen) {
-        PremiumBeneficiosScreen(
-            onDismiss = { showPremiumBeneficiosScreen = false },
-            onSubscribeNow = { plano ->
-                activity?.let { subscriptionManager.launchPurchaseFlow(it, plano) }
-            }
         )
         return
     }
@@ -226,7 +221,7 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
                     OutlinedTextField(
                         value = precoGasolina,
                         onValueChange = {
-                            precoGasolina = it
+                            precoGasolina = formatarDecimalCombustivelInput(it)
                             precoEditado = true
                         },
                         label = { Text(tr("Valor do combustivel (R$/L)", "Fuel price (R$/L)")) },
@@ -246,9 +241,32 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
                         colors = fieldColors
                     )
                     OutlinedTextField(
+                        value = litrosAbastecidos,
+                        onValueChange = {
+                            litrosAbastecidos = formatarDecimalCombustivelInput(it)
+                            litrosEditado = true
+                            valorEditado = false
+                        },
+                        label = { Text(tr("Litros abastecidos", "Fueled liters")) },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.LocalGasStation,
+                                contentDescription = null,
+                                tint = if (isDark) Color(0xFFCBD5F5) else Color(0xFF334155)
+                            )
+                        },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(58.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = fieldColors
+                    )
+                    OutlinedTextField(
                         value = valorAbastecido,
                         onValueChange = {
-                            valorAbastecido = it
+                            valorAbastecido = formatarDecimalCombustivelInput(it)
                             valorEditado = true
                         },
                         label = { Text(tr("Valor abastecido (R$)", "Refuel amount (R$)")) },
@@ -260,6 +278,18 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
                             )
                         },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(58.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = fieldColors
+                    )
+                    OutlinedTextField(
+                        value = kmRegistro,
+                        onValueChange = { kmRegistro = it.filter(Char::isDigit).take(7) },
+                        label = { Text(tr("KM do abastecimento", "Fuel mileage")) },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         singleLine = true,
                         modifier = Modifier
                             .fillMaxWidth()
@@ -368,20 +398,18 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
 
             Button(
                 onClick = {
-                    if (fuelRecordLimit != Int.MAX_VALUE && abastecimentos.size >= fuelRecordLimit) {
-                        showFuelLimitDialog = true
-                        return@Button
-                    }
                     val precoValue = preco ?: return@Button
                     val totalValue = total ?: return@Button
-                    val litrosCalculados = totalValue / precoValue
+                    val litrosCalculados = litros ?: (totalValue / precoValue)
                     val data = dataSelecionada.format(dateFormatter)
                     val novo = Abastecimento(
                         carroId = carroId,
                         data = data,
                         precoLitro = precoValue,
                         valorPago = totalValue,
-                        litros = litrosCalculados
+                        litros = litrosCalculados,
+                        tipoCombustivel = tipoCombustivel,
+                        km = kmRegistro.toIntOrNull()
                     )
                     val carroAtual = BancoDeDados.carregarCarros(context)
                         ?.firstOrNull { it.id == carroId }
@@ -394,13 +422,15 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
                         withContext(Dispatchers.IO) {
                             BancoDeDados.salvarAbastecimentos(context, atualizada)
                         }
-                        AdminUsersSync.syncFuelSnapshot(atualizada)
                         abastecimentos = atualizada
                         precoGasolina = "5,60"
                         valorAbastecido = "20,00"
+                        litrosAbastecidos = ""
+                        kmRegistro = ""
                         tipoCombustivel = ""
                         precoEditado = false
                         valorEditado = false
+                        litrosEditado = false
                         isSaving = false
                         showSalvarSucessoDialog = true
                     }
@@ -498,84 +528,6 @@ fun AbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
             }
         }
     }
-
-    if (showFuelLimitDialog) {
-        val displayedFuelCount = if (fuelRecordLimit == Int.MAX_VALUE) {
-            abastecimentos.size
-        } else {
-            abastecimentos.size.coerceAtMost(fuelRecordLimit)
-        }
-        Dialog(
-            onDismissRequest = { showFuelLimitDialog = false },
-            properties = DialogProperties(usePlatformDefaultWidth = false)
-        ) {
-            val limitDialogBg = if (isDark) Color(0xFF0F172A) else Color(0xFFFFFBF2)
-            val limitDialogBorder = if (isDark) Color(0xFF1D4ED8) else Color(0xFFF2D57A)
-            val limitTitle = if (isDark) Color(0xFFFBBF24) else Color(0xFF9A6A00)
-            val limitText = if (isDark) Color(0xFFCBD5E1) else Color(0xFF334155)
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 24.dp),
-                shape = RoundedCornerShape(24.dp),
-                color = limitDialogBg,
-                tonalElevation = 8.dp,
-                shadowElevation = 16.dp,
-                border = BorderStroke(1.dp, limitDialogBorder.copy(alpha = if (isDark) 0.55f else 1f))
-            ) {
-                Column(
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    Text(
-                        tr("Limite de abastecimentos atingido", "Fuel limit reached"),
-                        color = limitTitle,
-                        fontWeight = FontWeight.ExtraBold,
-                        fontSize = 20.sp
-                    )
-                    Text(
-                        tr(
-                            "Voce esta no plano $planLabel e ja cadastrou $displayedFuelCount de $fuelRecordLimit abastecimentos. Assine o Lite para continuar acompanhando consumo e km/L.",
-                            "You are on the $planLabel plan and already saved $displayedFuelCount of $fuelRecordLimit fuel records. Subscribe to Lite to keep tracking consumption."
-                        ),
-                        color = limitText,
-                        fontSize = 14.sp,
-                        lineHeight = 19.sp
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        OutlinedButton(
-                            onClick = { showFuelLimitDialog = false },
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(46.dp),
-                            shape = RoundedCornerShape(24.dp),
-                            border = BorderStroke(1.dp, Color(0xFFF59E0B)),
-                            colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.Transparent)
-                        ) {
-                            Text("Agora não", color = Color(0xFFF59E0B), fontWeight = FontWeight.Bold)
-                        }
-                        Button(
-                            onClick = {
-                                showFuelLimitDialog = false
-                                showPremiumBeneficiosScreen = true
-                            },
-                            modifier = Modifier
-                                .weight(1.12f)
-                                .height(46.dp),
-                            shape = RoundedCornerShape(24.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF59E0B))
-                        ) {
-                            Text("Ver planos", color = Color.Black, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                }
-            }
-        }
-    }
 }
 
 @Composable
@@ -621,6 +573,19 @@ private data class ResumoConsumo(
     val custoSemana: Double?,
     val custoMes: Double?
 )
+
+private fun formatarDecimalCombustivelInput(raw: String): String {
+    val normalizado = raw.replace('.', ',')
+    val filtrado = normalizado.filter { it.isDigit() || it == ',' }
+    val partes = filtrado.split(',', limit = 2)
+    val inteiro = partes.getOrNull(0).orEmpty().filter(Char::isDigit).take(7)
+    val decimal = partes.getOrNull(1)?.filter(Char::isDigit)?.take(2)
+    return if (decimal != null) {
+        "${inteiro.ifBlank { "0" }},$decimal"
+    } else {
+        inteiro
+    }
+}
 
 private fun calcularResumoConsumo(
     abastecimentos: List<Abastecimento>,

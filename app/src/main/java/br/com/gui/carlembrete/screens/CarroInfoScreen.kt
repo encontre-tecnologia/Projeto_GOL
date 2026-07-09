@@ -2,6 +2,7 @@
 
 import android.widget.Toast
 import HistoricoAbastecimentoScreen
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -299,6 +300,14 @@ fun CarroInfoScreen(
             },
             containerColor = cardColor
         )
+    }
+
+    BackHandler {
+        if (showHistoricoConsumo) {
+            showHistoricoConsumo = false
+        } else {
+            onDismiss()
+        }
     }
 
     if (showHistoricoConsumo) {

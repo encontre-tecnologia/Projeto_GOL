@@ -13,29 +13,18 @@
 .externalNativeBuild
 .cxx
 local.properties
+.env
+.env.*
 app/google-services.json
 *.jks
 *.keystore
-zellukeystore*
-*.aab
-app/release/
 
 .gradle-local/
 .android-local/
+.kotlin/
 
-# Local assistant/tool caches
-.claude/
-.codex_tmp/
-
-# Kotlin/IDE local diagnostics
-.kotlin/errors/
-
-# Local emulator/export scratch files
-lembretes_emulador*.dat
-lembretes_emulador*.b64
-
-# Web app
-web/node_modules/
-web/dist/
-web/tsconfig.tsbuildinfo
-web/*.log
+# Local/generated tooling
+ai-proxy/node_modules/
+ai-proxy/.wrangler/
+outputs/
+.codex-remote-attachments/

@@ -398,6 +398,7 @@ fun LembreteDetalhesDialog(
     var horaAviso by remember { mutableStateOf(lembrete.horaAviso) }
     var kmLimite by remember { mutableStateOf(lembrete.kmLimite) }
     var valorTexto by remember { mutableStateOf(if (lembrete.valor > 0) lembrete.valor.toString() else "") }
+    var quantidadeTexto by remember { mutableStateOf(lembrete.quantidade.takeIf { it > 1 }?.toString() ?: "") }
     var menuExpanded by remember { mutableStateOf(false) }
     val pecasDisponiveis = pecasSugestao
     var pecaSelecionada by remember {
@@ -419,6 +420,7 @@ fun LembreteDetalhesDialog(
         horaAviso = lembrete.horaAviso
         kmLimite = lembrete.kmLimite
         valorTexto = if (lembrete.valor > 0) lembrete.valor.toString() else ""
+        quantidadeTexto = lembrete.quantidade.takeIf { it > 1 }?.toString() ?: ""
         pecaSelecionada =
             if (lembrete.peca.isNotBlank() && pecasDisponiveis.contains(lembrete.peca)) lembrete.peca
             else if (lembrete.peca.isNotBlank()) pecaOutraLabel
@@ -582,6 +584,16 @@ fun LembreteDetalhesDialog(
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                             singleLine = true
                         )
+                        if (tipoSelecionado.permiteQuantidadeAviso()) {
+                            OutlinedTextField(
+                                value = quantidadeTexto,
+                                onValueChange = { quantidadeTexto = it.filter(Char::isDigit).take(3) },
+                                label = { Text("Quantidade") },
+                                modifier = Modifier.fillMaxWidth(),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                singleLine = true
+                            )
+                        }
                         SeletorPeca(
                             pecaSelecionada = pecaSelecionada,
                             onSelecionar = { pecaSelecionada = it }
@@ -593,6 +605,7 @@ fun LembreteDetalhesDialog(
                             add("Hora do aviso" to lembrete.horaAviso)
                             add("KM limite" to lembrete.kmLimite.ifBlank { "Não definido" })
                             if (lembrete.peca.isNotBlank()) add("Peça" to lembrete.peca)
+                            if (lembrete.quantidade > 1) add("Quantidade" to lembrete.quantidade.toString())
                             if (lembrete.valor > 0) add("Valor" to formatarMoeda(lembrete.valor))
                             contato?.let { add("Profissional" to "${it.nome} (${it.tipoServico})") }
                             lembrete.fotoPath?.let { add("Anexo" to "Foto disponível") }
@@ -624,6 +637,7 @@ fun LembreteDetalhesDialog(
                                     horaAviso = lembrete.horaAviso
                                     kmLimite = lembrete.kmLimite
                                     valorTexto = if (lembrete.valor > 0) lembrete.valor.toString() else ""
+                                    quantidadeTexto = lembrete.quantidade.takeIf { it > 1 }?.toString() ?: ""
                                     pecaSelecionada =
                                         if (lembrete.peca.isNotBlank() && pecasDisponiveis.contains(lembrete.peca)) lembrete.peca
                                         else if (lembrete.peca.isNotBlank()) pecaOutraLabel
@@ -639,6 +653,11 @@ fun LembreteDetalhesDialog(
                                 Button(
                                     onClick = {
                                         val novoValor = valorTexto.toDoubleOrNull() ?: 0.0
+                                        val novaQuantidade = if (tipoSelecionado.permiteQuantidadeAviso()) {
+                                            quantidadeTexto.toIntOrNull()?.coerceAtLeast(1) ?: 1
+                                        } else {
+                                            1
+                                        }
                                         val pecaFinal = when {
                                             pecaSelecionada == pecaOutraLabel -> titulo.trim()
                                             pecaSelecionada.isBlank() -> ""
@@ -651,7 +670,8 @@ fun LembreteDetalhesDialog(
                                             horaAviso = horaAviso.ifBlank { lembrete.horaAviso },
                                             kmLimite = kmLimite,
                                             valor = novoValor,
-                                            peca = pecaFinal
+                                            peca = pecaFinal,
+                                            quantidade = novaQuantidade
                                         )
                                     onSalvar(atualizado)
                                     isEditando = false
