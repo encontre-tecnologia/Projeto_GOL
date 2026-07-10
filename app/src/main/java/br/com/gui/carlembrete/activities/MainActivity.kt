@@ -97,6 +97,7 @@ const val EXTRA_OPEN_AONDE_PAREI = "extra_open_aonde_parei"
 const val EXTRA_OPEN_LEMBRETE_ID = "extra_open_lembrete_id"
 const val EXTRA_OPEN_LEMBRETE_CARRO_ID = "extra_open_lembrete_carro_id"
 private const val TAG_MAIN_STARTUP = "MainStartup"
+private const val TAG_LOGIN_BACKUP_FLOW = "LoginBackupFlow"
 
 class MainActivity : ComponentActivity() {
     private var contentInitialized = false
@@ -210,7 +211,25 @@ class MainActivity : ComponentActivity() {
                 var showPermissionsAfterBackup by remember { mutableStateOf(false) }
                 var showTermsAfterBackup by remember { mutableStateOf(AppPreferences.needsTermsAfterRestore(this@MainActivity)) }
                 var showThanksAfterLogin by remember { mutableStateOf(false) }
+                var attemptedEmptyVehicleRecovery by remember { mutableStateOf(false) }
                 val loginFlowScope = androidx.compose.runtime.rememberCoroutineScope()
+                LaunchedEffect(
+                    usuario,
+                    showOnboarding,
+                    showBackupCheck,
+                    showNewCarAfterLogin,
+                    showPermissionsAfterBackup,
+                    showTermsAfterBackup,
+                    showThanksAfterLogin,
+                    attemptedEmptyVehicleRecovery
+                ) {
+                    Log.d(
+                        TAG_LOGIN_BACKUP_FLOW,
+                        "state uid=${usuario?.uid ?: "null"} onboarding=$showOnboarding backupCheck=$showBackupCheck " +
+                            "newCar=$showNewCarAfterLogin permissions=$showPermissionsAfterBackup terms=$showTermsAfterBackup " +
+                            "thanks=$showThanksAfterLogin attemptedEmptyRecovery=$attemptedEmptyVehicleRecovery"
+                    )
+                }
                 LaunchedEffect(isDarkTheme, usuario) {
                     val insetsController = WindowInsetsControllerCompat(window, window.decorView)
                     if (usuario == null) {
@@ -263,6 +282,11 @@ class MainActivity : ComponentActivity() {
                             onSignedIn = {
                                 usuario = auth.currentUser
                                 showOnboarding = AppPreferences.needsOnboarding(this@MainActivity)
+                                attemptedEmptyVehicleRecovery = false
+                                Log.d(
+                                    TAG_LOGIN_BACKUP_FLOW,
+                                    "onSignedIn uid=${usuario?.uid ?: "null"} needsOnboarding=$showOnboarding"
+                                )
                                 // Sempre mostra a tela de backup ao fazer login (onboarding já tem o passo 3)
                                 if (!showOnboarding) showBackupCheck = true
                             }
@@ -292,11 +316,26 @@ class MainActivity : ComponentActivity() {
                                 ) {
                                     BackupCheckScreen(
                                         onContinue = {
+                                            Log.d(
+                                                TAG_LOGIN_BACKUP_FLOW,
+                                                "BackupCheck.onContinue restoreAccepted -> permissions/terms"
+                                            )
+                                            attemptedEmptyVehicleRecovery = true
+                                            AppPreferences.markOnboardingComplete(this@MainActivity)
                                             AppPreferences.setNeedsTermsAfterRestore(this@MainActivity, true)
+                                            showOnboarding = false
                                             showBackupCheck = false
                                             showPermissionsAfterBackup = true
                                         },
-                                        onNoBackup = { showBackupCheck = false; showNewCarAfterLogin = true },
+                                        onNoBackup = {
+                                            Log.d(
+                                                TAG_LOGIN_BACKUP_FLOW,
+                                                "BackupCheck.onNoBackup -> showNewCarAfterLogin"
+                                            )
+                                            attemptedEmptyVehicleRecovery = true
+                                            showBackupCheck = false
+                                            showNewCarAfterLogin = true
+                                        },
                                         cardBg = onboardingCardBg,
                                         accentColor = Color(0xFF22C55E),
                                         title = "Bem-vindo de volta!",
@@ -306,8 +345,14 @@ class MainActivity : ComponentActivity() {
                             } else if (showNewCarAfterLogin) {
                                 keepNativeSplashVisible = false
                                 BackHandler {
-                                    showNewCarAfterLogin = false
-                                    showBackupCheck = true
+                                    if (attemptedEmptyVehicleRecovery) {
+                                        Log.d(TAG_LOGIN_BACKUP_FLOW, "newCar back after recovery attempt -> finish")
+                                        this@MainActivity.finish()
+                                    } else {
+                                        Log.d(TAG_LOGIN_BACKUP_FLOW, "newCar back before recovery attempt -> backupCheck")
+                                        showNewCarAfterLogin = false
+                                        showBackupCheck = true
+                                    }
                                 }
                                 val onboardingBg = if (isDarkTheme) Color(0xFF000000) else Color(0xFF0F2A4A)
                                 Box(
@@ -318,8 +363,14 @@ class MainActivity : ComponentActivity() {
                                 ) {
                                     OnboardingNovoCarroScreen(
                                         onDismiss = {
-                                            showNewCarAfterLogin = false
-                                            showPermissionsAfterBackup = true
+                                            if (attemptedEmptyVehicleRecovery) {
+                                                Log.d(TAG_LOGIN_BACKUP_FLOW, "newCar dismiss after recovery attempt -> finish")
+                                                this@MainActivity.finish()
+                                            } else {
+                                                Log.d(TAG_LOGIN_BACKUP_FLOW, "newCar dismiss before recovery attempt -> permissions")
+                                                showNewCarAfterLogin = false
+                                                showPermissionsAfterBackup = true
+                                            }
                                         },
                                         onSalvar = { novoCarro ->
                                             loginFlowScope.launch(kotlinx.coroutines.Dispatchers.IO) { // IO dispatcher
@@ -387,6 +438,31 @@ class MainActivity : ComponentActivity() {
                                         openAondePareiOnStart = openAondePareiFromIntent,
                                         onAondePareiStartConsumed = { openAondePareiFromIntent = false },
                                         onLoaded = { keepNativeSplashVisible = false },
+                                        onEmptyVehicleData = {
+                                            Log.w(
+                                                TAG_LOGIN_BACKUP_FLOW,
+                                                "ManutencaoScreen.onEmptyVehicleData attempted=$attemptedEmptyVehicleRecovery"
+                                            )
+                                            showThanksAfterLogin = false
+                                            showTermsAfterBackup = false
+                                            showPermissionsAfterBackup = false
+                                            if (attemptedEmptyVehicleRecovery) {
+                                                Log.w(
+                                                    TAG_LOGIN_BACKUP_FLOW,
+                                                    "empty vehicles after recovery attempt -> showNewCarAfterLogin"
+                                                )
+                                                showBackupCheck = false
+                                                showNewCarAfterLogin = true
+                                            } else {
+                                                Log.w(
+                                                    TAG_LOGIN_BACKUP_FLOW,
+                                                    "empty vehicles first time -> showBackupCheck"
+                                                )
+                                                attemptedEmptyVehicleRecovery = true
+                                                showNewCarAfterLogin = false
+                                                showBackupCheck = true
+                                            }
+                                        },
                                         onThemeModeChanged = { themeMode = it }
                                     )
                                 }

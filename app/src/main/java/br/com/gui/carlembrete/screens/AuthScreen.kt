@@ -1,9 +1,9 @@
 package br.com.gui.carlembrete
 
-import android.app.Activity
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -107,9 +107,10 @@ fun AuthScreen(onSignedIn: () -> Unit) {
             }
         } catch (e: ApiException) {
             isAuthLoading = false
+            Log.e("AuthScreen", "Google sign-in failed. status=${e.statusCode}", e)
             val msg = when {
                 !isInternetAvailable(context) -> "Sem internet. Conecte-se e tente novamente."
-                e.statusCode == GoogleSignInStatusCodes.SIGN_IN_CANCELLED || result.resultCode == Activity.RESULT_CANCELED ->
+                e.statusCode == GoogleSignInStatusCodes.SIGN_IN_CANCELLED ->
                     "Login com Google cancelado"
                 e.statusCode == GoogleSignInStatusCodes.SIGN_IN_FAILED ->
                     "Falha no login com Google. Tente novamente."

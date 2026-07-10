@@ -1,6 +1,7 @@
 package br.com.gui.carlembrete
 
 import android.widget.Toast
+import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -49,6 +50,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private enum class StepState { Waiting, Loading, Found, NotFound }
+private const val TAG_LOGIN_BACKUP_FLOW = "LoginBackupFlow"
 
 private data class SearchState(
     val started: Boolean = false,
@@ -100,14 +102,22 @@ fun BackupCheckScreen(
 
     fun restoreDriveAccount(account: GoogleSignInAccount) {
         scope.launch {
+            Log.d(TAG_LOGIN_BACKUP_FLOW, "BackupCheck.restoreDriveAccount start email=${account.email}")
             state = state.copy(restoring = true)
             val payload = withContext(Dispatchers.IO) { driveBackupManager.downloadBackup(account) }
-            if (payload != null) {
+            Log.d(
+                TAG_LOGIN_BACKUP_FLOW,
+                "BackupCheck.restoreDriveAccount payload carros=${payload?.carros?.size ?: -1} " +
+                    "lembretes=${payload?.lembretes?.size ?: -1} contatos=${payload?.contatos?.size ?: -1}"
+            )
+            if (payload != null && payload.carros.isNotEmpty()) {
                 withContext(Dispatchers.IO) { applyBackupPayload(context, payload) }
+                Log.d(TAG_LOGIN_BACKUP_FLOW, "BackupCheck.restoreDriveAccount applied -> onContinue")
                 onContinue()
             } else {
+                Log.w(TAG_LOGIN_BACKUP_FLOW, "BackupCheck.restoreDriveAccount rejected empty/null payload")
                 state = state.copy(restoring = false)
-                Toast.makeText(context, "Nenhum backup encontrado no Drive", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "Nenhum veículo encontrado no backup do Drive", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -144,11 +154,13 @@ fun BackupCheckScreen(
 
     fun startSearch() {
         scope.launch {
+            Log.d(TAG_LOGIN_BACKUP_FLOW, "BackupCheck.startSearch")
             state = SearchState(started = true, localStep = StepState.Loading)
 
             // 1. Busca local
             val localCarros = withContext(Dispatchers.IO) { BancoDeDados.carregarCarros(context) }
             val localCount = localCarros?.size ?: 0
+            Log.d(TAG_LOGIN_BACKUP_FLOW, "BackupCheck.local result carros=$localCount")
             delay(500)
             state = state.copy(
                 localStep = if (localCount > 0) StepState.Found else StepState.NotFound,
@@ -159,9 +171,11 @@ fun BackupCheckScreen(
             // 2. Busca no Drive
             val account = GoogleSignIn.getLastSignedInAccount(context)
             val hasAuth = account != null && GoogleSignIn.hasPermissions(account, driveScope)
+            Log.d(TAG_LOGIN_BACKUP_FLOW, "BackupCheck.drive auth=$hasAuth email=${account?.email ?: "null"}")
             val driveModifiedAt = if (hasAuth) {
                 withContext(Dispatchers.IO) { driveBackupManager.backupModifiedAtInDrive(account!!) }
             } else null
+            Log.d(TAG_LOGIN_BACKUP_FLOW, "BackupCheck.drive modifiedAt=${driveModifiedAt ?: "null"}")
             state = state.copy(
                 driveStep = if (driveModifiedAt != null) StepState.Found else StepState.NotFound,
                 driveModifiedAt = driveModifiedAt,
@@ -582,6 +596,11 @@ private fun SearchStepRow(
 }
 
 private fun applyBackupPayload(context: android.content.Context, payload: BackupPayload) {
+    Log.d(
+        TAG_LOGIN_BACKUP_FLOW,
+        "BackupCheck.applyBackupPayload start carros=${payload.carros.size} lembretes=${payload.lembretes.size} " +
+            "contatos=${payload.contatos.size} abastecimentos=${payload.abastecimentos.size} pedaladas=${payload.pedaladas.size}"
+    )
     BancoDeDados.salvarCarros(context, payload.carros)
     BancoDeDados.salvarLembretes(context, payload.lembretes)
     BancoDeDados.salvarContatos(context, payload.contatos)
@@ -596,5 +615,10 @@ private fun applyBackupPayload(context: android.content.Context, payload: Backup
     payload.fuelStartKms.forEach { (carroId, km) ->
         AppPreferences.setFuelStartKm(context, carroId, km)
     }
+    if (payload.carros.isNotEmpty()) {
+        AppPreferences.markOnboardingComplete(context)
+    }
+    val savedCount = BancoDeDados.carregarCarros(context)?.size ?: -1
+    Log.d(TAG_LOGIN_BACKUP_FLOW, "BackupCheck.applyBackupPayload saved carros=$savedCount")
     NotificacaoHelper.reagendarExistentes(context.applicationContext, payload.lembretes)
 }

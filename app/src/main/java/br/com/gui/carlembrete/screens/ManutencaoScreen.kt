@@ -110,6 +110,7 @@ private const val CURRENT_HOME_TUTORIAL_VERSION = 1
 private const val FORCE_HOME_TUTORIAL_ALWAYS = false
 private const val ONBOARDING_PREFS = "onboarding_prefs"
 private const val KEY_REPORT_MINI_TUTORIAL_SEEN = "report_mini_tutorial_seen"
+private const val TAG_LOGIN_BACKUP_FLOW = "LoginBackupFlow"
 
 private fun shouldAutoStartHomeTutorial(context: Context): Boolean {
     if (FORCE_HOME_TUTORIAL_ALWAYS) return true
@@ -173,6 +174,7 @@ fun ManutencaoScreen(
     openReminderCarIdOnStart: String? = null,
     onReminderStartConsumed: () -> Unit = {},
     onLoaded: () -> Unit = {},
+    onEmptyVehicleData: () -> Unit = {},
     onThemeModeChanged: (AppThemeMode) -> Unit = {}
 ) {
     val colorScheme = MaterialTheme.colorScheme
@@ -205,6 +207,7 @@ fun ManutencaoScreen(
 
     // ----------------- CARREGAMENTO DE DADOS -----------------
     LaunchedEffect(Unit) {
+        Log.d(TAG_LOGIN_BACKUP_FLOW, "ManutencaoScreen load start")
         withContext(Dispatchers.IO) {
             val nomeUsuarioLogado = FirebaseAuth.getInstance().currentUser?.displayName
                 ?.trim()
@@ -219,6 +222,10 @@ fun ManutencaoScreen(
                 }
 
             val carrosOriginais = BancoDeDados.carregarCarros(context).orEmpty()
+            Log.d(
+                TAG_LOGIN_BACKUP_FLOW,
+                "ManutencaoScreen loaded raw carros=${carrosOriginais.size} uid=${FirebaseAuth.getInstance().currentUser?.uid ?: "null"}"
+            )
             val carros = if (!nomeUsuarioLogado.isNullOrBlank()) {
                 carrosOriginais.map { carro ->
                     if (carro.proprietario.equals("Eu mesmo", ignoreCase = true)) {
@@ -234,6 +241,11 @@ fun ManutencaoScreen(
             val lembretes = BancoDeDados.carregarLembretes(context)
             val abastecimentosDb = BancoDeDados.carregarAbastecimentos(context)
             val pedaladasDb = BancoDeDados.carregarPedaladas(context)
+            Log.d(
+                TAG_LOGIN_BACKUP_FLOW,
+                "ManutencaoScreen loaded mapped carros=${carros.size} contatos=${contatos.size} " +
+                    "lembretes=${lembretes.size} abastecimentos=${abastecimentosDb.size} pedaladas=${pedaladasDb.size}"
+            )
             val lembretesPendentes = lembretes.filterNot(::isLembreteRealizado)
             withContext(Dispatchers.Main) {
                 listaCarros = carros
@@ -258,10 +270,17 @@ fun ManutencaoScreen(
             onLoaded()
         }
     }
+    LaunchedEffect(isLoading, listaCarros) {
+        if (!isLoading && listaCarros.isEmpty()) {
+            Log.w(TAG_LOGIN_BACKUP_FLOW, "ManutencaoScreen empty vehicles after load -> onEmptyVehicleData")
+            onEmptyVehicleData()
+        }
+    }
 
     // PersistÃªncia automÃ¡tica ao alterar dados
     LaunchedEffect(listaCarros) {
         if (!isLoading) {
+            Log.d(TAG_LOGIN_BACKUP_FLOW, "ManutencaoScreen autosave carros=${listaCarros.size}")
             withContext(Dispatchers.IO) { BancoDeDados.salvarCarros(context, listaCarros) }
             AdminUsersSync.syncVehicles(listaCarros)
         }
@@ -1578,13 +1597,24 @@ fun ManutencaoScreen(
     }
 
     if (listaCarros.isEmpty()) {
-        NovoCarroScreenPrimeiroFluxoComVoltar(
-            onDismiss = { },
-            onSalvar = { novoCarro ->
-                listaCarros = listOf(novoCarro)
-                indiceCarroAtual = 0
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(homeScreenBg),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                CircularProgressIndicator(color = accentBlue)
+                Text(
+                    text = "Verificando seus veículos...",
+                    color = textDim,
+                    style = MaterialTheme.typography.bodyMedium
+                )
             }
-        )
+        }
         return
     }
 
