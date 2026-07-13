@@ -2,7 +2,11 @@
 
 import android.content.Context
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -16,12 +20,12 @@ import androidx.compose.material.icons.filled.ArrowBackIosNew
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Email
 import androidx.compose.material.icons.rounded.History
-import androidx.compose.material.icons.rounded.NotificationsActive
-import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.rounded.VerifiedUser
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -31,6 +35,7 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -40,11 +45,27 @@ import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
+import com.google.android.gms.common.api.ApiException
+import com.google.android.gms.common.api.Scope
+import com.google.api.services.drive.DriveScopes
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.FirebaseAuthRecentLoginRequiredException
+import com.google.firebase.auth.GoogleAuthProvider
+import com.google.firebase.firestore.FirebaseFirestore
+import java.util.concurrent.ExecutionException
+import com.google.android.gms.tasks.Tasks as GmsTasks
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
+import java.util.Locale
 
 private val AccentBlue = Color(0xFF3B82F6)
 
@@ -52,10 +73,8 @@ private val AccentBlue = Color(0xFF3B82F6)
 fun PerfilScreen(
     onDismiss: () -> Unit,
     planTier: PlanTier,
-    totalVeiculos: Int,
-    avisosUsados: Int,
-    limiteAvisos: Int,
-    limiteAvisosViaAdmin: Boolean
+    subscriptionBillingInfo: SubscriptionBillingInfo,
+    totalVeiculos: Int
 ) {
     val context = LocalContext.current
     val scheme = MaterialTheme.colorScheme
@@ -65,35 +84,187 @@ fun PerfilScreen(
     val cardBorder = if (isDark) Color(0xFF1E3A5F) else Color(0xFFD6E0EF)
     val titleColor = if (isDark) Color(0xFFF8FAFC) else Color(0xFF0F172A)
 
-    val user = FirebaseAuth.getInstance().currentUser
+    val auth = remember { FirebaseAuth.getInstance() }
+    val user = auth.currentUser
     val nome = user?.displayName?.takeIf { it.isNotBlank() } ?: "Usuário"
     val email = user?.email?.takeIf { it.isNotBlank() } ?: "Email não informado"
     val foto = user?.photoUrl?.toString()
     val ultimoLoginTexto = formatarData(user?.metadata?.lastSignInTimestamp ?: 0L)
-    val isPremium = planTier != PlanTier.FREE
+    val planLabel = planNameLabel(planTier)
+    val avisoLimit = reminderLimitForPlan(planTier)
+    var planPrices by remember { mutableStateOf(RemotePlanPricing.defaultPrices) }
+    DisposableEffect(Unit) {
+        val pricingRegistration = RemotePlanPricing.listen { planPrices = it }
+        onDispose { pricingRegistration.remove() }
+    }
+    val aiUsageCount = if (planTier == PlanTier.FREE) 0 else AiUsageLimiter.currentCount(context)
+    val aiLimit = if (planTier == PlanTier.FREE) 0 else planPrices.aiLimitForTier(planTier)
+    val aiUsageValue = when {
+        planTier == PlanTier.FREE -> "0"
+        aiLimit <= 0 -> "$aiUsageCount / Ilimitado"
+        else -> "$aiUsageCount/$aiLimit"
+    }
+    val aiRenewalText = when {
+        planTier == PlanTier.FREE -> "Limite IA disponível apenas com plano ativo"
+        subscriptionBillingInfo.nextBillingTimeMillis > 0L ->
+            "Próxima renovação: ${formatarProximaRenovacao(subscriptionBillingInfo.nextBillingTimeMillis)}"
+        else -> "Consulte a próxima renovação no Google Play"
+    }
+    val totalAvisosAtivos = remember(context) {
+        BancoDeDados.carregarLembretes(context).count { lembrete ->
+            lembrete.tipo != TipoManutencao.ABASTECIMENTO && !isLembreteRealizado(lembrete)
+        }
+    }
+    var showDeleteConfirmDialog by remember { mutableStateOf(false) }
+    var showDeletingDialog by remember { mutableStateOf(false) }
+    var deleteProgressStep by remember { mutableStateOf<String?>(null) }
+    var deleteSuccess by remember { mutableStateOf(false) }
+    var deleteNeedsReauth by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val driveBackupManager = remember { DriveBackupManager(context) }
+    val driveScope = remember { Scope(DriveScopes.DRIVE_APPDATA) }
+    val googleSignInOptions = remember {
+        GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+            .requestIdToken(context.getString(R.string.default_web_client_id))
+            .requestEmail()
+            .build()
+    }
+    val googleSignInClient = remember { GoogleSignIn.getClient(context, googleSignInOptions) }
 
-    var showDeleteDialog by remember { mutableStateOf(false) }
-    var showLogoutDialog by remember { mutableStateOf(false) }
+    suspend fun excluirAuthConta(): Boolean = suspendCancellableCoroutine { cont ->
+        val user = auth.currentUser
+        if (user == null) { cont.resume(true); return@suspendCancellableCoroutine }
+        user.delete().addOnCompleteListener { task ->
+            when {
+                task.isSuccessful -> cont.resume(true)
+                task.exception is FirebaseAuthRecentLoginRequiredException -> cont.resume(false)
+                else -> cont.resumeWithException(task.exception ?: Exception("Falha ao excluir conta."))
+            }
+        }
+    }
 
-    if (showDeleteDialog) {
+    fun iniciarExclusao() {
+        showDeleteConfirmDialog = false
+        showDeletingDialog = true
+        deleteSuccess = false
+        deleteNeedsReauth = false
+        deleteProgressStep = null
+
+        scope.launch {
+            try {
+                // Passo 1: dados locais
+                deleteProgressStep = "local"
+                withContext(Dispatchers.IO) { apagarDadosLocais(context) }
+                delay(500)
+
+                // Passo 2: Drive
+                deleteProgressStep = "drive"
+                try {
+                    val driveAccount = GoogleSignIn.getLastSignedInAccount(context)
+                    if (driveAccount != null) {
+                        driveBackupManager.deleteBackup(driveAccount)
+                    }
+                } catch (_: Exception) {}
+                delay(400)
+
+                // Passo 3: Firestore
+                deleteProgressStep = "firestore"
+                val uid = auth.currentUser?.uid
+                if (uid != null) {
+                    withContext(Dispatchers.IO) {
+                        val db = FirebaseFirestore.getInstance()
+                        listOf(
+                            db.collection("admin_users").document(uid).delete(),
+                            db.collection("guardian_alerts").document(uid).delete(),
+                            db.collection("users").document(uid).delete()
+                        ).forEach { t -> try { GmsTasks.await(t) } catch (_: Exception) {} }
+                    }
+                }
+                delay(400)
+
+                // Passo 4: Auth
+                deleteProgressStep = "auth"
+                val deleted = excluirAuthConta()
+                if (!deleted) {
+                    deleteNeedsReauth = true
+                    return@launch
+                }
+                googleSignInClient.signOut()
+                deleteProgressStep = null
+                deleteSuccess = true
+            } catch (err: Exception) {
+                deleteProgressStep = null
+                showDeletingDialog = false
+                Toast.makeText(context, "Erro ao excluir: ${err.message}", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    val googleReauthLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
+        try {
+            val account = task.getResult(ApiException::class.java)
+            val token = account.idToken
+            if (token.isNullOrBlank()) {
+                Toast.makeText(context, "Token do Google não gerado. Tente novamente.", Toast.LENGTH_LONG).show()
+                return@rememberLauncherForActivityResult
+            }
+            val credential = GoogleAuthProvider.getCredential(token, null)
+            auth.currentUser?.reauthenticate(credential)?.addOnCompleteListener { reauthTask ->
+                if (reauthTask.isSuccessful) {
+                    auth.currentUser?.delete()?.addOnCompleteListener { deleteTask ->
+                        if (deleteTask.isSuccessful) {
+                            googleSignInClient.signOut()
+                            deleteNeedsReauth = false
+                            deleteSuccess = true
+                        } else {
+                            showDeletingDialog = false
+                            Toast.makeText(context, "Não foi possível excluir a conta. Tente novamente.", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                } else {
+                    Toast.makeText(context, "Não deu para confirmar sua conta Google.", Toast.LENGTH_LONG).show()
+                }
+            }
+        } catch (e: ApiException) {
+            Toast.makeText(context, "Confirmação com Google cancelada.", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    if (showDeleteConfirmDialog) {
         DeleteAccountDialog(
-            onDismiss = { showDeleteDialog = false },
-            onConfirm = {
-                showDeleteDialog = false
-                apagarContaLocalRemota(context)
+            onDismiss = { showDeleteConfirmDialog = false },
+            isLoading = false,
+            onConfirm = { iniciarExclusao() }
+        )
+    }
+
+    if (showDeletingDialog) {
+        DeletingAccountDialog(
+            progressStep = deleteProgressStep,
+            isSuccess = deleteSuccess,
+            needsReauth = deleteNeedsReauth,
+            isDark = isDark,
+            onReauth = {
+                googleSignInClient.signOut().addOnCompleteListener {
+                    googleReauthLauncher.launch(googleSignInClient.signInIntent)
+                }
+            },
+            onGoToLogin = {
+                showDeletingDialog = false
                 onDismiss()
             }
         )
     }
-    if (showLogoutDialog) {
-        LogoutConfirmDialog(
-            onDismiss = { showLogoutDialog = false },
-            onConfirm = {
-                showLogoutDialog = false
-                FirebaseAuth.getInstance().signOut()
-                onDismiss()
-            }
-        )
+
+    BackHandler {
+        when {
+            showDeleteConfirmDialog -> showDeleteConfirmDialog = false
+            showDeletingDialog && (deleteSuccess || deleteNeedsReauth) -> { /* non-dismissable during progress */ }
+            !showDeletingDialog -> onDismiss()
+        }
     }
 
     Box(
@@ -124,13 +295,6 @@ fun PerfilScreen(
                         modifier = Modifier.size(20.dp)
                     )
                 }
-                Spacer(Modifier.weight(1f))
-                Text(
-                    "Meu Perfil",
-                    color = titleColor,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 20.sp
-                )
                 Spacer(Modifier.weight(1f))
                 Spacer(Modifier.size(40.dp))
             }
@@ -163,11 +327,11 @@ fun PerfilScreen(
                             contentScale = ContentScale.Crop
                         )
                     } else {
-                        Icon(
-                            imageVector = Icons.Rounded.Person,
+                        Image(
+                            painter = painterResource(id = R.mipmap.ic_launcher_foreground),
                             contentDescription = null,
-                            tint = if (isDark) Color(0xFF93C5FD) else Color(0xFF2563EB),
-                            modifier = Modifier.size(54.dp)
+                            modifier = Modifier.fillMaxSize().clip(CircleShape),
+                            contentScale = ContentScale.Crop
                         )
                     }
                 }
@@ -185,20 +349,19 @@ fun PerfilScreen(
             Spacer(Modifier.height(8.dp))
 
             // Plan badge
-            val badgeLabel = planNameLabel(planTier)
             val badgeColor = when (planTier) {
                 PlanTier.FREE -> AccentBlue
-                PlanTier.LITE -> Color(0xFF2563EB)
+                PlanTier.LITE -> Color(0xFF60A5FA)
                 PlanTier.FROTA -> Color(0xFFFBBF24)
-                PlanTier.ENTERPRISE -> Color(0xFF06B6D4)
+                PlanTier.ENTERPRISE -> Color(0xFF22D3EE)
             }
             val badgeBg = when (planTier) {
                 PlanTier.FREE -> if (isDark) Color(0xFF1E3A5F) else Color(0xFFEFF6FF)
-                PlanTier.LITE -> if (isDark) Color(0xFF172554) else Color(0xFFEAF2FF)
+                PlanTier.LITE -> if (isDark) Color(0xFF172554) else Color(0xFFDBEAFE)
                 PlanTier.FROTA -> if (isDark) Color(0xFF451A03) else Color(0xFFFFF4D8)
-                PlanTier.ENTERPRISE -> if (isDark) Color(0xFF083344) else Color(0xFFE6FAFE)
+                PlanTier.ENTERPRISE -> if (isDark) Color(0xFF164E63) else Color(0xFFCFFAFE)
             }
-            val badgeIcon = if (isPremium) Icons.Rounded.Star else Icons.Rounded.VerifiedUser
+            val badgeIcon = if (planTier == PlanTier.FREE) Icons.Rounded.VerifiedUser else Icons.Rounded.Star
 
             Row(
                 modifier = Modifier
@@ -209,7 +372,7 @@ fun PerfilScreen(
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Icon(badgeIcon, contentDescription = null, tint = badgeColor, modifier = Modifier.size(14.dp))
-                Text(badgeLabel, color = badgeColor, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                Text(planLabel, color = badgeColor, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
             }
 
             Spacer(Modifier.height(32.dp))
@@ -230,25 +393,44 @@ fun PerfilScreen(
                 StatCard(
                     modifier = Modifier.weight(1f),
                     label = "Plano",
-                    value = badgeLabel,
+                    value = planLabel,
                     color = badgeColor
                 )
             }
 
-            Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(12.dp))
 
-            ReminderLimitProfileCard(
-                used = avisosUsados,
-                limit = limiteAvisos,
-                planName = badgeLabel,
-                hasAdminBoost = limiteAvisosViaAdmin,
-                isDark = isDark,
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp)
+                    .padding(horizontal = 20.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                StatCard(
+                    modifier = Modifier.weight(1f),
+                    label = "Avisos ativos",
+                    value = "$totalAvisosAtivos/$avisoLimit",
+                    color = Color(0xFF34D399)
+                )
+                StatCard(
+                    modifier = Modifier.weight(1f),
+                    label = "Uso mensal da IA",
+                    value = aiUsageValue,
+                    color = Color(0xFFF59E0B)
+                )
+            }
+
+            Text(
+                text = aiRenewalText,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp, vertical = 10.dp),
+                color = if (isDark) Color(0xFF94A3B8) else Color(0xFF475569),
+                fontSize = 12.sp,
+                textAlign = TextAlign.End
             )
 
-            Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(10.dp))
 
             // --- INFO CARD ---
             Column(
@@ -276,21 +458,13 @@ fun PerfilScreen(
                     label = "Último acesso",
                     value = ultimoLoginTexto
                 )
-                HorizontalDivider(thickness = 1.dp, color = cardBorder.copy(alpha = 0.5f))
-                InfoRowDark(
-                    icon = Icons.Rounded.Person,
-                    iconColor = Color(0xFFA78BFA),
-                    iconBg = if (isDark) Color(0xFF2E1065) else Color(0xFFF3E8FF),
-                    label = "Conta",
-                    value = "Google"
-                )
             }
 
             Spacer(Modifier.height(32.dp))
 
             // --- DELETE BUTTON ---
             OutlinedButton(
-                onClick = { showDeleteDialog = true },
+                onClick = { showDeleteConfirmDialog = true },
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 20.dp)
@@ -308,7 +482,10 @@ fun PerfilScreen(
 
             // --- LOGOUT BUTTON ---
             Button(
-                onClick = { showLogoutDialog = true },
+                onClick = {
+                    FirebaseAuth.getInstance().signOut()
+                    onDismiss()
+                },
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 20.dp)
@@ -345,6 +522,7 @@ private fun StatCard(modifier: Modifier, label: String, value: String, color: Co
 
     Column(
         modifier = modifier
+            .height(96.dp)
             .clip(RoundedCornerShape(16.dp))
             .background(cardBg)
             .border(BorderStroke(1.dp, cardBorder), RoundedCornerShape(16.dp))
@@ -354,92 +532,6 @@ private fun StatCard(modifier: Modifier, label: String, value: String, color: Co
     ) {
         Text(value, color = color, fontSize = 22.sp, fontWeight = FontWeight.Black)
         Text(label, color = dimColor, fontSize = 12.sp)
-    }
-}
-
-@Composable
-private fun ReminderLimitProfileCard(
-    used: Int,
-    limit: Int,
-    planName: String,
-    hasAdminBoost: Boolean,
-    isDark: Boolean,
-    modifier: Modifier = Modifier
-) {
-    val unlimited = limit == Int.MAX_VALUE
-    val progress = if (unlimited || limit <= 0) 1f else (used.toFloat() / limit.toFloat()).coerceIn(0f, 1f)
-    val available = if (unlimited) null else (limit - used).coerceAtLeast(0)
-    val container = if (isDark) Color(0xFF0D1B2E) else Color.White
-    val border = if (isDark) Color(0xFF1E3A5F) else Color(0xFFD6E0EF)
-    val titleColor = if (isDark) Color(0xFFF8FAFC) else Color(0xFF0F172A)
-    val bodyColor = if (isDark) Color(0xFF94A3B8) else Color(0xFF64748B)
-    val trackColor = if (isDark) Color.White.copy(alpha = 0.08f) else Color(0xFFE2E8F0)
-    val accent = if (progress >= 0.9f && !unlimited) Color(0xFFF59E0B) else AccentBlue
-
-    Column(
-        modifier = modifier
-            .clip(RoundedCornerShape(20.dp))
-            .background(container)
-            .border(BorderStroke(1.dp, border), RoundedCornerShape(20.dp))
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(42.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(accent.copy(alpha = if (isDark) 0.22f else 0.14f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(Icons.Rounded.NotificationsActive, contentDescription = null, tint = accent)
-                }
-                Spacer(Modifier.width(12.dp))
-                Column {
-                    Text("Avisos e registros", color = titleColor, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                    Text(if (hasAdminBoost) "Cota extra ativa" else "Plano $planName", color = bodyColor, fontSize = 12.sp)
-                }
-            }
-            Text(
-                text = if (unlimited) "Ilimitado" else "$limit",
-                color = titleColor,
-                fontWeight = FontWeight.Bold,
-                fontSize = 16.sp
-            )
-        }
-
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(8.dp)
-                .clip(RoundedCornerShape(999.dp))
-                .background(trackColor)
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth(progress)
-                    .height(8.dp)
-                    .background(accent)
-            )
-        }
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text("Cadastrados: $used", color = bodyColor, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-            Text(
-                text = if (unlimited) "Disponiveis: ilimitado" else "Disponiveis: $available",
-                color = bodyColor,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.SemiBold
-            )
-        }
     }
 }
 
@@ -490,6 +582,7 @@ private fun InfoRowDark(
 @Composable
 private fun DeleteAccountDialog(
     onDismiss: () -> Unit,
+    isLoading: Boolean,
     onConfirm: () -> Unit
 ) {
     val scheme = MaterialTheme.colorScheme
@@ -498,10 +591,6 @@ private fun DeleteAccountDialog(
     val cardBorder = if (isDark) Color(0xFF1E3A5F) else Color(0xFFD6E0EF)
     val titleColor = if (isDark) Color(0xFFF8FAFC) else Color(0xFF0F172A)
     val subColor = if (isDark) Color(0xFF94A3B8) else Color(0xFF64748B)
-    val dangerBg = if (isDark) Color(0xFF4A1F2A) else Color(0xFFFFE4E6)
-    val dangerColor = if (isDark) Color(0xFFFDA4AF) else Color(0xFFE11D48)
-    val dangerButtonBg = if (isDark) Color(0xFF7F2A3A) else Color(0xFFFFCDD2)
-    val dangerButtonText = if (isDark) Color(0xFFFFCDD2) else Color(0xFF9F1239)
 
     Dialog(onDismissRequest = onDismiss) {
         Column(
@@ -517,10 +606,10 @@ private fun DeleteAccountDialog(
                 modifier = Modifier
                     .size(64.dp)
                     .clip(CircleShape)
-                    .background(dangerBg),
+                    .background(Color(0xFF7F1D1D)),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(Icons.Rounded.Delete, contentDescription = null, tint = dangerColor, modifier = Modifier.size(30.dp))
+                Icon(Icons.Rounded.Delete, contentDescription = null, tint = Color(0xFFFC8181), modifier = Modifier.size(30.dp))
             }
             Spacer(Modifier.height(20.dp))
             Text(
@@ -546,6 +635,7 @@ private fun DeleteAccountDialog(
                 OutlinedButton(
                     onClick = onDismiss,
                     modifier = Modifier.weight(1f).height(48.dp),
+                    enabled = !isLoading,
                     shape = RoundedCornerShape(14.dp),
                     border = BorderStroke(1.dp, cardBorder),
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = subColor)
@@ -555,10 +645,189 @@ private fun DeleteAccountDialog(
                 Button(
                     onClick = onConfirm,
                     modifier = Modifier.weight(1f).height(48.dp),
+                    enabled = !isLoading,
                     shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = dangerButtonBg)
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7F1D1D))
                 ) {
-                    Text(tr("Apagar", "Delete"), color = dangerButtonText, fontWeight = FontWeight.Bold)
+                    if (isLoading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp,
+                            color = Color(0xFFFC8181)
+                        )
+                    } else {
+                        Text(tr("Apagar", "Delete"), color = Color(0xFFFC8181), fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DeletingAccountDialog(
+    progressStep: String?,
+    isSuccess: Boolean,
+    needsReauth: Boolean,
+    isDark: Boolean,
+    onReauth: () -> Unit,
+    onGoToLogin: () -> Unit
+) {
+    val cardBg = if (isDark) Color(0xFF0D1B2E) else Color.White
+    val cardBorder = if (isDark) Color(0xFF1E3A5F) else Color(0xFFD6E0EF)
+
+    val stepOrder = listOf("local", "drive", "firestore", "auth")
+    val stepLabels = mapOf(
+        "local" to "Removendo dados locais...",
+        "drive" to "Apagando backup no Google Drive...",
+        "firestore" to "Removendo dados do servidor...",
+        "auth" to "Removendo conta..."
+    )
+    val currentIndex = stepOrder.indexOf(progressStep)
+
+    Dialog(onDismissRequest = {}) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(24.dp))
+                .background(cardBg)
+                .border(BorderStroke(1.dp, cardBorder), RoundedCornerShape(24.dp))
+                .padding(28.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            when {
+                isSuccess -> {
+                    Box(
+                        modifier = Modifier
+                            .size(64.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF064E3B)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Default.CheckCircle,
+                            contentDescription = null,
+                            tint = Color(0xFF22C55E),
+                            modifier = Modifier.size(34.dp)
+                        )
+                    }
+                    Spacer(Modifier.height(16.dp))
+                    Text(
+                        "Conta excluída com sucesso",
+                        color = if (isDark) Color.White else Color(0xFF0F172A),
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "Todos os seus dados foram removidos permanentemente.",
+                        color = if (isDark) Color(0xFF94A3B8) else Color(0xFF64748B),
+                        fontSize = 13.sp,
+                        textAlign = TextAlign.Center,
+                        lineHeight = 18.sp
+                    )
+                    Spacer(Modifier.height(24.dp))
+                    Button(
+                        onClick = onGoToLogin,
+                        modifier = Modifier.fillMaxWidth().height(50.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB))
+                    ) {
+                        Text("Ir para tela de login", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    }
+                }
+                needsReauth -> {
+                    Box(
+                        modifier = Modifier
+                            .size(64.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF78350F)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Rounded.VerifiedUser,
+                            contentDescription = null,
+                            tint = Color(0xFFFBBF24),
+                            modifier = Modifier.size(30.dp)
+                        )
+                    }
+                    Spacer(Modifier.height(16.dp))
+                    Text(
+                        "Confirmação necessária",
+                        color = if (isDark) Color.White else Color(0xFF0F172A),
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "Para finalizar, precisamos confirmar sua identidade no Google.",
+                        color = if (isDark) Color(0xFF94A3B8) else Color(0xFF64748B),
+                        fontSize = 13.sp,
+                        textAlign = TextAlign.Center,
+                        lineHeight = 18.sp
+                    )
+                    Spacer(Modifier.height(24.dp))
+                    Button(
+                        onClick = onReauth,
+                        modifier = Modifier.fillMaxWidth().height(50.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB))
+                    ) {
+                        Text("Confirmar com Google", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    }
+                }
+                else -> {
+                    Text(
+                        "Excluindo conta...",
+                        color = if (isDark) Color.White else Color(0xFF0F172A),
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(Modifier.height(20.dp))
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        stepOrder.forEachIndexed { i, step ->
+                            val isDone = i < currentIndex
+                            val isActive = i == currentIndex
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(modifier = Modifier.size(22.dp), contentAlignment = Alignment.Center) {
+                                    when {
+                                        isDone -> Icon(
+                                            Icons.Default.CheckCircle,
+                                            contentDescription = null,
+                                            tint = Color(0xFF22C55E),
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                        isActive -> CircularProgressIndicator(
+                                            modifier = Modifier.size(18.dp),
+                                            color = Color(0xFFFC8181),
+                                            strokeWidth = 2.dp
+                                        )
+                                        else -> Box(
+                                            modifier = Modifier
+                                                .size(14.dp)
+                                                .background(Color(0xFF334155), CircleShape)
+                                        )
+                                    }
+                                }
+                                Spacer(Modifier.width(10.dp))
+                                Text(
+                                    text = stepLabels[step] ?: step,
+                                    color = when {
+                                        isDone -> Color(0xFF22C55E)
+                                        isActive -> if (isDark) Color.White else Color(0xFF0F172A)
+                                        else -> Color(0xFF475569)
+                                    },
+                                    fontSize = 13.sp,
+                                    fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -573,6 +842,11 @@ private fun formatarData(millis: Long): String {
     } catch (e: Exception) { "Formato inválido" }
 }
 
+private fun formatarProximaRenovacao(millis: Long): String =
+    Instant.ofEpochMilli(millis)
+        .atZone(ZoneId.systemDefault())
+        .format(DateTimeFormatter.ofPattern("d 'de' MMMM", Locale("pt", "BR")))
+
 private fun formatarTempoDesdeLogin(lastSignInMillis: Long): String {
     if (lastSignInMillis <= 0L) return "N/A"
     val agora = Instant.now()
@@ -585,7 +859,8 @@ private fun formatarTempoDesdeLogin(lastSignInMillis: Long): String {
     return if (minutos > 0) "Ativo há $minutos min" else "Ativo agora"
 }
 
-private fun apagarContaLocalRemota(context: Context) {
+
+private fun apagarDadosLocais(context: Context) {
     BancoDeDados.salvarCarros(context, emptyList())
     BancoDeDados.salvarLembretes(context, emptyList())
     BancoDeDados.salvarContatos(context, emptyList())
@@ -594,92 +869,5 @@ private fun apagarContaLocalRemota(context: Context) {
 
     context.getSharedPreferences("app_prefs_v3", Context.MODE_PRIVATE).edit().clear().apply()
     context.getSharedPreferences("home_tutorial_prefs", Context.MODE_PRIVATE).edit().clear().apply()
-
-    val auth = FirebaseAuth.getInstance()
-    auth.currentUser?.delete()?.addOnCompleteListener { task ->
-        if (!task.isSuccessful) {
-            Toast.makeText(context, "Erro na exclusão remota.", Toast.LENGTH_LONG).show()
-        }
-    }
-    auth.signOut()
-    GoogleSignIn.getClient(context, GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN).build()).signOut()
-    Toast.makeText(context, "Dados removidos com sucesso.", Toast.LENGTH_LONG).show()
 }
 
-@Composable
-private fun LogoutConfirmDialog(
-    onDismiss: () -> Unit,
-    onConfirm: () -> Unit
-) {
-    val scheme = MaterialTheme.colorScheme
-    val isDark = scheme.background.luminance() < 0.5f
-    val cardBg = if (isDark) Color(0xFF0D1B2E) else Color.White
-    val cardBorder = if (isDark) Color(0xFF1E3A5F) else Color(0xFFD6E0EF)
-    val titleColor = if (isDark) Color(0xFFF8FAFC) else Color(0xFF0F172A)
-    val subColor = if (isDark) Color(0xFF94A3B8) else Color(0xFF64748B)
-    val actionBg = if (isDark) Color(0xFF1E3A5F) else Color(0xFFE2E8F0)
-    val actionColor = if (isDark) Color(0xFF60A5FA) else Color(0xFF1D4ED8)
-
-    Dialog(onDismissRequest = onDismiss) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(24.dp))
-                .background(cardBg)
-                .border(BorderStroke(1.dp, cardBorder), RoundedCornerShape(24.dp))
-                .padding(28.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(64.dp)
-                    .clip(CircleShape)
-                    .background(actionBg),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    Icons.AutoMirrored.Filled.Logout,
-                    contentDescription = null,
-                    tint = actionColor,
-                    modifier = Modifier.size(30.dp)
-                )
-            }
-            Spacer(Modifier.height(20.dp))
-            Text(
-                "Sair da conta?",
-                color = titleColor,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold,
-                textAlign = TextAlign.Center
-            )
-            Spacer(Modifier.height(10.dp))
-            Text(
-                "Você poderá entrar novamente com sua conta Google quando quiser.",
-                color = subColor,
-                fontSize = 14.sp,
-                textAlign = TextAlign.Center,
-                lineHeight = 20.sp
-            )
-            Spacer(Modifier.height(28.dp))
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedButton(
-                    onClick = onDismiss,
-                    modifier = Modifier.weight(1f).height(48.dp),
-                    shape = RoundedCornerShape(14.dp),
-                    border = BorderStroke(1.dp, cardBorder),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = subColor)
-                ) {
-                    Text("Cancelar", fontWeight = FontWeight.SemiBold)
-                }
-                Button(
-                    onClick = onConfirm,
-                    modifier = Modifier.weight(1f).height(48.dp),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = actionBg)
-                ) {
-                    Text("Sair", color = actionColor, fontWeight = FontWeight.Bold)
-                }
-            }
-        }
-    }
-}

@@ -91,9 +91,11 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -118,6 +120,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -218,52 +221,29 @@ private fun isPermissionGrantedNow(context: Context, permission: String): Boolea
 @Composable
 fun OnboardingScreen(
     onFinish: () -> Unit,
-    onThemeModeChanged: (AppThemeMode) -> Unit = {},
-    initialStep: Int = 1,
-    requireVehicleSetup: Boolean = true
+    onThemeModeChanged: (AppThemeMode) -> Unit = {}
 ) {
-    var step by remember { mutableIntStateOf(initialStep) }
+    var step by remember { mutableIntStateOf(1) }
     val context = LocalContext.current
-    val onboardingBg = Color(0xFF0B1220)
-    val onboardingCardBg = Color(0xFF1E293B)
+    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val onboardingBg = if (isDark) Color.Black else Color(0xFF0F2A4A)
+    val onboardingCardBg = if (isDark) Color(0xFF111827) else Color(0xFF1E293B)
     val scope = rememberCoroutineScope()
     var carroNome by remember { mutableStateOf("") }
     var carroMarca by remember { mutableStateOf("") }
     var carroModeloUnico by remember { mutableStateOf("") }
-    var carroKm by remember { mutableStateOf("20.000") }
+    var carroKm by remember { mutableStateOf("0") }
     var carroTipo by remember { mutableStateOf(TipoVeiculo.CARRO) }
     var frotaTemporaria by remember { mutableStateOf(listOf<CarroInfo>()) }
     var showOutroVeiculoDialog by remember { mutableStateOf(false) }
     var onboardingVehicleFormSession by remember { mutableIntStateOf(0) }
     var selectedThemeMode by remember { mutableStateOf(AppThemeMode.DARK) }
-    var aceitouTermos by remember { mutableStateOf(false) }
-    var aceitouPrivacidade by remember { mutableStateOf(false) }
-    DisposableEffect(context) {
-        val window = context.findActivity()?.window
-        if (window == null) {
-            onDispose {}
-        } else {
-            val controller = WindowInsetsControllerCompat(window, window.decorView)
-            val previousStatusColor = window.statusBarColor
-            val previousNavigationColor = window.navigationBarColor
-            val previousLightStatusBars = controller.isAppearanceLightStatusBars
-            val previousLightNavigationBars = controller.isAppearanceLightNavigationBars
-            window.statusBarColor = android.graphics.Color.BLACK
-            window.navigationBarColor = android.graphics.Color.BLACK
-            controller.isAppearanceLightStatusBars = false
-            controller.isAppearanceLightNavigationBars = false
-            onDispose {
-                window.statusBarColor = previousStatusColor
-                window.navigationBarColor = previousNavigationColor
-                controller.isAppearanceLightStatusBars = previousLightStatusBars
-                controller.isAppearanceLightNavigationBars = previousLightNavigationBars
-            }
-        }
-    }
+    var backupWasRestored by remember { mutableStateOf(false) }
     val previousStep = when (step) {
+        3 -> 1
         7 -> 5
         6 -> 4
-        5 -> 1
+        5 -> 3
         9 -> 5
         4 -> 7
         2 -> 1
@@ -273,56 +253,6 @@ fun OnboardingScreen(
         step = previousStep ?: step
     }
     val maxVehicles = vehicleLimitForPlan(PlanTier.FREE)
-    val termosUsoTexto = remember {
-        """
-        1. Aceite: ao usar o Zellu, você concorda com estes Termos e com a Política de Privacidade.
-
-        2. Objeto: o app oferece gestão de veículos, lembretes, manutenções, viagens, frota e estoque.
-
-        3. Uso adequado: você se compromete a usar o app de forma lícita, sem fraude, abuso técnico ou violação de direitos de terceiros.
-
-        4. Conta e segurança: você é responsável pelos dados da conta e pela guarda do acesso.
-
-        5. Planos e cobrança: planos pagos (como Lite/Frota) seguem regras da loja/plataforma de pagamento para renovação, cancelamento e reembolso.
-
-        6. Limitação: o Zellu é ferramenta de apoio e não substitui diagnóstico técnico, vistoria, seguro, assistência mecânica ou orientação profissional.
-
-        7. Disponibilidade: funcionalidades podem ser alteradas, corrigidas, suspensas ou descontinuadas por evolução do produto, segurança ou obrigação legal.
-
-        8. Propriedade intelectual: marca, software, layout e conteúdo do app são protegidos por lei.
-
-        9. Legislação e foro: aplica-se a legislação brasileira, com foro da comarca de Sao Carlos/SP, salvo competência legal específica.
-
-        10. Contato legal e suporte: guilhermedevsistemas@gmail.com
-        """.trimIndent()
-    }
-    val politicaPrivacidadeTexto = remember {
-        """
-        1. Dados tratados: o app pode tratar dados de conta (nome, e-mail e identificadores), cadastro de veículos, lembretes, contatos, viagens, itens de estoque, localização, câmera, notificações e dados técnicos essenciais.
-
-        2. Finalidades: autenticação, execução das funcionalidades, segurança, prevenção de abuso/fraude, suporte e melhoria contínua.
-
-        3. Bases legais (LGPD): execução de contrato, consentimento quando exigido, legítimo interesse para segurança/estabilidade e cumprimento de obrigação legal.
-
-        4. Permissões: câmera, localização e notificações são usadas somente com autorização e podem ser revogadas a qualquer momento no dispositivo.
-
-        5. Compartilhamento: não vendemos dados pessoais. Podemos compartilhar com operadores/provedores técnicos necessários ao funcionamento do app e com autoridades quando houver obrigação legal.
-
-        6. Retenção e armazenamento: parte dos dados pode ficar no dispositivo e parte em nuvem, pelo tempo necessário às finalidades e obrigações legais.
-
-        7. Direitos do titular: você pode solicitar confirmação de tratamento, acesso, correção, anonimização, exclusão e revogação do consentimento, nos termos da LGPD.
-
-        8. Exclusão de conta e dados: ao solicitar exclusão, removemos dados pessoais e registros vinculados, ressalvadas retenções legais obrigatórias.
-
-        9. Transferência internacional: alguns provedores podem processar dados fora do Brasil, com salvaguardas adequadas.
-
-        10. Contato oficial de privacidade, remoção de dados, dúvidas e suporte:
-        - guilhermedevsistemas@gmail.com
-        Páginas oficiais:
-        - https://account-deletion-site-eight.vercel.app/privacy-policy.html
-        - https://account-deletion-site-eight.vercel.app/terms-of-use.html
-        """.trimIndent()
-    }
     val permissionItems = remember {
         buildList {
             add(
@@ -393,110 +323,113 @@ fun OnboardingScreen(
     if (showOutroVeiculoDialog) {
         val primaryColor = Color(0xFF3B82F6)
         val successColor = Color(0xFF10B981)
-        val dialogBg = Color.Black
-        val dialogBorder = Color.White.copy(alpha = 0.14f)
-        val titleColor = Color(0xFFE5E7EB)
-        val secondaryColor = Color(0xFF94A3B8)
-        val outlineBtnBorder = Color(0xFFCBD5E1)
-        val outlineBtnText = Color(0xFFE2E8F0)
-        val primaryBtnColor = Color(0xFF2563EB)
+        val dialogBg = if (isDark) Color(0xFF0B1220) else MaterialTheme.colorScheme.surface
+        val dialogBorder = if (isDark) Color.White.copy(alpha = 0.12f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f)
+        val titleColor = if (isDark) Color(0xFFE5E7EB) else MaterialTheme.colorScheme.onSurface
+        val secondaryColor = if (isDark) Color(0xFF94A3B8) else MaterialTheme.colorScheme.onSurfaceVariant
+        val outlineBtnBorder = if (isDark) Color(0xFFCBD5E1) else primaryColor
+        val outlineBtnText = if (isDark) Color(0xFFE2E8F0) else primaryColor
+        val primaryBtnColor = if (isDark) Color(0xFF2563EB) else Color(0xFF2563EB)
         Dialog(onDismissRequest = { showOutroVeiculoDialog = false }) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .navigationBarsPadding(),
-                contentAlignment = Alignment.Center
+            Card(
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = dialogBg),
+                border = BorderStroke(1.dp, dialogBorder),
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Card(
-                    shape = RoundedCornerShape(24.dp),
-                    colors = CardDefaults.cardColors(containerColor = dialogBg),
-                    border = BorderStroke(1.dp, dialogBorder),
-                    modifier = Modifier.fillMaxWidth()
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(20.dp)
                 ) {
-                    Column(
-                        modifier = Modifier.padding(24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(20.dp)
+                    Box(
+                        modifier = Modifier
+                            .size(80.dp)
+                            .background(successColor.copy(alpha = 0.15f), CircleShape),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Box(
+                        Icon(Icons.Default.Check, null, tint = successColor, modifier = Modifier.size(40.dp))
+                    }
+
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            "Veículo 1 cadastrado!",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = titleColor
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "Deseja cadastrar outro veículo agora ou seguir para a próxima etapa?",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = secondaryColor,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                showOutroVeiculoDialog = false
+                                onboardingVehicleFormSession += 1
+                                step = 4
+                            },
                             modifier = Modifier
-                                .size(80.dp)
-                                .background(successColor.copy(alpha = 0.15f), CircleShape),
-                            contentAlignment = Alignment.Center
+                                .fillMaxWidth()
+                                .height(54.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, outlineBtnBorder),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = Color.Transparent,
+                                contentColor = outlineBtnText
+                            )
                         ) {
-                            Icon(Icons.Default.Check, null, tint = successColor, modifier = Modifier.size(40.dp))
+                            Text("Cadastrar outro", color = outlineBtnText, fontWeight = FontWeight.Bold)
                         }
 
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(
-                                "Veículo 1 cadastrado!",
-                                style = MaterialTheme.typography.titleLarge,
-                                fontWeight = FontWeight.Bold,
-                                color = titleColor
-                            )
-                            Spacer(Modifier.height(4.dp))
-                            Text(
-                                "Deseja cadastrar outro veículo agora ou seguir para a próxima etapa?",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = secondaryColor,
-                                textAlign = TextAlign.Center
-                            )
-                        }
-
-                        Column(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            OutlinedButton(
-                                onClick = {
-                                    showOutroVeiculoDialog = false
-                                    onboardingVehicleFormSession += 1
-                                    step = 4
-                                },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(54.dp),
-                                shape = RoundedCornerShape(12.dp),
-                                border = BorderStroke(1.dp, outlineBtnBorder),
-                                colors = ButtonDefaults.outlinedButtonColors(
-                                    containerColor = Color.Transparent,
-                                    contentColor = outlineBtnText
-                                )
-                            ) {
-                                Text(
-                                    "Cadastrar outro",
-                                    color = outlineBtnText,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 16.sp
-                                )
-                            }
-
-                            Button(
-                                onClick = {
-                                    showOutroVeiculoDialog = false
-                                    step = 6
-                                },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(54.dp),
-                                shape = RoundedCornerShape(12.dp),
+                        Button(
+                            onClick = {
+                                showOutroVeiculoDialog = false
+                                step = 6
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(54.dp),
+                            shape = RoundedCornerShape(12.dp),
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = primaryBtnColor,
                                     contentColor = Color.White
                                 )
-                            ) {
-                                Text(
-                                    "Próximo",
-                                    color = Color.White,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 16.sp
-                                )
-                            }
+                        ) {
+                            Text("Próximo", color = Color.White)
                         }
                     }
                 }
             }
         }
+    }
+
+    if (step == 3) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(onboardingBg)
+                .statusBarsPadding()
+        ) {
+            BackupCheckScreen(
+                onContinue = {
+                    backupWasRestored = true
+                    step = 5
+                },
+                onNoBackup = { step = 5 },
+                cardBg = onboardingCardBg,
+                accentColor = Color(0xFF22C55E)
+            )
+        }
+        return
     }
 
     if (step == 4) {
@@ -537,7 +470,7 @@ fun OnboardingScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(if (currentStep in listOf(5, 6, 7, 9)) 0.dp else 24.dp)
+                    .padding(if (currentStep in listOf(5, 6, 9)) 0.dp else 24.dp)
             ) {
                 when (currentStep) {
                     1 -> {
@@ -556,287 +489,276 @@ fun OnboardingScreen(
                             showButton = true
                         }
 
-                        Box(
+                        // Scrollable content fills remaining space; button is pinned below
+                        Column(
                             modifier = Modifier
-                                .fillMaxSize()
-                                .navigationBarsPadding()
+                                .weight(1f)
+                                .verticalScroll(rememberScrollState())
+                                .padding(vertical = 20.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .verticalScroll(rememberScrollState())
-                                    .padding(top = 20.dp, bottom = 108.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                AnimatedVisibility(
-                                    visible = showOrbit,
-                                    enter = fadeIn(animationSpec = tween(480)) +
-                                        scaleIn(
-                                            animationSpec = tween(480),
-                                            initialScale = 0.92f
-                                        ) +
-                                        slideInVertically(
+                            AnimatedVisibility(
+                                visible = showOrbit,
+                                enter = fadeIn(animationSpec = tween(480)) +
+                                    scaleIn(
                                         animationSpec = tween(480),
-                                        initialOffsetY = { it / 6 }
-                                    )
-                                ) { OnboardingWelcomeOrbit() }
+                                        initialScale = 0.92f
+                                    ) +
+                                    slideInVertically(
+                                    animationSpec = tween(480),
+                                    initialOffsetY = { it / 6 }
+                                )
+                            ) { OnboardingWelcomeOrbit() }
 
-                                Spacer(Modifier.height(32.dp))
+                            Spacer(Modifier.height(32.dp))
 
-                                AnimatedVisibility(
-                                    visible = showTitle,
-                                    enter = fadeIn(animationSpec = tween(420)) +
-                                        slideInVertically(
-                                        animationSpec = tween(420),
-                                        initialOffsetY = { it / 8 }
-                                    )
-                                ) {
-                                    Text(
-                                        "Bem-vindo ao Zellu",
-                                        style = MaterialTheme.typography.headlineLarge,
-                                        color = Color.White,
-                                        textAlign = TextAlign.Center,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-
-                                Spacer(Modifier.height(10.dp))
-
-                                AnimatedVisibility(
-                                    visible = showSubtitle,
-                                    enter = fadeIn(animationSpec = tween(400)) +
-                                        slideInVertically(
-                                        animationSpec = tween(400),
-                                        initialOffsetY = { it / 10 }
-                                    )
-                                ) {
-                                    Text(
-                                        "Organize sua garagem, cuide dos seus veículos e receba avisos no momento certo.",
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        color = Color(0xFFBFDBFE),
-                                        textAlign = TextAlign.Center
-                                    )
-                                }
-                            }
-
-                            Box(
-                                modifier = Modifier.align(Alignment.BottomCenter)
+                            AnimatedVisibility(
+                                visible = showTitle,
+                                enter = fadeIn(animationSpec = tween(420)) +
+                                    slideInVertically(
+                                    animationSpec = tween(420),
+                                    initialOffsetY = { it / 8 }
+                                )
                             ) {
-                                androidx.compose.animation.AnimatedVisibility(
-                                    visible = showButton,
-                                    enter = fadeIn(animationSpec = tween(380)) +
-                                        slideInVertically(
-                                        animationSpec = tween(380),
-                                        initialOffsetY = { it / 12 }
-                                    )
-                                ) {
-                                    Button(
-                                        onClick = { step = 5 },
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .height(56.dp),
-                                        shape = RoundedCornerShape(10.dp),
-                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6))
-                                    ) { Text("Vamos lá!", fontSize = 19.sp, color = Color.White) }
-                                }
+                                Text(
+                                    "Bem-vindo ao Zellu",
+                                    style = MaterialTheme.typography.headlineLarge,
+                                    color = Color.White,
+                                    textAlign = TextAlign.Center,
+                                    fontWeight = FontWeight.Bold
+                                )
                             }
+
+                            Spacer(Modifier.height(10.dp))
+
+                            AnimatedVisibility(
+                                visible = showSubtitle,
+                                enter = fadeIn(animationSpec = tween(400)) +
+                                    slideInVertically(
+                                    animationSpec = tween(400),
+                                    initialOffsetY = { it / 10 }
+                                )
+                            ) {
+                                Text(
+                                    "Organize sua garagem, cuide dos seus veículos e receba avisos no momento certo.",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = Color(0xFFBFDBFE),
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+                        }
+
+                        // Button pinned outside scroll — always visible
+                        AnimatedVisibility(
+                            visible = showButton,
+                            enter = fadeIn(animationSpec = tween(380)) +
+                                slideInVertically(
+                                animationSpec = tween(380),
+                                initialOffsetY = { it / 12 }
+                            )
+                        ) {
+                            Button(
+                                onClick = { step = 3 },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .navigationBarsPadding()
+                                    .padding(top = 12.dp, bottom = 8.dp)
+                                    .height(56.dp),
+                                shape = RoundedCornerShape(10.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6))
+                            ) { Text("Vamos lá!", fontSize = 19.sp, color = Color.White) }
                         }
                     }
                     5 -> {
-                        Box(
+                        // Scrollable content fills remaining space; button is pinned below
+                        Column(
                             modifier = Modifier
-                                .fillMaxSize()
-                                .navigationBarsPadding()
+                                .weight(1f)
+                                .verticalScroll(rememberScrollState())
                         ) {
-                            LazyColumn(
+                            // Header — sem barra azul, fundo herdado da tela
+                            Column(
                                 modifier = Modifier
-                                    .fillMaxSize(),
-                                contentPadding = PaddingValues(bottom = 92.dp),
-                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 24.dp, vertical = 28.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                item {
-                                    Box(
+                                Box(
                                     modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 24.dp, vertical = 28.dp),
+                                        .size(64.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF1E3A5F)),
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(64.dp)
-                                                .clip(CircleShape)
-                                                .background(Color.White.copy(alpha = 0.15f)),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.Security,
-                                                contentDescription = null,
-                                                tint = Color.White,
-                                                modifier = Modifier.size(34.dp)
-                                            )
-                                        }
-                                        Spacer(Modifier.height(12.dp))
-                                        Text(
-                                            "Permissões necessárias",
-                                            fontSize = 22.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color.White
-                                        )
-                                        Spacer(Modifier.height(4.dp))
-                                        Text(
-                                            "Conceda os acessos para usar todos os recursos do Zellu.",
-                                            color = Color.White.copy(alpha = 0.75f),
-                                            textAlign = TextAlign.Center,
-                                            fontSize = 13.sp,
-                                            lineHeight = 18.sp
-                                        )
-                                    }
-                                    }
+                                    Icon(
+                                        imageVector = Icons.Default.Security,
+                                        contentDescription = null,
+                                        tint = Color(0xFF60A5FA),
+                                        modifier = Modifier.size(34.dp)
+                                    )
                                 }
-                                items(permissionItems) { item ->
-                                        val granted = permissionStatus[item.permission] == true
-                                        val iconTint = when (item.permission) {
-                                            Manifest.permission.CAMERA -> Color(0xFF60A5FA)
-                                            Manifest.permission.ACCESS_FINE_LOCATION -> Color(0xFF34D399)
-                                            Manifest.permission.POST_NOTIFICATIONS -> Color(0xFFFBBF24)
-                                            else -> Color(0xFF94A3B8)
-                                        }
-                                        val iconBg = when (item.permission) {
-                                            Manifest.permission.CAMERA -> Color(0xFF1E3A5F)
-                                            Manifest.permission.ACCESS_FINE_LOCATION -> Color(0xFF064E3B)
-                                            Manifest.permission.POST_NOTIFICATIONS -> Color(0xFF78350F)
-                                            else -> Color(0xFF1E293B)
-                                        }
-                                        Column(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(horizontal = 16.dp)
-                                                .clip(RoundedCornerShape(16.dp))
-                                                .background(Color(0xFF1E293B))
-                                                .border(
-                                                    1.dp,
-                                                    if (granted) Color(0xFF22C55E) else Color(0xFF334155),
-                                                    RoundedCornerShape(16.dp)
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    "Permissões necessárias",
+                                    fontSize = 22.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White,
+                                    textAlign = TextAlign.Center
+                                )
+                                Text(
+                                    "Conceda os acessos para usar todos os recursos do Zellu.",
+                                    color = Color.White.copy(alpha = 0.55f),
+                                    textAlign = TextAlign.Center,
+                                    fontSize = 13.sp,
+                                    lineHeight = 18.sp
+                                )
+                            }
+
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                permissionItems.forEach { item ->
+                                    val granted = permissionStatus[item.permission] == true
+                                    val iconTint = when (item.permission) {
+                                        Manifest.permission.CAMERA -> Color(0xFF60A5FA)
+                                        Manifest.permission.ACCESS_FINE_LOCATION -> Color(0xFF34D399)
+                                        Manifest.permission.POST_NOTIFICATIONS -> Color(0xFFFBBF24)
+                                        else -> Color(0xFF94A3B8)
+                                    }
+                                    val iconBg = when (item.permission) {
+                                        Manifest.permission.CAMERA -> Color(0xFF1E3A5F)
+                                        Manifest.permission.ACCESS_FINE_LOCATION -> Color(0xFF064E3B)
+                                        Manifest.permission.POST_NOTIFICATIONS -> Color(0xFF78350F)
+                                        else -> Color(0xFF1E293B)
+                                    }
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(16.dp))
+                                            .background(Color(0xFF1E293B))
+                                            .border(
+                                                1.dp,
+                                                if (granted) Color(0xFF22C55E) else Color(0xFF334155),
+                                                RoundedCornerShape(16.dp)
+                                            )
+                                            .padding(12.dp)
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(46.dp)
+                                                    .clip(RoundedCornerShape(14.dp))
+                                                    .background(iconBg),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(
+                                                    imageVector = permissionIconFor(item.permission),
+                                                    contentDescription = null,
+                                                    tint = iconTint,
+                                                    modifier = Modifier.size(22.dp)
                                                 )
-                                                .padding(12.dp)
-                                        ) {
-                                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .size(46.dp)
-                                                        .clip(RoundedCornerShape(14.dp))
-                                                        .background(iconBg),
-                                                    contentAlignment = Alignment.Center
-                                                ) {
-                                                    Icon(
-                                                        imageVector = permissionIconFor(item.permission),
-                                                        contentDescription = null,
-                                                        tint = iconTint,
-                                                        modifier = Modifier.size(22.dp)
-                                                    )
-                                                }
-                                                Spacer(Modifier.width(10.dp))
-                                                Column(modifier = Modifier.weight(1f)) {
-                                                    Row(
-                                                        modifier = Modifier.fillMaxWidth(),
-                                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                                        verticalAlignment = Alignment.CenterVertically
-                                                    ) {
-                                                        Text(item.title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                                                        if (granted) {
-                                                            Box(
-                                                                modifier = Modifier
-                                                                    .clip(RoundedCornerShape(20.dp))
-                                                                    .background(Color(0xFF166534))
-                                                                    .padding(horizontal = 8.dp, vertical = 3.dp)
-                                                            ) {
-                                                                Text("Permitido", color = Color(0xFF4ADE80), fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                                            }
-                                                        } else {
-                                                            Box(
-                                                                modifier = Modifier
-                                                                    .clip(RoundedCornerShape(20.dp))
-                                                                    .background(Color(0xFF7F1D1D))
-                                                                    .padding(horizontal = 8.dp, vertical = 3.dp)
-                                                            ) {
-                                                                Text("Pendente", color = Color(0xFFFCA5A5), fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                                            }
-                                                        }
-                                                    }
-                                                    Spacer(Modifier.height(2.dp))
-                                                    Text(item.reason, color = Color(0xFF94A3B8), fontSize = 12.sp)
-                                                }
                                             }
-                                            if (!granted) {
-                                                Spacer(Modifier.height(8.dp))
-                                                Button(
-                                                    onClick = {
-                                                        Log.d(TAG_ONBOARDING_PERMISSIONS, "click Permitir -> permission='${item.permission}'")
-                                                        if (item.permission == Manifest.permission.POST_NOTIFICATIONS) {
-                                                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                                                                ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-                                                            ) {
-                                                                requestedPermissionOnce[Manifest.permission.POST_NOTIFICATIONS] = true
-                                                                permissionLauncher.launch(arrayOf(Manifest.permission.POST_NOTIFICATIONS))
-                                                            } else {
-                                                                openAppNotificationSettings(context)
-                                                            }
-                                                        } else if (isRuntimePermissionRequired(item.permission)) {
-                                                            val activity = context.findActivity()
-                                                            val wasRequested = requestedPermissionOnce[item.permission] == true
-                                                            val shouldShowRationale = activity?.let {
-                                                                ActivityCompat.shouldShowRequestPermissionRationale(it, item.permission)
-                                                            } ?: false
-                                                            if (wasRequested && !shouldShowRationale) {
-                                                                openAppPermissionSettings(context)
-                                                            } else {
-                                                                requestedPermissionOnce[item.permission] = true
-                                                                permissionLauncher.launch(arrayOf(item.permission))
-                                                            }
-                                                        } else {
-                                                            refreshPermissionStatus()
-                                                        }
-                                                    },
-                                                    modifier = Modifier.fillMaxWidth().height(38.dp),
-                                                    colors = ButtonDefaults.buttonColors(
-                                                        containerColor = Color(0xFF2563EB),
-                                                        contentColor = Color.White
-                                                    ),
-                                                    shape = RoundedCornerShape(10.dp)
+                                            Spacer(Modifier.width(10.dp))
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    verticalAlignment = Alignment.CenterVertically
                                                 ) {
-                                                    Text("Permitir acesso", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                                                    Text(item.title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .clip(RoundedCornerShape(20.dp))
+                                                            .background(if (granted) Color(0xFF166534) else Color(0xFF7F1D1D))
+                                                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                                                    ) {
+                                                        Text(
+                                                            if (granted) "Permitido" else "Pendente",
+                                                            color = if (granted) Color(0xFF4ADE80) else Color(0xFFFCA5A5),
+                                                            fontSize = 11.sp,
+                                                            fontWeight = FontWeight.Bold
+                                                        )
+                                                    }
                                                 }
+                                                Spacer(Modifier.height(2.dp))
+                                                Text(item.reason, color = Color(0xFF94A3B8), fontSize = 12.sp)
                                             }
                                         }
+                                        if (!granted) {
+                                            Spacer(Modifier.height(8.dp))
+                                            Button(
+                                                onClick = {
+                                                    Log.d(TAG_ONBOARDING_PERMISSIONS, "click Permitir -> permission='${item.permission}'")
+                                                    if (item.permission == Manifest.permission.POST_NOTIFICATIONS) {
+                                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                                                            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                                                        ) {
+                                                            requestedPermissionOnce[Manifest.permission.POST_NOTIFICATIONS] = true
+                                                            permissionLauncher.launch(arrayOf(Manifest.permission.POST_NOTIFICATIONS))
+                                                        } else {
+                                                            openAppNotificationSettings(context)
+                                                        }
+                                                    } else if (isRuntimePermissionRequired(item.permission)) {
+                                                        val activity = context.findActivity()
+                                                        val wasRequested = requestedPermissionOnce[item.permission] == true
+                                                        val shouldShowRationale = activity?.let {
+                                                            ActivityCompat.shouldShowRequestPermissionRationale(it, item.permission)
+                                                        } ?: false
+                                                        if (wasRequested && !shouldShowRationale) {
+                                                            openAppPermissionSettings(context)
+                                                        } else {
+                                                            requestedPermissionOnce[item.permission] = true
+                                                            permissionLauncher.launch(arrayOf(item.permission))
+                                                        }
+                                                    } else {
+                                                        refreshPermissionStatus()
+                                                    }
+                                                },
+                                                modifier = Modifier.fillMaxWidth().height(38.dp),
+                                                colors = ButtonDefaults.buttonColors(
+                                                    containerColor = Color(0xFF2563EB),
+                                                    contentColor = Color.White
+                                                ),
+                                                shape = RoundedCornerShape(10.dp)
+                                            ) {
+                                                Text("Permitir acesso", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                                            }
+                                        }
+                                    }
                                 }
                             }
-                            Box(
-                                modifier = Modifier
-                                    .align(Alignment.BottomCenter)
-                                    .fillMaxWidth()
-                                    .background(onboardingBg)
-                                    .navigationBarsPadding()
-                                    .padding(horizontal = 16.dp, vertical = 12.dp)
+
+                            Spacer(Modifier.height(12.dp))
+                        }
+
+                        // Botão sempre visível fora da área de scroll
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .navigationBarsPadding()
+                                .padding(horizontal = 16.dp, vertical = 12.dp)
+                        ) {
+                            Button(
+                                onClick = { step = 7 },
+                                enabled = allRequiredPermissionsGranted,
+                                modifier = Modifier.fillMaxWidth().height(54.dp),
+                                shape = RoundedCornerShape(14.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = Color(0xFF2563EB),
+                                    contentColor = Color.White,
+                                    disabledContainerColor = Color(0xFF1E293B),
+                                    disabledContentColor = Color(0xFF475569)
+                                )
                             ) {
-                                Button(
-                                    onClick = { step = 7 },
-                                    enabled = allRequiredPermissionsGranted,
-                                    modifier = Modifier.fillMaxWidth().height(54.dp),
-                                    shape = RoundedCornerShape(14.dp),
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = Color(0xFF2563EB),
-                                        contentColor = Color.White,
-                                        disabledContainerColor = Color(0xFF1E293B),
-                                        disabledContentColor = Color(0xFF475569)
-                                    )
-                                ) {
-                                    Text(
-                                        if (allRequiredPermissionsGranted) "Continuar" else "Conceda os acessos acima",
-                                        fontSize = 19.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
+                                Text(
+                                    if (allRequiredPermissionsGranted) "Continuar" else "Conceda os acessos acima",
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
                             }
                         }
                     }
@@ -959,232 +881,11 @@ fun OnboardingScreen(
                         }
                     }
                     7 -> {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .fillMaxHeight()
-                                .navigationBarsPadding()
-                        ) {
-                            LazyColumn(
-                                modifier = Modifier.fillMaxSize(),
-                                verticalArrangement = Arrangement.spacedBy(14.dp),
-                                contentPadding = PaddingValues(start = 26.dp, top = 24.dp, end = 26.dp, bottom = 112.dp)
-                            ) {
-                                item {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(bottom = 6.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Shield,
-                                        contentDescription = null,
-                                        tint = Color(0xFF93C5FD),
-                                        modifier = Modifier.size(56.dp)
-                                    )
-                                }
-                                }
-                                item {
-                                Text(
-                                    "Termos e Privacidade",
-                                    style = MaterialTheme.typography.headlineMedium,
-                                    color = Color.White,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 32.sp,
-                                    textAlign = TextAlign.Center,
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                                }
-                                item {
-                                Text(
-                                    "Para continuar, aceite os Termos de Uso e a Política de Privacidade do Zellu.",
-                                    color = Color(0xFFBFDBFE),
-                                    fontSize = 16.sp,
-                                    textAlign = TextAlign.Center,
-                                    lineHeight = 22.sp,
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                                }
-                                item {
-                                Card(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    colors = CardDefaults.cardColors(containerColor = onboardingCardBg),
-                                    shape = RoundedCornerShape(14.dp),
-                                    border = BorderStroke(1.dp, Color(0xFF334155))
-                                ) {
-                                    Column(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(12.dp),
-                                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                                    ) {
-                                        Text(
-                                            "Termos de Uso",
-                                            color = Color.White,
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 18.sp,
-                                            textAlign = TextAlign.Center,
-                                            modifier = Modifier.fillMaxWidth()
-                                        )
-                                        Text(
-                                            termosUsoTexto,
-                                            color = Color(0xFFBFDBFE),
-                                            fontSize = 14.sp,
-                                            lineHeight = 21.sp
-                                        )
-                                    }
-                                }
-                                }
-                                item {
-                                Card(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    colors = CardDefaults.cardColors(containerColor = onboardingCardBg),
-                                    shape = RoundedCornerShape(14.dp),
-                                    border = BorderStroke(1.dp, Color(0xFF334155))
-                                ) {
-                                    Column(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(12.dp),
-                                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                                    ) {
-                                        Text(
-                                            "Política de Privacidade",
-                                            color = Color.White,
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 18.sp,
-                                            textAlign = TextAlign.Center,
-                                            modifier = Modifier.fillMaxWidth()
-                                        )
-                                        Text(
-                                            politicaPrivacidadeTexto,
-                                            color = Color(0xFFBFDBFE),
-                                            fontSize = 14.sp,
-                                            lineHeight = 21.sp
-                                        )
-                                    }
-                                }
-                                }
-                                item {
-                                Card(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    colors = CardDefaults.cardColors(containerColor = onboardingCardBg),
-                                    shape = RoundedCornerShape(14.dp),
-                                    border = BorderStroke(
-                                        1.dp,
-                                        if (aceitouTermos && aceitouPrivacidade) Color(0xFF22C55E) else Color(0xFF334155)
-                                    )
-                                ) {
-                                    Column(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(12.dp),
-                                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        Text(
-                                            "Confirmações obrigatórias",
-                                            color = Color.White,
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 17.sp
-                                        )
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                        ) {
-                                            Checkbox(
-                                                checked = aceitouTermos && aceitouPrivacidade,
-                                                onCheckedChange = {
-                                                    aceitouTermos = it
-                                                    aceitouPrivacidade = it
-                                                },
-                                                colors = CheckboxDefaults.colors(
-                                                    checkedColor = Color(0xFF22C55E),
-                                                    uncheckedColor = Color(0xFF94A3B8),
-                                                    checkmarkColor = Color.White
-                                                )
-                                            )
-                                            Text(
-                                                "Concordo com tudo.",
-                                                color = Color.White,
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 15.sp
-                                            )
-                                        }
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                        ) {
-                                            Checkbox(
-                                                checked = aceitouTermos,
-                                                onCheckedChange = { aceitouTermos = it },
-                                                colors = CheckboxDefaults.colors(
-                                                    checkedColor = Color(0xFF22C55E),
-                                                    uncheckedColor = Color(0xFF94A3B8),
-                                                    checkmarkColor = Color.White
-                                                )
-                                            )
-                                            Text(
-                                                "Li e aceito os Termos de Uso.",
-                                                color = Color.White,
-                                                fontWeight = FontWeight.SemiBold,
-                                                fontSize = 15.sp
-                                            )
-                                        }
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                        ) {
-                                            Checkbox(
-                                                checked = aceitouPrivacidade,
-                                                onCheckedChange = { aceitouPrivacidade = it },
-                                                colors = CheckboxDefaults.colors(
-                                                    checkedColor = Color(0xFF22C55E),
-                                                    uncheckedColor = Color(0xFF94A3B8),
-                                                    checkmarkColor = Color.White
-                                                )
-                                            )
-                                            Text(
-                                                "Li e aceito a Política de Privacidade.",
-                                                color = Color.White,
-                                                fontWeight = FontWeight.SemiBold,
-                                                fontSize = 15.sp
-                                            )
-                                        }
-                                    }
-                                }
-                                }
-                            }
-                            Box(
-                                modifier = Modifier
-                                    .align(Alignment.BottomCenter)
-                                    .fillMaxWidth()
-                                    .background(onboardingBg)
-                                    .navigationBarsPadding()
-                                    .padding(horizontal = 20.dp, vertical = 12.dp)
-                            ) {
-                                Button(
-                                    onClick = { step = if (requireVehicleSetup) 4 else 6 },
-                                    enabled = aceitouTermos && aceitouPrivacidade,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(56.dp),
-                                    shape = RoundedCornerShape(10.dp),
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = Color(0xFF2563EB),
-                                        contentColor = Color.White,
-                                        disabledContainerColor = Color(0xFF334155),
-                                        disabledContentColor = Color(0xFF94A3B8)
-                                    )
-                                ) {
-                                    Text(
-                                        "Próximo",
-                                        fontSize = 19.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                            }
-                        }
+                        TermsAcceptScreen(
+                            onAccepted = { step = if (backupWasRestored) 6 else 4 },
+                            cardBg = onboardingCardBg,
+                            accentColor = Color(0xFF22C55E)
+                        )
                     }
                     4 -> Unit
                     2 -> {
@@ -1266,9 +967,7 @@ fun OnboardingScreen(
                         Spacer(Modifier.height(8.dp))
                         OutlinedTextField(
                             value = carroKm,
-                            onValueChange = {
-                                carroKm = it.filter(Char::isDigit).take(10)
-                            },
+                            onValueChange = { carroKm = it.filter(Char::isDigit).take(10) },
                             label = { Text("KM Atual") },
                             modifier = Modifier.fillMaxWidth(),
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -1291,14 +990,14 @@ fun OnboardingScreen(
                                         nome = carroNome,
                                         modelo = carroModeloUnico,
                                         marca = carroMarca,
-                                        kmAtual = carroKm.filter(Char::isDigit).toIntOrNull() ?: 0,
+                                        kmAtual = carroKm.toIntOrNull() ?: 0,
                                         tipoVeiculo = carroTipo
                                     )
                                     frotaTemporaria = frotaTemporaria + novo
                                     carroNome = ""
                                     carroMarca = ""
                                     carroModeloUnico = ""
-                                    carroKm = "20.000"
+                                    carroKm = "0"
                                     carroTipo = TipoVeiculo.CARRO
                                 }
                             },
@@ -1314,7 +1013,7 @@ fun OnboardingScreen(
                                         nome = if(carroNome.isBlank()) carroTipo.label else carroNome,
                                         modelo = carroModeloUnico,
                                         marca = carroMarca,
-                                        kmAtual = carroKm.filter(Char::isDigit).toIntOrNull() ?: 0,
+                                        kmAtual = carroKm.toIntOrNull() ?: 0,
                                         tipoVeiculo = carroTipo
                                     )
                                     listaFinal = listaFinal + ultimo

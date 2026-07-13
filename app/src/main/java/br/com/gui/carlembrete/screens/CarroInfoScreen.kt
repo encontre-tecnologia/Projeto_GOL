@@ -2,6 +2,7 @@
 
 import android.widget.Toast
 import HistoricoAbastecimentoScreen
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -225,18 +226,43 @@ fun CarroInfoScreen(
     val valorFipeNumerico = remember(precoTabelaFipe) {
         precoTabelaFipe?.let(::parseMoedaBrParaDouble)
     }
-    val fatorVendaSugerido = remember(tituloSaudeOriginal, lembretesSemAbastecimento.size, carro.vezesBatido, carro.tempoComVeiculo) {
+    val (fatorVendaSugerido, ajustesVenda) = remember(tituloSaudeOriginal, lembretesSemAbastecimento.size, carro.vezesBatido, carro.tempoComVeiculo) {
         val fatorSaude = when (tituloSaudeOriginal) {
             "Excelente" -> 0.98
             "Em atenção" -> 0.93
             "Crítica" -> 0.86
             else -> 0.94
         }
-        val descontoAvisos = (lembretesSemAbastecimento.size * 0.012).coerceAtMost(0.10)
+        val numAvisos = lembretesSemAbastecimento.size
+        val descontoAvisos = (numAvisos * 0.012).coerceAtMost(0.10)
         val fatorBase = max(0.75, fatorSaude - descontoAvisos)
+        val numBatidas = (carro.vezesBatido ?: 0).coerceAtLeast(0)
         val fatorBatidas = fatorPorBatidas(carro.vezesBatido)
         val fatorTempo = fatorPorTempoComVeiculo(carro.tempoComVeiculo)
-        (fatorBase * fatorBatidas * fatorTempo).coerceIn(0.60, 1.08)
+        val fatorFinal = (fatorBase * fatorBatidas * fatorTempo).coerceIn(0.60, 1.08)
+        val ajustes = listOf(
+            FatorAjusteVenda(
+                "Saúde do veículo ($tituloSaudeOriginal)",
+                "Vehicle health ($tituloSaudeOriginal)",
+                (fatorSaude - 1.0) * 100
+            ),
+            FatorAjusteVenda(
+                "Avisos pendentes ($numAvisos)",
+                "Pending reminders ($numAvisos)",
+                -descontoAvisos * 100
+            ),
+            FatorAjusteVenda(
+                "Batidas ($numBatidas)",
+                "Accidents ($numBatidas)",
+                (fatorBatidas - 1.0) * 100
+            ),
+            FatorAjusteVenda(
+                "Tempo com o veículo",
+                "Time owned",
+                (fatorTempo - 1.0) * 100
+            )
+        )
+        fatorFinal to ajustes
     }
     val valorVendaSugerido = valorFipeNumerico?.let { it * fatorVendaSugerido }
     val contentScrollState = rememberScrollState()
@@ -299,6 +325,14 @@ fun CarroInfoScreen(
             },
             containerColor = cardColor
         )
+    }
+
+    BackHandler {
+        if (showHistoricoConsumo) {
+            showHistoricoConsumo = false
+        } else {
+            onDismiss()
+        }
     }
 
     if (showHistoricoConsumo) {
@@ -499,8 +533,26 @@ fun CarroInfoScreen(
                 InfoRowModern(tr("Total ano $anoReferencia", "Year total $anoReferencia"), formatarMoedaLocal(totalGastosAno), textDim, textLight)
                 Divider(color = dividerColor)
                 InfoRowModern(tr("Total mês $mesReferencia", "Month total $mesReferencia"), formatarMoedaLocal(totalGastosMes), textDim, textLight)
-                if (suportaFipe) {
+                if (exibirKmNoPainel) {
                     Divider(color = dividerColor)
+                    InfoRowModern(tr("KM atual", "Current mileage"), kmAtualResumo, textDim, accentColor)
+                }
+            }
+
+            if (suportaFipe) {
+                Spacer(Modifier.height(16.dp))
+
+                // --- AVALIAÇÃO DE VENDA ---
+                ContentSection(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                    title = tr("Avaliação de venda", "Sale valuation"),
+                    icon = Icons.Default.Payments,
+                    cardColor = cardColor,
+                    titleColor = textLight,
+                    borderColor = cardBorder
+                ) {
                     when {
                         carregandoPrecoFipe -> {
                             InfoRowModern(tr("Tabela FIPE", "FIPE Table"), tr("Buscando...", "Loading..."), textDim, textDim)
@@ -519,10 +571,39 @@ fun CarroInfoScreen(
                         textDim,
                         if (valorVendaSugerido != null) Color(0xFF22C55E) else textDim
                     )
-                }
-                if (exibirKmNoPainel) {
-                    Divider(color = dividerColor)
-                    InfoRowModern(tr("KM atual", "Current mileage"), kmAtualResumo, textDim, accentColor)
+                    if (valorVendaSugerido != null) {
+                        Divider(color = dividerColor)
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            tr("Como chegamos nesse valor", "How we got this value"),
+                            color = textDim,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            ajustesVenda.forEach { ajuste ->
+                                val corAjuste = when {
+                                    ajuste.percentual > 0.05 -> Color(0xFF22C55E)
+                                    ajuste.percentual < -0.05 -> Color(0xFFEF4444)
+                                    else -> textDim
+                                }
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(tr(ajuste.labelPt, ajuste.labelEn), color = textDim, fontSize = 12.sp)
+                                    Text(
+                                        "${if (ajuste.percentual > 0) "+" else ""}${String.format(Locale("pt", "BR"), "%.1f", ajuste.percentual)}%",
+                                        color = corAjuste,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
@@ -1188,6 +1269,8 @@ private fun PriceInfoPill(
         }
     }
 }
+
+private data class FatorAjusteVenda(val labelPt: String, val labelEn: String, val percentual: Double)
 
 // --- FUNÇÕES UTILITÁRIAS ---
 

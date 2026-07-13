@@ -10,6 +10,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -25,6 +26,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -54,6 +57,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -94,7 +98,7 @@ import retrofit2.converter.gson.GsonConverterFactory
 
 private const val TAG_ONBOARDING_NOVO_CARRO = "OnboardingNovoCarro"
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
 fun OnboardingNovoCarroScreen(
     onDismiss: () -> Unit,
@@ -110,7 +114,7 @@ fun OnboardingNovoCarroScreen(
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
 fun NovoCarroScreenPrimeiroFluxoComVoltar(
     onDismiss: () -> Unit,
@@ -124,7 +128,7 @@ fun NovoCarroScreenPrimeiroFluxoComVoltar(
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
 private fun OnboardingNovoCarroScreenContent(
     onDismiss: () -> Unit,
@@ -227,7 +231,7 @@ private fun OnboardingNovoCarroScreenContent(
     var proprietario by remember { mutableStateOf("") }
     var quemUsaOpcao by remember { mutableStateOf("Selecione") }
     var quemUsaExpanded by remember { mutableStateOf(false) }
-    var kmAtualStr by remember { mutableStateOf("20.000") }
+    var kmAtualStr by remember { mutableStateOf("0") }
     var bikeSemKm by remember { mutableStateOf(false) }
     var tipoSelecionado by remember { mutableStateOf<TipoVeiculo?>(null) }
     var corSelecionada by remember { mutableStateOf<Int?>(null) }
@@ -253,6 +257,8 @@ private fun OnboardingNovoCarroScreenContent(
     var consultaModelosConcluida by remember { mutableStateOf(false) }
 
     val contentScrollState = rememberScrollState()
+    val anoBringIntoViewRequester = remember { BringIntoViewRequester() }
+    val anoFocusScope = rememberCoroutineScope()
     val showTopBar by remember { derivedStateOf { contentScrollState.value <= 8 } }
     val sugestoesNomeExibidas = remember(modelosFipe) { modelosFipe }
     var filtroNomeVeiculo by remember { mutableStateOf("") }
@@ -283,8 +289,6 @@ private fun OnboardingNovoCarroScreenContent(
 
     val isBikeTypeGlobal =
         tipoSelecionado == TipoVeiculo.BICICLETA || tipoSelecionado == TipoVeiculo.BIKE_ELETRICA
-    val isCarretinhaType = tipoSelecionado == TipoVeiculo.CARRETINHA
-    val isKmOptionalType = isBikeTypeGlobal || isCarretinhaType
     val tipoSemAno =
         tipoSelecionado == TipoVeiculo.BICICLETA ||
             tipoSelecionado == TipoVeiculo.BIKE_ELETRICA
@@ -303,12 +307,13 @@ private fun OnboardingNovoCarroScreenContent(
     val erroModelo = etapaCadastro == 1 && tentouAvancarEtapa1 && modelo.isBlank()
     val erroAno = etapaCadastro == 1 && !tipoSemAno && tentouAvancarEtapa1 && (anoSelecionado.isBlank() || !anoValido)
     val erroCor = etapaCadastro == 1 && tentouAvancarEtapa1 && corSelecionada == null
-    val usarControleKm = !isKmOptionalType || !bikeSemKm
-    val erroKm = false
+    val usarControleKm = !isBikeTypeGlobal || !bikeSemKm
+    val erroKm = etapaCadastro == 2 && usarControleKm && tentouSalvarEtapa2 && kmAtualStr.filter(Char::isDigit).isEmpty()
     val etapa2Valida = proprietario.isNotBlank() &&
             quemUsaOpcao != "Selecione" &&
             (isBikeTypeGlobal || vezesBatido != null) &&
-            tempoComVeiculo.isNotBlank()
+            tempoComVeiculo.isNotBlank() &&
+            (!usarControleKm || kmAtualStr.filter(Char::isDigit).isNotEmpty())
     val erroQuemUsa = etapaCadastro == 2 && tentouSalvarEtapa2 && quemUsaOpcao == "Selecione"
     val erroProprietario = etapaCadastro == 2 && tentouSalvarEtapa2 && proprietario.isBlank()
     val erroBatidas = etapaCadastro == 2 && !isBikeTypeGlobal && tentouSalvarEtapa2 && vezesBatido == null
@@ -328,7 +333,7 @@ private fun OnboardingNovoCarroScreenContent(
             proprietario = ""
             quemUsaOpcao = "Selecione"
             quemUsaExpanded = false
-            kmAtualStr = "20.000"
+            kmAtualStr = "0"
             bikeSemKm = false
             corSelecionada = null
             vezesBatido = null
@@ -543,11 +548,12 @@ private fun OnboardingNovoCarroScreenContent(
         ) {
             Column(
                 modifier = Modifier
-                    .fillMaxSize()
+                    .fillMaxWidth()
                     .padding(top = if (isOnboardingVariant) 0.dp else 2.dp)
                     .verticalScroll(contentScrollState)
+                    .imePadding()
                     .padding(horizontal = 16.dp, vertical = 0.dp)
-                    .padding(bottom = if (isOnboardingVariant) 104.dp else 112.dp),
+                    .padding(bottom = if (isOnboardingVariant) 20.dp else 24.dp),
                 verticalArrangement = Arrangement.spacedBy(if (isOnboardingVariant) 16.dp else 10.dp)
             ) {
                 if (!isOnboardingVariant && allowBackNavigation) {
@@ -587,7 +593,7 @@ private fun OnboardingNovoCarroScreenContent(
                             )
                         }
                         Text(
-                            text = if (isCarretinhaType) "Nova carretinha" else "Novo veículo",
+                            text = "Novo veículo",
                             color = textPrimary,
                             fontSize = 25.sp,
                             fontWeight = FontWeight.Bold,
@@ -605,38 +611,88 @@ private fun OnboardingNovoCarroScreenContent(
                             horizontalArrangement = Arrangement.Start
                         ) {
                             IconButton(onClick = ::voltarTela) {
-                                Text(
-                                    text = "<",
-                                    color = textPrimary,
-                                    fontSize = 28.sp,
-                                    fontWeight = FontWeight.Bold
+                                Icon(
+                                    imageVector = Icons.Default.ArrowBackIosNew,
+                                    contentDescription = "Voltar",
+                                    tint = textPrimary,
+                                    modifier = Modifier.size(18.dp)
                                 )
                             }
                         }
                     }
+
+                    // Header banner
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 14.dp),
-                        contentAlignment = Alignment.Center
+                            .padding(top = if (allowBackNavigation) 0.dp else 16.dp)
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(
+                                Brush.linearGradient(
+                                    listOf(Color(0xFF1E3A5F), Color(0xFF0F2238))
+                                )
+                            )
+                            .padding(horizontal = 20.dp, vertical = 20.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Rounded.AddCircle,
-                            contentDescription = null,
-                            tint = Color(0xFF6EA7E8),
-                            modifier = Modifier.size(56.dp)
-                        )
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(52.dp)
+                                    .background(Color(0xFF60A5FA).copy(alpha = 0.15f), CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.AddCircle,
+                                    contentDescription = null,
+                                    tint = Color(0xFF60A5FA),
+                                    modifier = Modifier.size(28.dp)
+                                )
+                            }
+                            Spacer(Modifier.height(12.dp))
+                            Text(
+                                text = if (etapaCadastro == 1) "Identifique seu veículo" else "Mais alguns detalhes",
+                                color = Color.White,
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.Bold,
+                                textAlign = TextAlign.Center
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                text = if (etapaCadastro == 1)
+                                    "Informe o tipo, marca e nome do veículo"
+                                else
+                                    "Km, quem usa e tempo com o veículo",
+                                color = Color(0xFF60A5FA).copy(alpha = 0.75f),
+                                fontSize = 13.sp,
+                                textAlign = TextAlign.Center,
+                                lineHeight = 18.sp
+                            )
+                            Spacer(Modifier.height(16.dp))
+                            // Step progress indicator
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                StepDot(active = true, done = etapaCadastro > 1, label = "1")
+                                Box(
+                                    modifier = Modifier
+                                        .width(40.dp)
+                                        .height(2.dp)
+                                        .background(
+                                            if (etapaCadastro > 1) Color(0xFF60A5FA)
+                                            else Color(0xFF1E3A5F).copy(alpha = 0.6f),
+                                            RoundedCornerShape(1.dp)
+                                        )
+                                )
+                                StepDot(active = etapaCadastro == 2, done = false, label = "2")
+                            }
+                        }
                     }
-                    Text(
-                        text = if (isCarretinhaType) "Vamos cadastrar sua primeira carretinha" else "Vamos cadastrar seu primeiro item da garagem",
-                        color = textPrimary,
-                        fontSize = 19.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 0.dp, bottom = 8.dp),
-                        textAlign = TextAlign.Center
-                    )
+                    Spacer(Modifier.height(4.dp))
                 }
 
                 NovoSectionCardOnboarding(
@@ -656,17 +712,20 @@ private fun OnboardingNovoCarroScreenContent(
                     val corDialogListState = rememberLazyListState()
                     val noRippleInteraction = remember { MutableInteractionSource() }
 
-                    Box(
-                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "Etapa $etapaCadastro de 2",
-                            color = textSecondary,
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold,
-                            textAlign = TextAlign.Center
-                        )
+                    // Step label shown only in non-onboarding variant
+                    if (!isOnboardingVariant) {
+                        Box(
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "Etapa $etapaCadastro de 2",
+                                color = textSecondary,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                textAlign = TextAlign.Center
+                            )
+                        }
                     }
 
                     if (etapaCadastro == 1) {
@@ -743,7 +802,6 @@ private fun OnboardingNovoCarroScreenContent(
                                             TipoVeiculo.FURGAO,
                                             TipoVeiculo.CAMINHAO,
                                             TipoVeiculo.ONIBUS,
-                                            TipoVeiculo.CARRETINHA,
                                             TipoVeiculo.MOTORHOME
                                         )
 
@@ -1222,8 +1280,7 @@ private fun OnboardingNovoCarroScreenContent(
                         val isFreeNameType =
                             tipoSelecionado == TipoVeiculo.BICICLETA ||
                                     tipoSelecionado == TipoVeiculo.BIKE_ELETRICA ||
-                                    tipoSelecionado == TipoVeiculo.MOTORHOME ||
-                                    tipoSelecionado == TipoVeiculo.CARRETINHA
+                                    tipoSelecionado == TipoVeiculo.MOTORHOME
                         val isManualNameMode =
                             isFreeNameType || nomeManualNoCadastro || (hasBrandSelected && consultaModelosConcluida && nomeManualPorFalhaApi)
 
@@ -1231,7 +1288,6 @@ private fun OnboardingNovoCarroScreenContent(
                             val freeNameLabel = when (tipoSelecionado) {
                                 TipoVeiculo.BICICLETA, TipoVeiculo.BIKE_ELETRICA -> "Nome da bike"
                                 TipoVeiculo.MOTORHOME -> "Nome do motorhome"
-                                TipoVeiculo.CARRETINHA -> "Nome da carretinha"
                                 else -> "Nome do veículo"
                             }
                             Box(modifier = Modifier.fillMaxWidth()) {
@@ -1267,13 +1323,7 @@ private fun OnboardingNovoCarroScreenContent(
                                 }
                             }
                         } else {
-                            val nomeVeiculoLabel = if (aguardarBuscaModelos) {
-                                "Carregando nomes...."
-                            } else if (isCarretinhaType) {
-                                "Nome da carretinha"
-                            } else {
-                                "Nome do veículo"
-                            }
+                            val nomeVeiculoLabel = if (aguardarBuscaModelos) "Carregando nomes...." else "Nome do veículo"
                             val nomeVeiculoPlaceholder = if (aguardarBuscaModelos) "Carregando nomes...." else "Selecione"
                             Box(
                                 modifier = Modifier
@@ -1316,16 +1366,7 @@ private fun OnboardingNovoCarroScreenContent(
                             }
                         }
 
-                        val motorLabel = when (tipoSelecionado) {
-                            TipoVeiculo.BICICLETA, TipoVeiculo.BIKE_ELETRICA -> "Aro/modelo"
-                            TipoVeiculo.CARRETINHA -> "Modelo/versão da carretinha"
-                            else -> "Motor/versão"
-                        }
-                        val motorPlaceholder = when (tipoSelecionado) {
-                            TipoVeiculo.BICICLETA, TipoVeiculo.BIKE_ELETRICA -> "Ex: Aro 29"
-                            TipoVeiculo.CARRETINHA -> "Ex: baú, aberta, reboque leve"
-                            else -> "Ex: 1.0 Turbo, 1.6 Flex"
-                        }
+                        val motorLabel = if (tipoSelecionado == TipoVeiculo.BICICLETA) "Aro/Modelo" else "Modelo"
                         Box(modifier = Modifier.fillMaxWidth()) {
                             OutlinedTextField(
                                 value = modelo,
@@ -1337,7 +1378,6 @@ private fun OnboardingNovoCarroScreenContent(
                                 },
                                 isError = erroModelo,
                                 label = { Text(motorLabel) },
-                                placeholder = { Text(motorPlaceholder) },
                                 singleLine = true,
                                 colors = selectorFieldColorsWithState(
                                     filled = modelo.isNotBlank(),
@@ -1389,8 +1429,8 @@ private fun OnboardingNovoCarroScreenContent(
                                     },
                                     readOnly = false,
                                     isError = erroAno,
-                                    label = { Text(if (isCarretinhaType) "Ano da carretinha" else "Ano do veículo") },
-                                    placeholder = { Text("Ex: 2020") },
+                                    label = { Text("Ano") },
+                                    placeholder = { Text("Selecione ou digite") },
                                     keyboardOptions = KeyboardOptions(
                                         keyboardType = KeyboardType.Number,
                                         imeAction = ImeAction.Done
@@ -1403,6 +1443,15 @@ private fun OnboardingNovoCarroScreenContent(
                                     ),
                                     modifier = Modifier
                                         .menuAnchor()
+                                        .bringIntoViewRequester(anoBringIntoViewRequester)
+                                        .onFocusChanged { focusState ->
+                                            if (focusState.isFocused) {
+                                                anoFocusScope.launch {
+                                                    delay(250)
+                                                    anoBringIntoViewRequester.bringIntoView()
+                                                }
+                                            }
+                                        }
                                         .fillMaxWidth(),
                                     colors = selectorFieldColorsWithState(
                                         filled = anoSelecionado.isNotBlank(),
@@ -1437,15 +1486,7 @@ private fun OnboardingNovoCarroScreenContent(
                             onValueChange = { kmAtualStr = formatarKmTextoOnboarding(it) },
                             enabled = usarControleKm,
                             isError = erroKm,
-                            label = {
-                                Text(
-                                    when {
-                                        isBikeTypeGlobal -> "KM da bike"
-                                        isCarretinhaType -> "KM da carretinha"
-                                        else -> "KM Atual (Painel)"
-                                    }
-                                )
-                            },
+                            label = { Text(if (isBikeTypeGlobal) "KM da bike" else "KM Atual (Painel)") },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                             singleLine = true,
                             colors = selectorFieldColorsWithState(
@@ -1456,7 +1497,7 @@ private fun OnboardingNovoCarroScreenContent(
                             shape = RoundedCornerShape(14.dp)
                         )
 
-                        if (isKmOptionalType) {
+                        if (isBikeTypeGlobal) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.CenterVertically
@@ -1469,7 +1510,7 @@ private fun OnboardingNovoCarroScreenContent(
                                     }
                                 )
                                 Text(
-                                    text = if (isCarretinhaType) "Essa carretinha não possui KM" else "Minha bike não possui KM",
+                                    text = "Minha bike não possui KM",
                                     color = textSecondary,
                                     fontSize = 13.sp
                                 )
@@ -1630,16 +1671,13 @@ private fun OnboardingNovoCarroScreenContent(
                         }
                     }
                 }
-            }
 
                 if (!isOnboardingVariant) {
                     Box(
                         modifier = Modifier
-                            .align(Alignment.BottomCenter)
                             .fillMaxWidth()
-                            .background(bgLight)
                             .navigationBarsPadding()
-                            .padding(horizontal = 16.dp, vertical = 12.dp)
+                            .padding(top = 4.dp, bottom = 12.dp)
                     ) {
                         if (etapaCadastro == 1) {
                             Button(
@@ -1689,8 +1727,8 @@ private fun OnboardingNovoCarroScreenContent(
                                             modelo = combinarModeloAno(modelo, anoSelecionado),
                                             proprietario = proprietario,
                                             corArgb = corSelecionada ?: carroBase.corArgb,
-                                            kmAtual = if (isKmOptionalType && bikeSemKm) 0 else (kmAtualStr.filter(Char::isDigit).toIntOrNull() ?: 0),
-                                            semControleKm = isKmOptionalType && bikeSemKm,
+                                            kmAtual = if (isBikeTypeGlobal && bikeSemKm) 0 else (kmAtualStr.filter(Char::isDigit).toIntOrNull() ?: 0),
+                                            semControleKm = isBikeTypeGlobal && bikeSemKm,
                                             tipoVeiculo = tipoSelecionado!!,
                                             vezesBatido = vezesBatido,
                                             tempoComVeiculo = tempoComVeiculo
@@ -1715,11 +1753,9 @@ private fun OnboardingNovoCarroScreenContent(
                 if (isOnboardingVariant) {
                     Box(
                         modifier = Modifier
-                            .align(Alignment.BottomCenter)
                             .fillMaxWidth()
-                            .background(bgLight)
                             .navigationBarsPadding()
-                            .padding(horizontal = 16.dp, vertical = 12.dp)
+                            .padding(top = 0.dp)
                     ) {
                         if (etapaCadastro == 1) {
                             Button(
@@ -1777,8 +1813,8 @@ private fun OnboardingNovoCarroScreenContent(
                                             modelo = combinarModeloAno(modelo, anoSelecionado),
                                             proprietario = proprietario,
                                             corArgb = corSelecionada ?: carroBase.corArgb,
-                                            kmAtual = if (isKmOptionalType && bikeSemKm) 0 else (kmAtualStr.filter(Char::isDigit).toIntOrNull() ?: 0),
-                                            semControleKm = isKmOptionalType && bikeSemKm,
+                                            kmAtual = if (isBikeTypeGlobal && bikeSemKm) 0 else (kmAtualStr.filter(Char::isDigit).toIntOrNull() ?: 0),
+                                            semControleKm = isBikeTypeGlobal && bikeSemKm,
                                             tipoVeiculo = tipoSelecionado!!,
                                             vezesBatido = vezesBatido,
                                             tempoComVeiculo = tempoComVeiculo
@@ -1799,6 +1835,7 @@ private fun OnboardingNovoCarroScreenContent(
                         }
                     }
                 }
+            }
         }
     }
 }
@@ -2044,6 +2081,39 @@ private fun ColorRowNovoOnboarding(
                     maxLines = 1
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun StepDot(active: Boolean, done: Boolean, label: String) {
+    Box(
+        modifier = Modifier
+            .size(28.dp)
+            .background(
+                when {
+                    done   -> Color(0xFF10B981)
+                    active -> Color(0xFF60A5FA)
+                    else   -> Color(0xFF1E3A5F)
+                },
+                CircleShape
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        if (done) {
+            Icon(
+                imageVector = Icons.Rounded.CheckCircle,
+                contentDescription = null,
+                tint = Color.White,
+                modifier = Modifier.size(16.dp)
+            )
+        } else {
+            Text(
+                text = label,
+                color = if (active) Color.White else Color(0xFF60A5FA).copy(alpha = 0.5f),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold
+            )
         }
     }
 }

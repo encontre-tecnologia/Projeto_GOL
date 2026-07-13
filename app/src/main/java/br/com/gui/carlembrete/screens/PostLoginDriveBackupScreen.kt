@@ -3,6 +3,7 @@ package br.com.gui.carlembrete
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -66,6 +67,7 @@ private enum class PostLoginBackupState {
     RESTORING,
     ERROR
 }
+private const val TAG_LOGIN_BACKUP_FLOW = "LoginBackupFlow"
 
 private tailrec fun Context.findBackupActivity(): Activity? = when (this) {
     is Activity -> this
@@ -98,6 +100,7 @@ fun PostLoginDriveBackupScreen(
     val canUseDriveBackup = planTier != PlanTier.FREE
 
     fun checkBackup(account: GoogleSignInAccount) {
+        Log.d(TAG_LOGIN_BACKUP_FLOW, "PostLoginDrive.checkBackup start canUse=$canUseDriveBackup email=${account.email}")
         if (!canUseDriveBackup) {
             onContinueWithoutRestore()
             return
@@ -107,6 +110,7 @@ fun PostLoginDriveBackupScreen(
             runCatching {
                 driveBackupManager.hasBackup(account)
             }.onSuccess { hasBackup ->
+                Log.d(TAG_LOGIN_BACKUP_FLOW, "PostLoginDrive.checkBackup hasBackup=$hasBackup")
                 if (hasBackup) {
                     accountWithBackup = account
                     state = PostLoginBackupState.FOUND
@@ -114,6 +118,7 @@ fun PostLoginDriveBackupScreen(
                     state = PostLoginBackupState.NOT_FOUND
                 }
             }.onFailure { err ->
+                Log.e(TAG_LOGIN_BACKUP_FLOW, "PostLoginDrive.checkBackup failed", err)
                 errorMessage = err.message?.takeIf { it.isNotBlank() }
                     ?: "Nao foi possivel verificar o backup no Drive."
                 state = PostLoginBackupState.ERROR
@@ -122,6 +127,7 @@ fun PostLoginDriveBackupScreen(
     }
 
     fun restoreBackup(account: GoogleSignInAccount) {
+        Log.d(TAG_LOGIN_BACKUP_FLOW, "PostLoginDrive.restoreBackup start canUse=$canUseDriveBackup email=${account.email}")
         if (!canUseDriveBackup) {
             onContinueWithoutRestore()
             return
@@ -130,7 +136,13 @@ fun PostLoginDriveBackupScreen(
         scope.launch(Dispatchers.IO) {
             try {
                 val payload = driveBackupManager.downloadBackup(account)
-                if (payload == null) {
+                Log.d(
+                    TAG_LOGIN_BACKUP_FLOW,
+                    "PostLoginDrive.restoreBackup payload carros=${payload?.carros?.size ?: -1} " +
+                        "lembretes=${payload?.lembretes?.size ?: -1} contatos=${payload?.contatos?.size ?: -1}"
+                )
+                if (payload == null || payload.carros.isEmpty()) {
+                    Log.w(TAG_LOGIN_BACKUP_FLOW, "PostLoginDrive.restoreBackup rejected empty/null payload")
                     withContext(Dispatchers.Main) { state = PostLoginBackupState.NOT_FOUND }
                     return@launch
                 }
@@ -145,6 +157,11 @@ fun PostLoginDriveBackupScreen(
                     itemsJson = payload.fleetStockItemsJson,
                     movementsJson = payload.fleetStockMovementsJson
                 )
+                if (payload.carros.isNotEmpty()) {
+                    AppPreferences.markOnboardingComplete(context)
+                }
+                val savedCount = BancoDeDados.carregarCarros(context)?.size ?: -1
+                Log.d(TAG_LOGIN_BACKUP_FLOW, "PostLoginDrive.restoreBackup saved carros=$savedCount")
                 NotificacaoHelper.reagendarExistentes(context.applicationContext, payload.lembretes)
                 withContext(Dispatchers.Main) {
                     Toast.makeText(context, "Backup restaurado com sucesso.", Toast.LENGTH_SHORT).show()
@@ -152,6 +169,7 @@ fun PostLoginDriveBackupScreen(
                 }
             } catch (err: Exception) {
                 withContext(Dispatchers.Main) {
+                    Log.e(TAG_LOGIN_BACKUP_FLOW, "PostLoginDrive.restoreBackup failed", err)
                     errorMessage = err.message?.takeIf { it.isNotBlank() }
                         ?: "Falha ao restaurar o backup do Drive."
                     state = PostLoginBackupState.ERROR

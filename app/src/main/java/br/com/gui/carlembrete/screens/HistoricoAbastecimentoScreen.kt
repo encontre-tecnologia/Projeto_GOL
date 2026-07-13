@@ -1,4 +1,6 @@
+import android.app.DatePickerDialog
 import android.content.Context
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -33,13 +35,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import br.com.gui.carlembrete.Abastecimento
-import br.com.gui.carlembrete.AdminUsersSync
+import br.com.gui.carlembrete.AppPreferences
 import br.com.gui.carlembrete.BancoDeDados
 import br.com.gui.carlembrete.formatarMoedaLocal
+import br.com.gui.carlembrete.isEnglishUi
 import br.com.gui.carlembrete.tr
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.text.NumberFormat
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -75,7 +79,19 @@ fun HistoricoAbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
     var kmAtualCarro by remember { mutableStateOf(0) }
     var itemEdicao by remember { mutableStateOf<Abastecimento?>(null) }
     var itemExcluir by remember { mutableStateOf<Abastecimento?>(null) }
+    var filtroCombustivel by remember { mutableStateOf<String?>(null) }
+    var filtroExpanded by remember { mutableStateOf(false) }
     val formatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
+
+    BackHandler {
+        if (itemEdicao != null) {
+            itemEdicao = null
+        } else if (itemExcluir != null) {
+            itemExcluir = null
+        } else {
+            onDismiss()
+        }
+    }
 
     LaunchedEffect(Unit) {
         scope.launch {
@@ -89,8 +105,27 @@ fun HistoricoAbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
         }
     }
 
-    val ordenados = remember(abastecimentos) {
-        abastecimentos.sortedByDescending { parseLocalDateFlexible(it.data, formatter) }
+    val opcoesCombustivel = remember(abastecimentos) {
+        abastecimentos
+            .map { tipoCombustivelHistorico(it) }
+            .distinct()
+            .sorted()
+    }
+    LaunchedEffect(opcoesCombustivel, filtroCombustivel) {
+        if (filtroCombustivel != null && filtroCombustivel !in opcoesCombustivel) {
+            filtroCombustivel = null
+        }
+    }
+    val abastecimentosFiltrados = remember(abastecimentos, filtroCombustivel) {
+        val filtro = filtroCombustivel
+        if (filtro == null) {
+            abastecimentos
+        } else {
+            abastecimentos.filter { tipoCombustivelHistorico(it) == filtro }
+        }
+    }
+    val ordenados = remember(abastecimentosFiltrados) {
+        abastecimentosFiltrados.sortedByDescending { parseLocalDateFlexible(it.data, formatter) }
     }
     val resumoGastos = remember(ordenados) {
         calcularResumoGastosAbastecimento(
@@ -98,9 +133,12 @@ fun HistoricoAbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
             formatter = formatter
         )
     }
-    val resumoConsumo = remember(abastecimentos) {
+    val resumoConsumo = remember(ordenados, kmAtualCarro, carroId) {
         calcularResumoConsumoAbastecimento(
-            abastecimentos = abastecimentos
+            context = context,
+            carroId = carroId,
+            kmAtualCarro = kmAtualCarro,
+            abastecimentos = ordenados
         )
     }
     DisposableEffect(view, isDark, screenBg) {
@@ -130,7 +168,6 @@ fun HistoricoAbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
                     withContext(Dispatchers.IO) {
                         BancoDeDados.salvarAbastecimentos(context, novaLista)
                     }
-                    AdminUsersSync.syncFuelSnapshot(novaLista)
                     abastecimentos = novaLista
                     itemEdicao = null
                 }
@@ -148,7 +185,6 @@ fun HistoricoAbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
                     withContext(Dispatchers.IO) {
                         BancoDeDados.salvarAbastecimentos(context, novaLista)
                     }
-                    AdminUsersSync.syncFuelSnapshot(novaLista)
                     abastecimentos = novaLista
                     itemExcluir = null
                 }
@@ -176,7 +212,7 @@ fun HistoricoAbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
                 .fillMaxSize()
                 .padding(innerPadding)
                 .padding(horizontal = 20.dp),
-            contentPadding = PaddingValues(vertical = 12.dp),
+            contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item {
@@ -207,15 +243,60 @@ fun HistoricoAbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 12.sp
                         )
+                        if (opcoesCombustivel.isNotEmpty()) {
+                            ExposedDropdownMenuBox(
+                                expanded = filtroExpanded,
+                                onExpandedChange = { filtroExpanded = !filtroExpanded }
+                            ) {
+                                OutlinedTextField(
+                                    value = filtroCombustivel ?: tr("Todos os combustiveis", "All fuel types"),
+                                    onValueChange = {},
+                                    readOnly = true,
+                                    label = { Text(tr("Filtro", "Filter")) },
+                                    modifier = Modifier
+                                        .menuAnchor()
+                                        .fillMaxWidth(),
+                                    shape = RoundedCornerShape(12.dp),
+                                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = filtroExpanded) },
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedTextColor = titleColor,
+                                        unfocusedTextColor = titleColor,
+                                        focusedBorderColor = AccentBlue,
+                                        unfocusedBorderColor = cardBorderColor,
+                                        focusedLabelColor = AccentBlue,
+                                        unfocusedLabelColor = bodyColor
+                                    )
+                                )
+                                ExposedDropdownMenu(
+                                    expanded = filtroExpanded,
+                                    onDismissRequest = { filtroExpanded = false }
+                                ) {
+                                    DropdownMenuItem(
+                                        text = { Text(tr("Todos os combustiveis", "All fuel types")) },
+                                        onClick = {
+                                            filtroCombustivel = null
+                                            filtroExpanded = false
+                                        }
+                                    )
+                                    opcoesCombustivel.forEach { tipo ->
+                                        DropdownMenuItem(
+                                            text = { Text(tipo) },
+                                            onClick = {
+                                                filtroCombustivel = tipo
+                                                filtroExpanded = false
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             MiniResumoDestaque(
-                                label = tr("Media por dia", "Daily average"),
-                                value = resumoConsumo.litrosPorDia?.let {
-                                    String.format(Locale("pt", "BR"), "%.2f L/dia", it)
-                                } ?: "--",
+                                label = tr("Total do mes", "Month total"),
+                                value = formatarMoedaLocal(resumoGastos.gastoMes),
                                 isDark = isDark,
                                 valueColor = if (isDark) Color(0xFF86EFAC) else Color(0xFF166534),
                                 modifier = Modifier.weight(1f)
@@ -228,30 +309,6 @@ fun HistoricoAbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
                                 modifier = Modifier.weight(1f)
                             )
                         }
-                        Text(
-                            text = resumoConsumo.descricaoBase,
-                            color = if (isDark) Color(0xFFCBD5E1) else Color(0xFF475569),
-                            fontSize = 12.sp,
-                            lineHeight = 16.sp
-                        )
-                        HorizontalDivider(color = cardBorderColor.copy(alpha = 0.55f))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = tr("Total do mes", "Month total"),
-                                color = if (isDark) TextGray else Color(0xFF64748B),
-                                fontSize = 12.sp
-                            )
-                            Text(
-                                text = formatarMoedaLocal(resumoGastos.gastoMes),
-                                color = if (isDark) Color(0xFF86EFAC) else Color(0xFF166534),
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp
-                            )
-                        }
                     }
                 }
             }
@@ -260,16 +317,16 @@ fun HistoricoAbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
                 item {
                     Box(
                         modifier = Modifier
-                            .fillParentMaxSize()
-                            .padding(top = 48.dp),
-                        contentAlignment = Alignment.TopCenter
+                            .fillMaxWidth()
+                            .height(360.dp),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(Icons.Rounded.LocalGasStation, null, tint = bodyColor.copy(alpha = 0.35f), modifier = Modifier.size(60.dp))
-                            Spacer(Modifier.height(16.dp))
-                            Text("Sem registros ainda", color = bodyColor, fontSize = 16.sp)
-                        }
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(Icons.Rounded.LocalGasStation, null, tint = bodyColor.copy(alpha = 0.35f), modifier = Modifier.size(60.dp))
+                        Spacer(Modifier.height(16.dp))
+                        Text("Sem registros ainda", color = bodyColor, fontSize = 16.sp)
                     }
+                }
                 }
             } else {
                 itemsIndexed(ordenados) { index, item ->
@@ -384,8 +441,8 @@ fun TimelineItem(
                                 }
                             }
                             Spacer(Modifier.width(8.dp))
-                        Text(item.data, color = cardTitle, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                    }
+                            Text(item.data, color = cardTitle, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                        }
                         Row {
                             IconButton(onClick = onEdit, modifier = Modifier.size(32.dp)) {
                                 Icon(Icons.Rounded.Edit, null, tint = cardBody, modifier = Modifier.size(18.dp))
@@ -412,6 +469,55 @@ fun TimelineItem(
 
 
                     // --- RODAPÃ‰ COM INFORMAÃ‡Ã•ES INVERTIDAS ---
+                    val tipoCombustivelCard = tipoCombustivelHistorico(item)
+                    if (tipoCombustivelCard != "Não informado") {
+                        Surface(
+                            color = AccentBlue.copy(alpha = 0.10f),
+                            shape = RoundedCornerShape(999.dp),
+                            border = BorderStroke(1.dp, AccentBlue.copy(alpha = 0.28f))
+                        ) {
+                            Text(
+                                text = tipoCombustivelCard,
+                                color = if (isDark) Color(0xFF93C5FD) else AccentBlue,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                            )
+                        }
+                        Spacer(Modifier.height(12.dp))
+                    }
+
+                    item.km?.takeIf { it > 0 }?.let { kmRegistrado ->
+                        Surface(
+                            color = AccentBlue.copy(alpha = 0.10f),
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(1.dp, AccentBlue.copy(alpha = 0.28f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "KM registrado",
+                                    color = cardBody,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = formatarKmHistorico(kmRegistrado),
+                                    color = if (isDark) Color(0xFF93C5FD) else AccentBlue,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(12.dp))
+                    }
+
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -506,42 +612,19 @@ private data class ResumoGastosAbastecimento(
 )
 
 private data class ResumoConsumoAbastecimento(
-    val litrosPorDia: Double?,
-    val litrosTotais: Double,
-    val litrosConsiderados: Double,
-    val diasConsiderados: Long?,
-    val intervalosValidos: Int
+    val kmPorLitro: Double?,
+    val litrosPorKm: Double?,
+    val litrosTotais: Double
 ) {
     val label: String
-        get() = if (litrosPorDia != null) {
+        get() = if (kmPorLitro != null && litrosPorKm != null) {
             val locale = Locale("pt", "BR")
-            "${String.format(locale, "%.2f", litrosPorDia)} L/dia"
+            "${String.format(locale, "%.2f", kmPorLitro)} km/L • ${String.format(locale, "%.3f", litrosPorKm)} L/km"
         } else if (litrosTotais > 0.0) {
             val locale = Locale("pt", "BR")
             "${String.format(locale, "%.2f", litrosTotais)} L registrados"
         } else {
             "--"
-        }
-
-    val descricaoBase: String
-        get() {
-            val locale = Locale("pt", "BR")
-            return when {
-                litrosPorDia != null && diasConsiderados != null && intervalosValidos > 0 -> {
-                    "Baseado em $diasConsiderados dia(s) entre abastecimentos e " +
-                        "${String.format(locale, "%.2f", litrosConsiderados)} L abastecidos em $intervalosValidos intervalo(s)."
-                }
-                litrosPorDia != null && diasConsiderados != null -> {
-                    "Baseado em $diasConsiderados dia(s) com abastecimento registrado e " +
-                        "${String.format(locale, "%.2f", litrosConsiderados)} L no total."
-                }
-                litrosTotais > 0.0 -> {
-                    "Cadastre abastecimentos em dias diferentes para calcular a media de consumo por dia."
-                }
-                else -> {
-                    "Cadastre abastecimentos para o app calcular o consumo medio por intervalo."
-                }
-            }
         }
 }
 
@@ -591,61 +674,32 @@ private fun parseLocalDateFlexible(raw: String, fallbackFormatter: DateTimeForma
 }
 
 private fun calcularResumoConsumoAbastecimento(
+    context: android.content.Context,
+    carroId: String,
+    kmAtualCarro: Int,
     abastecimentos: List<Abastecimento>
 ): ResumoConsumoAbastecimento {
     val litrosTotais = abastecimentos.sumOf { it.litros.coerceAtLeast(0.0) }
-    val registrosComData = abastecimentos
-        .mapIndexedNotNull { index, item ->
-            val data = parseLocalDateFlexible(item.data, DateTimeFormatter.ofPattern("dd/MM/yyyy"))
-                ?: return@mapIndexedNotNull null
-            if (item.litros <= 0.0) return@mapIndexedNotNull null
-            FuelConsumptionPoint(index = index, data = data, litros = item.litros)
-        }
-        .sortedWith(
-            compareBy<FuelConsumptionPoint> { it.data }
-                .thenBy { it.index }
-        )
+    val kmInicial = AppPreferences.getFuelStartKm(context, carroId)
 
-    val intervalos = registrosComData.windowed(2).mapNotNull { (anterior, atual) ->
-        val dias = java.time.temporal.ChronoUnit.DAYS.between(anterior.data, atual.data)
-        val litros = atual.litros.coerceAtLeast(0.0)
-        if (dias > 0L && litros > 0.0) dias to litros else null
+    if (kmInicial == null || kmAtualCarro <= kmInicial || litrosTotais <= 0.0) {
+        return ResumoConsumoAbastecimento(kmPorLitro = null, litrosPorKm = null, litrosTotais = litrosTotais)
     }
 
-    if (intervalos.isEmpty() || litrosTotais <= 0.0) {
-        val diasComRegistro = registrosComData
-            .map { it.data }
-            .distinct()
-            .size
-            .takeIf { it > 0 }
-        val mediaPorDiaRegistrado = diasComRegistro?.let { litrosTotais / it.toDouble() }
-        return ResumoConsumoAbastecimento(
-            litrosPorDia = mediaPorDiaRegistrado?.takeIf { it.isFinite() && it > 0.0 },
-            litrosTotais = litrosTotais,
-            litrosConsiderados = litrosTotais.takeIf { it.isFinite() && it > 0.0 } ?: 0.0,
-            diasConsiderados = diasComRegistro?.toLong(),
-            intervalosValidos = 0
-        )
+    val distancia = (kmAtualCarro - kmInicial).toDouble()
+    if (distancia <= 0.0) {
+        return ResumoConsumoAbastecimento(kmPorLitro = null, litrosPorKm = null, litrosTotais = litrosTotais)
     }
 
-    val dias = intervalos.sumOf { it.first }
-    val litrosConsiderados = intervalos.sumOf { it.second }
-    val litrosPorDia = litrosConsiderados / dias.toDouble()
+    val kmPorLitro = distancia / litrosTotais
+    val litrosPorKm = litrosTotais / distancia
 
     return ResumoConsumoAbastecimento(
-        litrosPorDia = litrosPorDia.takeIf { it.isFinite() && it > 0.0 },
-        litrosTotais = litrosTotais,
-        litrosConsiderados = litrosConsiderados.takeIf { it.isFinite() && it > 0.0 } ?: 0.0,
-        diasConsiderados = dias.takeIf { it > 0L },
-        intervalosValidos = intervalos.size
+        kmPorLitro = kmPorLitro.takeIf { it.isFinite() && it > 0.0 },
+        litrosPorKm = litrosPorKm.takeIf { it.isFinite() && it > 0.0 },
+        litrosTotais = litrosTotais
     )
 }
-
-private data class FuelConsumptionPoint(
-    val index: Int,
-    val data: LocalDate,
-    val litros: Double
-)
 
 // ... Dialogs mantidos iguais ...
 @OptIn(ExperimentalMaterial3Api::class)
@@ -666,8 +720,26 @@ fun DialogEditar(
     val context = LocalContext.current
     var precoTexto by remember { mutableStateOf(String.format(Locale("pt", "BR"), "%.2f", item.precoLitro)) }
     var totalTexto by remember { mutableStateOf(String.format(Locale("pt", "BR"), "%.2f", item.valorPago)) }
-    var dataTexto by remember { mutableStateOf(item.data) }
-    var descricaoTexto by remember { mutableStateOf(carregarDescricaoAbastecimento(context, item)) }
+    var dataSelecionada by remember { mutableStateOf(parseLocalDateFlexible(item.data, formatter) ?: LocalDate.now()) }
+    var kmTexto by remember { mutableStateOf(item.km?.toString().orEmpty()) }
+    var tipoCombustivel by remember { mutableStateOf(item.tipoCombustivel.orEmpty().ifBlank { "Gasolina" }) }
+    var combustivelExpanded by remember { mutableStateOf(false) }
+    val opcoesCombustivel = if (isEnglishUi()) {
+        listOf("Gasoline", "Ethanol", "Diesel", "CNG", "Flex")
+    } else {
+        listOf("Gasolina", "Etanol", "Diesel", "GNV", "Flex")
+    }
+    val abrirDatePicker = {
+        DatePickerDialog(
+            context,
+            { _, year, month, dayOfMonth ->
+                dataSelecionada = LocalDate.of(year, month + 1, dayOfMonth)
+            },
+            dataSelecionada.year,
+            dataSelecionada.monthValue - 1,
+            dataSelecionada.dayOfMonth
+        ).show()
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -675,9 +747,43 @@ fun DialogEditar(
         title = { Text("Editar Abastecimento", color = titleColor, fontWeight = FontWeight.Bold) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                ExposedDropdownMenuBox(
+                    expanded = combustivelExpanded,
+                    onExpandedChange = { combustivelExpanded = !combustivelExpanded }
+                ) {
+                    OutlinedTextField(
+                        value = tipoCombustivel,
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("Combustivel") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = combustivelExpanded) },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = fieldTextColor, unfocusedTextColor = fieldTextColor,
+                            focusedBorderColor = AccentBlue, unfocusedBorderColor = fieldBorderColor,
+                            focusedLabelColor = AccentBlue, unfocusedLabelColor = fieldLabelColor
+                        ),
+                        modifier = Modifier
+                            .menuAnchor()
+                            .fillMaxWidth()
+                    )
+                    ExposedDropdownMenu(
+                        expanded = combustivelExpanded,
+                        onDismissRequest = { combustivelExpanded = false }
+                    ) {
+                        opcoesCombustivel.forEach { opcao ->
+                            DropdownMenuItem(
+                                text = { Text(opcao) },
+                                onClick = {
+                                    tipoCombustivel = opcao
+                                    combustivelExpanded = false
+                                }
+                            )
+                        }
+                    }
+                }
                 OutlinedTextField(
                     value = precoTexto,
-                    onValueChange = { precoTexto = it },
+                    onValueChange = { precoTexto = formatarDecimalAbastecimentoInput(it) },
                     label = { Text("Preco por Litro") },
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = fieldTextColor, unfocusedTextColor = fieldTextColor,
@@ -689,7 +795,7 @@ fun DialogEditar(
                 )
                 OutlinedTextField(
                     value = totalTexto,
-                    onValueChange = { totalTexto = it },
+                    onValueChange = { totalTexto = formatarDecimalAbastecimentoInput(it) },
                     label = { Text("Total Pago (R$)") },
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = fieldTextColor, unfocusedTextColor = fieldTextColor,
@@ -700,20 +806,31 @@ fun DialogEditar(
                     modifier = Modifier.fillMaxWidth()
                 )
                 OutlinedTextField(
-                    value = descricaoTexto,
-                    onValueChange = { descricaoTexto = it },
-                    label = { Text("Descricao") },
+                    value = kmTexto,
+                    onValueChange = { kmTexto = it.filter(Char::isDigit).take(7) },
+                    label = { Text("KM registrado") },
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = fieldTextColor, unfocusedTextColor = fieldTextColor,
                         focusedBorderColor = AccentBlue, unfocusedBorderColor = fieldBorderColor,
                         focusedLabelColor = AccentBlue, unfocusedLabelColor = fieldLabelColor
                     ),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.fillMaxWidth()
                 )
                 OutlinedTextField(
-                    value = dataTexto,
-                    onValueChange = { dataTexto = it },
+                    value = dataSelecionada.format(formatter),
+                    onValueChange = {},
+                    readOnly = true,
                     label = { Text("Data") },
+                    trailingIcon = {
+                        IconButton(onClick = abrirDatePicker) {
+                            Icon(
+                                imageVector = Icons.Rounded.CalendarMonth,
+                                contentDescription = "Selecionar data",
+                                tint = fieldLabelColor
+                            )
+                        }
+                    },
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = fieldTextColor, unfocusedTextColor = fieldTextColor,
                         focusedBorderColor = AccentBlue, unfocusedBorderColor = fieldBorderColor,
@@ -728,13 +845,14 @@ fun DialogEditar(
                 val preco = precoTexto.replace(",", ".").toDoubleOrNull()
                 val total = totalTexto.replace(",", ".").toDoubleOrNull()
                 val litros = if (preco != null && total != null && preco > 0.0) total / preco else item.litros
-                salvarDescricaoAbastecimento(context, item.id, descricaoTexto)
                 onConfirm(
                     item.copy(
-                        data = dataTexto.ifBlank { item.data },
+                        data = dataSelecionada.format(formatter),
                         precoLitro = preco ?: item.precoLitro,
                         valorPago = total ?: item.valorPago,
-                        litros = litros
+                        litros = litros,
+                        tipoCombustivel = tipoCombustivel,
+                        km = kmTexto.filter(Char::isDigit).toIntOrNull()
                     )
                 )
             }, colors = ButtonDefaults.buttonColors(containerColor = AccentBlue)) { Text("Salvar", color = Color.White) }
@@ -755,6 +873,33 @@ private fun salvarDescricaoAbastecimento(context: Context, id: String, descricao
         .edit()
         .putString(id, descricao.trim())
         .apply()
+}
+
+private fun tipoCombustivelHistorico(item: Abastecimento): String {
+    return item.tipoCombustivel.orEmpty().trim().ifBlank { "Não informado" }
+}
+
+private fun formatarKmHistorico(km: Int): String {
+    return "${NumberFormat.getIntegerInstance(Locale("pt", "BR")).format(km)} km"
+}
+
+private fun formatarKmInputAbastecimento(raw: String): String {
+    val digits = raw.filter(Char::isDigit).take(7)
+    if (digits.isBlank()) return ""
+    return NumberFormat.getIntegerInstance(Locale("pt", "BR")).format(digits.toInt())
+}
+
+private fun formatarDecimalAbastecimentoInput(raw: String): String {
+    val normalizado = raw.replace('.', ',')
+    val filtrado = normalizado.filter { it.isDigit() || it == ',' }
+    val partes = filtrado.split(',', limit = 2)
+    val inteiro = partes.getOrNull(0).orEmpty().filter(Char::isDigit).take(7)
+    val decimal = partes.getOrNull(1)?.filter(Char::isDigit)?.take(2)
+    return if (decimal != null) {
+        "${inteiro.ifBlank { "0" }},$decimal"
+    } else {
+        inteiro
+    }
 }
 
 @Composable

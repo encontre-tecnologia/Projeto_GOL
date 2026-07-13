@@ -22,6 +22,7 @@ import android.location.Location
 import android.location.LocationManager
 import android.net.Uri
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
@@ -168,6 +169,17 @@ fun AondePareiScreen(
             selectedVehicleName = ""
         } else if (selectedVehicleName !in registeredVehicleNames) {
             selectedVehicleName = registeredVehicleNames.first()
+        }
+    }
+
+    BackHandler {
+        when {
+            selectedPhotoUri != null -> selectedPhotoUri = null
+            showNavigationDialog -> showNavigationDialog = false
+            showVehicleSelectorDialog -> showVehicleSelectorDialog = false
+            showVehicleImageDialog -> showVehicleImageDialog = false
+            showParkingFinishedDialog -> showParkingFinishedDialog = false
+            else -> onDismiss()
         }
     }
 

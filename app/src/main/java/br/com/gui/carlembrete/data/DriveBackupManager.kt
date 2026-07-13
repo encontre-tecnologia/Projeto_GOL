@@ -76,14 +76,44 @@ class DriveBackupManager(private val context: Context) {
             .build()
     }
 
-    private fun findBackupFileId(drive: Drive): String? {
+    suspend fun deleteBackup(account: GoogleSignInAccount) {
+        withContext(Dispatchers.IO) {
+            try {
+                val drive = buildDriveService(account)
+                val fileId = findBackupFileId(drive) ?: return@withContext
+                drive.files().delete(fileId).execute()
+            } catch (_: Exception) {}
+        }
+    }
+
+    suspend fun hasBackupInDrive(account: GoogleSignInAccount): Boolean =
+        backupModifiedAtInDrive(account) != null
+
+    /** Returns the Drive file's last-modified timestamp in ms, or null if no backup exists. */
+    suspend fun backupModifiedAtInDrive(account: GoogleSignInAccount): Long? {
+        return withContext(Dispatchers.IO) {
+            try {
+                findBackupFileMeta(buildDriveService(account))?.second
+            } catch (e: Exception) {
+                null
+            }
+        }
+    }
+
+    private fun findBackupFileId(drive: Drive): String? =
+        findBackupFileMeta(drive)?.first
+
+    private fun findBackupFileMeta(drive: Drive): Pair<String, Long>? {
         val query = "name = '$backupFileName' and 'appDataFolder' in parents and trashed = false"
-        val result = drive.files()
+        val file = drive.files()
             .list()
             .setSpaces("appDataFolder")
             .setQ(query)
-            .setFields("files(id, name)")
+            .setFields("files(id, modifiedTime)")
             .execute()
-        return result.files?.firstOrNull()?.id
+            .files
+            ?.firstOrNull() ?: return null
+        val ms = file.modifiedTime?.value ?: System.currentTimeMillis()
+        return file.id to ms
     }
 }
