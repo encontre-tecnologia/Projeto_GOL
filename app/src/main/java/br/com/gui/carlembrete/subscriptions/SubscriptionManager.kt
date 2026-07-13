@@ -7,6 +7,7 @@ import com.android.billingclient.api.BillingClient
 import com.android.billingclient.api.BillingClientStateListener
 import com.android.billingclient.api.BillingFlowParams
 import com.android.billingclient.api.BillingResult
+import com.android.billingclient.api.PendingPurchasesParams
 import com.android.billingclient.api.ProductDetails
 import com.android.billingclient.api.QueryProductDetailsParams
 import com.android.billingclient.api.Purchase
@@ -22,7 +23,11 @@ class SubscriptionManager(context: Context) : PurchasesUpdatedListener {
     private val appContext = context.applicationContext
     private val billingClient: BillingClient = BillingClient.newBuilder(appContext)
         .setListener(this)
-        .enablePendingPurchases()
+        .enablePendingPurchases(
+            PendingPurchasesParams.newBuilder()
+                .enableOneTimeProducts()
+                .build()
+        )
         .build()
 
     private val productDetailsById = mutableMapOf<String, ProductDetails>()
@@ -157,7 +162,7 @@ class SubscriptionManager(context: Context) : PurchasesUpdatedListener {
                 }
             )
             .build()
-        billingClient.queryProductDetailsAsync(params) { billingResult, detailsList ->
+        billingClient.queryProductDetailsAsync(params) { billingResult, productDetailsResult ->
             if (billingResult.responseCode != BillingClient.BillingResponseCode.OK) {
                 productDetailsById.clear()
                 offerTokenByProductId.clear()
@@ -165,6 +170,7 @@ class SubscriptionManager(context: Context) : PurchasesUpdatedListener {
                 return@queryProductDetailsAsync
             }
 
+            val detailsList = productDetailsResult.productDetailsList
             productDetailsById.clear()
             offerTokenByProductId.clear()
 
