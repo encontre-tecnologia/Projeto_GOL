@@ -4228,3 +4228,4 @@ private fun HubFeatureCard(
         }
     }
 }
+// separa tudo isso antes de implementar coisa nova sem vergonha

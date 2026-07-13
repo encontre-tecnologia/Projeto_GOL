@@ -199,67 +199,82 @@ fun RelatorioVeiculoScreen(carroAtual: CarroInfo, lembretes: List<Lembrete>, isP
                         }
                     }
                 Spacer(Modifier.height(24.dp))
-                    ElevatedCard(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = Color.Transparent),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
-                    ) {
+                    run {
                         val infoModelo = listOf(carroAtual.marca, carroAtual.modelo).filter { it.isNotBlank() }.joinToString(" - ")
                         val proximaData = proximos.firstOrNull()?.second?.format(formatter) ?: tr("Sem agenda", "No schedule")
                         val kmAtualText = if (carroAtual.kmAtual > 0) "${carroAtual.kmAtual} km" else tr("Não informado", "Not informed")
                         val proprietarioText = carroAtual.proprietario.ifBlank { tr("Não informado", "Not informed") }
-                        val textoPrimario = Color(0xFF0F172A)
-                        val textoSecundario = Color(0xFF475569)
+                        val onHero = Color.White
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(24.dp))
-                                .background(colorScheme.surface)
-                                .border(1.dp, colorScheme.outlineVariant.copy(alpha = 0.7f), RoundedCornerShape(24.dp))
-                                .padding(20.dp)
-                        ) {
-                            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                                Column(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalAlignment = Alignment.CenterHorizontally
-                                ) {
-                                    Text(
-                                        text = carroAtual.nome,
-                                        color = textoPrimario,
-                                        style = MaterialTheme.typography.headlineSmall,
-                                        fontWeight = FontWeight.ExtraBold
+                                .clip(RoundedCornerShape(28.dp))
+                                .background(
+                                    Brush.linearGradient(
+                                        colors = listOf(
+                                            colorScheme.primary,
+                                            colorScheme.primary.copy(alpha = 0.78f)
+                                        ),
+                                        start = Offset(0f, 0f),
+                                        end = Offset(1000f, 1000f)
                                     )
-                                    if (infoModelo.isNotBlank()) {
-                                        Text(infoModelo, color = textoSecundario, fontSize = 13.sp)
-                                    }
-                                    Spacer(Modifier.height(8.dp))
+                                )
+                                .padding(22.dp)
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
                                     Box(
                                         modifier = Modifier
-                                            .height(34.dp)
-                                            .align(Alignment.End)
-                                            .wrapContentWidth()
-                                            .background(colorScheme.primary.copy(alpha = if (isDark) 0.24f else 0.14f), RoundedCornerShape(12.dp))
-                                            .padding(horizontal = 12.dp),
+                                            .size(56.dp)
+                                            .clip(CircleShape)
+                                            .background(onHero.copy(alpha = 0.18f)),
                                         contentAlignment = Alignment.Center
                                     ) {
+                                        Icon(
+                                            Icons.Rounded.DirectionsCar,
+                                            contentDescription = null,
+                                            tint = onHero,
+                                            modifier = Modifier.size(28.dp)
+                                        )
+                                    }
+                                    Spacer(Modifier.width(14.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
                                         Text(
-                                            text = resumoChip,
-                                            color = textoPrimario,
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.SemiBold,
+                                            text = carroAtual.nome,
+                                            color = onHero,
+                                            style = MaterialTheme.typography.headlineSmall,
+                                            fontWeight = FontWeight.ExtraBold,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
                                         )
+                                        if (infoModelo.isNotBlank()) {
+                                            Text(infoModelo, color = onHero.copy(alpha = 0.85f), fontSize = 13.sp)
+                                        }
                                     }
                                 }
-                                Divider(color = colorScheme.outlineVariant.copy(alpha = 0.7f))
+                                Box(
+                                    modifier = Modifier
+                                        .wrapContentWidth()
+                                        .background(onHero.copy(alpha = 0.18f), RoundedCornerShape(12.dp))
+                                        .padding(horizontal = 12.dp, vertical = 7.dp)
+                                ) {
+                                    Text(
+                                        text = resumoChip,
+                                        color = onHero,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                                Divider(color = onHero.copy(alpha = 0.22f))
                                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    VehicleStat(label = tr("Odômetro", "Odometer"), value = kmAtualText, color = textoPrimario)
-                                    VehicleStat(label = tr("Avisos ativos", "Active reminders"), value = lembretes.size.toString(), color = textoPrimario)
-                                    VehicleStat(label = tr("Próximo serviço", "Next service"), value = proximaData, color = textoPrimario)
+                                    VehicleStat(label = tr("Odômetro", "Odometer"), value = kmAtualText, color = onHero)
+                                    VehicleStat(label = tr("Avisos ativos", "Active reminders"), value = lembretes.size.toString(), color = onHero)
+                                    VehicleStat(label = tr("Próximo serviço", "Next service"), value = proximaData, color = onHero)
                                 }
                                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    VehicleStat(label = tr("Proprietário", "Owner"), value = proprietarioText, color = textoPrimario)
+                                    VehicleStat(label = tr("Proprietário", "Owner"), value = proprietarioText, color = onHero)
                                 }
                             }
                         }
@@ -271,8 +286,19 @@ fun RelatorioVeiculoScreen(carroAtual: CarroInfo, lembretes: List<Lembrete>, isP
                         colors = CardDefaults.cardColors(containerColor = colorScheme.surface)
                     ) {
                         Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                            Text(tr("Status geral", "General status"), color = textPrimary, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                            Text("${tr("Avisos ativos", "Active reminders")}: ${lembretesTecnicos.size}", color = colorScheme.primary)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Rounded.Build, contentDescription = null, tint = colorScheme.primary, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text(tr("Status geral", "General status"), color = textPrimary, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .wrapContentWidth()
+                                    .background(colorScheme.primary.copy(alpha = if (isDark) 0.22f else 0.12f), RoundedCornerShape(10.dp))
+                                    .padding(horizontal = 10.dp, vertical = 5.dp)
+                            ) {
+                                Text("${tr("Avisos ativos", "Active reminders")}: ${lembretesTecnicos.size}", color = colorScheme.primary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            }
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                 tiposTecnicos.forEach { tipo ->
                                     val quantidade = lembretesPorTipo.getOrDefault(tipo, 0)
@@ -326,27 +352,58 @@ fun RelatorioVeiculoScreen(carroAtual: CarroInfo, lembretes: List<Lembrete>, isP
                             tr("Em atenção", "Attention") -> Color(0xFFEAB308)
                             else -> textPrimary
                         }
-                        Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Text(tr("Reputação do veículo", "Vehicle reputation"), color = textPrimary, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Icon(Icons.Default.Star, contentDescription = null, tint = corReputacao)
-                                Text(tituloReputacao, color = corReputacao, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        Row(modifier = Modifier.padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .clip(CircleShape)
+                                    .background(corReputacao.copy(alpha = if (isDark) 0.22f else 0.14f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Default.Star, contentDescription = null, tint = corReputacao, modifier = Modifier.size(24.dp))
                             }
-                            Text(descricaoReputacao, color = textDim, fontSize = 12.sp)
+                            Spacer(Modifier.width(14.dp))
+                            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(tr("Reputação do veículo", "Vehicle reputation"), color = textDim, fontSize = 12.sp)
+                                Text(tituloReputacao, color = corReputacao, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                                Text(descricaoReputacao, color = textDim, fontSize = 12.sp)
+                            }
                         }
                     }
                     if (proximos.isNotEmpty()) {
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Text(tr("Próximas manutenções", "Upcoming maintenance"), color = textPrimary, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Rounded.CalendarMonth, contentDescription = null, tint = colorScheme.primary, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text(tr("Próximas manutenções", "Upcoming maintenance"), color = textPrimary, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                            }
                             proximos.forEach { (lembrete, data) ->
+                                val diasParaVencer = ChronoUnit.DAYS.between(LocalDate.now(), data)
+                                val corPrazo = when {
+                                    diasParaVencer < 0 -> Color(0xFFEF4444)
+                                    diasParaVencer <= 30 -> Color(0xFFEAB308)
+                                    else -> Color(0xFF10B981)
+                                }
                                 ElevatedCard(
                                     colors = CardDefaults.cardColors(containerColor = colorScheme.surface),
                                     modifier = Modifier.fillMaxWidth().border(1.dp, colorScheme.outlineVariant.copy(alpha = 0.7f), RoundedCornerShape(16.dp))
                                 ) {
-                                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                        Text(lembrete.titulo, color = textPrimary, fontWeight = FontWeight.SemiBold)
-                                        Text("${tr("Data", "Date")}: ${lembrete.dataLimite.ifBlank { data.format(formatter) }}", color = colorScheme.primary, fontSize = 12.sp)
-                                        if (lembrete.kmLimite.isNotBlank()) Text("${tr("KM limite", "Mileage limit")}: ${lembrete.kmLimite}", color = textDim, fontSize = 12.sp)
+                                    Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(40.dp)
+                                                .clip(CircleShape)
+                                                .background(corPrazo.copy(alpha = if (isDark) 0.22f else 0.14f)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            TipoIcon(tipo = lembrete.tipo, tint = corPrazo, size = 20.dp)
+                                        }
+                                        Spacer(Modifier.width(12.dp))
+                                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            Text(lembrete.titulo, color = textPrimary, fontWeight = FontWeight.SemiBold)
+                                            Text("${tr("Data", "Date")}: ${lembrete.dataLimite.ifBlank { data.format(formatter) }}", color = colorScheme.primary, fontSize = 12.sp)
+                                            if (lembrete.kmLimite.isNotBlank()) Text("${tr("KM limite", "Mileage limit")}: ${lembrete.kmLimite}", color = textDim, fontSize = 12.sp)
+                                        }
                                     }
                                 }
                             }
