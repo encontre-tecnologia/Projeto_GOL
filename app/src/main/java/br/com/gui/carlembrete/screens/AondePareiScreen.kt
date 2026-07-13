@@ -81,7 +81,9 @@ import kotlin.math.min
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AondePareiScreen(
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    planTier: PlanTier = PlanTier.FREE,
+    onRequestPremium: (String) -> Unit = {}
 ) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE) }
@@ -100,6 +102,7 @@ fun AondePareiScreen(
     val outlineColor = if (isDark) Color.White.copy(alpha = 0.18f) else MaterialTheme.colorScheme.outlineVariant
     val titleText = if (isDark) Color(0xFFF8FAFC) else MaterialTheme.colorScheme.onSurface
     val englishUi = isEnglishUi()
+    val canExportPdf = planTier != PlanTier.FREE
 
     // --- ESTADOS ---
     var savedLocation by remember { mutableStateOf(AppPreferences.getParkedLocation(context)) }
@@ -838,6 +841,10 @@ fun AondePareiScreen(
                     ) {
                         OutlinedButton(
                             onClick = {
+                                if (!canExportPdf) {
+                                    onRequestPremium("parking_pdf")
+                                    return@OutlinedButton
+                                }
                                 val location = finalizedLocation
                                 val startedAt = finalizedStartedAtMillis
                                 val endedAt = finalizedEndedAtMillis
@@ -857,11 +864,36 @@ fun AondePareiScreen(
                             },
                             modifier = Modifier.weight(1f).height(50.dp),
                             shape = RoundedCornerShape(12.dp),
-                            border = BorderStroke(1.dp, primaryColor)
+                            border = BorderStroke(
+                                width = if (canExportPdf) 1.dp else 1.5.dp,
+                                color = primaryColor
+                            ),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = if (canExportPdf) {
+                                    Color.Transparent
+                                } else {
+                                    primaryColor.copy(alpha = if (isDark) 0.18f else 0.10f)
+                                }
+                            )
                         ) {
-                            Icon(Icons.Default.PictureAsPdf, null, tint = primaryColor, modifier = Modifier.size(18.dp))
+                            Icon(
+                                if (canExportPdf) Icons.Default.PictureAsPdf else Icons.Default.Lock,
+                                null,
+                                tint = primaryColor,
+                                modifier = Modifier.size(18.dp)
+                            )
                             Spacer(Modifier.width(8.dp))
-                            Text("PDF", color = primaryColor)
+                            Text("PDF", color = primaryColor, maxLines = 1)
+                            if (!canExportPdf) {
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    "Lite+",
+                                    color = primaryColor,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1
+                                )
+                            }
                         }
 
                         Button(

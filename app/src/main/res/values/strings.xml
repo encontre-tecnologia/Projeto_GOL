@@ -5,8 +5,8 @@
     <string name="common_back">Voltar</string>
 
     <string name="cfg_title">Configurações</string>
-    <string name="cfg_version_label">Versão 1.0.0</string>
-    <string name="cfg_section_appearance">APARÊNCIA</string>
+    <string name="cfg_version_label">Versão %1$s</string>
+    <string name="cfg_section_appearance">Tema do aplicativo</string>
     <string name="cfg_theme_label">Tema do aplicativo</string>
     <string name="cfg_theme_system">Sistema</string>
     <string name="cfg_theme_light">Claro</string>

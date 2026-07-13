@@ -72,6 +72,40 @@ class QrNotaParserTest {
     }
 
     @Test
+    fun parseNotaHtmlForTest_sp_naoCortaNotaGrandeEmSeisItens() {
+        val linhas = (1..10).joinToString("\n") { index ->
+            """
+                <tr>
+                    <td>
+                        <span class="txtTit">PRODUTO $index</span>
+                        <span><strong>Qtde.:</strong>$index</span>
+                    </td>
+                    <td class="txtTit noWrap">Vl. Total<br><span class="valor">${index},00</span></td>
+                </tr>
+            """.trimIndent()
+        }
+        val html = """
+            <html><body>
+                <table id="tabResult">
+                    $linhas
+                </table>
+                <div id="linhaTotal"><span class="totalNumb">55,00</span></div>
+            </body></html>
+        """.trimIndent()
+
+        val nota = parseNotaHtmlForTest(
+            html,
+            "https://www.nfce.fazenda.sp.gov.br/NFCeConsultaPublica/Paginas/ConsultaQRCode.aspx?p=x"
+        )
+
+        assertNotNull(nota)
+        val itens = extrairItensDaDescricaoQr(nota!!.descricaoItens)
+        assertEquals(10, itens.size)
+        assertEquals("PRODUTO 10", itens.last().nome)
+        assertEquals(10, itens.last().quantidade)
+    }
+
+    @Test
     fun parseNotaHtmlForTest_mg_layoutDetectado() {
         val html = """
             <html><body>

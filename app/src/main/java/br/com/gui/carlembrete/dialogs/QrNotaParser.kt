@@ -149,6 +149,7 @@ private data class ResumoNotaFinanceiro(
 
 const val QR_PARSER_TAG = "ZelluQrParser"
 private const val ENABLE_QR_MOCK_DIAGNOSTIC = false
+private const val MAX_ITENS_DESCRICAO_QR = 120
 private const val MENSAGEM_BLOQUEIO_SP =
     "Consulta automatica indisponivel na SEFAZ-SP (sessao/captcha). Tente novamente ou use OCR da foto."
 
@@ -720,15 +721,36 @@ private fun extrairItensSp(doc: Document): String? {
 }
 
 private fun extrairItensSpPorTitulosEValores(doc: Document): String? {
+    val linhasTabelaSp = doc.select("#tabResult tr")
+    if (linhasTabelaSp.isNotEmpty()) {
+        val itensPorLinha = linhasTabelaSp.mapNotNull { linha ->
+            val nome = linha.select(".txtTit")
+                .asSequence()
+                .mapNotNull { limparNomeProduto(it.text()) }
+                .firstOrNull { !it.equals("Vl. Total", ignoreCase = true) }
+                ?: return@mapNotNull null
+            val valor = linha.select(".valor, .valorItem")
+                .asSequence()
+                .mapNotNull { extrairPrimeiroValorMonetario(it.text()) }
+                .lastOrNull()
+                ?: return@mapNotNull null
+            val qtd = extrairQuantidadeItemNoTexto(linha.text())?.coerceAtLeast(1) ?: 1
+            val sufixoQtd = if (qtd > 1) " x$qtd" else ""
+            "${nome.take(60)}$sufixoQtd (${String.format(Locale.US, "%.2f", valor)})"
+        }
+        if (itensPorLinha.isNotEmpty()) {
+            return normalizarItensDescricao(itensPorLinha, maxItens = MAX_ITENS_DESCRICAO_QR)
+        }
+    }
+
     val nomeElements = doc.select("#tabResult .txtTit, .txtTit")
-    val nomes = nomeElements
-        .mapNotNull { limparNomeProduto(it.text()) }
+    val nomes = nomeElements.mapNotNull { limparNomeProduto(it.text()) }
     if (nomes.isEmpty()) return null
 
     val valores = doc.select("#tabResult .valor, #tabResult .valorItem, .valor")
         .mapNotNull { extrairPrimeiroValorMonetario(it.text()) }
         .toList()
-    if (valores.isEmpty()) return nomes.take(4).joinToString(" + ")
+    if (valores.isEmpty()) return nomes.take(MAX_ITENS_DESCRICAO_QR).joinToString(" + ")
 
     val quantidades = nomeElements.map { el ->
         extrairQuantidadeItemNoTexto(el.parent()?.text().orEmpty())
@@ -737,14 +759,14 @@ private fun extrairItensSpPorTitulosEValores(doc: Document): String? {
             ?: 1
     }
 
-    val limite = minOf(nomes.size, valores.size, quantidades.size, 8)
+    val limite = minOf(nomes.size, valores.size, quantidades.size, MAX_ITENS_DESCRICAO_QR)
     if (limite == 0) return null
     val itens = (0 until limite).map { i ->
         val qtd = quantidades.getOrNull(i)?.coerceAtLeast(1) ?: 1
         val sufixoQtd = if (qtd > 1) " x$qtd" else ""
         "${nomes[i].take(60)}$sufixoQtd (${String.format(Locale.US, "%.2f", valores[i])})"
     }
-    return normalizarItensDescricao(itens)
+    return normalizarItensDescricao(itens, maxItens = MAX_ITENS_DESCRICAO_QR)
 }
 
 private fun extrairItensMg(doc: Document): String? {
@@ -826,12 +848,12 @@ private fun extrairItensPorTitulosEValores(doc: Document): String? {
         .toList()
     if (valores.isEmpty()) return nomes.take(4).joinToString(" + ")
 
-    val limite = minOf(nomes.size, valores.size, 6)
+    val limite = minOf(nomes.size, valores.size, MAX_ITENS_DESCRICAO_QR)
     if (limite == 0) return null
     val itens = (0 until limite).map { i ->
         "${nomes[i].take(60)} (${String.format(Locale.US, "%.2f", valores[i])})"
     }
-    return normalizarItensDescricao(itens)
+    return normalizarItensDescricao(itens, maxItens = MAX_ITENS_DESCRICAO_QR)
 }
 
 private fun limparNomeProduto(textoOriginal: String): String? {
@@ -851,13 +873,16 @@ private fun limparNomeProduto(textoOriginal: String): String? {
     return texto.substringBefore("(").trim().ifBlank { null }
 }
 
-private fun normalizarItensDescricao(itens: List<String>): String? {
+private fun normalizarItensDescricao(
+    itens: List<String>,
+    maxItens: Int = MAX_ITENS_DESCRICAO_QR
+): String? {
     val normalizados = itens
         .map { it.trim() }
         .filter { it.isNotBlank() }
         .filterNot { it.contains(" (0.00)") }
         .distinct()
-        .take(6)
+        .take(maxItens)
     if (normalizados.isEmpty()) return null
     return normalizados.joinToString(" + ")
 }
@@ -902,7 +927,7 @@ private fun extrairDadosEstabelecimento(doc: Document): Pair<String?, String?> {
         doc.select(".dadosEmit").firstOrNull()?.text(),
         doc.select(".txtCorpo").firstOrNull()?.text(),
         doc.select(".txtTopo").firstOrNull { possuiPadraoEndereco(it.text()) }?.text()
-    ).mapNotNull { it?.let { t -> Parser.unescapeEntities(t, false) }?.replace(Regex("\\s+"), " ")?.trim() }
+    ).mapNotNull { it?.let { t -> limparEnderecoExtraido(t) } }
         .firstOrNull { possuiPadraoEndereco(it) }
 
     val enderecoFinal = endereco ?: extrairEnderecoPorRegex(doc)
@@ -922,7 +947,21 @@ private fun extrairEnderecoPorRegex(doc: Document): String? {
         "(?i)\\b(rua|r\\.|avenida|av\\.|travessa|trv\\.|alameda|rodovia|rod\\.)\\b[^|]{8,140}"
     )
     val encontrado = regexEndereco.find(texto)?.value?.trim() ?: return null
-    return encontrado.take(120)
+    return limparEnderecoExtraido(encontrado).take(120)
+}
+
+private fun limparEnderecoExtraido(textoOriginal: String): String {
+    return Parser.unescapeEntities(textoOriginal, false)
+        .replace(Regex("\\s+"), " ")
+        .split(
+            Regex(
+                "(?i)\\b(c[oó]digo|qtde\\.?|qtd\\.?|vl\\.?\\s*unit|vl\\.?\\s*total|valor\\s*total|item\\s*\\+?\\s*\\d+)\\b"
+            ),
+            limit = 2
+        )
+        .firstOrNull()
+        .orEmpty()
+        .trim(' ', '-', ',', ';')
 }
 
 private fun limparNomeEstabelecimentoExtraido(textoOriginal: String?): String? {

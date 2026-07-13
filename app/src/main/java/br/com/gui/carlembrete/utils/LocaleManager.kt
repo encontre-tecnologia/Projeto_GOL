@@ -13,11 +13,7 @@ object LocaleManager {
     }
 
     fun applyLanguage(language: AppLanguage) {
-        val locales = if (language == AppLanguage.SYSTEM || language.tag.isBlank()) {
-            LocaleListCompat.getEmptyLocaleList()
-        } else {
-            LocaleListCompat.forLanguageTags(language.tag)
-        }
+        val locales = LocaleListCompat.forLanguageTags(AppLanguage.PORTUGUESE.tag)
         AppCompatDelegate.setApplicationLocales(locales)
     }
 
@@ -26,6 +22,7 @@ object LocaleManager {
         Locale.setDefault(locale)
         val config = Configuration(base.resources.configuration)
         config.setLocale(locale)
+        config.fontScale = 1f
         val localized = base.createConfigurationContext(config)
         return ContextWrapper(localized)
     }

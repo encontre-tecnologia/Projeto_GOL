@@ -204,11 +204,14 @@ object BancoDeDados {
         val previous = File(context.filesDir, "$fileName.previous")
         try {
             FileOutputStream(temp).use { fos ->
-                ObjectOutputStream(fos).use {
-                    it.writeObject(data)
-                    it.flush()
+                val output = ObjectOutputStream(fos)
+                try {
+                    output.writeObject(data)
+                    output.flush()
+                    fos.fd.sync()
+                } finally {
+                    output.close()
                 }
-                fos.fd.sync()
             }
             previous.delete()
             if (target.exists() && !target.renameTo(previous)) {
