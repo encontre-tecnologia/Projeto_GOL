@@ -920,8 +920,13 @@ fun gerarPdfRelatorio(
         }
         val marginX = 36f
         canvas.drawColor(android.graphics.Color.WHITE)
-        val topBarPaint = Paint().apply { color = android.graphics.Color.parseColor("#E2E8F0") }
-        canvas.drawRect(0f, 0f, pageInfo.pageWidth.toFloat(), 6f, topBarPaint)
+        val headerBannerPaint = Paint().apply { color = accentColor }
+        canvas.drawRect(0f, 0f, pageInfo.pageWidth.toFloat(), 96f, headerBannerPaint)
+        val accentR = android.graphics.Color.red(accentColor)
+        val accentG = android.graphics.Color.green(accentColor)
+        val accentB = android.graphics.Color.blue(accentColor)
+        val accentSoft = android.graphics.Color.argb(140, accentR, accentG, accentB)
+        dividerPaint.color = accentSoft
         val contentWidth = pageInfo.pageWidth - marginX * 2
         var y = 138f
 
@@ -942,14 +947,21 @@ fun gerarPdfRelatorio(
         }
 
         fun drawHeader() {
-            val titleCenterPaint = Paint(headerPaint).apply { textAlign = Paint.Align.CENTER }
-            canvas.drawText("RELATORIO TÊCNICO", pageInfo.pageWidth / 2f, 54f, titleCenterPaint)
-            canvas.drawLine(marginX, 78f, pageInfo.pageWidth - marginX, 78f, dividerPaint)
-            val headerInfoPaint = Paint(headerSubPaint).apply { textAlign = Paint.Align.CENTER }
+            val titleCenterPaint = Paint(headerPaint).apply {
+                textAlign = Paint.Align.CENTER
+                color = android.graphics.Color.WHITE
+            }
+            canvas.drawText("RELATORIO TECNICO", pageInfo.pageWidth / 2f, 56f, titleCenterPaint)
+            val headerInfoPaint = Paint(headerSubPaint).apply {
+                textAlign = Paint.Align.CENTER
+                color = android.graphics.Color.DKGRAY
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+                textSize = 11f
+            }
             canvas.drawText(
                 "Gerado em ${LocalDate.now().format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))}",
                 pageInfo.pageWidth / 2f,
-                108f,
+                114f,
                 headerInfoPaint
             )
         }
@@ -957,7 +969,9 @@ fun gerarPdfRelatorio(
         fun drawSectionTitle(title: String) {
             ensureSpace(30f)
             val titleY = y
-            canvas.drawText(title, marginX, titleY, sectionTitlePaint)
+            val sectionBarPaint = Paint().apply { color = accentColor }
+            canvas.drawRoundRect(android.graphics.RectF(marginX, titleY - 10f, marginX + 4f, titleY + 3f), 2f, 2f, sectionBarPaint)
+            canvas.drawText(title, marginX + 10f, titleY, sectionTitlePaint)
             y += 10f
             canvas.drawLine(marginX, y, pageInfo.pageWidth - marginX, y, dividerPaint)
             y += 12f
@@ -970,11 +984,23 @@ fun gerarPdfRelatorio(
             isAntiAlias = true
         }
 
-        fun drawCard(height: Float, content: (Float) -> Unit) {
+        fun drawCardAccentStrip(rect: android.graphics.RectF, accent: Int) {
+            canvas.save()
+            val clipPath = android.graphics.Path().apply {
+                addRoundRect(rect, 12f, 12f, android.graphics.Path.Direction.CW)
+            }
+            canvas.clipPath(clipPath)
+            val stripPaint = Paint().apply { color = accent }
+            canvas.drawRect(rect.left, rect.top, rect.left + 4f, rect.bottom, stripPaint)
+            canvas.restore()
+        }
+
+        fun drawCard(height: Float, accent: Int = accentColor, content: (Float) -> Unit) {
             ensureSpace(height + 6f)
             val rect = android.graphics.RectF(marginX, y, marginX + contentWidth, y + height)
             canvas.drawRoundRect(rect, 12f, 12f, cardBgPaint)
             canvas.drawRoundRect(rect, 12f, 12f, cardBorderPaint)
+            drawCardAccentStrip(rect, accent)
             content(y)
             y += height + 28f
         }
@@ -1056,6 +1082,7 @@ fun gerarPdfRelatorio(
             ensureSpace(infoBoxHeight)
             canvas.drawRect(marginX, y, marginX + contentWidth, y + infoBoxHeight, cardBgPaint)
             canvas.drawRoundRect(android.graphics.RectF(marginX, y, marginX + contentWidth, y + infoBoxHeight), 12f, 12f, cardBorderPaint)
+            drawCardAccentStrip(android.graphics.RectF(marginX, y, marginX + contentWidth, y + infoBoxHeight), accentColor)
             val infoLeftX = marginX + 12f
             val infoRightX = marginX + contentWidth / 2 + 10f
             val infoRowY = y + 24f
@@ -1075,6 +1102,7 @@ fun gerarPdfRelatorio(
         ensureSpace(boxHeight)
         canvas.drawRect(marginX, y, marginX + contentWidth, y + boxHeight, cardBgPaint)
         canvas.drawRoundRect(android.graphics.RectF(marginX, y, marginX + contentWidth, y + boxHeight), 12f, 12f, cardBorderPaint)
+        drawCardAccentStrip(android.graphics.RectF(marginX, y, marginX + contentWidth, y + boxHeight), accentColor)
         val leftX = marginX + 12f
         val rightX = marginX + contentWidth / 2 + 10f
         val rowY = y + 24f
@@ -1115,6 +1143,7 @@ fun gerarPdfRelatorio(
         canvas.drawRect(marginX, y, marginX + contentWidth, y + statusBoxHeight, cardBgPaint)
         canvas.drawRoundRect(android.graphics.RectF(marginX, y, marginX + contentWidth, y + statusBoxHeight), 12f, 12f, cardBorderPaint)
         val saudeColor = if (saudeEmDia) colorSuccess else colorDanger
+        drawCardAccentStrip(android.graphics.RectF(marginX, y, marginX + contentWidth, y + statusBoxHeight), saudeColor)
         val pillPaint = Paint().apply { color = saudeColor }
         val pillTextPaint = Paint().apply {
             color = android.graphics.Color.WHITE
@@ -1212,10 +1241,10 @@ fun gerarPdfRelatorio(
             y += 16f
         } else {
             val headerHeight = 22f
-            val headerBg = Paint().apply { color = android.graphics.Color.parseColor("#E2E8F0") }
-            canvas.drawRect(marginX, y, marginX + contentWidth, y + headerHeight, headerBg)
+            val headerBg = Paint().apply { color = accentColor }
+            canvas.drawRoundRect(android.graphics.RectF(marginX, y, marginX + contentWidth, y + headerHeight), 6f, 6f, headerBg)
             val headerTextPaint = Paint(labelPaint).apply {
-                color = android.graphics.Color.BLACK
+                color = android.graphics.Color.WHITE
                 typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             }
             val headerY = y + 15f
@@ -1243,10 +1272,10 @@ fun gerarPdfRelatorio(
             y += 16f
         } else {
             val headerHeight = 22f
-            val headerBg = Paint().apply { color = android.graphics.Color.parseColor("#E2E8F0") }
-            canvas.drawRect(marginX, y, marginX + contentWidth, y + headerHeight, headerBg)
+            val headerBg = Paint().apply { color = accentColor }
+            canvas.drawRoundRect(android.graphics.RectF(marginX, y, marginX + contentWidth, y + headerHeight), 6f, 6f, headerBg)
             val headerTextPaint = Paint(labelPaint).apply {
-                color = android.graphics.Color.BLACK
+                color = android.graphics.Color.WHITE
                 typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             }
             val headerY = y + 15f
