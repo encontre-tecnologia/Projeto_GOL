@@ -1,4 +1,4 @@
-﻿package br.com.gui.carlembrete
+package br.com.gui.carlembrete
 
 import android.app.Activity
 import android.graphics.Paint
