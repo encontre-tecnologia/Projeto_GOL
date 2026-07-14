@@ -338,6 +338,7 @@ fun CarroInfoScreen(
     if (showHistoricoConsumo) {
         HistoricoAbastecimentoScreen(
             carroId = carro.id,
+            isPremium = isPremium,
             onDismiss = { showHistoricoConsumo = false }
         )
         return
@@ -665,6 +666,13 @@ fun CarroInfoScreen(
                         }
                     }
                 }
+
+                FreePlanAdBanner(
+                    isPremium = isPremium,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 6.dp)
+                )
 
                 // Histórico Recente
                 ContentSection(

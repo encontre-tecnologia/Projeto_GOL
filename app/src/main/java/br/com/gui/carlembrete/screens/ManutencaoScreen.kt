@@ -1455,7 +1455,11 @@ fun ManutencaoScreen(
 
     BackHandler(enabled = showHistoricoAbastecimentoScreen) { showHistoricoAbastecimentoScreen = false }
     if (showHistoricoAbastecimentoScreen) {
-        HistoricoAbastecimentoScreen(carroId = carroAtual.id, onDismiss = { showHistoricoAbastecimentoScreen = false })
+        HistoricoAbastecimentoScreen(
+            carroId = carroAtual.id,
+            isPremium = planTier != PlanTier.FREE,
+            onDismiss = { showHistoricoAbastecimentoScreen = false }
+        )
         return
     }
     BackHandler(enabled = showBikeDistanceRegister) { showBikeDistanceRegister = false }
@@ -2026,6 +2030,13 @@ fun ManutencaoScreen(
                     )
 
                     Spacer(Modifier.height(24.dp))
+
+                    FreePlanAdBanner(
+                        isPremium = planTier != PlanTier.FREE,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp)
+                    )
 
                     Spacer(Modifier.height(80.dp))
 

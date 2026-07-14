@@ -37,6 +37,7 @@ import androidx.compose.ui.window.Dialog
 import br.com.gui.carlembrete.Abastecimento
 import br.com.gui.carlembrete.AppPreferences
 import br.com.gui.carlembrete.BancoDeDados
+import br.com.gui.carlembrete.FreePlanAdBanner
 import br.com.gui.carlembrete.formatarMoedaLocal
 import br.com.gui.carlembrete.isEnglishUi
 import br.com.gui.carlembrete.tr
@@ -65,7 +66,11 @@ private val SurfaceDark = Color(0xFF111827)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HistoricoAbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
+fun HistoricoAbastecimentoScreen(
+    carroId: String,
+    isPremium: Boolean = false,
+    onDismiss: () -> Unit
+) {
     val colorScheme = MaterialTheme.colorScheme
     val isDark = colorScheme.background.luminance() < 0.5f
     val screenBg = if (isDark) PrimaryDark else colorScheme.background
@@ -311,6 +316,13 @@ fun HistoricoAbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
                         }
                     }
                 }
+            }
+
+            item {
+                FreePlanAdBanner(
+                    isPremium = isPremium,
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
 
             if (ordenados.isEmpty()) {

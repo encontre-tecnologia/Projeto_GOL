@@ -10,6 +10,7 @@
 import java.util.Properties
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 val localProps = Properties().apply {
     val file = rootProject.file("local.properties")
@@ -100,9 +101,6 @@ android {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
-    kotlinOptions {
-        jvmTarget = "11"
-    }
     buildFeatures {
         compose = true
         buildConfig = true
@@ -126,6 +124,12 @@ android {
     }
     testOptions {
         unitTests.isReturnDefaultValues = true
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget = JvmTarget.JVM_11
     }
 }
 
@@ -188,6 +192,9 @@ dependencies {
 
     // Firebase Firestore
     implementation("com.google.firebase:firebase-firestore-ktx")
+
+    // Google AdMob
+    implementation("com.google.android.gms:play-services-ads:25.4.0")
 
     // Google Play Billing
     implementation("com.android.billingclient:billing-ktx:9.1.0")

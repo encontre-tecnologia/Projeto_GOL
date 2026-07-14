@@ -72,6 +72,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.ui.unit.dp
 import br.com.gui.carlembrete.ui.theme.CarLembreteTheme
 import com.google.firebase.auth.FirebaseAuth
+import com.google.android.gms.ads.MobileAds
 import com.google.android.play.core.appupdate.AppUpdateManager
 import com.google.android.play.core.appupdate.AppUpdateManagerFactory
 import com.google.android.play.core.install.InstallStateUpdatedListener
@@ -129,6 +130,7 @@ class MainActivity : ComponentActivity() {
         keepNativeSplashVisible = shouldHoldSplashForHomeData
         installSplashScreen().setKeepOnScreenCondition { keepNativeSplashVisible }
         super.onCreate(savedInstanceState)
+        MobileAds.initialize(applicationContext)
         InstallDiagnostics.logDetailedSnapshot(applicationContext, "MainActivity.onCreate")
         val startupAt = System.currentTimeMillis()
         Log.d(TAG_MAIN_STARTUP, "onCreate start")
