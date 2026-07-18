@@ -30,6 +30,7 @@ app/release/
 ai-proxy/node_modules/
 ai-proxy/.wrangler/
 web/node_modules/
+web/.vite/
 web/dist/
 web/*.tsbuildinfo
 web/vite.config.d.ts

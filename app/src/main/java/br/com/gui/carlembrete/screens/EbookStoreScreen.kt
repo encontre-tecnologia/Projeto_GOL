@@ -330,7 +330,7 @@ private class EbookBundleBillingManager(private val appContext: Context) : Purch
             QueryProductDetailsParams.Product.newBuilder().setProductId(EBOOK_BUNDLE_PRODUCT_ID).setProductType(BillingClient.ProductType.INAPP).build()
         )).build()
         billingClient.queryProductDetailsAsync(query) { _, result ->
-            bundleProductDetails = result.productDetailsList.firstOrNull()
+            bundleProductDetails = result.firstOrNull()
         }
     }
 }

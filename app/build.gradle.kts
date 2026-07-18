@@ -190,7 +190,7 @@ dependencies {
     implementation("com.google.firebase:firebase-firestore-ktx")
 
     // Google Play Billing
-    implementation("com.android.billingclient:billing-ktx:9.1.0")
+    implementation("com.android.billingclient:billing-ktx:7.1.1")
     implementation("com.google.android.play:review-ktx:2.0.2")
     implementation("com.google.android.play:app-update-ktx:2.1.0")
 

@@ -162,7 +162,7 @@ class SubscriptionManager(context: Context) : PurchasesUpdatedListener {
                 }
             )
             .build()
-        billingClient.queryProductDetailsAsync(params) { billingResult, productDetailsResult ->
+        billingClient.queryProductDetailsAsync(params) { billingResult, detailsList ->
             if (billingResult.responseCode != BillingClient.BillingResponseCode.OK) {
                 productDetailsById.clear()
                 offerTokenByProductId.clear()
@@ -170,7 +170,6 @@ class SubscriptionManager(context: Context) : PurchasesUpdatedListener {
                 return@queryProductDetailsAsync
             }
 
-            val detailsList = productDetailsResult.productDetailsList
             productDetailsById.clear()
             offerTokenByProductId.clear()
 
