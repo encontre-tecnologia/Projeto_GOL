@@ -225,9 +225,9 @@ fun PremiumBeneficiosScreen(
                     features = listOf(
                         tr("Tudo do plano Lite", "Everything from Lite"),
                         tr("Zellu AI comparando todos os veiculos da garagem", "Zellu AI comparing all vehicles in the garage"),
-                        tr("Resumo da frota e prioridade de revisao", "Fleet summary and revision priority"),
-                        tr("Relatorios para compartilhar em poucos toques", "Shareable reports in a few taps"),
-                        tr("Estoque completo para pecas, produtos e operacao", "Full stock for parts, products and operations")
+                        tr("Reservas de veiculos pelo app", "Vehicle reservations from the app"),
+                        tr("Agenda da frota no dashboard web", "Fleet schedule in the web dashboard"),
+                        tr("Relatorios para compartilhar em poucos toques", "Shareable reports in a few taps")
                     ),
                     featureColor = PBGoldEnd,
                     onClick = {
@@ -255,7 +255,7 @@ fun PremiumBeneficiosScreen(
                         tr("Tudo do plano Frota", "Everything from Fleet"),
                         tr("Zellu AI para uma garagem maior", "Zellu AI for a larger garage"),
                         tr("Mais capacidade de veiculos cadastrados", "More registered vehicle capacity"),
-                        tr("Gestao, estoque e relatorios em escala", "Management, stock and reports at scale"),
+                        tr("Dashboard corporativo para acompanhar reservas", "Corporate dashboard to track reservations"),
                         tr("Mais organizacao para crescer sem bagunca", "More organization to grow without mess")
                     ),
                     featureColor = Color(0xFF0891B2),

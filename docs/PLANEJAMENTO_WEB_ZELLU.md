@@ -4,6 +4,8 @@
 
 Criar uma plataforma web responsiva com a mesma conta, dados, identidade e regras de negocio do Zellu Android. A web deve priorizar gestao, consulta, cadastro, relatorios e operacao de frota. Recursos dependentes de sensores e execucao continua permanecem no aplicativo Android.
 
+Para o modulo corporativo de reservas, QR Code, retirada/devolucao, odometro, manutencao preventiva e documentos de frota, usar tambem o documento complementar `docs/zellu-frotas-corporativo-mvp.md`.
+
 ## 2. Diagnostico atual
 
 - O Android possui 42 telas e 86 arquivos Kotlin.
@@ -158,16 +160,18 @@ A notificacao web nao pode depender de uma aba aberta. Uma funcao agendada deve 
 ## 7. Arquitetura tecnica recomendada
 
 - Frontend: Next.js, React, TypeScript e componentes acessiveis responsivos.
-- Hospedagem: Vercel.
+- Hospedagem: Vercel ou Cloudflare Pages.
 - Identidade: Firebase Authentication.
 - Dados operacionais: Firestore com isolamento por organizacao.
-- Arquivos: Firebase Storage.
+- Arquivos: Firebase Storage no caminho mais simples, ou Cloudflare R2 quando o controle de bucket privado e URLs temporarias for prioridade.
 - Processos agendados: Cloud Functions ou Cloud Run Scheduler.
 - Push: Firebase Cloud Messaging com service worker.
 - E-mail: provedor transacional chamado somente pelo backend.
 - IA: proxy atual, com autenticacao, limite por plano e auditoria no servidor.
 - PDFs/planilhas: geracao no backend, com armazenamento temporario e URL assinada.
 - Observabilidade: logs estruturados, eventos de erro e trilha de auditoria.
+
+Como o Android ja usa Firebase Auth/Firestore, Firestore deve ser mantido como banco principal nesta fase. Nao usar Supabase e Firestore simultaneamente sem uma razao tecnica especifica e documentada.
 
 ### Camadas
 

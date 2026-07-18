@@ -1,0 +1,77 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isPersonalCompany(companyId) {
+      return signedIn() && companyId == ('personal_' + request.auth.uid);
+    }
+
+    function isCompanyMember(companyId) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/companies/$(companyId)/members/$(request.auth.uid));
+    }
+
+    match /users/{uid} {
+      allow read, write: if signedIn() && request.auth.uid == uid;
+    }
+
+    match /companies/{companyId} {
+      allow create, read, update: if isPersonalCompany(companyId) || isCompanyMember(companyId);
+      allow delete: if false;
+
+      match /members/{uid} {
+        allow read: if isPersonalCompany(companyId) || isCompanyMember(companyId);
+        allow create: if (signedIn() && request.auth.uid == uid)
+          || isPersonalCompany(companyId)
+          || (isCompanyMember(companyId)
+            && get(/databases/$(database)/documents/companies/$(companyId)/members/$(request.auth.uid)).data.role in ['administrador', 'gestor']);
+        allow update: if isPersonalCompany(companyId)
+          || (isCompanyMember(companyId)
+            && get(/databases/$(database)/documents/companies/$(companyId)/members/$(request.auth.uid)).data.role in ['administrador', 'gestor']);
+        allow delete: if false;
+      }
+
+      match /vehicles/{vehicleId} {
+        allow read, write: if isPersonalCompany(companyId) || isCompanyMember(companyId);
+      }
+
+      match /reservations/{reservationId} {
+        allow read, write: if isPersonalCompany(companyId) || isCompanyMember(companyId);
+      }
+
+      match /trips/{tripId} {
+        allow read, write: if isPersonalCompany(companyId) || isCompanyMember(companyId);
+      }
+
+      match /maintenanceEvents/{eventId} {
+        allow read, write: if isPersonalCompany(companyId) || isCompanyMember(companyId);
+      }
+
+      match /documents/{documentId} {
+        allow read, write: if isPersonalCompany(companyId) || isCompanyMember(companyId);
+      }
+
+      match /{document=**} {
+        allow read, write: if isPersonalCompany(companyId) || isCompanyMember(companyId);
+      }
+    }
+
+    match /userInvites/{emailKey}/companies/{companyId} {
+      allow read, write: if signedIn();
+    }
+
+    match /admin_users/{uid} {
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow write: if false;
+    }
+
+    match /admin_app_config/{documentId} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+  }
+}
