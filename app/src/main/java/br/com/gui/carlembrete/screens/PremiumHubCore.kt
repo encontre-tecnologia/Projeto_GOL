@@ -94,7 +94,10 @@ internal data class CorporateReservation(
     val endsAtMillis: Long,
     val status: String,
     val tripStartedAtMillis: Long? = null,
-    val tripEndedAtMillis: Long? = null
+    val tripEndedAtMillis: Long? = null,
+    val pickupSignature: String = "",
+    val returnSignature: String = "",
+    val origin: String = ""
 )
 
 internal data class CorporateFleetVehicle(
@@ -103,5 +106,20 @@ internal data class CorporateFleetVehicle(
     val plate: String = "",
     val model: String = "",
     val status: String = "disponivel",
-    val odometerKm: Int = 0
+    val odometerKm: Int = 0,
+    val maxConcurrentReservations: Int = 1
+)
+
+internal data class CorporateFleetAlert(
+    val id: String,
+    val title: String,
+    val description: String = "",
+    val vehicleName: String = "",
+    val maintenanceType: String = "Outros",
+    val priority: String = "media",
+    val status: String = "aberto",
+    val dueDateMillis: Long? = null,
+    val dueTime: String = "09:00",
+    val dueOdometerKm: Int = 0,
+    val createdAtMillis: Long = 0L
 )

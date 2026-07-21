@@ -1,16 +1,19 @@
 import { useEffect, useState } from "react";
-import { collection, limit, onSnapshot, orderBy, query, Timestamp } from "firebase/firestore";
+import { collection, doc, limit, onSnapshot, orderBy, query, Timestamp } from "firebase/firestore";
 import type { User } from "firebase/auth";
 import { getFirebaseDb, isFirebaseConfigured } from "../firebase";
 import { ensureCompanyForUser } from "../lib/company";
-import type { FleetSnapshot, MaintenanceEvent, Reservation, Trip, Vehicle, VehicleStatus } from "../types";
+import type { CorporateAlert, FleetSnapshot, MaintenanceEvent, Reservation, SpeedEvent, Trip, Vehicle, VehicleStatus } from "../types";
 
 export const emptySnapshot: FleetSnapshot = {
   company: null,
+  currentMemberRole: "",
   vehicles: [],
   reservations: [],
   trips: [],
+  speedEvents: [],
   maintenanceEvents: [],
+  alerts: [],
 };
 
 export const statusLabel: Record<VehicleStatus, string> = {
@@ -32,17 +35,25 @@ export function asDate(value: unknown): Date | null {
 
 export function useFleetSnapshot(user: User | null) {
   const [snapshot, setSnapshot] = useState<FleetSnapshot>(emptySnapshot);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   useEffect(() => {
     if (!user || !isFirebaseConfigured) {
       setSnapshot(emptySnapshot);
+      setLoading(false);
       return;
     }
 
     let unsubscribers: Array<() => void> = [];
     let cancelled = false;
+    const requiredSnapshots = new Set(["company", "member", "vehicles", "reservations", "trips", "speedEvents", "maintenanceEvents", "alerts"]);
+    const loadedSnapshots = new Set<string>();
+    const markLoaded = (key: string) => {
+      if (cancelled) return;
+      loadedSnapshots.add(key);
+      if (requiredSnapshots.size === loadedSnapshots.size) setLoading(false);
+    };
     setLoading(true);
     setError("");
 
@@ -59,6 +70,31 @@ export function useFleetSnapshot(user: User | null) {
         };
 
         unsubscribers = [
+          onSnapshot(doc(db, ...companyPath), (companySnap) => {
+            const data = companySnap.data();
+            if (!data) {
+              markLoaded("company");
+              return;
+            }
+            setSnapshot((current) => ({
+              ...current,
+              company: current.company ? {
+                ...current.company,
+                name: String(data.name || current.company.name),
+                publicCalendarToken: data.publicCalendarToken || undefined,
+                publicCalendarEnabled: data.publicCalendarEnabled !== false,
+                speedLimitKmh: Number(data.speedLimitKmh ?? 100),
+                speedToleranceKmh: Number(data.speedToleranceKmh ?? 10),
+                speedMinimumSeconds: Number(data.speedMinimumSeconds ?? 15),
+              } : current.company,
+            }));
+            markLoaded("company");
+          }, listenError("Sem acesso para ler configuracoes da empresa")),
+          onSnapshot(doc(db, ...companyPath, "members", user.uid), (member) => {
+            const fallbackRole = company.ownerUid === user.uid ? "administrador" : "motorista";
+            setSnapshot((current) => ({ ...current, currentMemberRole: String(member.data()?.role || fallbackRole) }));
+            markLoaded("member");
+          }, listenError("Sem acesso para ler cargo do usuario")),
           onSnapshot(collection(db, ...companyPath, "vehicles"), (snap) => {
             const vehicles = snap.docs.map((item) => {
               const data = item.data();
@@ -77,11 +113,13 @@ export function useFleetSnapshot(user: User | null) {
                 fipeValue: Number(data.fipeValue ?? data.valorFipe ?? 0) || undefined,
                 saleSuggestion: Number(data.saleSuggestion ?? data.valorVendaSugerido ?? 0) || undefined,
                 fipeLabel: data.fipeLabel || data.valorFipeTexto || "",
+                maxConcurrentReservations: Math.max(1, Number(data.maxConcurrentReservations ?? 1)),
               } satisfies Vehicle;
             });
             setSnapshot((current) => ({ ...current, vehicles }));
+            markLoaded("vehicles");
           }, listenError("Sem acesso para ler veiculos")),
-          onSnapshot(query(collection(db, ...companyPath, "reservations"), orderBy("startsAt", "asc"), limit(30)), (snap) => {
+          onSnapshot(query(collection(db, ...companyPath, "reservations"), orderBy("startsAt", "desc"), limit(200)), (snap) => {
             const reservations = snap.docs.map((item) => {
               const data = item.data();
               return {
@@ -91,26 +129,63 @@ export function useFleetSnapshot(user: User | null) {
                 driverName: data.driverName || data.funcionarioNome,
                 startsAt: asDate(data.startsAt || data.retiradaEm),
                 endsAt: asDate(data.endsAt || data.devolucaoPrevistaEm),
+                tripStartedAt: asDate(data.tripStartedAt),
+                tripEndedAt: asDate(data.tripEndedAt),
+                pickupOdometerKm: Number(data.pickupOdometerKm ?? data.publicPickupKm ?? 0) || undefined,
+                returnOdometerKm: Number(data.returnOdometerKm ?? data.publicReturnKm ?? 0) || undefined,
                 status: data.status || "reservada",
                 destination: data.destination || data.destino,
               } satisfies Reservation;
             });
             setSnapshot((current) => ({ ...current, reservations }));
+            markLoaded("reservations");
           }, listenError("Sem acesso para ler reservas")),
-          onSnapshot(query(collection(db, ...companyPath, "trips"), orderBy("startedAt", "desc"), limit(20)), (snap) => {
+          onSnapshot(query(collection(db, ...companyPath, "trips"), orderBy("startedAt", "desc"), limit(200)), (snap) => {
             const trips = snap.docs.map((item) => {
               const data = item.data();
               return {
                 id: item.id,
+                vehicleId: data.vehicleId,
                 vehicleName: data.vehicleName || data.veiculoNome,
                 driverName: data.driverName || data.motoristaNome,
                 status: data.status || "em_andamento",
                 gpsDistanceKm: Number(data.gpsDistanceKm ?? data.distanciaGpsKm ?? 0),
+                odometerStartKm: Number(data.odometerStartKm ?? data.kmRetirada ?? 0) || undefined,
+                odometerEndKm: Number(data.odometerEndKm ?? data.kmDevolucao ?? 0) || undefined,
                 startedAt: asDate(data.startedAt || data.iniciadaEm),
+                endedAt: asDate(data.endedAt || data.finalizadaEm),
+                destination: data.destination || data.destino,
+                reservationId: data.reservationId,
+                pickupSignature: data.pickupSignature || "",
+                returnSignature: data.returnSignature || "",
               } satisfies Trip;
             });
             setSnapshot((current) => ({ ...current, trips }));
+            markLoaded("trips");
           }, listenError("Sem acesso para ler viagens")),
+          onSnapshot(query(collection(db, ...companyPath, "speedEvents"), orderBy("occurredAt", "desc"), limit(200)), (snap) => {
+            const speedEvents = snap.docs.map((item) => {
+              const data = item.data();
+              return {
+                id: item.id,
+                tripId: data.tripId || data.reservationId || "",
+                reservationId: data.reservationId || data.tripId || "",
+                vehicleId: data.vehicleId || "",
+                vehicleName: data.vehicleName || "",
+                driverName: data.driverName || "",
+                speedKmh: Number(data.speedKmh ?? 0),
+                speedLimitKmh: Number(data.speedLimitKmh ?? 0),
+                toleranceKmh: Number(data.toleranceKmh ?? 0),
+                durationSeconds: Number(data.durationSeconds ?? 0),
+                latitude: Number(data.latitude ?? 0) || undefined,
+                longitude: Number(data.longitude ?? 0) || undefined,
+                accuracyMeters: Number(data.accuracyMeters ?? 0) || undefined,
+                occurredAt: asDate(data.occurredAt),
+              } satisfies SpeedEvent;
+            });
+            setSnapshot((current) => ({ ...current, speedEvents }));
+            markLoaded("speedEvents");
+          }, listenError("Sem acesso para ler eventos de velocidade")),
           onSnapshot(query(collection(db, ...companyPath, "maintenanceEvents"), limit(30)), (snap) => {
             const maintenanceEvents = snap.docs.map((item) => {
               const data = item.data();
@@ -125,13 +200,40 @@ export function useFleetSnapshot(user: User | null) {
               } satisfies MaintenanceEvent;
             });
             setSnapshot((current) => ({ ...current, maintenanceEvents }));
+            markLoaded("maintenanceEvents");
           }, listenError("Sem acesso para ler manutencoes")),
+          onSnapshot(query(collection(db, ...companyPath, "alerts"), limit(50)), (snap) => {
+            const alerts = snap.docs.map((item) => {
+              const data = item.data();
+              return {
+                id: item.id,
+                title: String(data.title || "Aviso da empresa"),
+                description: data.description || "",
+                vehicleId: data.vehicleId || "",
+                vehicleName: data.vehicleName || "",
+                maintenanceType: data.maintenanceType || data.type || "Outros",
+                priority: data.priority || "media",
+                status: data.status || "aberto",
+                dueDate: asDate(data.dueDate),
+                dueTime: data.dueTime || "09:00",
+                dueOdometerKm: Number(data.dueOdometerKm ?? data.kmLimite ?? 0),
+                estimatedCost: Number(data.estimatedCost ?? data.valorPrevisto ?? 0) || undefined,
+                createdAt: asDate(data.createdAt),
+                triggeredAt: asDate(data.triggeredAt),
+                triggerReason: data.triggerReason || "",
+              } satisfies CorporateAlert;
+            });
+            setSnapshot((current) => ({ ...current, alerts }));
+            markLoaded("alerts");
+          }, listenError("Sem acesso para ler avisos da empresa")),
         ];
       })
       .catch((reason: unknown) => {
         setError(reason instanceof Error ? reason.message : "Nao foi possivel carregar a frota.");
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (cancelled) return;
+      });
 
     return () => {
       cancelled = true;

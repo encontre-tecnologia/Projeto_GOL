@@ -487,7 +487,7 @@ fun PremiumHubScreen(
                             subtitle = tr("Distancia, odometro e ocorrencias", "Distance, odometer and incidents"),
                             onClick = { selectedCorporateModule = CorporateFleetModule.TRIPS }
                         ))
-                        if (false && featureAllowed("frota_manutencoes")) add(HubFeatureCubeData(
+                        add(HubFeatureCubeData(
                             icon = Icons.Default.Build,
                             iconColor = Color(0xFF7C3AED),
                             iconBg = if (isDark) Color(0xFF2E1065) else Color(0xFFF3E8FF),

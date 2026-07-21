@@ -1,0 +1,27 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "zellu-frotas-email",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-19",
+  "workers_dev": true,
+  "triggers": {
+    "crons": ["*/15 * * * *"]
+  },
+  "vars": {
+    "FIREBASE_PROJECT_ID": "carlembrete",
+    "CORS_ORIGINS": "http://localhost:5173,http://127.0.0.1:5173",
+    "EMAIL_LOGO_URL": "https://zellu-frotas-email.encontretecnologia2.workers.dev/zellu-frotas-logo.png"
+  },
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS"
+  },
+  "secrets": {
+    "required": [
+      "FIREBASE_WEB_API_KEY",
+      "GMAIL_USER",
+      "GMAIL_APP_PASSWORD",
+      "FIREBASE_SERVICE_ACCOUNT_JSON"
+    ]
+  }
+}

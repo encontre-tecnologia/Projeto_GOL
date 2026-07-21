@@ -89,6 +89,7 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.activity.compose.BackHandler
@@ -253,13 +254,40 @@ class MainActivity : ComponentActivity() {
                     auth.addAuthStateListener(listener)
                     onDispose { auth.removeAuthStateListener(listener) }
                 }
+                LaunchedEffect(
+                    usuario,
+                    showOnboarding,
+                    showBackupCheck,
+                    showNewCarAfterLogin,
+                    showPermissionsAfterBackup,
+                    showTermsAfterBackup,
+                    showThanksAfterLogin
+                ) {
+                    if (
+                        usuario != null &&
+                        !showOnboarding &&
+                        !showBackupCheck &&
+                        !showNewCarAfterLogin &&
+                        !showPermissionsAfterBackup &&
+                        !showTermsAfterBackup &&
+                        !showThanksAfterLogin
+                    ) {
+                        // A home tem sua propria tela de carregamento; nao mantenha a splash do sistema presa por I/O local lento.
+                        delay(650)
+                        keepNativeSplashVisible = false
+                    }
+                }
                 LaunchedEffect(usuario) {
                     if (usuario != null) {
-                        delay(450)
-                        AdminUsersSync.syncLocalOverview(this@MainActivity)
+                        // Sincronizacoes remotas usam o cache local e podem esperar a primeira tela aparecer.
+                        delay(1_400)
+                        withContext(Dispatchers.IO) {
+                            AdminUsersSync.syncLocalOverview(this@MainActivity)
+                        }
                         AdminUsersSync.syncUserConfig(this@MainActivity)    // lê admin_users/{uid} uma vez
                         AdminUsersSync.syncFeatureChannels(this@MainActivity) // lê feature_channels em paralelo
                         AdminUsersSync.recordLastAccess(this@MainActivity)
+                        CorporateFleetAlertNotifications.startListening(this@MainActivity)
                         AdminUsageMetrics.markAppOpen(this@MainActivity)
                         AdminUsersSync.checkAnnouncement(this@MainActivity) { title, description, iconType, imageUrl ->
                             announcementTitle = title

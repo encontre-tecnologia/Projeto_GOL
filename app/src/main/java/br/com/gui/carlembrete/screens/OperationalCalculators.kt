@@ -387,10 +387,15 @@ internal fun CarroInfo.displayName(): String {
 }
 
 internal fun CorporateFleetVehicle.displayName(): String {
-    return listOf(name, plate, model)
+    val primaryName = name.trim()
+    val extraDetails = listOf(plate, model)
         .map { it.trim() }
-        .filter { it.isNotBlank() }
+        .filter { detail ->
+            detail.isNotBlank() && !primaryName.contains(detail, ignoreCase = true)
+        }
         .distinct()
+    return (listOf(primaryName) + extraDetails)
+        .filter { it.isNotBlank() }
         .joinToString(" - ")
         .ifBlank { "Veiculo" }
 }

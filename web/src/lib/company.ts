@@ -81,6 +81,11 @@ export async function ensureCompanyForUser(user: User): Promise<Company> {
           name: String(companySnap.data().name || "Empresa"),
           plan: companySnap.data().plan,
           ownerUid: companySnap.data().ownerUid,
+          publicCalendarToken: companySnap.data().publicCalendarToken,
+          publicCalendarEnabled: companySnap.data().publicCalendarEnabled,
+          speedLimitKmh: Number(companySnap.data().speedLimitKmh ?? 100),
+          speedToleranceKmh: Number(companySnap.data().speedToleranceKmh ?? 10),
+          speedMinimumSeconds: Number(companySnap.data().speedMinimumSeconds ?? 15),
         };
       }
     } catch {

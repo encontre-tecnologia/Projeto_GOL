@@ -70,6 +70,10 @@
             android:name=".TravelAlarmService"
             android:exported="false"
             android:foregroundServiceType="location" />
+        <service
+            android:name=".CorporateTripTrackingService"
+            android:exported="false"
+            android:foregroundServiceType="location" />
     </application>
 
 </manifest>

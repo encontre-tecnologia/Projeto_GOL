@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import QRCode from "qrcode";
+import { IconQr } from "./NavIcons";
 import type { Company, Vehicle } from "../types";
 
 function vehicleQrValue(company: Company | null, vehicle: Vehicle): string {
@@ -92,6 +93,9 @@ export function VehicleQrScreen({ company, vehicles }: { company: Company | null
 
       <div className="qr-layout">
         <div className="qr-picker">
+          <div className="qr-picker-icon" aria-hidden="true">
+            <IconQr />
+          </div>
           <label>
             Veiculo
             <select value={selectedVehicle?.id || ""} onChange={(event) => setSelectedVehicleId(event.target.value)}>
@@ -103,12 +107,6 @@ export function VehicleQrScreen({ company, vehicles }: { company: Company | null
             </select>
           </label>
           <p>Fixe este QR no vidro, na chave ou no painel do veiculo. O motorista escaneia pelo app ao retirar e escaneia de novo ao devolver.</p>
-          {selectedVehicle && (
-            <div className="qr-code-value">
-              <span>Conteudo do QR</span>
-              <code>{vehicleQrValue(company, selectedVehicle)}</code>
-            </div>
-          )}
         </div>
 
         {selectedVehicle && (
@@ -133,7 +131,6 @@ export function VehicleQrScreen({ company, vehicles }: { company: Company | null
               <span>{vehicle.plate || vehicle.model || "Sem placa"}</span>
             </div>
             {qrImages[vehicle.id] ? <img src={qrImages[vehicle.id]} alt={`QR ${vehicle.name}`} /> : <div className="qr-placeholder">Gerando...</div>}
-            <code>{vehicleQrValue(company, vehicle)}</code>
           </article>
         ))}
       </div>

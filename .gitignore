@@ -29,6 +29,13 @@ app/release/
 # Local/generated tooling
 ai-proxy/node_modules/
 ai-proxy/.wrangler/
+email-service/node_modules/
+email-service/firebase-service-account.json
+email-service/*-firebase-adminsdk-*.json
+cloudflare-email-worker/.dev.vars
+cloudflare-email-worker/.dev.vars.*
+cloudflare-email-worker/node_modules/
+cloudflare-email-worker/.wrangler/
 web/node_modules/
 web/.vite/
 web/dist/

@@ -32,6 +32,7 @@ class BootReceiver : BroadcastReceiver() {
                 if (lembretes.isNotEmpty()) {
                     NotificacaoHelper.reagendarExistentes(appContext, lembretes)
                 }
+                CorporateFleetAlertNotifications.reschedule(appContext)
             } finally {
                 pendingResult.finish()
             }
