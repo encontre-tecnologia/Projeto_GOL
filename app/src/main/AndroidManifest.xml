@@ -14,6 +14,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <!-- Necessaria para o percurso da viagem corporativa continuar sendo medido com o app em segundo plano. -->
 
     <application
         android:allowBackup="false"
@@ -36,6 +37,23 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data android:mimeType="application/octet-stream" />
+                <data android:mimeType="application/vnd.zellu.vehicle" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+
+                <data android:mimeType="application/octet-stream" />
+                <data android:mimeType="application/vnd.zellu.vehicle" />
             </intent-filter>
         </activity>
         <activity
@@ -68,10 +86,6 @@
             android:exported="false" />
         <service
             android:name=".TravelAlarmService"
-            android:exported="false"
-            android:foregroundServiceType="location" />
-        <service
-            android:name=".CorporateTripTrackingService"
             android:exported="false"
             android:foregroundServiceType="location" />
     </application>

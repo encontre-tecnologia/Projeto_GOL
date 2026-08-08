@@ -39,6 +39,11 @@ class DriveBackupManager(private val context: Context) {
                     .setFields("id")
                     .execute()
             }
+            // Depois do JSON, nao antes: se o envio das fotos falhar, o backup dos dados ja
+            // esta salvo. O inverso deixaria foto no Drive sem registro que a referencie.
+            val nomes = nomesDeFotos(payload)
+            BackupPhotoSync.enviar(context, drive, nomes)
+            BackupPhotoSync.limparOrfas(drive, nomes)
         }
     }
 
@@ -50,9 +55,52 @@ class DriveBackupManager(private val context: Context) {
             val json = inputStream.bufferedReader().use { it.readText() }
             val mapType = object : TypeToken<Map<String, Any>>() {}.type
             val map = gson.fromJson<Map<String, Any>>(json, mapType)
-            backupPayloadFromMap(map)
+            val payload = backupPayloadFromMap(map)
+            val recuperados = BackupPhotoSync.receber(context, drive, nomesDeFotos(payload))
+            comFotosLocais(payload, recuperados)
         }
     }
+
+    /**
+     * Nomes de arquivo das fotos referenciadas pelo backup.
+     *
+     * `CarroInfo.fotoNome` ja e um nome de arquivo, mas `Lembrete.fotoPath` guarda caminho
+     * absoluto — e caminho absoluto de outro aparelho nao significa nada aqui. Por isso o
+     * Drive e indexado pelo nome, nunca pelo caminho.
+     */
+    private fun nomesDeFotos(payload: BackupPayload): List<String> = buildList {
+        payload.carros.forEach { carro ->
+            carro.fotoNome?.takeIf { it.isNotBlank() }?.let { add(it) }
+        }
+        payload.lembretes.forEach { lembrete ->
+            lembrete.fotoPath?.takeIf { it.isNotBlank() }?.let { add(java.io.File(it).name) }
+            // Ja e nome de arquivo, entao entra direto — foi por isso que o campo novo
+            // seguiu a convencao do veiculo em vez da do fotoPath.
+            lembrete.fotoAvisoNome?.takeIf { it.isNotBlank() }?.let { add(it) }
+        }
+    }
+
+    /**
+     * Reaponta `fotoPath` para o arquivo local recem-baixado.
+     *
+     * Referencia que nao foi recuperada fica como esta, de proposito: apagar aqui
+     * transformaria falha momentanea de rede em perda definitiva, e no backup seguinte a
+     * limpeza de orfas removeria a foto do Drive tambem. Quem le a foto ja checa se o
+     * arquivo existe.
+     */
+    private fun comFotosLocais(payload: BackupPayload, recuperados: Set<String>): BackupPayload =
+        payload.copy(
+            lembretes = payload.lembretes.map { lembrete ->
+                val nome = lembrete.fotoPath
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let { java.io.File(it).name }
+                if (nome != null && recuperados.contains(nome)) {
+                    lembrete.copy(fotoPath = java.io.File(context.filesDir, nome).absolutePath)
+                } else {
+                    lembrete
+                }
+            }
+        )
 
     suspend fun hasBackup(account: GoogleSignInAccount): Boolean {
         return withContext(Dispatchers.IO) {

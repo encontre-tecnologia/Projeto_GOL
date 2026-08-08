@@ -73,6 +73,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -226,6 +227,7 @@ private fun OnboardingNovoCarroScreenContent(
     val carroBase = CarroInfo(nome = "", modelo = "")
 
     var nome by remember { mutableStateOf("") }
+    var placa by remember { mutableStateOf("") }
     var marca by remember { mutableStateOf("") }
     var modelo by remember { mutableStateOf("") }
     var proprietario by remember { mutableStateOf("") }
@@ -292,32 +294,41 @@ private fun OnboardingNovoCarroScreenContent(
     val tipoSemAno =
         tipoSelecionado == TipoVeiculo.BICICLETA ||
             tipoSelecionado == TipoVeiculo.BIKE_ELETRICA
-    val etapa1Valida = marca.isNotBlank() &&
-            nome.isNotBlank() &&
+    // So o que o app realmente precisa para funcionar: tipo decide as categorias de
+    // aviso, marca e modelo identificam o veiculo. Nome, ano e cor tem default util e
+    // viraram opcionais — exigir nove campos antes do primeiro aviso era o maior
+    // atrito do primeiro acesso. Placa tambem e opcional, mas meia placa nao entra:
+    // em branco passa, preenchida tem que bater com o padrao.
+    val placaAceita = placaAceitavel(placa)
+    val etapa1Valida = tipoSelecionado != null &&
+            marca.isNotBlank() &&
             modelo.isNotBlank() &&
-            (tipoSemAno || (anoSelecionado.isNotBlank() && anoValido)) &&
-            corSelecionada != null
+            placaAceita
     val hasTypeSelected = tipoSelecionado != null
     val hasBrandSelected = marca.isNotBlank()
     val aguardarBuscaModelos = hasBrandSelected && carregandoModelos
 
     val erroTipo = false
     val erroMarca = etapaCadastro == 1 && tentouAvancarEtapa1 && marca.isBlank()
-    val erroNome = etapaCadastro == 1 && tentouAvancarEtapa1 && nome.isBlank()
+    // Acusa quando os sete caracteres ja estao la, ou quando tentou avancar.
+    val erroPlaca = etapaCadastro == 1 && !placaAceita &&
+            (tentouAvancarEtapa1 || placaCompleta(placa))
+    val erroNome = false
     val erroModelo = etapaCadastro == 1 && tentouAvancarEtapa1 && modelo.isBlank()
-    val erroAno = etapaCadastro == 1 && !tipoSemAno && tentouAvancarEtapa1 && (anoSelecionado.isBlank() || !anoValido)
-    val erroCor = etapaCadastro == 1 && tentouAvancarEtapa1 && corSelecionada == null
+    // Ano digitado errado ainda avisa; ano em branco nao, porque deixou de ser exigido.
+    val erroAno = etapaCadastro == 1 && !tipoSemAno && tentouAvancarEtapa1 &&
+            anoSelecionado.isNotBlank() && !anoValido
+    val erroCor = false
     val usarControleKm = !isBikeTypeGlobal || !bikeSemKm
-    val erroKm = etapaCadastro == 2 && usarControleKm && tentouSalvarEtapa2 && kmAtualStr.filter(Char::isDigit).isEmpty()
-    val etapa2Valida = proprietario.isNotBlank() &&
-            quemUsaOpcao != "Selecione" &&
-            (isBikeTypeGlobal || vezesBatido != null) &&
-            tempoComVeiculo.isNotBlank() &&
-            (!usarControleKm || kmAtualStr.filter(Char::isDigit).isNotEmpty())
-    val erroQuemUsa = etapaCadastro == 2 && tentouSalvarEtapa2 && quemUsaOpcao == "Selecione"
-    val erroProprietario = etapaCadastro == 2 && tentouSalvarEtapa2 && proprietario.isBlank()
-    val erroBatidas = etapaCadastro == 2 && !isBikeTypeGlobal && tentouSalvarEtapa2 && vezesBatido == null
-    val erroTempo = etapaCadastro == 2 && tentouSalvarEtapa2 && tempoComVeiculo.isBlank()
+    val erroKm = false
+    // Nada na etapa 2 bloqueia: proprietario, quem usa, batidas e tempo com o veiculo
+    // sao curiosidade, nao requisito para lembrar de uma troca de oleo. Ficam para
+    // completar depois, na tela do veiculo.
+    val etapa2Valida = true
+    val erroQuemUsa = false
+    val erroProprietario = false
+    val erroBatidas = false
+    val erroTempo = false
 
     val marcasDisponiveis = when {
         tipoSelecionado == null -> marcasSuportadas
@@ -899,6 +910,44 @@ private fun OnboardingNovoCarroScreenContent(
                                 }
                             }
                         }
+
+                        // Primeiro campo depois da categoria de proposito: e o unico dado
+                        // que a pessoa sabe de cor, sem consultar nada. Opcional — e o
+                        // que desempata dois veiculos do mesmo modelo depois.
+                        val avisoPlaca: (@Composable () -> Unit)? =
+                            if (erroPlaca) {
+                                { Text("Use o formato ABC1D23 ou ABC1234.") }
+                            } else {
+                                null
+                            }
+                        // Sem mascara no proprio valor: formatar aqui faz o texto exibido
+                        // brigar com o estado, e apagar o hifen o trazia de volta na
+                        // recomposicao. O hifen fica so na exibicao fora do campo.
+                        OutlinedTextField(
+                            value = placa,
+                            onValueChange = { placa = normalizarPlaca(it) },
+                            isError = erroPlaca,
+                            label = { Text("Placa (opcional)") },
+                            placeholder = { Text("ABC1D23") },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = selectorFieldColorsWithState(
+                                filled = placa.isNotBlank(),
+                                isError = erroPlaca
+                            ),
+                            supportingText = avisoPlaca,
+                            keyboardOptions = KeyboardOptions(
+                                capitalization = KeyboardCapitalization.Characters,
+                                imeAction = ImeAction.Done
+                            ),
+                            keyboardActions = KeyboardActions(
+                                onDone = {
+                                    keyboardController?.hide()
+                                    focusManager.clearFocus()
+                                }
+                            ),
+                            singleLine = true,
+                            shape = RoundedCornerShape(14.dp)
+                        )
 
                         if (marcaManualNoCadastro) {
                             OutlinedTextField(
@@ -1722,7 +1771,11 @@ private fun OnboardingNovoCarroScreenContent(
                                     }
                                     onSalvar(
                                         carroBase.copy(
-                                            nome = nome,
+                                            // Nome deixou de ser obrigatorio: em branco,
+                                            // o modelo serve de nome e a placa desempata
+                                            // depois, se houver outro igual.
+                                            nome = nome.trim().ifBlank { modelo.trim() },
+                                            placa = normalizarPlaca(placa).takeIf { it.isNotBlank() },
                                             marca = marca,
                                             modelo = combinarModeloAno(modelo, anoSelecionado),
                                             proprietario = proprietario,
@@ -1808,7 +1861,11 @@ private fun OnboardingNovoCarroScreenContent(
                                     }
                                     onSalvar(
                                         carroBase.copy(
-                                            nome = nome,
+                                            // Nome deixou de ser obrigatorio: em branco,
+                                            // o modelo serve de nome e a placa desempata
+                                            // depois, se houver outro igual.
+                                            nome = nome.trim().ifBlank { modelo.trim() },
+                                            placa = normalizarPlaca(placa).takeIf { it.isNotBlank() },
                                             marca = marca,
                                             modelo = combinarModeloAno(modelo, anoSelecionado),
                                             proprietario = proprietario,

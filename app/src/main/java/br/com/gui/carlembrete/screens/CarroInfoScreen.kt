@@ -6,21 +6,18 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.Build
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
@@ -33,8 +30,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
@@ -64,9 +59,7 @@ fun CarroInfoScreen(
     carro: CarroInfo,
     lembretes: List<Lembrete>,
     isPremium: Boolean,
-    autoScrollToCompletedMaintenance: Boolean = false,
-    onEditReminder: (Lembrete) -> Unit = {},
-    onDeleteReminder: (Lembrete) -> Unit = {},
+    onExportVehicle: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
     val scheme = MaterialTheme.colorScheme
@@ -96,7 +89,11 @@ fun CarroInfoScreen(
     }
     val context = LocalContext.current
     val view = LocalView.current
+    val fotoDoVeiculo = remember(carro.id, carro.fotoNome) {
+        VehiclePhotoStore.arquivoDe(context, carro.fotoNome)
+    }
     var showHistoricoConsumo by remember { mutableStateOf(false) }
+    var showExportVehicleInfo by remember { mutableStateOf(false) }
     val isBikeType = carro.tipoVeiculo == TipoVeiculo.BICICLETA || carro.tipoVeiculo == TipoVeiculo.BIKE_ELETRICA
     val exibirKmNoPainel = !isBikeType || !carro.semControleKm
     val suportaFipe = remember(carro.tipoVeiculo) { tipoFipeParaRelatorio(carro.tipoVeiculo) != null }
@@ -162,47 +159,9 @@ fun CarroInfoScreen(
 
     val corSaude = if (saudeCritica) Color(0xFFEF4444) else Color(0xFF10B981)
 
-    val historicoManutencoes = (
-        lembretesAtivos
-            .mapNotNull { lembrete ->
-                val data = dataParaOrdenacao(lembrete)
-                if (data == LocalDate.MAX) null else data to lembrete
-            }
-            .filter { (data, _) -> data.isBefore(LocalDate.now()) } +
-        lembretesRealizados.mapNotNull { lembrete ->
-            val data = dataRealizacaoLembrete(lembrete) ?: dataParaOrdenacao(lembrete)
-            if (data == LocalDate.MAX) null else data to lembrete
-        }
-    )
-        .distinctBy { (_, lembrete) -> lembrete.id }
-        .sortedByDescending { it.first }
-    val manutencoesFuturas = lembretesAtivos
-        .mapNotNull { lembrete ->
-            val data = dataParaOrdenacao(lembrete)
-            if (data == LocalDate.MAX) null else data to lembrete
-        }
-        .filter { (data, lembrete) ->
-            !data.isBefore(LocalDate.now()) &&
-                lembrete.tipo != TipoManutencao.IPVA &&
-                lembrete.tipo != TipoManutencao.LICENCIAMENTO
-        }
-        .sortedBy { it.first }
-
-    val historicoPageSize = 5
-    var historicoPage by remember(historicoManutencoes.size) { mutableStateOf(0) }
-    val historicoTotalPages = if (historicoManutencoes.isEmpty()) 1 else (historicoManutencoes.size + historicoPageSize - 1) / historicoPageSize
-    val historicoPageAtual = historicoPage.coerceIn(0, historicoTotalPages - 1)
-    val historicoPaginado = historicoManutencoes
-        .drop(historicoPageAtual * historicoPageSize)
-        .take(historicoPageSize)
-
-    val futurasPageSize = 5
-    var futurasPage by remember(manutencoesFuturas.size) { mutableStateOf(0) }
-    val futurasTotalPages = if (manutencoesFuturas.isEmpty()) 1 else (manutencoesFuturas.size + futurasPageSize - 1) / futurasPageSize
-    val futurasPageAtual = futurasPage.coerceIn(0, futurasTotalPages - 1)
-    val futurasPaginado = manutencoesFuturas
-        .drop(futurasPageAtual * futurasPageSize)
-        .take(futurasPageSize)
+    val gastosDoAnoPorMes = remember(lembretesSemAbastecimento, anoReferencia) {
+        gastosMensaisDoAno(lembretesSemAbastecimento, anoReferencia)
+    }
 
     val documentos = listOf(
         TipoManutencao.IPVA to tr("IPVA", "IPVA"),
@@ -266,8 +225,6 @@ fun CarroInfoScreen(
     }
     val valorVendaSugerido = valorFipeNumerico?.let { it * fatorVendaSugerido }
     val contentScrollState = rememberScrollState()
-    var completedMaintenanceSectionTop by remember { mutableFloatStateOf(0f) }
-    var lembreteParaExcluir by remember { mutableStateOf<Lembrete?>(null) }
 
     LaunchedEffect(carro.id, carro.marca, carro.modelo, carro.tipoVeiculo) {
         if (!suportaFipe) {
@@ -280,50 +237,54 @@ fun CarroInfoScreen(
         carregandoPrecoFipe = false
     }
 
-    LaunchedEffect(autoScrollToCompletedMaintenance, completedMaintenanceSectionTop) {
-        if (!autoScrollToCompletedMaintenance) return@LaunchedEffect
-        if (completedMaintenanceSectionTop <= 0f) return@LaunchedEffect
-        delay(180)
-        val target = (completedMaintenanceSectionTop - 120f).coerceAtLeast(0f).toInt()
-        contentScrollState.animateScrollTo(target)
-    }
-    lembreteParaExcluir?.let { alvo ->
+    if (showExportVehicleInfo) {
         AlertDialog(
-            onDismissRequest = { lembreteParaExcluir = null },
+            onDismissRequest = { showExportVehicleInfo = false },
+            containerColor = cardColor,
+            titleContentColor = textLight,
+            textContentColor = textDim,
+            shape = RoundedCornerShape(18.dp),
+            icon = {
+                Icon(
+                    Icons.Default.IosShare,
+                    contentDescription = null,
+                    tint = Color(0xFF93C5FD)
+                )
+            },
             title = {
                 Text(
-                    tr("Apagar item do relatório?", "Delete item from report?"),
-                    fontWeight = FontWeight.Bold,
-                    color = textLight
+                    tr("Exportar para outro aparelho", "Export to another device"),
+                    fontWeight = FontWeight.Bold
                 )
             },
             text = {
                 Text(
                     tr(
-                        "Esse item será removido dos registros/avisos do veículo.",
-                        "This item will be removed from the vehicle records/reminders."
-                    ),
-                    color = textDim
+                        "O Zellu vai gerar um arquivo .zellu com este veículo, avisos, registros e abastecimentos. Envie pelo WhatsApp ou outro app. No outro celular, toque no arquivo recebido e escolha abrir com o Zellu para importar.",
+                        "Zellu will generate a .zellu file with this vehicle, reminders, records and fuel entries. Send it through WhatsApp or another app. On the other phone, tap the received file and choose to open it with Zellu to import."
+                    )
                 )
             },
             confirmButton = {
                 Button(
                     onClick = {
-                        lembreteParaExcluir = null
-                        onDeleteReminder(alvo)
+                        showExportVehicleInfo = false
+                        onExportVehicle()
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626), contentColor = Color.White),
-                    shape = RoundedCornerShape(10.dp)
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF2563EB),
+                        contentColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(12.dp)
                 ) {
-                    Text(tr("Apagar", "Delete"), fontWeight = FontWeight.Bold)
+                    Text(tr("Entendi, exportar", "Got it, export"))
                 }
             },
             dismissButton = {
-                TextButton(onClick = { lembreteParaExcluir = null }) {
-                    Text(tr("Cancelar", "Cancel"), color = textDim, fontWeight = FontWeight.SemiBold)
+                TextButton(onClick = { showExportVehicleInfo = false }) {
+                    Text(tr("Cancelar", "Cancel"), color = textDim)
                 }
-            },
-            containerColor = cardColor
+            }
         )
     }
 
@@ -376,32 +337,21 @@ fun CarroInfoScreen(
                 }
             }
 
-            // --- HERO SECTION (Carro) ---
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text(
-                    text = carro.nome,
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = textLight,
-                    modifier = Modifier.padding(top = 2.dp, bottom = 6.dp)
-                )
-
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(120.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    VehicleIcon(
-                        tipoVeiculo = carro.tipoVeiculo,
-                        tint = if (isDark) Color.White else Color.Black,
-                        size = 180.dp
-                    )
-                }
-            }
+            HomeVehicleHeader(
+                carro = carro,
+                fotoArquivo = fotoDoVeiculo,
+                avisosVencidos = avisosVencidos,
+                avisosChegando = avisosPendentes,
+                totalVeiculos = 1,
+                indiceVeiculo = 0,
+                onAbrirVeiculo = {},
+                onEscolherFoto = {},
+                onEditarVeiculo = {},
+                onVeiculoAnterior = {},
+                onProximoVeiculo = {},
+                mostrarAcoes = false,
+                modifier = Modifier.padding(top = 2.dp)
+            )
 
             if (!isBikeType) {
                 Row(
@@ -451,7 +401,7 @@ fun CarroInfoScreen(
                             }
                         },
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF22C55E),
+                            containerColor = Color(0xFFB45353),
                             contentColor = Color.White
                         ),
                         shape = RoundedCornerShape(12.dp),
@@ -459,13 +409,13 @@ fun CarroInfoScreen(
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp)
                     ) {
                         Icon(
-                            Icons.Default.Share,
+                            Icons.Default.PictureAsPdf,
                             contentDescription = null,
                             modifier = Modifier.size(16.dp),
-                            tint = Color(0xFFD1FAE5)
+                            tint = Color(0xFFFFE4E6)
                         )
                         Spacer(Modifier.width(6.dp))
-                        Text(tr("Compartilhar", "Share"), fontWeight = FontWeight.SemiBold)
+                        Text(tr("Exportar PDF", "Export PDF"), fontWeight = FontWeight.SemiBold)
                     }
                 }
             } else {
@@ -486,7 +436,7 @@ fun CarroInfoScreen(
                         }
                     },
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF22C55E),
+                        containerColor = Color(0xFFB45353),
                         contentColor = Color.White
                     ),
                     shape = RoundedCornerShape(12.dp),
@@ -496,17 +446,62 @@ fun CarroInfoScreen(
                     contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp)
                 ) {
                     Icon(
-                        Icons.Default.Share,
+                        Icons.Default.PictureAsPdf,
                         contentDescription = null,
                         modifier = Modifier.size(16.dp),
-                        tint = Color(0xFFD1FAE5)
+                        tint = Color(0xFFFFE4E6)
                     )
                     Spacer(Modifier.width(8.dp))
-                    Text(tr("Compartilhar", "Share"), fontWeight = FontWeight.SemiBold)
+                    Text(tr("Exportar PDF", "Export PDF"), fontWeight = FontWeight.SemiBold)
                 }
+            }
+            Spacer(Modifier.height(10.dp))
+            Button(
+                onClick = { showExportVehicleInfo = true },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFF111827),
+                    contentColor = Color.White
+                ),
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp)
+            ) {
+                Icon(
+                    Icons.Default.IosShare,
+                    contentDescription = null,
+                    modifier = Modifier.size(17.dp),
+                    tint = Color(0xFF93C5FD)
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    tr("Exportar veículo para outro aparelho", "Export vehicle to another device"),
+                    fontWeight = FontWeight.Bold
+                )
             }
 
             Spacer(Modifier.height(0.dp))
+            Spacer(Modifier.height(12.dp))
+
+            // Estado do veiculo em imagem, antes das tabelas: o anel e as barras respondem
+            // "esse carro ta bem?" sem precisar ler linha por linha.
+            RelatorioPainelCard(
+                vencidos = avisosVencidos,
+                pendentes = avisosPendentes,
+                concluidos = lembretesRealizados.size,
+                gastosPorMes = gastosDoAnoPorMes,
+                anoReferencia = anoReferencia,
+                cardColor = cardColor,
+                cardBorder = cardBorder,
+                textLight = textLight,
+                textDim = textDim,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+            )
+
             Spacer(Modifier.height(12.dp))
 
             // --- RESUMO RÁPIDO ---
@@ -537,6 +532,14 @@ fun CarroInfoScreen(
                     Divider(color = dividerColor)
                     InfoRowModern(tr("KM atual", "Current mileage"), kmAtualResumo, textDim, accentColor)
                 }
+                Divider(color = dividerColor)
+                InfoRowModern(tr("Cor", "Color"), corNome, textDim, textLight)
+                Divider(color = dividerColor)
+                InfoRowModern(tr("Código ID", "ID Code"), codigoCurto(carro.id), textDim, textLight)
+                Divider(color = dividerColor)
+                InfoRowModern(tr("Próx. Serviço", "Next service"), proximo, textDim, if (proximo == "--") textDim else accentColor)
+                Divider(color = dividerColor)
+                InfoRowModern(tr("Mantenedor", "Maintainer"), carro.proprietario.ifBlank { "--" }, textDim, textLight)
             }
 
             if (suportaFipe) {
@@ -615,24 +618,6 @@ fun CarroInfoScreen(
                     .padding(horizontal = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-
-                // Seção Técnica
-                ContentSection(title = tr("Ficha Técnica", "Technical Sheet"), icon = Icons.Outlined.Build, cardColor = cardColor, titleColor = textLight, borderColor = cardBorder) {
-                    InfoRowModern(tr("Cor", "Color"), corNome, textDim, textLight)
-                    Divider(color = dividerColor)
-                    InfoRowModern(tr("Modelo", "Model"), modeloSemAno, textDim, textLight)
-                    if (!isBikeType) {
-                        Divider(color = dividerColor)
-                        InfoRowModern(tr("Ano", "Year"), anoVeiculo, textDim, textLight)
-                    }
-                    Divider(color = dividerColor)
-                    InfoRowModern(tr("Código ID", "ID Code"), codigoCurto(carro.id), textDim, textLight)
-                    Divider(color = dividerColor)
-                    InfoRowModern(tr("Próx. Serviço", "Next service"), proximo, textDim, if(proximo == "--") textDim else accentColor)
-                    Divider(color = dividerColor)
-                    InfoRowModern(tr("Mantenedor", "Maintainer"), carro.proprietario.ifBlank { "--" }, textDim, textLight)
-                }
-
                 // Seção Documentos (apenas para veículos com documentação)
                 if (!isBikeType) {
                     ContentSection(
@@ -666,353 +651,6 @@ fun CarroInfoScreen(
                     }
                 }
 
-                // Histórico Recente
-                ContentSection(
-                    modifier = Modifier.onGloballyPositioned { coords ->
-                        completedMaintenanceSectionTop = coords.positionInParent().y
-                    },
-                    title = tr("Registros cadastrados", "Saved records"),
-                    icon = Icons.Outlined.History,
-                    cardColor = cardColor,
-                    titleColor = textLight,
-                    borderColor = cardBorder,
-                    contentPadding = PaddingValues(top = 0.dp, start = 0.dp, end = 0.dp, bottom = 0.dp)
-                ) {
-                    if (historicoManutencoes.isEmpty()) {
-                        EmptyTableStateCard(
-                            icon = Icons.Outlined.History,
-                            title = tr("Sem registros cadastrados", "No saved records yet"),
-                            message = tr(
-                                "Quando você concluir um serviço, ele vai aparecer aqui com data, KM e valor.",
-                                "When you complete a service, it will appear here with date, mileage and amount."
-                            ),
-                            isDark = isDark,
-                            textLight = textLight,
-                            textDim = textDim,
-                            borderColor = cardBorder
-                        )
-                    } else {
-                        Column(modifier = Modifier.fillMaxWidth()) {
-                            val historicoTableScroll = rememberScrollState()
-                            val colData = 88.dp
-                            val colKm = 72.dp
-                            val colValor = 104.dp
-                            val colAcoes = 108.dp
-                            val gapBeforeActions = 32.dp
-                            val tableWidth = 700.dp
-                            val tableHeaderBg = if (isDark) Color(0xFF172235) else Color(0xFFF1F5F9)
-                            val tableHeaderText = if (isDark) Color(0xFFE2E8F0) else Color(0xFF334155)
-                            val tableColumnDivider = if (isDark) Color.White.copy(alpha = 0.08f) else Color(0xFFCBD5E1)
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .horizontalScroll(historicoTableScroll)
-                            ) {
-                                Column(modifier = Modifier.width(tableWidth)) {
-                                    Divider(color = dividerColor)
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .background(tableHeaderBg)
-                                            .border(
-                                                width = 1.dp,
-                                                color = if (isDark) Color.White.copy(alpha = 0.05f) else Color(0xFFE2E8F0)
-                                            )
-                                            .padding(horizontal = 10.dp, vertical = 8.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(tr("Item", "Item"), color = tableHeaderText, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                                        TableColumnDivider(tableColumnDivider)
-                                        Text(tr("Data", "Date"), color = tableHeaderText, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(colData), textAlign = TextAlign.Center)
-                                        TableColumnDivider(tableColumnDivider)
-                                        Text(tr("KM", "Mileage"), color = tableHeaderText, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(colKm), textAlign = TextAlign.End)
-                                        TableColumnDivider(tableColumnDivider)
-                                        Text(tr("Valor", "Amount"), color = tableHeaderText, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(colValor), textAlign = TextAlign.End)
-                                        Spacer(Modifier.width(gapBeforeActions))
-                                        TableColumnDivider(tableColumnDivider)
-                                        Text(tr("Ações", "Actions"), color = tableHeaderText, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(colAcoes), textAlign = TextAlign.Center)
-                                    }
-                                    historicoPaginado.forEachIndexed { index, (data, lembrete) ->
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(horizontal = 10.dp, vertical = 8.dp),
-                                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Text(
-                                                lembrete.titulo,
-                                                color = textLight,
-                                                fontWeight = FontWeight.Medium,
-                                                fontSize = 12.sp,
-                                                maxLines = 2,
-                                                overflow = TextOverflow.Ellipsis,
-                                                modifier = Modifier.weight(1f)
-                                            )
-                                            TableColumnDivider(tableColumnDivider)
-                                            Text(
-                                                data.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")),
-                                                color = textDim,
-                                                fontSize = 11.sp,
-                                                modifier = Modifier.width(colData),
-                                                textAlign = TextAlign.Center
-                                            )
-                                            TableColumnDivider(tableColumnDivider)
-                                            Text(
-                                                lembrete.kmLimite.ifBlank { "--" },
-                                                color = textLight,
-                                                fontSize = 11.sp,
-                                                modifier = Modifier.width(colKm),
-                                                textAlign = TextAlign.End
-                                            )
-                                            TableColumnDivider(tableColumnDivider)
-                                            Text(
-                                                formatarMoedaLocal(lembrete.valor),
-                                                color = textLight.copy(alpha = 0.9f),
-                                                fontSize = 12.sp,
-                                                fontWeight = FontWeight.SemiBold,
-                                                modifier = Modifier.width(colValor),
-                                                textAlign = TextAlign.End
-                                            )
-                                            Spacer(Modifier.width(gapBeforeActions))
-                                            TableColumnDivider(tableColumnDivider)
-                                            Row(
-                                                modifier = Modifier.width(colAcoes),
-                                                horizontalArrangement = Arrangement.spacedBy(18.dp, Alignment.CenterHorizontally),
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                IconButton(
-                                                    onClick = { onEditReminder(lembrete) },
-                                                    modifier = Modifier.size(36.dp)
-                                                ) {
-                                                    Icon(Icons.Default.Edit, contentDescription = tr("Editar", "Edit"), tint = accentColor, modifier = Modifier.size(18.dp))
-                                                }
-                                                IconButton(
-                                                    onClick = { lembreteParaExcluir = lembrete },
-                                                    modifier = Modifier.size(36.dp)
-                                                ) {
-                                                    Icon(Icons.Default.Delete, contentDescription = tr("Apagar", "Delete"), tint = Color(0xFFEF4444), modifier = Modifier.size(18.dp))
-                                                }
-                                            }
-                                        }
-                                        if (index < historicoPaginado.lastIndex) Divider(color = dividerColor)
-                                    }
-                                    Divider(color = dividerColor)
-                                }
-                            }
-                            HorizontalTableScrollBar(
-                                scrollState = historicoTableScroll,
-                                activeColor = if (isDark) Color(0xFF64748B) else accentColor,
-                                trackColor = if (isDark) Color(0xFF1E293B) else dividerColor
-                            )
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(if (isDark) Color.White.copy(alpha = 0.08f) else Color(0xFFE2E8F0))
-                                    .padding(horizontal = 10.dp, vertical = 6.dp),
-                                horizontalArrangement = Arrangement.Center,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                IconButton(
-                                    onClick = { historicoPage = (historicoPageAtual - 1).coerceAtLeast(0) },
-                                    enabled = historicoPageAtual > 0,
-                                    modifier = Modifier.size(32.dp)
-                                ) {
-                                    Icon(
-                                        Icons.Default.KeyboardArrowLeft,
-                                        contentDescription = tr("Anterior", "Previous"),
-                                        tint = if (historicoPageAtual > 0) textLight else textDim
-                                    )
-                                }
-                                Spacer(Modifier.width(6.dp))
-                                Text(
-                                    text = "${tr("Página", "Page")} ${historicoPageAtual + 1}/$historicoTotalPages",
-                                    color = textDim,
-                                    fontSize = 12.sp
-                                )
-                                Spacer(Modifier.width(6.dp))
-                                IconButton(
-                                    onClick = { historicoPage = (historicoPageAtual + 1).coerceAtMost(historicoTotalPages - 1) },
-                                    enabled = historicoPageAtual < historicoTotalPages - 1,
-                                    modifier = Modifier.size(32.dp)
-                                ) {
-                                    Icon(
-                                        Icons.Default.KeyboardArrowRight,
-                                        contentDescription = tr("Próxima", "Next"),
-                                        tint = if (historicoPageAtual < historicoTotalPages - 1) textLight else textDim
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-
-                ContentSection(
-                    title = tr("Serviços registrados", "Registered services"),
-                    icon = Icons.Default.Event,
-                    cardColor = cardColor,
-                    titleColor = textLight,
-                    borderColor = cardBorder,
-                    contentPadding = PaddingValues(top = 0.dp, start = 0.dp, end = 0.dp, bottom = 0.dp)
-                ) {
-                    if (manutencoesFuturas.isEmpty()) {
-                        EmptyTableStateCard(
-                            icon = Icons.Default.Event,
-                            title = tr("Sem lembretes futuros", "No upcoming reminders"),
-                            message = tr(
-                                "Adicione um novo aviso para não perder a próxima manutenção.",
-                                "Add a new reminder so you don't miss the next maintenance."
-                            ),
-                            isDark = isDark,
-                            textLight = textLight,
-                            textDim = textDim,
-                            borderColor = cardBorder
-                        )
-                    } else {
-                        val futurasTableScroll = rememberScrollState()
-                        val colData = 88.dp
-                        val colKm = 72.dp
-                        val colAcoes = 108.dp
-                        val gapBeforeActions = 32.dp
-                        val tableWidth = 568.dp
-                        val tableHeaderBg = if (isDark) Color(0xFF172235) else Color(0xFFF1F5F9)
-                        val tableHeaderText = if (isDark) Color(0xFFE2E8F0) else Color(0xFF334155)
-                        val tableColumnDivider = if (isDark) Color.White.copy(alpha = 0.08f) else Color(0xFFCBD5E1)
-                        Column(modifier = Modifier.fillMaxWidth()) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .horizontalScroll(futurasTableScroll)
-                            ) {
-                                Column(modifier = Modifier.width(tableWidth)) {
-                                    Divider(color = dividerColor)
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .background(tableHeaderBg)
-                                            .border(
-                                                width = 1.dp,
-                                                color = if (isDark) Color.White.copy(alpha = 0.05f) else Color(0xFFE2E8F0)
-                                            )
-                                            .padding(horizontal = 10.dp, vertical = 8.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(tr("Item", "Item"), color = tableHeaderText, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                                        TableColumnDivider(tableColumnDivider)
-                                        Text(tr("Data", "Date"), color = tableHeaderText, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(colData), textAlign = TextAlign.Center)
-                                        TableColumnDivider(tableColumnDivider)
-                                        Text(tr("KM", "Mileage"), color = tableHeaderText, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(colKm), textAlign = TextAlign.End)
-                                        Spacer(Modifier.width(gapBeforeActions))
-                                        TableColumnDivider(tableColumnDivider)
-                                        Text(tr("Ações", "Actions"), color = tableHeaderText, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(colAcoes), textAlign = TextAlign.Center)
-                                    }
-                                    futurasPaginado.forEachIndexed { index, (data, lembrete) ->
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(horizontal = 10.dp, vertical = 8.dp),
-                                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Text(
-                                                lembrete.titulo,
-                                                color = textLight,
-                                                fontWeight = FontWeight.Medium,
-                                                fontSize = 12.sp,
-                                                maxLines = 2,
-                                                overflow = TextOverflow.Ellipsis,
-                                                modifier = Modifier.weight(1f)
-                                            )
-                                            TableColumnDivider(tableColumnDivider)
-                                            Text(
-                                                data.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")),
-                                                color = textDim,
-                                                fontSize = 11.sp,
-                                                modifier = Modifier.width(colData),
-                                                textAlign = TextAlign.Center
-                                            )
-                                            TableColumnDivider(tableColumnDivider)
-                                            Text(
-                                                lembrete.kmLimite.ifBlank { "--" },
-                                                color = textLight,
-                                                fontSize = 11.sp,
-                                                modifier = Modifier.width(colKm),
-                                                textAlign = TextAlign.End
-                                            )
-                                            Spacer(Modifier.width(gapBeforeActions))
-                                            TableColumnDivider(tableColumnDivider)
-                                            Row(
-                                                modifier = Modifier.width(colAcoes),
-                                                horizontalArrangement = Arrangement.spacedBy(18.dp, Alignment.CenterHorizontally),
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                IconButton(
-                                                    onClick = { onEditReminder(lembrete) },
-                                                    modifier = Modifier.size(36.dp)
-                                                ) {
-                                                    Icon(Icons.Default.Edit, contentDescription = tr("Editar", "Edit"), tint = accentColor, modifier = Modifier.size(18.dp))
-                                                }
-                                                IconButton(
-                                                    onClick = { lembreteParaExcluir = lembrete },
-                                                    modifier = Modifier.size(36.dp)
-                                                ) {
-                                                    Icon(Icons.Default.Delete, contentDescription = tr("Apagar", "Delete"), tint = Color(0xFFEF4444), modifier = Modifier.size(18.dp))
-                                                }
-                                            }
-                                        }
-                                        if (index < futurasPaginado.lastIndex) Divider(color = dividerColor)
-                                    }
-                                    Divider(color = dividerColor)
-                                }
-                            }
-                            HorizontalTableScrollBar(
-                                scrollState = futurasTableScroll,
-                                activeColor = if (isDark) Color(0xFF64748B) else accentColor,
-                                trackColor = if (isDark) Color(0xFF1E293B) else dividerColor
-                            )
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(if (isDark) Color.White.copy(alpha = 0.08f) else Color(0xFFE2E8F0))
-                                    .padding(horizontal = 10.dp, vertical = 6.dp),
-                                horizontalArrangement = Arrangement.Center,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                IconButton(
-                                    onClick = { futurasPage = (futurasPageAtual - 1).coerceAtLeast(0) },
-                                    enabled = futurasPageAtual > 0,
-                                    modifier = Modifier.size(32.dp)
-                                ) {
-                                    Icon(
-                                        Icons.Default.KeyboardArrowLeft,
-                                        contentDescription = tr("Anterior", "Previous"),
-                                        tint = if (futurasPageAtual > 0) textLight else textDim
-                                    )
-                                }
-                                Spacer(Modifier.width(6.dp))
-                                Text(
-                                    text = "${tr("Página", "Page")} ${futurasPageAtual + 1}/$futurasTotalPages",
-                                    color = textDim,
-                                    fontSize = 12.sp
-                                )
-                                Spacer(Modifier.width(6.dp))
-                                IconButton(
-                                    onClick = { futurasPage = (futurasPageAtual + 1).coerceAtMost(futurasTotalPages - 1) },
-                                    enabled = futurasPageAtual < futurasTotalPages - 1,
-                                    modifier = Modifier.size(32.dp)
-                                ) {
-                                    Icon(
-                                        Icons.Default.KeyboardArrowRight,
-                                        contentDescription = tr("Próxima", "Next"),
-                                        tint = if (futurasPageAtual < futurasTotalPages - 1) textLight else textDim
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
             }
         }
     }
@@ -1166,45 +804,6 @@ private fun EmptyTableStateCard(
     }
 }
 
-@Composable
-private fun HorizontalTableScrollBar(
-    scrollState: androidx.compose.foundation.ScrollState,
-    activeColor: Color,
-    trackColor: Color
-) {
-    if (scrollState.maxValue <= 0) return
-    BoxWithConstraints(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 14.dp, vertical = 8.dp)
-            .height(7.dp)
-            .clip(RoundedCornerShape(999.dp))
-            .background(trackColor.copy(alpha = 0.9f))
-    ) {
-        val thumbWidth = (maxWidth * 0.36f).coerceAtLeast(52.dp)
-        val maxOffset = maxWidth - thumbWidth
-        val progress = (scrollState.value.toFloat() / scrollState.maxValue.toFloat()).coerceIn(0f, 1f)
-        Box(
-            modifier = Modifier
-                .offset(x = maxOffset * progress)
-                .width(thumbWidth)
-                .fillMaxHeight()
-                .clip(RoundedCornerShape(999.dp))
-                .background(activeColor.copy(alpha = 0.9f))
-        )
-    }
-}
-
-@Composable
-private fun TableColumnDivider(color: Color) {
-    Box(
-        modifier = Modifier
-            .padding(horizontal = 8.dp)
-            .width(1.dp)
-            .height(24.dp)
-            .background(color)
-    )
-}
 
 @Composable
 fun InfoRowModern(label: String, value: String, labelColor: Color, valueColor: Color) {
@@ -1501,4 +1100,3 @@ private fun gerarCacheKeyRelatorio(vararg partes: String): String {
     val raw = partes.joinToString("|") { normalizarTextoRelatorio(it) }
     return raw.hashCode().toUInt().toString()
 }
-

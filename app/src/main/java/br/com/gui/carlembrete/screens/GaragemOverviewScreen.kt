@@ -28,12 +28,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBackIosNew
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.AlertDialog
@@ -58,6 +60,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.AsyncImage
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -78,6 +82,11 @@ fun GaragemOverviewScreen(
     carros: List<CarroInfo>,
     onSelecionar: (CarroInfo) -> Unit,
     onDismiss: () -> Unit,
+    /**
+     * Editar o veiculo da linha. Default vazio para nao obrigar quem so lista — mas na
+     * home isto precisa estar ligado: e o unico caminho para a tela de edicao.
+     */
+    onEditar: (CarroInfo) -> Unit = {},
     title: String = tr("Meus veículos", "My vehicles"),
     exportButtonLabel: String = tr("Exportar", "Export"),
     showExportButton: Boolean = false,
@@ -171,7 +180,8 @@ fun GaragemOverviewScreen(
         carros
     } else {
         carros.filter { carro ->
-            val alvo = listOf(carro.nome, carro.marca, carro.modelo)
+            // Placa entra na busca porque e por ela que se procura veiculo repetido.
+            val alvo = listOf(carro.nome, carro.marca, carro.modelo, carro.placa.orEmpty())
                 .joinToString(" ")
                 .lowercase(Locale.getDefault())
             alvo.contains(buscaNormalizada)
@@ -424,6 +434,12 @@ fun GaragemOverviewScreen(
                                         modifier = Modifier.fillMaxWidth(),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
+                                        // Foto real do veiculo quando existe: a pessoa
+                                        // reconhece o carro dela pela foto num relance,
+                                        // nao pelo icone generico na cor cadastrada.
+                                        val fotoVeiculo = remember(carro.fotoNome) {
+                                            VehiclePhotoStore.arquivoDe(context, carro.fotoNome)
+                                        }
                                         Box(
                                             modifier = Modifier
                                                 .size(56.dp)
@@ -436,17 +452,32 @@ fun GaragemOverviewScreen(
                                                 ),
                                             contentAlignment = Alignment.Center
                                         ) {
-                                            VehicleIcon(
-                                                tipoVeiculo = carro.tipoVeiculo,
-                                                tint = tintIconeVeiculo,
-                                                size = 28.dp
-                                            )
+                                            if (fotoVeiculo != null) {
+                                                AsyncImage(
+                                                    model = fotoVeiculo,
+                                                    contentDescription = null,
+                                                    contentScale = ContentScale.Crop,
+                                                    modifier = Modifier
+                                                        .size(56.dp)
+                                                        .clip(CircleShape)
+                                                )
+                                            } else {
+                                                VehicleIcon(
+                                                    tipoVeiculo = carro.tipoVeiculo,
+                                                    tint = tintIconeVeiculo,
+                                                    size = 28.dp
+                                                )
+                                            }
                                         }
                                         Spacer(Modifier.width(14.dp))
                                         Column(
                                             modifier = Modifier.weight(1f),
                                             verticalArrangement = Arrangement.spacedBy(4.dp)
                                         ) {
+                                            // Nome simples aqui: a placa agora tem chip
+                                            // proprio logo abaixo, entao o sufixo de
+                                            // desempate do nomeExibicaoVeiculo duplicaria
+                                            // a placa no mesmo card.
                                             Text(
                                                 carro.nome.ifBlank { tr("Veículo sem nome", "Unnamed vehicle") },
                                                 color = textPrimary,
@@ -468,40 +499,78 @@ fun GaragemOverviewScreen(
                                                 detalheModelo,
                                                 carro.marca.takeIf { it.isNotBlank() }
                                             ).joinToString(" • ").ifBlank { tr("Marca não informada", "Brand not informed") }
-                                            Text(
-                                                text = marcaAno,
-                                                color = textDim,
-                                                fontSize = 12.sp,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
+                                            Row(
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text(
+                                                    text = marcaAno,
+                                                    color = textDim,
+                                                    fontSize = 12.sp,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    modifier = Modifier.weight(1f, fill = false)
+                                                )
+                                                val placaExibida = formatarPlacaExibicao(carro.placa)
+                                                if (placaExibida.isNotBlank()) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .clip(RoundedCornerShape(5.dp))
+                                                            .background(
+                                                                if (isDark) Color.White.copy(alpha = 0.07f)
+                                                                else Color.Black.copy(alpha = 0.05f)
+                                                            )
+                                                            .border(
+                                                                0.5.dp,
+                                                                cardBorder,
+                                                                RoundedCornerShape(5.dp)
+                                                            )
+                                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                                    ) {
+                                                        Text(
+                                                            text = placaExibida,
+                                                            color = textDim,
+                                                            fontSize = 10.5.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            letterSpacing = 0.8.sp,
+                                                            maxLines = 1
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        IconButton(
+                                            onClick = { onEditar(carro) },
+                                            modifier = Modifier.size(40.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Rounded.Edit,
+                                                contentDescription = tr("Editar veículo", "Edit vehicle"),
+                                                tint = textDim,
+                                                modifier = Modifier.size(20.dp)
                                             )
                                         }
                                     }
 
-                                    Surface(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        shape = RoundedCornerShape(12.dp),
-                                        color = if (isDark) Color(0xFF111827) else Color(0xFFF8FAFC),
-                                        border = BorderStroke(1.dp, cardBorder)
-                                    ) {
-                                        Column(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(horizontal = 12.dp, vertical = 10.dp),
-                                            verticalArrangement = Arrangement.spacedBy(4.dp)
-                                        ) {
-                                            Text(
-                                                text = "${tr("Proprietário", "Owner")}: ${carro.proprietario.ifBlank { tr("Não informado", "Not informed") }}",
-                                                color = if (isDark) Color(0xFFCBD5E1) else textDim,
-                                                fontSize = 12.sp,
-                                                fontWeight = FontWeight.SemiBold
-                                            )
-                                            Text(
-                                                text = "${tr("Mantenedor", "Maintainer")}: $nomeMantedor",
-                                                color = textDim,
-                                                fontSize = 12.sp
-                                            )
-                                        }
+                                    // Linhas com divisor no lugar da caixa-dentro-da-caixa:
+                                    // a moldura interna com borda propria repetia a anatomia
+                                    // do card e virava ruido. Rotulo a esquerda, valor a
+                                    // direita — mesma gramatica das tabelas do detalhe.
+                                    Column(modifier = Modifier.fillMaxWidth()) {
+                                        HorizontalDivider(color = cardBorder.copy(alpha = 0.6f))
+                                        LinhaDoCardVeiculo(
+                                            rotulo = tr("Proprietário", "Owner"),
+                                            valor = carro.proprietario.ifBlank { tr("Não informado", "Not informed") },
+                                            textDim = textDim,
+                                            textPrimary = textPrimary
+                                        )
+                                        HorizontalDivider(color = cardBorder.copy(alpha = 0.35f))
+                                        LinhaDoCardVeiculo(
+                                            rotulo = tr("Mantenedor", "Maintainer"),
+                                            valor = nomeMantedor,
+                                            textDim = textDim,
+                                            textPrimary = textPrimary
+                                        )
                                     }
 
                                     if (showVehicleHealthSection) {
@@ -780,3 +849,30 @@ private fun extrairAroDoModeloNoCard(modelo: String): String {
 
 
 
+/** Linha rotulo/valor dos cards da garagem. Mesma gramatica das tabelas do detalhe. */
+@Composable
+private fun LinhaDoCardVeiculo(
+    rotulo: String,
+    valor: String,
+    textDim: Color,
+    textPrimary: Color
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(text = rotulo, color = textDim, fontSize = 12.sp)
+        Text(
+            text = valor,
+            color = textPrimary,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(start = 12.dp)
+        )
+    }
+}

@@ -84,24 +84,6 @@ object MaintenancePlanner {
         return "**Plano de manutenção do ${carro.nome}**\n---\n$contexto$dica\n\nConfira os cards abaixo e crie os que quiser (pode criar todos de uma vez)."
     }
 
-    fun introPrompt(carro: CarroInfo, count: Int): String {
-        val ano = anoVeiculo(carro)?.toString() ?: "ano nao informado"
-        val idadePrompt = idadeAnos(carro)?.let { "$it anos" } ?: "idade nao informada"
-        val marca = carro.marca.ifBlank { "marca nao informada" }
-        val modelo = carro.modelo.ifBlank { "modelo nao informado" }
-        return "Escreva uma introducao curta e amigavel (2 a 3 frases) em portugues do Brasil para um plano de manutencao. " +
-            "Explique que os $count cards abaixo sao sugestoes baseadas no veiculo cadastrado, marca/modelo, ano quando existir, KM atual e pontos comuns de manutencao. " +
-            "Veiculo: nome=${carro.nome}, marca=$marca, modelo=$modelo, ano=$ano, idade=$idadePrompt, km=${carro.kmAtual}, tipo=${carro.tipoVeiculo.label}. " +
-            "Se reconhecer pontos comuns desse perfil, cite exemplos de atencao em linguagem de sugestao, como correia dentada, oleo, filtros, freios, pneus, arrefecimento, bateria ou suspensao. " +
-            "NAO diga que consultou internet. NAO invente defeito especifico com certeza. NAO invente intervalos nem numeros e NAO liste os itens, porque eles ja aparecem em cards. " +
-            "Diga para conferir com o manual/fabricante e ajustar conforme historico real do veiculo."
-
-        val idade = idadeAnos(carro)?.let { "$it anos" } ?: "idade nao informada"
-        return "Escreva uma introducao curta e amigavel (2 a 3 frases) em portugues do Brasil recomendando a manutencao do ${carro.nome} " +
-            "(${carro.modelo}, $idade, ${carro.kmAtual} km). Diga que preparei $count lembretes recomendados abaixo e o que vale priorizar pela idade e km. " +
-            "NAO invente intervalos nem numeros e NAO liste os itens (eles ja aparecem em cards). Apenas explique de forma simples a importancia."
-    }
-
     // ---------- Planos por tipo ----------
 
     private fun carroPlan(carro: CarroInfo): List<AiReminderDraft> {

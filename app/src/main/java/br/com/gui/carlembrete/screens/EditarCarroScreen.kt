@@ -15,6 +15,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBackIosNew
 import androidx.compose.material.icons.rounded.AccessTime
+import androidx.compose.material.icons.rounded.Badge
 import androidx.compose.material.icons.rounded.Build
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.DirectionsCar
@@ -39,6 +40,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -95,6 +97,9 @@ fun EditarCarroScreen(
     )
 
     var nome by remember { mutableStateOf(carroAtual.nome) }
+    // Sem este campo aqui, veiculo cadastrado antes da placa existir nunca ganharia uma:
+    // as telas de criacao eram os unicos lugares com o campo.
+    var placa by remember { mutableStateOf(normalizarPlaca(carroAtual.placa)) }
     var marca by remember { mutableStateOf(carroAtual.marca) }
     var modelo by remember { mutableStateOf(carroAtual.modelo) }
     val tipoSelecionado = carroAtual.tipoVeiculo
@@ -124,19 +129,25 @@ fun EditarCarroScreen(
     val kmAtualNormalizado by remember(kmAtualStr) {
         derivedStateOf { kmAtualStr.filter(Char::isDigit).toIntOrNull() ?: 0 }
     }
+    // Placa fora do padrao nao salva, mas em branco salva: o campo e opcional e apagar
+    // a placa tem que ser possivel.
+    val placaAceita = placaAceitavel(placa)
     val hasChanges by remember(
-        nome, marca, modelo, proprietario, corSelecionada,
-        kmAtualNormalizado, vezesBatido, tempoComVeiculo
+        nome, placa, marca, modelo, proprietario, corSelecionada,
+        kmAtualNormalizado, vezesBatido, tempoComVeiculo, placaAceita
     ) {
         derivedStateOf {
-            nome != carroAtual.nome ||
-                marca != carroAtual.marca ||
-                modelo != carroAtual.modelo ||
-                proprietario != proprietarioInicial ||
-                corSelecionada != carroAtual.corArgb ||
-                kmAtualNormalizado != carroAtual.kmAtual ||
-                vezesBatido != carroAtual.vezesBatido ||
-                tempoComVeiculo != carroAtual.tempoComVeiculo
+            placaAceita && (
+                nome != carroAtual.nome ||
+                    placa != normalizarPlaca(carroAtual.placa) ||
+                    marca != carroAtual.marca ||
+                    modelo != carroAtual.modelo ||
+                    proprietario != proprietarioInicial ||
+                    corSelecionada != carroAtual.corArgb ||
+                    kmAtualNormalizado != carroAtual.kmAtual ||
+                    vezesBatido != carroAtual.vezesBatido ||
+                    tempoComVeiculo != carroAtual.tempoComVeiculo
+                )
         }
     }
 
@@ -186,6 +197,7 @@ fun EditarCarroScreen(
                             onSalvar(
                                 carroAtual.copy(
                                     nome = nome,
+                                    placa = normalizarPlaca(placa).takeIf { it.isNotBlank() },
                                     marca = marca,
                                     modelo = modelo,
                                     proprietario = proprietario,
@@ -302,6 +314,29 @@ fun EditarCarroScreen(
                         onValueChange = { nome = it },
                         label = { Text(trNow("Nome do veiculo", "Vehicle name")) },
                         leadingIcon = { Icon(Icons.Rounded.Edit, null, modifier = Modifier.size(20.dp)) },
+                        singleLine = true,
+                        colors = textFieldColors,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                    val placaForaDoPadrao = placa.isNotBlank() && !placaAceita
+                    OutlinedTextField(
+                        value = placa,
+                        onValueChange = { placa = normalizarPlaca(it) },
+                        isError = placaForaDoPadrao,
+                        label = { Text(trNow("Placa (opcional)", "Plate (optional)")) },
+                        placeholder = { Text("ABC1D23") },
+                        leadingIcon = {
+                            Icon(Icons.Rounded.Badge, null, modifier = Modifier.size(20.dp))
+                        },
+                        supportingText = if (placaForaDoPadrao) {
+                            { Text(trNow("Use o formato ABC1D23 ou ABC1234.", "Use ABC1D23 or ABC1234.")) }
+                        } else {
+                            null
+                        },
+                        keyboardOptions = KeyboardOptions(
+                            capitalization = KeyboardCapitalization.Characters
+                        ),
                         singleLine = true,
                         colors = textFieldColors,
                         modifier = Modifier.fillMaxWidth(),

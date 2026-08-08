@@ -1,4 +1,4 @@
-﻿package br.com.gui.carlembrete
+package br.com.gui.carlembrete
 
 import androidx.annotation.DrawableRes
 import androidx.compose.foundation.BorderStroke
@@ -90,7 +90,23 @@ data class Lembrete(
     val operationalBrand: String = "",
     val operationalPosition: String = "",
     val operationalKmStart: Int? = null,
-    val operationalKmEnd: Int? = null
+    val operationalKmEnd: Int? = null,
+    val historicoGastos: String? = null,
+    /**
+     * Foto do servico ou da peca — o vazamento, o pneu gasto, o risco na lataria.
+     *
+     * Coisa diferente de [fotoPath], que guarda a foto da **nota fiscal** e tem como unico
+     * escritor a camera de escanear nota. Uma e comprovante de gasto, a outra e registro do
+     * estado do veiculo, e uma nao substitui a outra.
+     *
+     * Guarda o **nome** do arquivo em filesDir, nao caminho absoluto como [fotoPath]:
+     * caminho de outro aparelho nao significa nada na restauracao, e o backup de fotos ja
+     * indexa por nome.
+     *
+     * Nullable de proposito: `Lembrete` e `Serializable` via ObjectInputStream, e default de
+     * construtor Kotlin nao e aplicado na desserializacao.
+     */
+    val fotoAvisoNome: String? = null
 ) : Serializable {
     companion object {
         private const val serialVersionUID: Long = 1L
@@ -387,7 +403,23 @@ data class CarroInfo(
     val semControleKm: Boolean = false,
     val tipoVeiculo: TipoVeiculo = TipoVeiculo.CARRO,
     val vezesBatido: Int? = null,
-    val tempoComVeiculo: String = ""
+    val tempoComVeiculo: String = "",
+    /**
+     * Nome do arquivo da foto do veiculo dentro de filesDir, nao um content:// da
+     * galeria: URI de galeria pode ser revogado e o arquivo perdido no backup.
+     */
+    val fotoNome: String? = null,
+    /**
+     * Placa, sem mascara e em maiuscula. Nullable de proposito: `CarroInfo` e
+     * `Serializable` via ObjectInputStream, e default de construtor Kotlin **nao** e
+     * aplicado na desserializacao — veiculo salvo antes deste campo volta como null,
+     * nao como "".
+     *
+     * Unico campo que distingue dois veiculos do mesmo modelo: quando o nome vem da
+     * sugestao da FIPE, dois Gols ficam com o mesmo nome. E e a chave que a frota
+     * corporativa ja usa (`plate` no Firestore).
+     */
+    val placa: String? = null
 ) : Serializable {
     companion object {
         private const val serialVersionUID: Long = 1L
@@ -527,6 +559,17 @@ data class ContatoProfissional(
     }
 }
 
+/** Anuncio pago vindo do Firestore (colecao prestadores_patrocinados). So exibicao — nao e persistido localmente. */
+data class PrestadorPatrocinado(
+    val id: String,
+    val nome: String,
+    val telefone: String,
+    val tipoServico: String,
+    val cidade: String?,
+    val estado: String?,
+    val posicao: Int
+)
+
 data class Abastecimento(
     val id: String = UUID.randomUUID().toString(),
     val carroId: String,
@@ -618,7 +661,6 @@ fun TipoManutencao.permiteQuantidadeAviso(): Boolean = when (this) {
     TipoManutencao.SEGURO -> false
     else -> true
 }
-
 
 
 

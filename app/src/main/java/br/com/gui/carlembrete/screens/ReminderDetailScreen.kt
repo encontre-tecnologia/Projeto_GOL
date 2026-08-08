@@ -2,6 +2,9 @@ package br.com.gui.carlembrete
 
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -20,6 +23,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import coil.compose.AsyncImage
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -65,6 +71,25 @@ internal fun InfoMini(
             textAlign =  TextAlign.Center,
             maxLines = 1,
             overflow = if (ellipsize) TextOverflow.Ellipsis else TextOverflow.Clip
+        )
+    }
+}
+
+/** Pilula do cabecalho: data e prazo com a cor de urgencia, no topo em vez de na tabela. */
+@Composable
+private fun PillDoCabecalho(texto: String, cor: Color, fundo: Color) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(fundo)
+            .padding(horizontal = 10.dp, vertical = 5.dp)
+    ) {
+        Text(
+            text = texto,
+            color = cor,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1
         )
     }
 }
@@ -237,15 +262,9 @@ internal fun LembreteDetalhesScreen(
     val dataBaseLembrete = remember(lembrete.dataLimite) {
         runCatching { LocalDate.parse(lembrete.dataLimite, detalhesDateFormatter) }.getOrNull()
     }
-    val statusDetalhe = remember(lembrete.id, lembrete.dataLimite, lembrete.estabelecimentoEndereco) {
-        when {
-            isLembreteRealizado(lembrete) -> if (englishUi) "Completed" else "Concluído"
-            dataBaseLembrete == null -> if (englishUi) "Active" else "Ativo"
-            dataBaseLembrete.isBefore(LocalDate.now()) -> if (englishUi) "Overdue" else "Vencido"
-            dataBaseLembrete.isEqual(LocalDate.now()) -> if (englishUi) "Due today" else "Vence hoje"
-            else -> if (englishUi) "Active" else "Ativo"
-        }
-    }
+    // O antigo statusDetalhe saiu: o status agora vive na pilula do cabecalho, calculada
+    // por prazoDoAviso/isLembreteRealizado — um segundo calculo aqui seria duas fontes
+    // para o mesmo fato.
     val statusVencido = remember(lembrete.id, lembrete.dataLimite, lembrete.estabelecimentoEndereco) {
         !isLembreteRealizado(lembrete) && dataBaseLembrete?.isBefore(LocalDate.now()) == true
     }
@@ -460,6 +479,36 @@ internal fun LembreteDetalhesScreen(
                                     textAlign = TextAlign.Center,
                                     modifier = Modifier.padding(top = if (statusVencido) 0.dp else 4.dp)
                                 )
+                                // Data e prazo promovidos para o cabecalho: sao o fato mais
+                                // importante da tela e viviam como primeira linha de uma
+                                // tabela la embaixo, com o mesmo peso de "Prestador".
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    if (lembrete.dataLimite.isNotBlank()) {
+                                        PillDoCabecalho(
+                                            texto = lembrete.dataLimite,
+                                            cor = textSecondary,
+                                            fundo = if (isDark) Color.White.copy(alpha = 0.06f)
+                                            else Color.Black.copy(alpha = 0.05f)
+                                        )
+                                    }
+                                    if (isLembreteRealizado(lembrete)) {
+                                        PillDoCabecalho(
+                                            texto = tr("Concluído", "Completed"),
+                                            cor = Color(0xFF22C55E),
+                                            fundo = Color(0xFF22C55E).copy(alpha = 0.14f)
+                                        )
+                                    } else {
+                                        val prazo = prazoDoAviso(lembrete)
+                                        PillDoCabecalho(
+                                            texto = prazo.texto,
+                                            cor = prazo.cor,
+                                            fundo = prazo.cor.copy(alpha = 0.14f)
+                                        )
+                                    }
+                                }
                             }
                         }
                         HorizontalDivider(color = cardBorder)
@@ -752,9 +801,15 @@ internal fun LembreteDetalhesScreen(
                                     totalValor
                                 }
                             val mostrarResumoFinanceiro = totalValor != null || finalValor != null || descontoValor != null
+                            // Sem "Proximo lembrete" e "Status": os dois subiram para as
+                            // pilulas do cabecalho. Repetidos aqui, a tabela dava a data o
+                            // mesmo peso de "Prestador" e dizia duas vezes a mesma coisa.
+                            // Excecao: recorrencia calcula um texto proprio ("a cada X..."),
+                            // que a pilula de data nao carrega — nesse caso a linha fica.
                             val tabelaDados = buildList<Pair<String, String>> {
-                                add(tr("Próximo lembrete", "Next reminder") to proximoLembreteTexto)
-                                add(tr("Status", "Status") to statusDetalhe)
+                                if (tipoPermiteRepeticao && repetirAviso) {
+                                    add(tr("Próximo lembrete", "Next reminder") to proximoLembreteTexto)
+                                }
                                 add(tr("Veículo", "Vehicle") to carro.nome)
                                 add(tr("Hora", "Time") to lembrete.horaAviso.ifBlank { tr("Não definida", "Not set") })
                                 add(tr("Repetição", "Repeat") to descricaoRecorrenciaAtual)
@@ -890,16 +945,178 @@ internal fun LembreteDetalhesScreen(
                                         )
                                     }
                                     HorizontalDivider(color = cardBorder.copy(alpha = 0.55f))
+                                    val labelPrestador = tr("Prestador", "Provider")
+                                    val whatsAppGreen = Color(0xFF25D366)
                                     tabelaDados.forEachIndexed { index, (label, value) ->
-                                        InfoTableRow(
-                                            label = label,
-                                            value = value,
-                                            textPrimary = textPrimary,
-                                            textSecondary = textSecondary
-                                        )
+                                        if (label == labelPrestador && !contato?.telefone.isNullOrBlank()) {
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                            ) {
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text(
+                                                        text = label,
+                                                        color = textSecondary,
+                                                        fontSize = 12.sp,
+                                                        fontWeight = FontWeight.SemiBold
+                                                    )
+                                                    Text(
+                                                        text = value,
+                                                        color = textPrimary,
+                                                        fontSize = 13.sp,
+                                                        fontWeight = FontWeight.Medium,
+                                                        maxLines = 2,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                }
+                                                Row(
+                                                    modifier = Modifier
+                                                        .clip(RoundedCornerShape(999.dp))
+                                                        .background(whatsAppGreen)
+                                                        .clickable {
+                                                            abrirWhatsApp(
+                                                                context,
+                                                                contato!!.telefone,
+                                                                trNow(
+                                                                    "Olá! Sobre o serviço: ${lembrete.titulo}",
+                                                                    "Hi! About the service: ${lembrete.titulo}"
+                                                                )
+                                                            )
+                                                        }
+                                                        .padding(horizontal = 14.dp, vertical = 9.dp),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Icon(
+                                                        painter = painterResource(R.drawable.ic_whatsapp),
+                                                        contentDescription = null,
+                                                        tint = Color.White,
+                                                        modifier = Modifier.size(16.dp)
+                                                    )
+                                                    Spacer(Modifier.width(6.dp))
+                                                    Text(
+                                                        text = tr("WhatsApp", "WhatsApp"),
+                                                        color = Color.White,
+                                                        fontSize = 12.sp,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                }
+                                            }
+                                        } else {
+                                            InfoTableRow(
+                                                label = label,
+                                                value = value,
+                                                textPrimary = textPrimary,
+                                                textSecondary = textSecondary
+                                            )
+                                        }
                                         if (index != tabelaDados.lastIndex) {
                                             HorizontalDivider(color = cardBorder.copy(alpha = 0.65f))
                                         }
+                                    }
+                                }
+                            }
+
+                            // Foto do servico ou da peca. Salva na hora, sem entrar em modo
+                            // de edicao: anexar imagem nao e editar texto, e obrigar dois
+                            // toques extras para uma acao de um toque seria atrito de graca.
+                            //
+                            // Fica no detalhe, nao no cadastro: na hora de criar o aviso o
+                            // servico normalmente ainda nao foi feito, e a foto so existe
+                            // depois — quando a peca foi trocada ou o problema apareceu.
+                            val arquivoFotoAviso = remember(lembrete.fotoAvisoNome) {
+                                LembretePhotoStore.arquivoDe(context, lembrete.fotoAvisoNome)
+                            }
+                            val escolherFotoDoAviso = rememberLauncherForActivityResult(
+                                contract = ActivityResultContracts.GetContent()
+                            ) { uri ->
+                                if (uri == null) return@rememberLauncherForActivityResult
+                                val novoNome = LembretePhotoStore.salvar(context, uri, lembrete.id)
+                                if (novoNome == null) {
+                                    // trNow, nao tr: este callback nao e @Composable.
+                                    Toast.makeText(
+                                        context,
+                                        trNow("Nao foi possivel usar essa imagem.", "Could not use that image."),
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                    return@rememberLauncherForActivityResult
+                                }
+                                LembretePhotoStore.apagar(context, lembrete.fotoAvisoNome)
+                                onSalvar(lembrete.copy(fotoAvisoNome = novoNome))
+                            }
+
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(containerColor = cardBg),
+                                border = BorderStroke(1.dp, cardBorder)
+                            ) {
+                                Column(modifier = Modifier.fillMaxWidth()) {
+                                    // Mesma faixa de titulo dos cards vizinhos: com rotulo
+                                    // solto a esquerda, este era o unico card da tela com
+                                    // outra anatomia e parecia de outro app.
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(topStart = 11.dp, topEnd = 11.dp))
+                                            .background(
+                                                if (isDark) Color(0xFF1E293B) else Color(0xFFE2E8F0)
+                                            )
+                                            .padding(vertical = 7.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = tr("Foto do serviço", "Service photo"),
+                                            color = textSecondary,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            textAlign = TextAlign.Center
+                                        )
+                                    }
+                                    HorizontalDivider(color = cardBorder.copy(alpha = 0.55f))
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(12.dp),
+                                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                    if (arquivoFotoAviso != null) {
+                                        AsyncImage(
+                                            model = arquivoFotoAviso,
+                                            contentDescription = tr("Foto do serviço", "Service photo"),
+                                            contentScale = ContentScale.Crop,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(180.dp)
+                                                .clip(RoundedCornerShape(10.dp))
+                                        )
+                                    }
+                                    OutlinedButton(
+                                        onClick = { escolherFotoDoAviso.launch("image/*") },
+                                        modifier = Modifier.fillMaxWidth().height(44.dp),
+                                        shape = RoundedCornerShape(10.dp),
+                                        border = BorderStroke(1.dp, cardBorder)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.AddAPhoto,
+                                            contentDescription = null,
+                                            tint = textSecondary,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(
+                                            text = if (arquivoFotoAviso != null) {
+                                                tr("Trocar foto", "Replace photo")
+                                            } else {
+                                                tr("Adicionar foto", "Add photo")
+                                            },
+                                            color = textPrimary,
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    }
                                     }
                                 }
                             }

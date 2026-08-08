@@ -66,6 +66,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -160,6 +161,7 @@ internal fun NovoCarroScreenContent(
     val carroBase = CarroInfo(nome = "", modelo = "")
 
     var nome by remember { mutableStateOf("") }
+    var placa by remember { mutableStateOf("") }
     var marca by remember { mutableStateOf("") }
     var modelo by remember { mutableStateOf("") }
     var proprietario by remember { mutableStateOf(nomeUsuarioLogado) }
@@ -214,31 +216,33 @@ internal fun NovoCarroScreenContent(
         tipoSelecionado == TipoVeiculo.BICICLETA ||
             tipoSelecionado == TipoVeiculo.BIKE_ELETRICA
     val anoObrigatorio = !tipoSemAno && anosFipe.isNotEmpty()
+    // Mesmo corte do cadastro do primeiro acesso: so tipo, marca e modelo bloqueiam.
+    // Nome, ano e cor tem default util; proprietario, batidas e tempo com o veiculo sao
+    // curiosidade e ficam para completar depois na tela do veiculo.
+    // Placa segue opcional, mas meia placa nao entra: em branco passa, preenchida tem
+    // que bater com o padrao.
+    val placaAceita = placaAceitavel(placa)
     val etapa1Valida = tipoSelecionado != null &&
         marca.isNotBlank() &&
-        nome.isNotBlank() &&
         modelo.isNotBlank() &&
-        (!anoObrigatorio || anoSelecionado.isNotBlank()) &&
-        corSelecionada != null
+        placaAceita
     val hasTypeSelected = tipoSelecionado != null
-    val etapaBikeValida = etapa1Valida &&
-        proprietario.isNotBlank()
+    val etapaBikeValida = etapa1Valida
     val erroTipo = etapaCadastro == 1 && tentouAvancarEtapa1 && tipoSelecionado == null
     val erroMarca = etapaCadastro == 1 && tentouAvancarEtapa1 && marca.isBlank()
-    val erroNome = etapaCadastro == 1 && tentouAvancarEtapa1 && nome.isBlank()
+    // Acusa quando os sete caracteres ja estao la, ou quando tentou avancar.
+    val erroPlaca = etapaCadastro == 1 && !placaAceita &&
+        (tentouAvancarEtapa1 || placaCompleta(placa))
+    val erroNome = false
     val erroModelo = etapaCadastro == 1 && tentouAvancarEtapa1 && modelo.isBlank()
-    val erroAno = etapaCadastro == 1 && !tipoSemAno && tentouAvancarEtapa1 && anoObrigatorio && anoSelecionado.isBlank()
-    val erroCor = etapaCadastro == 1 && tentouAvancarEtapa1 && corSelecionada == null
+    val erroAno = false
+    val erroCor = false
     val usarControleKm = !isKmOptionalType || !bikeSemKm
     val erroKm = false
-    val etapa2Valida = proprietario.isNotBlank() &&
-        (isBikeTypeGlobal || vezesBatido != null) &&
-        tempoComVeiculo.isNotBlank()
-    val erroProprietario =
-        (etapaCadastro == 2 && !isBikeTypeGlobal && tentouSalvarEtapa2 && proprietario.isBlank()) ||
-        (etapaCadastro == 1 && isBikeTypeGlobal && tentouAvancarEtapa1 && proprietario.isBlank())
-    val erroBatidas = etapaCadastro == 2 && !isBikeTypeGlobal && tentouSalvarEtapa2 && vezesBatido == null
-    val erroTempo = etapaCadastro == 2 && tentouSalvarEtapa2 && tempoComVeiculo.isBlank()
+    val etapa2Valida = true
+    val erroProprietario = false
+    val erroBatidas = false
+    val erroTempo = false
 
     val marcasDisponiveis = when {
         tipoSelecionado == null -> marcasSuportadas
@@ -405,7 +409,8 @@ internal fun NovoCarroScreenContent(
                                         }
                                         onSalvar(
                                             carroBase.copy(
-                                                nome = nome,
+                                                nome = nome.trim().ifBlank { modelo.trim() },
+                                                placa = normalizarPlaca(placa).takeIf { it.isNotBlank() },
                                                 marca = marca,
                                                 modelo = combinarModeloAno(modelo, anoSelecionado),
                                                 proprietario = proprietario,
@@ -450,7 +455,8 @@ internal fun NovoCarroScreenContent(
                                     }
                                     onSalvar(
                                         carroBase.copy(
-                                            nome = nome,
+                                            nome = nome.trim().ifBlank { modelo.trim() },
+                                            placa = normalizarPlaca(placa).takeIf { it.isNotBlank() },
                                             marca = marca,
                                             modelo = combinarModeloAno(modelo, anoSelecionado),
                                             proprietario = proprietario,
@@ -552,6 +558,32 @@ internal fun NovoCarroScreenContent(
                     }
 
                     if (etapaCadastro == 1) {
+                    // Opcional, mas primeiro: e o unico dado que a pessoa sabe de cor.
+                    // Desempata dois veiculos do mesmo modelo mais tarde.
+                    val avisoPlaca: (@Composable () -> Unit)? =
+                        if (erroPlaca) {
+                            { Text("Use o formato ABC1D23 ou ABC1234.") }
+                        } else {
+                            null
+                        }
+                    // Sem mascara no proprio valor: formatar aqui faz o texto exibido
+                    // brigar com o estado, e apagar o hifen o trazia de volta na
+                    // recomposicao. O hifen fica so na exibicao fora do campo.
+                    OutlinedTextField(
+                        value = placa,
+                        onValueChange = { placa = normalizarPlaca(it) },
+                        isError = erroPlaca,
+                        label = { Text("Placa (opcional)") },
+                        placeholder = { Text("ABC1D23") },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = selectorFieldColors,
+                        supportingText = avisoPlaca,
+                        keyboardOptions = KeyboardOptions(
+                            capitalization = KeyboardCapitalization.Characters,
+                            imeAction = ImeAction.Done
+                        ),
+                        singleLine = true
+                    )
                     ExposedDropdownMenuBox(
                         expanded = marcaExpanded,
                         onExpandedChange = {
@@ -1167,7 +1199,8 @@ internal fun NovoCarroScreenContent(
                                         }
                                         onSalvar(
                                             carroBase.copy(
-                                                nome = nome,
+                                                nome = nome.trim().ifBlank { modelo.trim() },
+                                                placa = normalizarPlaca(placa).takeIf { it.isNotBlank() },
                                                 marca = marca,
                                                 modelo = combinarModeloAno(modelo, anoSelecionado),
                                                 proprietario = proprietario,
@@ -1212,7 +1245,8 @@ internal fun NovoCarroScreenContent(
                                     }
                                     onSalvar(
                                         carroBase.copy(
-                                            nome = nome,
+                                            nome = nome.trim().ifBlank { modelo.trim() },
+                                            placa = normalizarPlaca(placa).takeIf { it.isNotBlank() },
                                             marca = marca,
                                             modelo = combinarModeloAno(modelo, anoSelecionado),
                                             proprietario = proprietario,

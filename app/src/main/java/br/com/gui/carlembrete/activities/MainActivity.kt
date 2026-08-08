@@ -1,4 +1,4 @@
-﻿package br.com.gui.carlembrete
+package br.com.gui.carlembrete
 
 
 import android.Manifest
@@ -105,6 +105,7 @@ class MainActivity : ComponentActivity() {
     private var openAondePareiFromIntent by mutableStateOf(false)
     private var openLembreteIdFromIntent by mutableStateOf<String?>(null)
     private var openLembreteCarroIdFromIntent by mutableStateOf<String?>(null)
+    private var openVehicleImportUriFromIntent by mutableStateOf<Uri?>(null)
     @Volatile
     private var keepNativeSplashVisible: Boolean = false
     private var inAppUpdateChecked = false
@@ -161,6 +162,19 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleNavigationIntent(intent: Intent?) {
+        val importUri = when (intent?.action) {
+            Intent.ACTION_VIEW -> intent.data
+            Intent.ACTION_SEND -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+            } else {
+                @Suppress("DEPRECATION")
+                intent.getParcelableExtra(Intent.EXTRA_STREAM) as? Uri
+            }
+            else -> null
+        }
+        if (importUri != null) {
+            openVehicleImportUriFromIntent = importUri
+        }
         if (intent?.getBooleanExtra(EXTRA_OPEN_AONDE_PAREI, false) == true) {
             openAondePareiFromIntent = true
             intent.removeExtra(EXTRA_OPEN_AONDE_PAREI)
@@ -231,20 +245,34 @@ class MainActivity : ComponentActivity() {
                             "thanks=$showThanksAfterLogin attemptedEmptyRecovery=$attemptedEmptyVehicleRecovery"
                     )
                 }
-                LaunchedEffect(isDarkTheme, usuario) {
+                // Todo o primeiro fluxo, do onboarding ao "bem-vindo", roda em tema escuro.
+                val isFirstRunFlow = showOnboarding || showBackupCheck || showNewCarAfterLogin ||
+                    showPermissionsAfterBackup || showTermsAfterBackup || showThanksAfterLogin
+                LaunchedEffect(isDarkTheme, usuario, isFirstRunFlow) {
                     val insetsController = WindowInsetsControllerCompat(window, window.decorView)
-                    if (usuario == null) {
-                        window.statusBarColor = android.graphics.Color.TRANSPARENT
-                        window.navigationBarColor = android.graphics.Color.TRANSPARENT
-                        insetsController.isAppearanceLightStatusBars = false
-                        insetsController.isAppearanceLightNavigationBars = false
-                    } else {
-                        val systemBarColor = colorScheme.background.toArgb()
-                        val useDarkIcons = colorScheme.background.luminance() > 0.5f
-                        window.statusBarColor = systemBarColor
-                        window.navigationBarColor = systemBarColor
-                        insetsController.isAppearanceLightStatusBars = useDarkIcons
-                        insetsController.isAppearanceLightNavigationBars = useDarkIcons
+                    when {
+                        usuario == null -> {
+                            window.statusBarColor = android.graphics.Color.TRANSPARENT
+                            window.navigationBarColor = android.graphics.Color.TRANSPARENT
+                            insetsController.isAppearanceLightStatusBars = false
+                            insetsController.isAppearanceLightNavigationBars = false
+                        }
+                        isFirstRunFlow -> {
+                            // Barras pretas com icones claros: bateria, relogio e notificacoes
+                            // em branco, independente do tema escolhido pelo usuario.
+                            window.statusBarColor = android.graphics.Color.BLACK
+                            window.navigationBarColor = android.graphics.Color.BLACK
+                            insetsController.isAppearanceLightStatusBars = false
+                            insetsController.isAppearanceLightNavigationBars = false
+                        }
+                        else -> {
+                            val systemBarColor = colorScheme.background.toArgb()
+                            val useDarkIcons = colorScheme.background.luminance() > 0.5f
+                            window.statusBarColor = systemBarColor
+                            window.navigationBarColor = systemBarColor
+                            insetsController.isAppearanceLightStatusBars = useDarkIcons
+                            insetsController.isAppearanceLightNavigationBars = useDarkIcons
+                        }
                     }
                 }
                 DisposableEffect(Unit) {
@@ -302,7 +330,9 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 }
-                val baseBackground = MaterialTheme.colorScheme.background
+                // No primeiro fluxo o fundo base tambem e preto: com statusBarsPadding,
+                // a faixa acima do conteudo mostraria a cor do tema claro por tras.
+                val baseBackground = if (isFirstRunFlow) Color.Black else MaterialTheme.colorScheme.background
                 Surface(modifier = Modifier.fillMaxSize(), color = baseBackground) {
                     if (usuario == null) {
                         keepNativeSplashVisible = false
@@ -320,6 +350,10 @@ class MainActivity : ComponentActivity() {
                             }
                         )
                     } else {
+                        // O primeiro fluxo (onboarding -> backup -> permissoes -> termos -> bem-vindo)
+                        // e sempre escuro, mesmo que o usuario tenha escolhido tema claro. Assim todos
+                        // os isDark internos das telas do fluxo ja resolvem para escuro.
+                        CarLembreteTheme(themeMode = if (isFirstRunFlow) AppThemeMode.DARK else themeMode) {
                         Box(modifier = Modifier.fillMaxSize()) {
                             if (showOnboarding) {
                                 keepNativeSplashVisible = false
@@ -334,8 +368,10 @@ class MainActivity : ComponentActivity() {
                                 )
                             } else if (showBackupCheck) {
                                 keepNativeSplashVisible = false
-                                val onboardingBg = if (isDarkTheme) Color(0xFF000000) else Color(0xFF0F2A4A)
-                                val onboardingCardBg = if (isDarkTheme) Color(0xFF111827) else Color(0xFF1E293B)
+                                // Primeiro fluxo é preto nos dois temas: no tema claro ficava
+                                // azul-marinho e destoava das barras do sistema.
+                                val onboardingBg = Color.Black
+                                val onboardingCardBg = Color(0xFF111827) // fluxo e sempre escuro
                                 Box(
                                     modifier = Modifier
                                         .fillMaxSize()
@@ -382,7 +418,9 @@ class MainActivity : ComponentActivity() {
                                         showBackupCheck = true
                                     }
                                 }
-                                val onboardingBg = if (isDarkTheme) Color(0xFF000000) else Color(0xFF0F2A4A)
+                                // Primeiro fluxo é preto nos dois temas: no tema claro ficava
+                                // azul-marinho e destoava das barras do sistema.
+                                val onboardingBg = Color.Black
                                 Box(
                                     modifier = Modifier
                                         .fillMaxSize()
@@ -418,7 +456,9 @@ class MainActivity : ComponentActivity() {
                                     showPermissionsAfterBackup = false
                                     showBackupCheck = true
                                 }
-                                val onboardingBg = if (isDarkTheme) Color(0xFF000000) else Color(0xFF0F2A4A)
+                                // Primeiro fluxo é preto nos dois temas: no tema claro ficava
+                                // azul-marinho e destoava das barras do sistema.
+                                val onboardingBg = Color.Black
                                 Box(
                                     modifier = Modifier
                                         .fillMaxSize()
@@ -435,8 +475,10 @@ class MainActivity : ComponentActivity() {
                             } else if (showTermsAfterBackup) {
                                 keepNativeSplashVisible = false
                                 BackHandler { /* disabled — terms must be accepted to proceed */ }
-                                val onboardingBg = if (isDarkTheme) Color(0xFF000000) else Color(0xFF0F2A4A)
-                                val onboardingCardBg = if (isDarkTheme) Color(0xFF111827) else Color(0xFF1E293B)
+                                // Primeiro fluxo é preto nos dois temas: no tema claro ficava
+                                // azul-marinho e destoava das barras do sistema.
+                                val onboardingBg = Color.Black
+                                val onboardingCardBg = Color(0xFF111827) // fluxo e sempre escuro
                                 Box(
                                     modifier = Modifier
                                         .fillMaxSize()
@@ -465,6 +507,8 @@ class MainActivity : ComponentActivity() {
                                     ManutencaoScreen(
                                         openAondePareiOnStart = openAondePareiFromIntent,
                                         onAondePareiStartConsumed = { openAondePareiFromIntent = false },
+                                        openVehicleImportUriOnStart = openVehicleImportUriFromIntent,
+                                        onVehicleImportStartConsumed = { openVehicleImportUriFromIntent = null },
                                         onLoaded = { keepNativeSplashVisible = false },
                                         onEmptyVehicleData = {
                                             Log.w(
@@ -624,6 +668,7 @@ class MainActivity : ComponentActivity() {
                                     }
                                 }
                             }
+                        }
                         }
                     }
                 }
@@ -937,6 +982,13 @@ fun compartilharRelatorio(context: Context, texto: String) {
     context.startActivity(Intent.createChooser(intent, "Compartilhar relatório"))
 }
 
+/** Coluna da tabela do PDF: largura declarada e alinhamento conforme o tipo de dado. */
+private data class ColunaPdf(
+    val titulo: String,
+    val largura: Float,
+    val alinharDireita: Boolean = false
+)
+
 fun gerarPdfRelatorio(
     context: Context,
     carro: CarroInfo,
@@ -1009,11 +1061,6 @@ fun gerarPdfRelatorio(
         val colorSuccess = android.graphics.Color.parseColor("#16A34A")
         val colorDanger = android.graphics.Color.parseColor("#DC2626")
         val accentColor = android.graphics.Color.parseColor("#2563EB")
-        val logoBitmap = try {
-            context.assets.open("logorelatorio.png").use { BitmapFactory.decodeStream(it) }
-        } catch (_: Exception) {
-            null
-        }
         val cardBgPaint = Paint().apply { color = android.graphics.Color.parseColor("#F8FAFC") }
         val headerCardPaint = Paint().apply { color = android.graphics.Color.parseColor("#E2E8F0") }
         val headerBorderPaint = Paint().apply {
@@ -1068,6 +1115,25 @@ fun gerarPdfRelatorio(
                 114f,
                 headerInfoPaint
             )
+        }
+
+        fun drawZelluSignature() {
+            val brandPaint = Paint(headerPaint).apply {
+                color = accentColor
+                textAlign = Paint.Align.CENTER
+                textSize = 22f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            }
+            val taglinePaint = Paint(watermarkPaint).apply {
+                color = android.graphics.Color.parseColor("#64748B")
+                textAlign = Paint.Align.CENTER
+                textSize = 9f
+            }
+            ensureSpace(42f)
+            canvas.drawText("Zellu", pageInfo.pageWidth / 2f, y, brandPaint)
+            y += 14f
+            canvas.drawText("Relatorio gerado pelo app", pageInfo.pageWidth / 2f, y, taglinePaint)
+            y += 8f
         }
 
         fun drawSectionTitle(title: String) {
@@ -1339,34 +1405,216 @@ fun gerarPdfRelatorio(
             y += 8f
         }
 
+        /*
+         * Tabela do PDF: colunas com largura declarada e alinhamento por tipo de dado.
+         *
+         * Antes as colunas eram posicoes fixas em pixels e o texto era cortado por contagem de
+         * caracteres (`fit(titulo, 30)`), o que corta no lugar errado — um titulo estreito perdia
+         * letras e um titulo largo invadia a coluna vizinha. Agora o corte e por largura medida.
+         */
+        fun textoQueCabe(texto: String, larguraMax: Float, paint: Paint): String {
+            if (paint.measureText(texto) <= larguraMax) return texto
+            val reticencias = "..."
+            val disponivel = larguraMax - paint.measureText(reticencias)
+            if (disponivel <= 0f) return reticencias
+            var corte = texto.length
+            while (corte > 0 && paint.measureText(texto, 0, corte) > disponivel) corte--
+            return texto.take(corte).trimEnd() + reticencias
+        }
+
+        val zebraPaint = Paint().apply { color = android.graphics.Color.parseColor("#F1F5F9") }
+
+        fun drawTabelaPdf(
+            colunas: List<ColunaPdf>,
+            linhas: List<List<String>>,
+            rodape: Pair<String, String>? = null
+        ) {
+            val alturaCabecalho = 22f
+            val alturaLinha = 22f
+            ensureSpace(alturaCabecalho + alturaLinha * 2)
+
+            val headerBg = Paint().apply { color = accentColor }
+            canvas.drawRoundRect(
+                android.graphics.RectF(marginX, y, marginX + contentWidth, y + alturaCabecalho),
+                6f, 6f, headerBg
+            )
+            val headerTextPaint = Paint(labelPaint).apply {
+                color = android.graphics.Color.WHITE
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            }
+            // As colunas percorrem exatamente marginX..marginX+contentWidth; o respiro de 6pt e
+            // interno a celula. Comecando o cursor ja deslocado, a ultima coluna passava da margem.
+            var x = marginX
+            colunas.forEach { coluna ->
+                if (coluna.alinharDireita) {
+                    headerTextPaint.textAlign = Paint.Align.RIGHT
+                    canvas.drawText(coluna.titulo, x + coluna.largura - 6f, y + 15f, headerTextPaint)
+                    headerTextPaint.textAlign = Paint.Align.LEFT
+                } else {
+                    canvas.drawText(coluna.titulo, x + 6f, y + 15f, headerTextPaint)
+                }
+                x += coluna.largura
+            }
+            y += alturaCabecalho
+
+            val celulaPaint = Paint(bodyPaint)
+            linhas.forEachIndexed { indice, celulas ->
+                ensureSpace(alturaLinha)
+                // Faixa alternada em vez de linha divisoria: guia o olho ate o fim da linha sem
+                // encher a tabela de traços.
+                if (indice % 2 == 1) {
+                    canvas.drawRect(marginX, y, marginX + contentWidth, y + alturaLinha, zebraPaint)
+                }
+                var cx = marginX
+                colunas.forEachIndexed { indiceColuna, definicao ->
+                    val valor = celulas.getOrElse(indiceColuna) { "" }
+                    val texto = textoQueCabe(valor, definicao.largura - 12f, celulaPaint)
+                    if (definicao.alinharDireita) {
+                        celulaPaint.textAlign = Paint.Align.RIGHT
+                        canvas.drawText(texto, cx + definicao.largura - 6f, y + 15f, celulaPaint)
+                        celulaPaint.textAlign = Paint.Align.LEFT
+                    } else {
+                        canvas.drawText(texto, cx + 6f, y + 15f, celulaPaint)
+                    }
+                    cx += definicao.largura
+                }
+                y += alturaLinha
+            }
+
+            if (rodape != null) {
+                ensureSpace(alturaLinha)
+                canvas.drawLine(marginX, y, marginX + contentWidth, y, dividerPaint)
+                val totalPaint = Paint(bodyPaint).apply {
+                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                }
+                canvas.drawText(rodape.first, marginX + 6f, y + 16f, totalPaint)
+                totalPaint.textAlign = Paint.Align.RIGHT
+                canvas.drawText(rodape.second, marginX + contentWidth - 6f, y + 16f, totalPaint)
+                totalPaint.textAlign = Paint.Align.LEFT
+                y += alturaLinha
+            }
+            y += 8f
+        }
+
+        fun arquivoDeImagemDoAviso(lembrete: Lembrete): File? {
+            LembretePhotoStore.arquivoDe(context, lembrete.fotoAvisoNome)?.let { return it }
+            val pathLegado = lembrete.fotoPath?.takeIf { it.isNotBlank() } ?: return null
+            return File(pathLegado).takeIf { it.exists() && it.length() > 0 }
+        }
+
+        fun drawImagemAviso(lembrete: Lembrete, arquivo: File) {
+            val bitmap = BitmapFactory.decodeFile(arquivo.absolutePath) ?: return
+            val titulo = fit(lembrete.titulo.ifBlank { lembrete.tipo.label }, 42)
+            val dataTexto = lembrete.dataLimite.ifBlank { "Sem data" }
+            val maxImageWidth = contentWidth - 24f
+            val maxImageHeight = 210f
+            val scale = minOf(
+                maxImageWidth / bitmap.width.toFloat(),
+                maxImageHeight / bitmap.height.toFloat(),
+                1f
+            )
+            val targetWidth = (bitmap.width * scale).coerceAtLeast(1f)
+            val targetHeight = (bitmap.height * scale).coerceAtLeast(1f)
+            val cardHeight = 48f + targetHeight + 18f
+            ensureSpace(cardHeight + 10f)
+
+            val rect = android.graphics.RectF(marginX, y, marginX + contentWidth, y + cardHeight)
+            canvas.drawRoundRect(rect, 12f, 12f, cardBgPaint)
+            canvas.drawRoundRect(rect, 12f, 12f, cardBorderPaint)
+            drawCardAccentStrip(rect, accentColor)
+            canvas.drawText(titulo, marginX + 14f, y + 22f, valueBoldPaint)
+            canvas.drawText("Data: $dataTexto", marginX + 14f, y + 38f, labelPaint)
+
+            val left = marginX + 12f + (maxImageWidth - targetWidth) / 2f
+            val top = y + 48f
+            canvas.drawBitmap(
+                bitmap,
+                null,
+                android.graphics.RectF(left, top, left + targetWidth, top + targetHeight),
+                null
+            )
+            bitmap.recycle()
+            y += cardHeight + 10f
+        }
+
+        /** Barras de gasto por mes do ano corrente, o mesmo grafico que a tela mostra. */
+        fun drawGraficoAnual(gastos: List<Double>, ano: Int) {
+            val alturaGrafico = 72f
+            // Barras + linha das iniciais + legenda, com folga entre as duas ultimas.
+            ensureSpace(alturaGrafico + 56f)
+            val maior = gastos.maxOrNull() ?: 0.0
+            if (maior <= 0.0) return
+
+            val base = y + alturaGrafico
+            val larguraColuna = contentWidth / 12f
+            val larguraBarra = larguraColuna * 0.58f
+            val barraPaint = Paint().apply { color = accentColor; isAntiAlias = true }
+            val trilhaPaint = Paint().apply { color = android.graphics.Color.parseColor("#E2E8F0") }
+            val mesLabelPaint = Paint(labelPaint).apply {
+                textAlign = Paint.Align.CENTER
+                textSize = 8f
+            }
+
+            gastos.forEachIndexed { indice, valor ->
+                val centro = marginX + larguraColuna * indice + larguraColuna / 2f
+                val esquerda = centro - larguraBarra / 2f
+                val direita = centro + larguraBarra / 2f
+                canvas.drawRoundRect(
+                    android.graphics.RectF(esquerda, y, direita, base), 3f, 3f, trilhaPaint
+                )
+                if (valor > 0.0) {
+                    // Piso de 4%: mes com gasto pequeno precisa continuar visivel.
+                    val fracao = ((valor / maior).toFloat()).coerceAtLeast(0.04f)
+                    val topo = base - alturaGrafico * fracao
+                    canvas.drawRoundRect(
+                        android.graphics.RectF(esquerda, topo, direita, base), 3f, 3f, barraPaint
+                    )
+                }
+                canvas.drawText("JFMAMJJASOND"[indice].toString(), centro, base + 12f, mesLabelPaint)
+            }
+            /*
+             * A legenda desce bem abaixo da linha das iniciais. Com a base em base+22 as duas se
+             * encostavam: a inicial de 8pt vai ate ~base+14 e o topo da legenda de 10pt comecava
+             * exatamente ali. Baseline em base+34 deixa ~10pt de respiro entre elas.
+             */
+            y = base + 34f
+            canvas.drawText(
+                "Cada letra e um mes, de janeiro a dezembro. Total em $ano: ${formatarMoeda(gastos.sum())}.",
+                marginX, y, labelPaint
+            )
+            y += 14f
+        }
+
+        val anoDoRelatorio = LocalDate.now().year
+        val gastosDoAno = gastosMensaisDoAno(lembretesSemAbastecimento, anoDoRelatorio)
+        if (gastosDoAno.any { it > 0.0 }) {
+            drawSectionTitle("GASTO POR MES EM $anoDoRelatorio")
+            drawGraficoAnual(gastosDoAno, anoDoRelatorio)
+            y += 24f
+        }
+
         drawSectionTitle("REGISTROS CADASTRADOS")
         if (manutencoesRealizadas.isEmpty()) {
             canvas.drawText("Nenhum registro cadastrado.", marginX, y, bodyPaint)
             y += 16f
         } else {
-            val headerHeight = 22f
-            val headerBg = Paint().apply { color = accentColor }
-            canvas.drawRoundRect(android.graphics.RectF(marginX, y, marginX + contentWidth, y + headerHeight), 6f, 6f, headerBg)
-            val headerTextPaint = Paint(labelPaint).apply {
-                color = android.graphics.Color.WHITE
-                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-            }
-            val headerY = y + 15f
-            canvas.drawText("Item", marginX + 6f, headerY, headerTextPaint)
-            canvas.drawText("Data", marginX + 250f, headerY, headerTextPaint)
-            canvas.drawText("Valor", marginX + 360f, headerY, headerTextPaint)
-            y += headerHeight + 8f
-
-            manutencoesRealizadas.forEach { (data, lembrete) ->
-                ensureSpace(26f)
-                val rowTextY = y + 4f
-                canvas.drawText(fit(lembrete.titulo, 30), marginX + 6f, rowTextY, bodyPaint)
-                canvas.drawText(data.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")), marginX + 250f, rowTextY, bodyPaint)
-                canvas.drawText(formatarMoeda(lembrete.valor), marginX + 360f, rowTextY, bodyPaint)
-                y += 26f
-                canvas.drawLine(marginX, y - 14f, marginX + contentWidth, y - 14f, dividerPaint)
-            }
-            y += 16f
+            drawTabelaPdf(
+                colunas = listOf(
+                    ColunaPdf("Item", contentWidth - 200f),
+                    ColunaPdf("Data", 100f),
+                    ColunaPdf("Valor", 100f, alinharDireita = true)
+                ),
+                linhas = manutencoesRealizadas.map { (data, lembrete) ->
+                    listOf(
+                        lembrete.titulo,
+                        data.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")),
+                        formatarMoeda(lembrete.valor)
+                    )
+                },
+                // Soma no rodape: quem le um relatorio de manutencao quer o total, e ele nao
+                // aparecia em lugar nenhum da tabela.
+                rodape = "TOTAL" to formatarMoeda(manutencoesRealizadas.sumOf { it.second.valor })
+            )
         }
 
         y += 24f
@@ -1375,42 +1623,38 @@ fun gerarPdfRelatorio(
             canvas.drawText("Nenhum aviso cadastrado.", marginX, y, bodyPaint)
             y += 16f
         } else {
-            val headerHeight = 22f
-            val headerBg = Paint().apply { color = accentColor }
-            canvas.drawRoundRect(android.graphics.RectF(marginX, y, marginX + contentWidth, y + headerHeight), 6f, 6f, headerBg)
-            val headerTextPaint = Paint(labelPaint).apply {
-                color = android.graphics.Color.WHITE
-                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-            }
-            val headerY = y + 15f
-            canvas.drawText("Item", marginX + 6f, headerY, headerTextPaint)
-            canvas.drawText("Data", marginX + 240f, headerY, headerTextPaint)
-            canvas.drawText("KM", marginX + 330f, headerY, headerTextPaint)
-            canvas.drawText("Cat.", marginX + 420f, headerY, headerTextPaint)
-            y += headerHeight + 8f
-            proximos.take(10).forEach { (lembrete, data) ->
-                ensureSpace(26f)
-                val rowTextY = y + 4f
-                canvas.drawText(fit(lembrete.titulo, 28), marginX + 6f, rowTextY, bodyPaint)
-                canvas.drawText(data.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")), marginX + 240f, rowTextY, bodyPaint)
-                canvas.drawText(lembrete.kmLimite.ifBlank { "-" }, marginX + 330f, rowTextY, bodyPaint)
-                canvas.drawText(fit(lembrete.tipo.label, 8), marginX + 420f, rowTextY, bodyPaint)
-                y += 26f
-                canvas.drawLine(marginX, y - 14f, marginX + contentWidth, y - 14f, dividerPaint)
+            drawTabelaPdf(
+                colunas = listOf(
+                    ColunaPdf("Item", contentWidth - 250f),
+                    ColunaPdf("Data", 90f),
+                    ColunaPdf("KM", 70f, alinharDireita = true),
+                    ColunaPdf("Categoria", 90f)
+                ),
+                linhas = proximos.take(10).map { (lembrete, data) ->
+                    listOf(
+                        lembrete.titulo,
+                        data.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")),
+                        lembrete.kmLimite.ifBlank { "-" },
+                        lembrete.tipo.label
+                    )
+                }
+            )
+        }
+
+        val avisosComImagem = lembretesSemAbastecimento.mapNotNull { lembrete ->
+            arquivoDeImagemDoAviso(lembrete)?.let { arquivo -> lembrete to arquivo }
+        }
+        if (avisosComImagem.isNotEmpty()) {
+            y += 24f
+            drawSectionTitle("IMAGENS DOS AVISOS")
+            avisosComImagem.forEach { (lembrete, arquivo) ->
+                drawImagemAviso(lembrete, arquivo)
             }
         }
         y += 18f
         canvas.drawLine(marginX, y, pageInfo.pageWidth - marginX, y, dividerPaint)
         y += 24f
-        if (logoBitmap != null) {
-            val targetWidth = 160f
-            val scale = targetWidth / logoBitmap.width.toFloat()
-            val targetHeight = logoBitmap.height * scale
-            val scaled = Bitmap.createScaledBitmap(logoBitmap, targetWidth.toInt(), targetHeight.toInt(), true)
-            val left = (pageInfo.pageWidth - targetWidth) / 2f
-            canvas.drawBitmap(scaled, left, y, null)
-            y += targetHeight
-        }
+        drawZelluSignature()
 
         if (!isPremium) {
             canvas.drawText("Gerado pelo Zellu", pageInfo.pageWidth / 2f, pageInfo.pageHeight - 24f, watermarkPaint)
@@ -1680,10 +1924,4 @@ private fun corNomePorArgb(argb: Int): String {
     )
     return cores.firstOrNull { it.second == argb }?.first ?: "Personalizada"
 }
-
-
-
-
-
-
 

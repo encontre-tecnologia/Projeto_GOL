@@ -1,4 +1,4 @@
-﻿package br.com.gui.carlembrete
+package br.com.gui.carlembrete
 
 import br.com.gui.carlembrete.BuildConfig
 import java.net.HttpURLConnection
@@ -13,20 +13,53 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 
-suspend fun gerarRespostaIaGaragemComGroqOuLocal(
+private const val AVISO_FALLBACK_ONLINE =
+    "\n\nObs: tentei a consulta online, mas ela nao respondeu agora. Usei a analise local para nao te deixar na mao."
+
+/**
+ * Como o roteador local classificou a pergunta. As regras cobrem consumo, status,
+ * prioridade, intervalos e registros; o LLM entra apenas onde a regra nao alcanca.
+ */
+sealed interface RespostaGaragem {
+    /** Pergunta coberta pelas regras: resposta deterministica, instantanea e sem custo. */
+    data class Local(val texto: String) : RespostaGaragem
+
+    /**
+     * Pergunta legitima sobre a garagem que as regras nao cobrem bem — normalmente
+     * mecanica aberta fora da lista fixa. Unico caso que vale LLM e consome cota.
+     */
+    data class Escalar(val fallbackLocal: String) : RespostaGaragem
+}
+
+/** Resposta final entregue ao chat, com a informacao de se o LLM foi realmente usado. */
+data class RespostaZelluAi(val texto: String, val usouLlm: Boolean)
+
+/**
+ * True somente quando existe caminho real para o LLM (flag ligada e proxy ou chave
+ * configurados). Enquanto for false, nenhuma pergunta consome cota do plano.
+ */
+fun zelluAiOnlineDisponivel(): Boolean =
+    BuildConfig.AI_ONLINE_ENABLED &&
+        (BuildConfig.AI_PROXY_URL.trim().isNotBlank() || BuildConfig.GROQ_API_KEY.trim().isNotBlank())
+
+/**
+ * Chama o LLM apenas para perguntas escaladas pelo roteador local. Se o online
+ * estiver desligado ou falhar, devolve o fallback local com `usouLlm = false` —
+ * assim cota e metrica so sao cobradas quando o LLM de fato respondeu.
+ */
+suspend fun responderOnlineZelluAi(
     pergunta: String,
     carros: List<CarroInfo>,
     currentCarroId: String,
     lembretesAtivos: List<Lembrete>,
-    abastecimentos: List<Abastecimento>
-): String {
-    if (!BuildConfig.AI_ONLINE_ENABLED) {
-        return gerarRespostaIaGaragem(pergunta, carros, currentCarroId, lembretesAtivos, abastecimentos)
-    }
+    abastecimentos: List<Abastecimento>,
+    fallbackLocal: String
+): RespostaZelluAi {
+    if (!zelluAiOnlineDisponivel()) return RespostaZelluAi(fallbackLocal, usouLlm = false)
 
     val proxyUrl = BuildConfig.AI_PROXY_URL.trim()
-    if (proxyUrl.isNotBlank()) {
-        return runCatching {
+    val resultado = runCatching {
+        if (proxyUrl.isNotBlank()) {
             chamarZelluAiProxy(
                 proxyUrl = proxyUrl,
                 pergunta = pergunta,
@@ -35,31 +68,25 @@ suspend fun gerarRespostaIaGaragemComGroqOuLocal(
                 lembretesAtivos = lembretesAtivos,
                 abastecimentos = abastecimentos
             )
-        }.getOrElse {
-            gerarRespostaIaGaragem(pergunta, carros, currentCarroId, lembretesAtivos, abastecimentos) +
-                "\n\nObs: tentei usar a IA online, mas ela nao respondeu agora. Usei a analise local para nao te deixar na mao."
+        } else {
+            chamarGroqGarageAi(
+                apiKey = BuildConfig.GROQ_API_KEY.trim(),
+                model = BuildConfig.GROQ_MODEL.ifBlank { "llama-3.1-8b-instant" },
+                pergunta = pergunta,
+                carros = carros,
+                currentCarroId = currentCarroId,
+                lembretesAtivos = lembretesAtivos,
+                abastecimentos = abastecimentos
+            )
         }
     }
-
-    val apiKey = BuildConfig.GROQ_API_KEY.trim()
-    if (apiKey.isBlank()) {
-        return gerarRespostaIaGaragem(pergunta, carros, currentCarroId, lembretesAtivos, abastecimentos)
-    }
-
-    return runCatching {
-        chamarGroqGarageAi(
-            apiKey = apiKey,
-            model = BuildConfig.GROQ_MODEL.ifBlank { "llama-3.1-8b-instant" },
-            pergunta = pergunta,
-            carros = carros,
-            currentCarroId = currentCarroId,
-            lembretesAtivos = lembretesAtivos,
-            abastecimentos = abastecimentos
-        )
-    }.getOrElse {
-        gerarRespostaIaGaragem(pergunta, carros, currentCarroId, lembretesAtivos, abastecimentos) +
-            "\n\nObs: tentei usar a IA online, mas ela nao respondeu agora. Usei a analise local para nao te deixar na mao."
-    }
+    return resultado.fold(
+        onSuccess = { texto ->
+            AdminUsageMetrics.markAiRequest()
+            RespostaZelluAi(texto, usouLlm = true)
+        },
+        onFailure = { RespostaZelluAi(fallbackLocal + AVISO_FALLBACK_ONLINE, usouLlm = false) }
+    )
 }
 
 suspend fun chamarZelluAiProxy(
@@ -103,7 +130,6 @@ suspend fun chamarZelluAiProxy(
         .getString("answer")
         .trim()
         .ifBlank { error("Resposta vazia do proxy") }
-    AdminUsageMetrics.markAiRequest()
     answer
 }
 
@@ -158,7 +184,6 @@ suspend fun chamarGroqGarageAi(
         .getString("content")
         .trim()
         .ifBlank { error("Resposta vazia da Groq") }
-    AdminUsageMetrics.markAiRequest()
     content
 }
 
@@ -269,6 +294,65 @@ fun calcularStatusGaragem(
             .thenByDescending { it.activeCount }
             .thenBy { it.carro.nome }
     )
+}
+
+/**
+ * Roteia a pergunta antes de qualquer chamada de rede. O texto sempre vem do motor
+ * local; o que muda e se ele e a resposta final ou apenas o fallback de uma pergunta
+ * que vale mandar ao LLM.
+ */
+fun resolverRespostaGaragem(
+    pergunta: String,
+    carros: List<CarroInfo>,
+    currentCarroId: String,
+    lembretesAtivos: List<Lembrete>,
+    abastecimentos: List<Abastecimento>
+): RespostaGaragem {
+    val texto = gerarRespostaIaGaragem(pergunta, carros, currentCarroId, lembretesAtivos, abastecimentos)
+    return if (perguntaExigeLlm(pergunta, carros)) {
+        RespostaGaragem.Escalar(texto)
+    } else {
+        RespostaGaragem.Local(texto)
+    }
+}
+
+/**
+ * Espelha a ordem de roteamento de [gerarRespostaIaGaragem]: retorna true somente
+ * nos dois pontos em que a regra entrega resposta generica e o LLM agrega de fato —
+ * mecanica aberta fora da lista fixa, e pergunta sobre a garagem sem intencao
+ * reconhecida. Ao mexer no roteamento de [gerarRespostaIaGaragem], ajuste aqui
+ * tambem (coberto por VehicleAiRouterTest).
+ */
+internal fun perguntaExigeLlm(pergunta: String, carros: List<CarroInfo>): Boolean {
+    val perguntaNormalizada = pergunta.lowercase(Locale.getDefault())
+    val perguntaLimpa = normalizarMensagemChat(perguntaNormalizada)
+
+    // Saudacao automatica de abertura do chat: nunca pode gastar cota.
+    if (perguntaLimpa == "resumo rapido") return false
+    if (isGreetingOnly(perguntaLimpa) || isThanksOnly(perguntaLimpa)) return false
+    if (isGenericRegistrationRequest(perguntaLimpa)) return false
+    // Fora do escopo de veiculos: a recusa local ja e a resposta correta.
+    if (!isVehicleQuestion(perguntaLimpa)) return false
+    // Mecanica basica: escala apenas quando o assunto nao esta na lista fixa.
+    if (isBeginnerMechanicQuestion(perguntaLimpa)) {
+        return detectarAssuntoMecanicaBasica(perguntaLimpa) == TipoManutencao.OUTROS
+    }
+    // Sem veiculos cadastrados nao ha o que o LLM analisar.
+    if (carros.isEmpty()) return false
+    // Intencoes com calculo deterministico continuam 100% locais.
+    if (isIntervalQuestion(perguntaLimpa)) return false
+    if (isConsumptionQuestion(perguntaLimpa)) return false
+    if (isFleetStatusQuestion(perguntaLimpa)) return false
+    val falaDeViagem = perguntaNormalizada.contains("viagem") ||
+        perguntaNormalizada.contains("viajar") ||
+        Regex("(\\d{2,5})\\s*km").containsMatchIn(perguntaNormalizada)
+    if (falaDeViagem) return false
+    val falaDePrioridade = listOf("primeiro", "urgente", "pior", "revisar")
+        .any { perguntaNormalizada.contains(it) }
+    if (falaDePrioridade) return false
+
+    // Sobrou o resumo generico da garagem: aqui o LLM responde melhor que a regra.
+    return true
 }
 
 fun gerarRespostaIaGaragem(
@@ -500,7 +584,7 @@ fun gerarRespostaConsumoLocal(
         else -> "O **${melhorMedia.carro.nome}** aparece como melhor leitura de consumo pelos dados cadastrados."
     }
 
-    return "**Consumo da garagem**\n---\n$linhas\n\n**Minha opiniao**\n- $leitura\n- Se quiser comparar melhor, eu manteria todos os proximos abastecimentos com km informado.\n- Total abastecido registrado: ${formatarMoedaAi(totalGasto)} em ${formatarNumero(totalLitros)} litros\n- Esses calculos usam os dados que o app ja tem, sem a IA inventar numero."
+    return "**Consumo da garagem**\n---\n$linhas\n\n**Minha opiniao**\n- $leitura\n- Se quiser comparar melhor, eu manteria todos os proximos abastecimentos com km informado.\n- Total abastecido registrado: ${formatarMoedaAi(totalGasto)} em ${formatarNumero(totalLitros)} litros\n- Esses calculos usam os dados que o app ja tem, sem inventar numero."
 }
 
 data class ConsumptionPeriod(
@@ -1054,7 +1138,7 @@ fun detectarTituloAvisoIa(pergunta: String, tipo: TipoManutencao): String {
         texto.contains("rodizio") && tipo == TipoManutencao.PNEU -> "Rodizio dos pneus"
         texto.contains("revisar") || texto.contains("revisao") -> "Revisar ${tipo.label.lowercase(Locale.getDefault())}"
         tipo != TipoManutencao.OUTROS -> tipo.label
-        else -> "Aviso criado pela IA"
+        else -> "Aviso criado pela analise"
     }
 }
 

@@ -57,7 +57,7 @@ android {
     defaultConfig {
         applicationId = "br.com.gui.carlembrete"
         minSdk = 26
-        targetSdk = 35
+        targetSdk = 36
         versionCode = explicitVersionCode ?: fallbackVersionCode
         versionName = "1.0.20260605.1"
 
@@ -188,9 +188,12 @@ dependencies {
 
     // Firebase Firestore
     implementation("com.google.firebase:firebase-firestore-ktx")
+    // Usada para pedir ao servidor a verificacao da assinatura no Google Play; sem
+    // isso a compra nunca vira direito de acesso na dashboard web.
+    implementation("com.google.firebase:firebase-functions-ktx")
 
     // Google Play Billing
-    implementation("com.android.billingclient:billing-ktx:7.1.1")
+    implementation("com.android.billingclient:billing-ktx:8.0.0")
     implementation("com.google.android.play:review-ktx:2.0.2")
     implementation("com.google.android.play:app-update-ktx:2.1.0")
 

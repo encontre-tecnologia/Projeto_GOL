@@ -1,4 +1,4 @@
-﻿package br.com.gui.carlembrete
+package br.com.gui.carlembrete
 
 import android.content.Context
 import android.widget.Toast
@@ -97,15 +97,18 @@ fun PerfilScreen(
         val pricingRegistration = RemotePlanPricing.listen { planPrices = it }
         onDispose { pricingRegistration.remove() }
     }
-    val aiUsageCount = if (planTier == PlanTier.FREE) 0 else AiUsageLimiter.currentCount(context)
-    val aiLimit = if (planTier == PlanTier.FREE) 0 else planPrices.aiLimitForTier(planTier)
+    // A análise da garagem responde por regras locais, sem custo e sem cota. A cota só
+    // existe para o caminho de consulta online, que hoje está desligado — então este
+    // bloco inteiro fica oculto até existir caminho online de verdade.
+    val temConsultaOnline = zelluAiOnlineDisponivel()
+    val aiUsageCount = AiUsageLimiter.currentCount(context)
+    val aiLimit = planPrices.aiLimitForTier(planTier)
     val aiUsageValue = when {
-        planTier == PlanTier.FREE -> "0"
         aiLimit <= 0 -> "$aiUsageCount / Ilimitado"
         else -> "$aiUsageCount/$aiLimit"
     }
     val aiRenewalText = when {
-        planTier == PlanTier.FREE -> "Limite IA disponível apenas com plano ativo"
+        planTier == PlanTier.FREE -> "Cota do plano Grátis — o contador zera todo mês"
         subscriptionBillingInfo.nextBillingTimeMillis > 0L ->
             "Próxima renovação: ${formatarProximaRenovacao(subscriptionBillingInfo.nextBillingTimeMillis)}"
         else -> "Consulte a próxima renovação no Google Play"
@@ -414,21 +417,33 @@ fun PerfilScreen(
                 )
                 StatCard(
                     modifier = Modifier.weight(1f),
-                    label = "Uso mensal da IA",
-                    value = aiUsageValue,
-                    color = Color(0xFFF59E0B)
+                    label = "Veículos",
+                    value = "$totalVeiculos/${vehicleLimitForPlan(planTier)}",
+                    color = Color(0xFF60A5FA)
                 )
+                // A cota de consultas online só aparece quando existe caminho online de
+                // verdade. Sem isso, seria um contador de algo que nunca é consumido.
+                if (temConsultaOnline) {
+                    StatCard(
+                        modifier = Modifier.weight(1f),
+                        label = "Consultas online no mes",
+                        value = aiUsageValue,
+                        color = Color(0xFFF59E0B)
+                    )
+                }
             }
 
-            Text(
-                text = aiRenewalText,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 24.dp, vertical = 10.dp),
-                color = if (isDark) Color(0xFF94A3B8) else Color(0xFF475569),
-                fontSize = 12.sp,
-                textAlign = TextAlign.End
-            )
+            if (temConsultaOnline) {
+                Text(
+                    text = aiRenewalText,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp, vertical = 10.dp),
+                    color = if (isDark) Color(0xFF94A3B8) else Color(0xFF475569),
+                    fontSize = 12.sp,
+                    textAlign = TextAlign.End
+                )
+            }
 
             Spacer(Modifier.height(10.dp))
 

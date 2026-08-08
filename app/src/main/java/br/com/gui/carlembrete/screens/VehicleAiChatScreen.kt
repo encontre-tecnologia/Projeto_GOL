@@ -1,4 +1,4 @@
-﻿package br.com.gui.carlembrete
+package br.com.gui.carlembrete
 
 import android.app.Activity
 import android.content.ActivityNotFoundException
@@ -317,33 +317,14 @@ fun VehicleAiChatScreen(
             pendingReminderDraftsAreVehicleSuggestions = true
             duplicateReminderDrafts = plano.filter { d -> lembretesAtivos.any { it.isSimilarTo(d) } }
 
-            val aiLimit = planPrices.aiLimitForTier(planTier)
-            if (AiUsageLimiter.isWithinLimit(context, aiLimit)) {
-                AiUsageLimiter.register(context)
-                val introIndex = messages.size
-                messages.add(VehicleChatMessage("", fromUser = false, isTyping = true))
-                scope.launch {
-                    val texto = runCatching {
-                        gerarRespostaIaGaragemComGroqOuLocal(
-                            MaintenancePlanner.introPrompt(carroPlano, plano.size),
-                            carros,
-                            currentCarroId,
-                            lembretesAtivos,
-                            abastecimentos
-                        )
-                    }.getOrElse { MaintenancePlanner.fallbackIntro(carroPlano, plano.size) }
-                    if (introIndex in messages.indices) {
-                        messages[introIndex] = VehicleChatMessage(texto, fromUser = false)
-                    }
-                }
-            } else {
-                messages.add(
-                    VehicleChatMessage(
-                        MaintenancePlanner.fallbackIntro(carroPlano, plano.size),
-                        fromUser = false
-                    )
+            // Os avisos do plano vem das regras do MaintenancePlanner. A introducao e
+            // apenas texto de apresentacao, entao fica local e nao consome cota de IA.
+            messages.add(
+                VehicleChatMessage(
+                    MaintenancePlanner.fallbackIntro(carroPlano, plano.size),
+                    fromUser = false
                 )
-            }
+            )
             return
         }
 
@@ -451,31 +432,51 @@ fun VehicleAiChatScreen(
             }
             return
         }
-        // Limite mensal de requisições de IA por plano (0 = ilimitado).
+        // Roteia antes de qualquer rede: a regra local resolve a maior parte das
+        // perguntas de graca, e so o que sobra e candidato a consumir cota.
+        val roteamento = resolverRespostaGaragem(question, carros, currentCarroId, lembretesAtivos, abastecimentos)
+        val consomeCota = roteamento is RespostaGaragem.Escalar && zelluAiOnlineDisponivel()
+
+        // Limite mensal de requisições de IA por plano (0 = ilimitado). Nunca bloqueia
+        // resposta local: sem LLM no caminho nao existe custo para limitar.
         val aiLimit = planPrices.aiLimitForTier(planTier)
-        if (!AiUsageLimiter.isWithinLimit(context, aiLimit)) {
+        if (consomeCota && !AiUsageLimiter.isWithinLimit(context, aiLimit)) {
+            val fallbackLocal = (roteamento as RespostaGaragem.Escalar).fallbackLocal
             messages.add(
                 VehicleChatMessage(
-                    "**Limite de IA do mes atingido**\n---\nVoce ja usou suas $aiLimit perguntas a Zellu AI neste mes no plano ${planNameLabel(planTier)}. O contador zera no proximo mes.\n\nPara continuar agora, faca upgrade de plano.",
+                    "$fallbackLocal\n\n---\n**Limite de consultas online atingido**\nVoce ja usou suas $aiLimit consultas online neste mes no plano ${planNameLabel(planTier)}. Respondi com a analise local. O contador zera no proximo mes.",
                     fromUser = false
                 )
             )
             return
         }
-        AiUsageLimiter.register(context)
 
         val answerIndex = messages.size
         messages.add(VehicleChatMessage("", fromUser = false, isTyping = true))
         scope.launch {
             val startedAt = System.currentTimeMillis()
-            val answer = gerarRespostaIaGaragemComGroqOuLocal(question, carros, currentCarroId, lembretesAtivos, abastecimentos)
+            val resultado = when (roteamento) {
+                is RespostaGaragem.Local -> RespostaZelluAi(roteamento.texto, usouLlm = false)
+                is RespostaGaragem.Escalar -> responderOnlineZelluAi(
+                    pergunta = question,
+                    carros = carros,
+                    currentCarroId = currentCarroId,
+                    lembretesAtivos = lembretesAtivos,
+                    abastecimentos = abastecimentos,
+                    fallbackLocal = roteamento.fallbackLocal
+                )
+            }
+            // Cota debitada apenas quando o LLM de fato respondeu.
+            if (resultado.usouLlm) {
+                AiUsageLimiter.register(context)
+            }
             val elapsed = System.currentTimeMillis() - startedAt
             val minimumTypingMillis = 850L
             if (elapsed < minimumTypingMillis) {
                 delay(minimumTypingMillis - elapsed)
             }
             if (answerIndex in messages.indices) {
-                messages[answerIndex] = VehicleChatMessage(answer, fromUser = false)
+                messages[answerIndex] = VehicleChatMessage(resultado.texto, fromUser = false)
             }
         }
     }
@@ -524,7 +525,7 @@ fun VehicleAiChatScreen(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
-                    text = tr("Zellu IA", "Zellu AI"),
+                    text = garageAnalysisName(),
                     color = titleColor,
                     fontWeight = FontWeight.Black,
                     fontSize = 19.sp
@@ -533,7 +534,7 @@ fun VehicleAiChatScreen(
             IconButton(onClick = { showHelp = true }, modifier = Modifier.size(36.dp)) {
                 Icon(
                     Icons.Default.HelpOutline,
-                    contentDescription = tr("Ajuda da Zellu IA", "Zellu AI help"),
+                    contentDescription = tr("Ajuda da análise da garagem", "Garage analysis help"),
                     tint = titleColor,
                     modifier = Modifier.size(21.dp)
                 )
@@ -729,7 +730,7 @@ fun VehicleAiChatScreen(
                 shape = inputShape
             )
             Text(
-                text = "A Zellu IA pode errar. Confira antes de agir ou salvar.",
+                text = "A análise pode errar. Confira antes de agir ou salvar.",
                 color = subColor,
                 fontSize = 10.sp,
                 lineHeight = 12.sp,

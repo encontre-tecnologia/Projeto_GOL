@@ -4,7 +4,6 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -35,19 +34,20 @@ internal fun AvisosNotificacoesScreen(
     onOpen: (NotificacaoDisparada) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val isDark = isSystemInDarkTheme()
-    val screenBg = if (isDark) Color(0xFF020917) else Color(0xFFF8FAFC)
-    val cardBg = if (isDark) Color(0xFF0D1B2E) else Color.White
-    val cardBgSoft = if (isDark) Color(0xFF0A1628) else Color(0xFFF1F5F9)
-    val cardBorder = if (isDark) Color(0xFF1E3A5F) else Color(0xFFCBD5E1)
-    val titleColor = if (isDark) Color(0xFFF8FAFC) else Color(0xFF0F172A)
-    val textDim = if (isDark) Color(0xFF64748B) else Color(0xFF64748B)
-    val textSub = if (isDark) Color(0xFF94A3B8) else Color(0xFF334155)
-    val clearBg = if (isDark) Color(0xFF3B1A1A) else Color(0xFFFEE2E2)
-    val clearIconTint = if (isDark) Color(0xFFFC8181) else Color(0xFFDC2626)
-    val accentBlue = Color(0xFF60A5FA)
-    val secondaryChipBg = if (isDark) Color(0xFF1E293B) else Color(0xFFE2E8F0)
-    val chevronTint = if (isDark) Color(0xFF94A3B8) else Color(0xFF64748B)
+    // Notifications stay in a stable light surface so alert text remains readable
+    // even when the rest of the application follows the system dark theme.
+    val screenBg = Color(0xFFF8FAFC)
+    val cardBg = Color.White
+    val cardBgSoft = Color(0xFFF1F5F9)
+    val cardBorder = Color(0xFFCBD5E1)
+    val titleColor = Color(0xFF111827)
+    val textDim = Color(0xFF64748B)
+    val textSub = Color(0xFF334155)
+    val clearBg = Color(0xFFFEE2E2)
+    val clearIconTint = Color(0xFFDC2626)
+    val accentBlue = Color(0xFF2563EB)
+    val secondaryChipBg = Color(0xFFE2E8F0)
+    val chevronTint = Color(0xFF64748B)
 
     Box(
         modifier = Modifier
@@ -121,7 +121,7 @@ internal fun AvisosNotificacoesScreen(
                             modifier = Modifier
                                 .size(80.dp)
                                 .clip(CircleShape)
-                                .background(if (isDark) Color(0xFF1E3A5F) else Color(0xFFE2E8F0)),
+                                .background(Color(0xFFE2E8F0)),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(

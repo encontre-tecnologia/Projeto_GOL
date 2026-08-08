@@ -248,7 +248,7 @@ fun AvisosCategoriasCard(
                         text = if (tituloFiltro != null)
                             tituloFiltro.uppercase()
                         else
-                            tr("PROXIMOS LEMBRETES:", "UPCOMING:"),
+                            tr("PROXIMOS LEMBRETES", "UPCOMING"),
                         color = if (!palette.isDark) Color(0xFF0F172A) else palette.textPrimary,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,

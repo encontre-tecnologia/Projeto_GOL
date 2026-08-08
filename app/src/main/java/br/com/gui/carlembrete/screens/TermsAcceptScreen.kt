@@ -26,13 +26,13 @@ fun TermsAcceptScreen(
     var aceitouTermos by remember { mutableStateOf(false) }
     var aceitouPrivacidade by remember { mutableStateOf(false) }
 
-    val termosUsoTexto = remember {
+    val legacyTermosUsoTexto = remember {
         """
         1. Aceite: ao usar o Zellu, você concorda com estes Termos e com a Política de Privacidade.
 
-        2. Objeto: o app oferece gestão de veículos, lembretes, manutenções, viagens, frota, estoque e recursos de inteligência artificial.
+        2. Objeto: o app oferece gestão de veículos, lembretes, manutenções, viagens, frota, estoque e análise automática dos dados cadastrados.
 
-        3. Recursos de IA: a Zellu AI é ferramenta de apoio para interpretar dados cadastrados, responder perguntas e preparar ações solicitadas. Ela pode cometer erros e não substitui diagnóstico técnico, vistoria, mecânico, seguro ou decisão do usuário.
+        3. Análise da garagem: é ferramenta de apoio que interpreta os dados cadastrados, responde perguntas e prepara ações solicitadas a partir de regras do próprio app. Ela pode cometer erros e não substitui diagnóstico técnico, vistoria, mecânico, seguro ou decisão do usuário.
 
         4. Uso adequado: você se compromete a usar o app de forma lícita, sem fraude, abuso técnico ou violação de direitos de terceiros.
 
@@ -52,7 +52,7 @@ fun TermsAcceptScreen(
         """.trimIndent()
     }
 
-    val politicaPrivacidadeTexto = remember {
+    val legacyPoliticaPrivacidadeTexto = remember {
         """
         1. Dados tratados: o app pode tratar dados de conta (nome, e-mail e identificadores), cadastro de veículos, lembretes, contatos, viagens, itens de estoque, localização, câmera, notificações, dados técnicos essenciais e interações com recursos de IA.
 
@@ -79,6 +79,53 @@ fun TermsAcceptScreen(
         Páginas oficiais:
         - https://zellu-privacidade.vercel.app/privacy-policy.html
         - https://zellu-privacidade.vercel.app/terms-of-use.html
+        """.trimIndent()
+    }
+
+    val termosUsoTexto = remember {
+        """
+        1. Aceite: ao usar o Zellu, voce concorda com estes Termos e com a Politica de Privacidade.
+
+        2. Objeto: o Zellu organiza veiculos, lembretes, manutencao, custos, documentos e historico. O modulo corporativo oferece agenda de reservas, viagens por QR Code, odometro, assinaturas, alertas e dashboard web.
+
+        3. Organizacoes: empresas podem convidar usuarios por e-mail, definir papeis e controlar os veiculos, reservas, viagens, avisos, documentos e relatorios acessiveis.
+
+        4. QR Code e velocidade: a retirada e a devolucao registram data, hora, usuario, assinatura e quilometragem. Distancia e velocidade calculadas pelo GPS sao estimativas operacionais, nao multas oficiais nem medicoes certificadas.
+
+        5. Uso adequado: use o app de forma licita, sem fraude, abuso tecnico ou violacao de direitos. Informe dados verdadeiros e nao use o QR Code de outra reserva ou organizacao.
+
+        6. IA e responsabilidade: a IA pode errar e nao substitui diagnostico tecnico, vistoria, seguro, mecanico ou decisao operacional.
+
+        7. Planos e disponibilidade: planos pagos seguem as regras da loja ou plataforma de pagamento. Funcionalidades podem mudar, ser suspensas ou descontinuadas por seguranca, evolucao ou obrigacao legal.
+
+        8. Legislacao e contato: aplica-se a legislacao brasileira. Suporte e assuntos legais: guilhermedevsistemas@gmail.com
+        """.trimIndent()
+    }
+
+    val politicaPrivacidadeTexto = remember {
+        """
+        1. Dados tratados: conta, veiculos, reservas, viagens, empresa, motoristas, horarios, destinos, manutencoes, avisos, documentos, custos, quilometragens, assinaturas, fotos, PDFs, comprovantes, localizacao durante viagem ativa, velocidade estimada, arquivos, notificacoes, dados tecnicos e IA.
+
+        2. Finalidades: autenticacao, reservas, QR Code, registros de retirada e devolucao, historico, manutencao, seguranca, notificacoes, recursos de IA, suporte e prevencao de abuso/fraude.
+
+        3. Localizacao: quando autorizada, e usada somente durante uma viagem ativa para estimar distancia e velocidade. O sistema nao deve rastrear o usuario fora da viagem.
+
+        4. Bases legais: execucao de contrato, consentimento quando adequado, legitimo interesse para seguranca e estabilidade e cumprimento de obrigacao legal.
+
+        5. Compartilhamento: nao vendemos dados pessoais. No uso corporativo, administradores e gestores autorizados podem acessar dados da organizacao conforme o papel. Tambem usamos provedores tecnicos necessarios ao servico.
+
+        6. Armazenamento e retencao: dados podem ficar no dispositivo e na nuvem pelo tempo necessario ao servico, ao historico da organizacao, a auditoria e as obrigacoes legais. Arquivos podem ficar em armazenamento privado.
+
+        7. Direitos: voce pode solicitar confirmacao, acesso, correcao, informacoes sobre compartilhamento, exclusao e revogacao de consentimento, nos termos da LGPD.
+
+        8. Exclusao: dados corporativos podem depender do administrador da empresa e permanecer pelo prazo permitido ou exigido para auditoria, seguranca e obrigacoes legais.
+
+        9. Incidentes: incidentes com risco ou dano relevante serao avaliados, contidos e comunicados quando exigido pela legislacao.
+
+        10. Pagina completa e contato:
+        https://zellu-privacidade.vercel.app/privacy-policy.html
+        https://zellu-privacidade.vercel.app/terms-of-use.html
+        guilhermedevsistemas@gmail.com
         """.trimIndent()
     }
 

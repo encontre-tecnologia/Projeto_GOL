@@ -23,7 +23,7 @@ internal object CorporateFleetAlertNotifications {
         liveRegistration = null
         val user = FirebaseAuth.getInstance().currentUser ?: return
         resolveCompanyId(user) { companyId ->
-            if (companyId.isBlank() || companyId.startsWith("personal_")) return@resolveCompanyId
+            if (!isCorporateCompanyId(companyId, user.uid)) return@resolveCompanyId
             liveRegistration = FirebaseFirestore.getInstance()
                     .collection("companies")
                     .document(companyId)
@@ -55,55 +55,86 @@ internal object CorporateFleetAlertNotifications {
         val email = user.email.orEmpty().trim().lowercase(Locale.getDefault())
         userRef.get().addOnSuccessListener { userDoc ->
             val activeCompanyId = userDoc.getString("activeCompanyId").orEmpty()
-            if (activeCompanyId.isNotBlank() && !activeCompanyId.startsWith("personal_")) {
-                onResolved(activeCompanyId)
-                return@addOnSuccessListener
-            }
-            if (email.isBlank()) {
-                onResolved(activeCompanyId)
-                return@addOnSuccessListener
-            }
-            db.collection("userInvites")
-                .document(emailKey(email))
-                .collection("companies")
-                .limit(1)
-                .get()
-                .addOnSuccessListener { invites ->
-                    val invite = invites.documents.firstOrNull()
-                    val companyId = invite?.getString("companyId").orEmpty()
-                    if (companyId.isBlank()) {
-                        onResolved(activeCompanyId)
-                        return@addOnSuccessListener
+            if (isCorporateCompanyId(activeCompanyId, user.uid)) {
+                db.collection("companies")
+                    .document(activeCompanyId)
+                    .collection("members")
+                    .document(user.uid)
+                    .get()
+                    .addOnSuccessListener { memberDoc ->
+                        if (memberDoc.exists() && memberDoc.getBoolean("active") != false) {
+                            onResolved(activeCompanyId)
+                        } else {
+                            resolveCompanyIdFromInvite(db, userRef, user, email, "", onResolved)
+                        }
                     }
-                    db.collection("companies").document(companyId).collection("members").document(user.uid).set(
-                        mapOf(
-                            "uid" to user.uid,
-                            "email" to email,
-                            "name" to (user.displayName ?: email),
-                            "role" to (invite?.getString("role") ?: "motorista"),
-                            "active" to true,
-                            "acceptedAt" to FieldValue.serverTimestamp(),
-                            "updatedAt" to FieldValue.serverTimestamp()
-                        ),
-                        SetOptions.merge()
-                    )
-                    userRef.set(
-                        mapOf(
-                            "email" to email,
-                            "displayName" to (user.displayName ?: ""),
-                            "activeCompanyId" to companyId,
-                            "updatedAt" to FieldValue.serverTimestamp()
-                        ),
-                        SetOptions.merge()
-                    )
-                    onResolved(companyId)
-                }
-                .addOnFailureListener { onResolved(activeCompanyId) }
+                    .addOnFailureListener {
+                        resolveCompanyIdFromInvite(db, userRef, user, email, "", onResolved)
+                    }
+                return@addOnSuccessListener
+            }
+            resolveCompanyIdFromInvite(db, userRef, user, email, activeCompanyId, onResolved)
         }.addOnFailureListener { onResolved("") }
+    }
+
+    private fun resolveCompanyIdFromInvite(
+        db: FirebaseFirestore,
+        userRef: com.google.firebase.firestore.DocumentReference,
+        user: FirebaseUser,
+        email: String,
+        fallbackCompanyId: String,
+        onResolved: (String) -> Unit
+    ) {
+        if (email.isBlank()) {
+            onResolved(fallbackCompanyId)
+            return
+        }
+        db.collection("userInvites")
+            .document(emailKey(email))
+            .collection("companies")
+            .whereEqualTo("email", email.trim().lowercase())
+            .limit(1)
+            .get()
+            .addOnSuccessListener { invites ->
+                val invite = invites.documents.firstOrNull()
+                val companyId = invite?.getString("companyId").orEmpty()
+                if (companyId.isBlank()) {
+                    onResolved(fallbackCompanyId)
+                    return@addOnSuccessListener
+                }
+                db.collection("companies").document(companyId).collection("members").document(user.uid).set(
+                    mapOf(
+                        "uid" to user.uid,
+                        "email" to email,
+                        "name" to (user.displayName ?: email),
+                        "role" to (invite?.getString("role") ?: "motorista"),
+                        // As rules exigem saber qual convite autoriza esta adesao.
+                        "inviteKey" to emailKey(email),
+                        "active" to true,
+                        "acceptedAt" to FieldValue.serverTimestamp(),
+                        "updatedAt" to FieldValue.serverTimestamp()
+                    ),
+                    SetOptions.merge()
+                )
+                userRef.set(
+                    mapOf(
+                        "email" to email,
+                        "displayName" to (user.displayName ?: ""),
+                        "activeCompanyId" to companyId,
+                        "updatedAt" to FieldValue.serverTimestamp()
+                    ),
+                    SetOptions.merge()
+                )
+                onResolved(companyId)
+            }
+            .addOnFailureListener { onResolved(fallbackCompanyId) }
     }
 
     private fun emailKey(email: String): String =
         email.trim().lowercase(Locale.getDefault()).replace(Regex("[^a-z0-9._-]"), "_")
+
+    private fun isCorporateCompanyId(companyId: String, userUid: String): Boolean =
+        companyId.isNotBlank() && companyId != "personal_$userUid"
 
     fun sync(context: Context, companyId: String, alerts: List<CorporateFleetAlert>) {
         if (companyId.isBlank()) return

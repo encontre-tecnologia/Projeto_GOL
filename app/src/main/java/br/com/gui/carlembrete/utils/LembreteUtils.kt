@@ -132,6 +132,42 @@ fun dataRealizacaoLembrete(lembrete: Lembrete): LocalDate? {
     return runCatching { LocalDate.parse(encoded) }.getOrNull()
 }
 
+private const val HISTORICO_SEPARADOR = ";"
+private const val HISTORICO_CAMPO_SEPARADOR = ":"
+
+/**
+ * Ciclos de manutencao recorrente encerrados (data + valor pago), guardados no proprio
+ * lembrete porque marcar-como-feito nao encerra o aviso — so reagenda a proxima data,
+ * entao a realizacao unica (estabelecimentoEndereco) nao tem onde acumular o historico.
+ */
+fun historicoGastosRealizados(lembrete: Lembrete): List<Pair<LocalDate, Double>> =
+    (lembrete.historicoGastos ?: "")
+        .split(HISTORICO_SEPARADOR)
+        .mapNotNull { entrada ->
+            val partes = entrada.split(HISTORICO_CAMPO_SEPARADOR)
+            if (partes.size != 2) return@mapNotNull null
+            val data = runCatching { LocalDate.parse(partes[0]) }.getOrNull() ?: return@mapNotNull null
+            val valor = partes[1].toDoubleOrNull() ?: return@mapNotNull null
+            data to valor
+        }
+
+/** Registra o encerramento de um ciclo recorrente, para o gasto aparecer no grafico. */
+fun registrarCicloRealizado(
+    lembrete: Lembrete,
+    dataRealizacao: LocalDate = LocalDate.now(),
+    valor: Double = lembrete.valor
+): Lembrete {
+    if (valor <= 0.0) return lembrete
+    val novaEntrada = "$dataRealizacao$HISTORICO_CAMPO_SEPARADOR$valor"
+    val historicoAtual = lembrete.historicoGastos
+    val historicoAtualizado = if (historicoAtual.isNullOrBlank()) {
+        novaEntrada
+    } else {
+        "$historicoAtual$HISTORICO_SEPARADOR$novaEntrada"
+    }
+    return lembrete.copy(historicoGastos = historicoAtualizado)
+}
+
 fun marcarLembreteComoRealizado(lembrete: Lembrete, dataRealizacao: LocalDate = LocalDate.now()): Lembrete {
     if (isLembreteRealizado(lembrete)) return lembrete
     return lembrete.copy(

@@ -130,6 +130,7 @@ import kotlin.math.roundToInt
 fun EditarCarroDialog(carroAtual: CarroInfo, titulo: String, onDismiss: () -> Unit, onSalvar: (CarroInfo) -> Unit) {
     val context = LocalContext.current
     var nome by remember { mutableStateOf(carroAtual.nome) }
+    var placa by remember { mutableStateOf(normalizarPlaca(carroAtual.placa)) }
     var marca by remember { mutableStateOf(carroAtual.marca) }
     var modelo by remember { mutableStateOf(carroAtual.modelo) }
     var proprietario by remember { mutableStateOf(carroAtual.proprietario) }
@@ -211,6 +212,19 @@ fun EditarCarroDialog(carroAtual: CarroInfo, titulo: String, onDismiss: () -> Un
                             Icon(Icons.Default.Mic, contentDescription = "Falar motor")
                         }
                     },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    )
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = placa,
+                    onValueChange = { placa = normalizarPlaca(it) },
+                    isError = placa.isNotBlank() && !placaAceitavel(placa),
+                    label = { Text("Placa (opcional)") },
+                    placeholder = { Text("ABC1D23") },
+                    singleLine = true,
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = Color.White,
                         unfocusedTextColor = Color.White
@@ -334,9 +348,13 @@ fun EditarCarroDialog(carroAtual: CarroInfo, titulo: String, onDismiss: () -> Un
         },
         confirmButton = {
             Button(onClick = {
+                // Placa fora do padrao nao salva; em branco salva, porque o campo e
+                // opcional e apagar tem que ser possivel.
+                if (placa.isNotBlank() && !placaAceitavel(placa)) return@Button
                 onSalvar(
                     carroAtual.copy(
                         nome = nome,
+                        placa = normalizarPlaca(placa).takeIf { it.isNotBlank() },
                         marca = marca,
                         modelo = modelo,
                         proprietario = proprietario,

@@ -17,6 +17,25 @@ fun isEnglishNow(): Boolean = false
 
 fun trNow(pt: String, en: String): String = if (isEnglishNow()) en else pt
 
+/**
+ * Nome do recurso de análise da garagem, em um só lugar.
+ *
+ * Antes se chamava "Zellu AI". A marca de IA foi removida porque as respostas vêm do
+ * motor de regras determinístico (gerarRespostaIaGaragem), não de um modelo de
+ * linguagem — o caminho para LLM existe no código, mas está desligado. Anunciar IA
+ * sem IA rodando gera avaliação ruim e pedido de estorno.
+ *
+ * Se o LLM for ligado algum dia, dá para renomear tudo mudando só estas constantes.
+ */
+const val GARAGE_ANALYSIS_NAME_PT = "Análise da Garagem"
+const val GARAGE_ANALYSIS_NAME_EN = "Garage Analysis"
+
+@Composable
+@ReadOnlyComposable
+fun garageAnalysisName(): String = tr(GARAGE_ANALYSIS_NAME_PT, GARAGE_ANALYSIS_NAME_EN)
+
+fun garageAnalysisNameNow(): String = trNow(GARAGE_ANALYSIS_NAME_PT, GARAGE_ANALYSIS_NAME_EN)
+
 @Composable
 @ReadOnlyComposable
 fun tipoManutencaoLabel(tipo: TipoManutencao): String = when (tipo) {

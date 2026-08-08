@@ -29,7 +29,9 @@ fun BackupPayload.toMap(): Map<String, Any> = mapOf(
             "semControleKm" to carro.semControleKm,
             "tipoVeiculo" to carro.tipoVeiculo.name,
             "vezesBatido" to (carro.vezesBatido ?: -1),
-            "tempoComVeiculo" to carro.tempoComVeiculo
+            "tempoComVeiculo" to carro.tempoComVeiculo,
+            "fotoNome" to (carro.fotoNome ?: ""),
+            "placa" to (carro.placa ?: "")
         )
     },
     "lembretes" to lembretes.map { lembrete ->
@@ -53,7 +55,9 @@ fun BackupPayload.toMap(): Map<String, Any> = mapOf(
             "operationalBrand" to lembrete.operationalBrand,
             "operationalPosition" to lembrete.operationalPosition,
             "operationalKmStart" to (lembrete.operationalKmStart ?: -1),
-            "operationalKmEnd" to (lembrete.operationalKmEnd ?: -1)
+            "operationalKmEnd" to (lembrete.operationalKmEnd ?: -1),
+            "historicoGastos" to (lembrete.historicoGastos ?: ""),
+            "fotoAvisoNome" to (lembrete.fotoAvisoNome ?: "")
         )
     },
     "contatos" to contatos.map { contato ->
@@ -112,7 +116,9 @@ fun backupPayloadFromMap(data: Map<String, Any>): BackupPayload {
             semControleKm = mapa["semControleKm"] as? Boolean ?: false,
             tipoVeiculo = runCatching { TipoVeiculo.valueOf(tipoRaw) }.getOrDefault(TipoVeiculo.CARRO),
             vezesBatido = (mapa["vezesBatido"] as? Number)?.toInt()?.takeIf { it >= 0 },
-            tempoComVeiculo = mapa["tempoComVeiculo"] as? String ?: ""
+            tempoComVeiculo = mapa["tempoComVeiculo"] as? String ?: "",
+            fotoNome = (mapa["fotoNome"] as? String)?.takeIf { it.isNotBlank() },
+            placa = (mapa["placa"] as? String)?.takeIf { it.isNotBlank() }
         )
     } ?: emptyList()
 
@@ -139,7 +145,9 @@ fun backupPayloadFromMap(data: Map<String, Any>): BackupPayload {
             operationalBrand = mapa["operationalBrand"] as? String ?: "",
             operationalPosition = mapa["operationalPosition"] as? String ?: "",
             operationalKmStart = (mapa["operationalKmStart"] as? Number)?.toInt()?.takeIf { it >= 0 },
-            operationalKmEnd = (mapa["operationalKmEnd"] as? Number)?.toInt()?.takeIf { it >= 0 }
+            operationalKmEnd = (mapa["operationalKmEnd"] as? Number)?.toInt()?.takeIf { it >= 0 },
+            historicoGastos = (mapa["historicoGastos"] as? String)?.ifBlank { null },
+            fotoAvisoNome = (mapa["fotoAvisoNome"] as? String)?.ifBlank { null }
         )
     } ?: emptyList()
 

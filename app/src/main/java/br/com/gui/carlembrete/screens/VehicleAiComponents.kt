@@ -1,4 +1,4 @@
-﻿package br.com.gui.carlembrete
+package br.com.gui.carlembrete
 
 import android.app.Activity
 import android.content.ActivityNotFoundException
@@ -154,7 +154,7 @@ fun VehicleAiHelpScreen(
                     )
                 }
                 Text(
-                    text = "Ajuda da Zellu IA",
+                    text = "Ajuda da análise da garagem",
                     color = titleColor,
                     fontWeight = FontWeight.Black,
                     fontSize = 19.sp,
@@ -351,7 +351,7 @@ fun VehicleAiHelpHero(
             lineHeight = 23.sp
         )
         Text(
-            text = "A Zellu IA entende pedidos sobre avisos, consumo, viagens, relatorios e duvidas basicas de mecanica. Ela usa seus dados cadastrados e sempre pede confirmacao antes de salvar algo.",
+            text = "A analise entende pedidos sobre avisos, consumo, viagens, relatorios e duvidas basicas de mecanica. Ela usa seus dados cadastrados e sempre pede confirmacao antes de salvar algo.",
             color = subColor,
             fontSize = 13.sp,
             lineHeight = 18.sp

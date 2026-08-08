@@ -1,7 +1,5 @@
-﻿package br.com.gui.carlembrete
+package br.com.gui.carlembrete
 
-import AvisosCategoriasCard
-import CarroInfoCard
 import HistoricoAbastecimentoScreen
 import android.app.Activity
 import android.app.DatePickerDialog
@@ -14,6 +12,8 @@ import android.net.Uri
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -83,6 +83,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
 import coil.compose.AsyncImage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -105,6 +106,15 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
 
 private val lembreteUiDateFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
 private const val TAG_LOGIN_BACKUP_FLOW = "LoginBackupFlow"
+private const val TAG_CORPORATE_AGENDA_ACCESS = "CorpAgendaAccess"
+
+private fun corporateAgendaEmailKey(email: String): String =
+    email.trim().lowercase(Locale.getDefault()).replace(Regex("[^a-z0-9._-]"), "_")
+
+private fun isCorporateAgendaCompanyId(companyId: String?, userUid: String): Boolean {
+    val id = companyId.orEmpty()
+    return id.isNotBlank() && id != "personal_$userUid"
+}
 
 private fun compartilharPdfsDaFrota(context: Context, uris: List<Uri>): Boolean {
     if (uris.isEmpty()) return false
@@ -137,6 +147,8 @@ fun ManutencaoScreen(
     context: Context = LocalContext.current,
     openAondePareiOnStart: Boolean = false,
     onAondePareiStartConsumed: () -> Unit = {},
+    openVehicleImportUriOnStart: Uri? = null,
+    onVehicleImportStartConsumed: () -> Unit = {},
     openReminderIdOnStart: String? = null,
     openReminderCarIdOnStart: String? = null,
     onReminderStartConsumed: () -> Unit = {},
@@ -237,8 +249,8 @@ fun ManutencaoScreen(
             onLoaded()
         }
     }
-    LaunchedEffect(isLoading, listaCarros) {
-        if (!isLoading && listaCarros.isEmpty()) {
+    LaunchedEffect(isLoading, listaCarros, openVehicleImportUriOnStart) {
+        if (!isLoading && listaCarros.isEmpty() && openVehicleImportUriOnStart == null) {
             Log.w(TAG_LOGIN_BACKUP_FLOW, "ManutencaoScreen empty vehicles after load -> onEmptyVehicleData")
             onEmptyVehicleData()
         }
@@ -311,8 +323,10 @@ fun ManutencaoScreen(
     var showBikeDistanceRegister by remember { mutableStateOf(false) }
     var showBikeDistanceHistory by remember { mutableStateOf(false) }
     var showPremiumHubScreen by remember { mutableStateOf(false) }
+    var showCorporateAgendaScreen by remember { mutableStateOf(false) }
+    var corporateAgendaCompanyId by remember { mutableStateOf<String?>(null) }
+    var corporateAgendaAccessLoading by remember { mutableStateOf(true) }
     var showPerfilScreen by remember { mutableStateOf(false) }
-    var showShareVehicleScreen by remember { mutableStateOf(false) }
     var showAondePareiScreen by remember { mutableStateOf(openAondePareiOnStart) }
     var showVehicleAiChatScreen by remember { mutableStateOf(false) }
     var returnToPremiumBenefitsAfterAi by remember { mutableStateOf(false) }
@@ -323,7 +337,6 @@ fun ManutencaoScreen(
     var showEbookStoreScreen by remember { mutableStateOf(false) }
     var showReleaseNotesScreen by remember { mutableStateOf(false) }
     var showReportMiniTutorial by rememberSaveable { mutableStateOf(false) }
-    var autoScrollReportToMaintenance by rememberSaveable { mutableStateOf(false) }
     
     val density = LocalDensity.current
     var showHomeTutorial by remember { mutableStateOf(false) }
@@ -341,11 +354,159 @@ fun ManutencaoScreen(
     var remindersRect by remember { mutableStateOf<Rect?>(null) }
     var tutorialViewportHeightPx by remember { mutableFloatStateOf(0f) }
 
+    var authUser by remember { mutableStateOf(FirebaseAuth.getInstance().currentUser) }
+    DisposableEffect(Unit) {
+        val auth = FirebaseAuth.getInstance()
+        val listener = FirebaseAuth.AuthStateListener { firebaseAuth ->
+            authUser = firebaseAuth.currentUser
+            Log.d(
+                TAG_CORPORATE_AGENDA_ACCESS,
+                "auth changed uid=${firebaseAuth.currentUser?.uid ?: "null"} email=${firebaseAuth.currentUser?.email ?: "null"}"
+            )
+        }
+        auth.addAuthStateListener(listener)
+        onDispose { auth.removeAuthStateListener(listener) }
+    }
+
+    DisposableEffect(authUser?.uid, authUser?.email) {
+        val user = authUser
+        if (user == null) {
+            Log.d(TAG_CORPORATE_AGENDA_ACCESS, "no auth user; hiding agenda")
+            corporateAgendaCompanyId = null
+            corporateAgendaAccessLoading = false
+            return@DisposableEffect onDispose { }
+        }
+
+        val db = FirebaseFirestore.getInstance()
+        val registrations = mutableListOf<com.google.firebase.firestore.ListenerRegistration>()
+        val normalizedEmail = user.email.orEmpty().trim().lowercase(Locale.getDefault())
+        val emailKey = corporateAgendaEmailKey(normalizedEmail)
+        Log.d(
+            TAG_CORPORATE_AGENDA_ACCESS,
+            "start access listeners uid=${user.uid} email=$normalizedEmail emailKey=$emailKey"
+        )
+        var userCompanyId: String? = null
+        var inviteCompanyId: String? = null
+        var activeMemberRegistration: com.google.firebase.firestore.ListenerRegistration? = null
+
+        fun publishAccess() {
+            corporateAgendaCompanyId = inviteCompanyId ?: userCompanyId
+            corporateAgendaAccessLoading = false
+            Log.d(
+                TAG_CORPORATE_AGENDA_ACCESS,
+                "publish userCompanyId=$userCompanyId userInvites=$inviteCompanyId final=${corporateAgendaCompanyId ?: "null"}"
+            )
+        }
+
+        registrations += db.collection("users").document(user.uid)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    Log.w(TAG_CORPORATE_AGENDA_ACCESS, "users/${user.uid} listener error", error)
+                }
+                val activeCompanyId = snapshot
+                    ?.getString("activeCompanyId")
+                    ?.takeIf { isCorporateAgendaCompanyId(it, user.uid) }
+                activeMemberRegistration?.remove()
+                activeMemberRegistration = null
+                userCompanyId = null
+                Log.d(
+                    TAG_CORPORATE_AGENDA_ACCESS,
+                    "users activeCompanyId raw=${snapshot?.getString("activeCompanyId") ?: "null"} candidate=${activeCompanyId ?: "null"} exists=${snapshot?.exists()}"
+                )
+                if (activeCompanyId != null) {
+                    activeMemberRegistration = db.collection("companies")
+                        .document(activeCompanyId)
+                        .collection("members")
+                        .document(user.uid)
+                        .addSnapshotListener { memberSnapshot, memberError ->
+                            if (memberError != null) {
+                                Log.w(TAG_CORPORATE_AGENDA_ACCESS, "companies/$activeCompanyId/members/${user.uid} listener error", memberError)
+                            }
+                            val memberActive = memberSnapshot?.exists() == true && memberSnapshot.getBoolean("active") != false
+                            userCompanyId = activeCompanyId.takeIf { memberActive }
+                            Log.d(
+                                TAG_CORPORATE_AGENDA_ACCESS,
+                                "active member company=$activeCompanyId exists=${memberSnapshot?.exists()} active=$memberActive accepted=${userCompanyId ?: "null"}"
+                            )
+                            publishAccess()
+                        }
+                }
+                publishAccess()
+            }
+
+        if (emailKey.isNotBlank()) {
+            registrations += db.collection("userInvites")
+                .document(emailKey)
+                .collection("companies")
+                .whereEqualTo("email", normalizedEmail)
+                .limit(1)
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) {
+                        Log.w(TAG_CORPORATE_AGENDA_ACCESS, "userInvites/$emailKey/companies listener error", error)
+                    }
+                    inviteCompanyId = snapshot
+                        ?.documents
+                        ?.firstOrNull()
+                        ?.getString("companyId")
+                        ?.takeIf { isCorporateAgendaCompanyId(it, user.uid) }
+                    Log.d(
+                        TAG_CORPORATE_AGENDA_ACCESS,
+                        "userInvites docs=${snapshot?.size() ?: -1} accepted=${inviteCompanyId ?: "null"} firstPath=${snapshot?.documents?.firstOrNull()?.reference?.path ?: "null"}"
+                    )
+                    publishAccess()
+                }
+        } else {
+            Log.d(TAG_CORPORATE_AGENDA_ACCESS, "blank emailKey; cannot check email invite")
+            publishAccess()
+        }
+
+        onDispose {
+            registrations.forEach { it.remove() }
+            activeMemberRegistration?.remove()
+        }
+    }
+
+    LaunchedEffect(corporateAgendaCompanyId) {
+        if (corporateAgendaCompanyId.isNullOrBlank()) {
+            showCorporateAgendaScreen = false
+        }
+    }
+
     LaunchedEffect(openAondePareiOnStart) {
         if (openAondePareiOnStart) {
             showAondePareiScreen = true
             onAondePareiStartConsumed()
         }
+    }
+    LaunchedEffect(openVehicleImportUriOnStart, isLoading) {
+        val uri = openVehicleImportUriOnStart ?: return@LaunchedEffect
+        if (isLoading) return@LaunchedEffect
+
+        val imported = importVehicleTransferFromUri(context, uri)
+        onVehicleImportStartConsumed()
+        if (imported == null) {
+            Toast.makeText(context, "Nao consegui importar esse veiculo.", Toast.LENGTH_LONG).show()
+            return@LaunchedEffect
+        }
+
+        val carrosAtualizados = listaCarros + imported.vehicle
+        val lembretesAtualizados = todosLembretes + imported.reminders
+        val abastecimentosAtualizados = abastecimentos + imported.fuelRecords
+        listaCarros = carrosAtualizados
+        todosLembretes = lembretesAtualizados
+        abastecimentos = abastecimentosAtualizados
+        indiceCarroAtual = carrosAtualizados.lastIndex
+
+        withContext(Dispatchers.IO) {
+            BancoDeDados.salvarCarros(context, carrosAtualizados)
+            BancoDeDados.salvarLembretes(context, lembretesAtualizados)
+            BancoDeDados.salvarAbastecimentos(context, abastecimentosAtualizados)
+            NotificacaoHelper.reagendarExistentes(
+                context.applicationContext,
+                lembretesAtualizados.filterNot(::isLembreteRealizado)
+            )
+        }
+        Toast.makeText(context, "Veiculo importado: ${imported.vehicle.nome}", Toast.LENGTH_LONG).show()
     }
     val shouldAutoStartTutorial = remember(context) { shouldAutoStartHomeTutorial(context) }
     val homeTutorialSteps = remember(carroAtual.tipoVeiculo, premiumButtonRect) {
@@ -474,10 +635,39 @@ fun ManutencaoScreen(
     }
     val totalGastos = lembretesAtivosDoCarroAtual.sumOf { it.valor }
 
-    val usuarioNome = FirebaseAuth.getInstance().currentUser?.displayName
-    val nomeExibido = usuarioNome?.trim()?.split("\\s+".toRegex())?.let { partes ->
-        if (partes.isEmpty()) null else if (partes.size == 1) partes[0] else "${partes.first()} ${partes.last()}"
-    } ?: (FirebaseAuth.getInstance().currentUser?.email ?: "Usuario")
+    // Gasto por mes do veiculo em foco. Usa servico realizado (nao aviso pendente) e
+    // abastecimento, que sao as duas despesas que o app efetivamente registra.
+    val gastosMensaisDoCarro = remember(lembretesDoCarroAtual, abastecimentos, carroAtual.id) {
+        calcularGastosMensais(
+            lembretes = lembretesDoCarroAtual,
+            abastecimentos = abastecimentos.filter { it.carroId == carroAtual.id }
+        )
+    }
+
+    // Avisos do veiculo em foco, do mais urgente para o menos. Alimenta o resumo da
+    // home e a tela completa, para as duas nunca discordarem da ordem.
+    val avisosOrdenadosDoCarro = remember(lembretesAtivosDoCarroAtual) {
+        lembretesAtivosDoCarroAtual.sortedBy { dataParaOrdenacao(it) }
+    }
+    val registrosOrdenadosDoCarro = remember(lembretesDoCarroAtual) {
+        lembretesDoCarroAtual
+            .filter(::isLembreteRealizado)
+            .filter { it.tipo != TipoManutencao.ABASTECIMENTO }
+            .sortedByDescending { dataRealizacaoLembrete(it) ?: dataParaOrdenacao(it) }
+    }
+    /** Vencidos e chegando (ate 30 dias) do veiculo em foco, para o topo da home. */
+    val resumoDoCarroAtual = remember(lembretesAtivosDoCarroAtual) {
+        val hoje = java.time.LocalDate.now()
+        var vencidos = 0
+        var chegando = 0
+        lembretesAtivosDoCarroAtual.forEach { aviso ->
+            val data = dataParaOrdenacao(aviso)
+            if (data == java.time.LocalDate.MAX) return@forEach
+            val dias = java.time.temporal.ChronoUnit.DAYS.between(hoje, data)
+            if (dias < 0) vencidos++ else if (dias <= 30) chegando++
+        }
+        vencidos to chegando
+    }
 
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val drawerScope = rememberCoroutineScope()
@@ -518,6 +708,8 @@ fun ManutencaoScreen(
     val planTier by subscriptionManager.planTier.collectAsState()
     val isSubscribed by subscriptionManager.isSubscribed.collectAsState()
     val subscriptionBillingInfo by subscriptionManager.billingInfo.collectAsState()
+    // Preco sempre do Google Play: nenhum valor escrito nesta tela.
+    val playPlanPrices by PlayPlanPrices.pricesByProductId.collectAsState()
     val aiFeatureChannel = remember { AdminUsersSync.getFeatureChannel(context, "ai") }
     val userChannelForAi = remember { AdminUsersSync.getChannelStatus(context) }
     val isAiBlocked = remember { AdminUsersSync.getCachedAiBlocked(context) }
@@ -539,7 +731,47 @@ fun ManutencaoScreen(
         return ch != "beta" || userChannelForAi == "beta"
     }
     val maxVehiclesCurrentPlan by remember(planTier) { mutableIntStateOf(vehicleLimitForPlan(planTier)) }
+    val maxRemindersCurrentPlan by remember(planTier) { mutableIntStateOf(reminderLimitForPlan(planTier)) }
     val planNameCurrent by remember(planTier) { mutableStateOf(planNameLabel(planTier)) }
+
+    // Arquivo da foto do veiculo em foco, resolvido uma vez por troca de carro/foto.
+    val fotoDoCarroAtual = remember(indiceCarroAtual, listaCarros) {
+        VehiclePhotoStore.arquivoDe(context, listaCarros.getOrNull(indiceCarroAtual)?.fotoNome)
+    }
+
+    // O limite de avisos do plano era só exibido no Perfil e nunca aplicado. Serviços
+    // já realizados e abastecimentos não contam, igual ao contador daquela tela.
+    fun podeCriarAvisos(novos: List<Lembrete>): Boolean = canCreateReminders(
+        planTier = planTier,
+        atuais = countRemindersForPlanLimit(todosLembretes),
+        novos = countRemindersForPlanLimit(novos)
+    )
+
+    fun avisarLimiteDeAvisos() {
+        Toast.makeText(
+            context,
+            "Limite do plano $planNameCurrent: $maxRemindersCurrentPlan avisos ativos.",
+            Toast.LENGTH_LONG
+        ).show()
+    }
+    var showAvisosCompletosScreen by remember { mutableStateOf(false) }
+
+    // Foto do veiculo: escolhida da galeria, copiada para filesDir e referenciada por
+    // nome no CarroInfo. A troca apaga a anterior para nao acumular arquivo orfao.
+    val escolherFotoDoVeiculo = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val alvo = listaCarros.getOrNull(indiceCarroAtual) ?: return@rememberLauncherForActivityResult
+        val novoNome = VehiclePhotoStore.salvar(context, uri, alvo.id)
+        if (novoNome == null) {
+            Toast.makeText(context, trNow("Nao foi possivel usar essa imagem.", "Could not use that image."), Toast.LENGTH_SHORT).show()
+            return@rememberLauncherForActivityResult
+        }
+        VehiclePhotoStore.apagar(context, alvo.fotoNome)
+        listaCarros = listaCarros.map { if (it.id == alvo.id) it.copy(fotoNome = novoNome) else it }
+    }
+
     var showPremiumDialog by remember { mutableStateOf(false) }
     var showPremiumInfo by remember { mutableStateOf(false) }
     var showPremiumBeneficiosScreen by remember { mutableStateOf(false) }
@@ -635,6 +867,10 @@ fun ManutencaoScreen(
         )
         return
     }
+    BackHandler(enabled = showSelecionarPrestadorScreen) {
+        showSelecionarPrestadorScreen = false
+        lembreteParaVincularContato = null
+    }
     if (showSelecionarPrestadorScreen) {
         val lembreteAlvo = lembreteParaVincularContato?.let { alvoId ->
             todosLembretes.find { it.id == alvoId }
@@ -646,14 +882,16 @@ fun ManutencaoScreen(
             SelecionarPrestadorScreen(
                 tipoSelecionado = lembreteAlvo.tipo,
                 isBikeVehicle = isBikeCategory(carroAtual.tipoVeiculo),
+                prestadoresCadastrados = listaContatos,
                 onDismiss = {
                     showSelecionarPrestadorScreen = false
                     lembreteParaVincularContato = null
                 },
                 onConfirmar = { novoContato ->
                     val indiceContatoExistente = listaContatos.indexOfFirst { contatoExistente ->
-                        contatoExistente.nome.equals(novoContato.nome, ignoreCase = true) &&
-                            contatoExistente.tipoServico == novoContato.tipoServico
+                        contatoExistente.id == novoContato.id ||
+                            (contatoExistente.nome.equals(novoContato.nome, ignoreCase = true) &&
+                                contatoExistente.tipoServico == novoContato.tipoServico)
                     }
                     val contatoVinculado = if (indiceContatoExistente >= 0) {
                         val contatoExistente = listaContatos[indiceContatoExistente]
@@ -681,6 +919,7 @@ fun ManutencaoScreen(
                 }
             )
         }
+        return
     }
     BackHandler(enabled = showTipoAvisoDialog) { showTipoAvisoDialog = false }
     BackHandler(enabled = showHomeTutorial) {}
@@ -942,15 +1181,6 @@ fun ManutencaoScreen(
         AnjoDaGuardaScreen(onDismiss = { showAnjoDaGuardaScreen = false })
         return
     }
-    BackHandler(enabled = showShareVehicleScreen) { showShareVehicleScreen = false }
-    if (showShareVehicleScreen) {
-        ShareVehicleScreen(
-            carroAtual = carroAtual,
-            onDismiss = { showShareVehicleScreen = false }
-        )
-        return
-    }
-
     BackHandler(enabled = showMecanicoVirtualScreen) { showMecanicoVirtualScreen = false }
     if (showMecanicoVirtualScreen) {
         Log.d("PremiumNav", "render MecanicoVirtualScreen=true")
@@ -961,6 +1191,20 @@ fun ManutencaoScreen(
             isPremium = isSubscribed,
             onPremiumRequired = { activity?.let { subscriptionManager.launchPurchaseFlow(it) } },
             onDismiss = { showMecanicoVirtualScreen = false }
+        )
+        return
+    }
+    BackHandler(enabled = showCorporateAgendaScreen) { showCorporateAgendaScreen = false }
+    if (showCorporateAgendaScreen && !corporateAgendaCompanyId.isNullOrBlank()) {
+        CorporateFleetModuleScreen(
+            module = CorporateFleetModule.RESERVATIONS,
+            onDismiss = { showCorporateAgendaScreen = false },
+            screenBg = homeScreenBg,
+            cardBg = surfaceDark,
+            cardBorder = drawerItemBorderColor,
+            titleColor = textLight,
+            subColor = textDim,
+            dimColor = textDim.copy(alpha = 0.78f)
         )
         return
     }
@@ -995,7 +1239,8 @@ fun ManutencaoScreen(
                 activity?.let { subscriptionManager.launchPurchaseFlow(it) }
             },
             isAiBlocked = isAiBlocked,
-            isWebBlocked = isWebBlocked
+            isWebBlocked = isWebBlocked,
+            hasCorporateInviteAccess = !corporateAgendaCompanyId.isNullOrBlank()
         )
         return
     }
@@ -1044,6 +1289,26 @@ fun ManutencaoScreen(
         return
     }
     BackHandler(enabled = showLembreteDetalhesScreen) { showLembreteDetalhesScreen = false }
+    BackHandler(enabled = showAvisosCompletosScreen) { showAvisosCompletosScreen = false }
+    if (showAvisosCompletosScreen) {
+        AvisosCompletosScreen(
+            nomeVeiculo = carroAtual.nome,
+            avisos = avisosOrdenadosDoCarro,
+            registros = registrosOrdenadosDoCarro,
+            categoriasDisponiveis = tiposAvisoPorVeiculo(carroAtual.tipoVeiculo)
+                .filterNot { it == TipoManutencao.ABASTECIMENTO },
+            corDoStatus = { calcularCorStatusLocal(lembretesAtivosDoCarroAtual, it.tipo) },
+            temPrestador = { aviso -> listaContatos.any { it.id == aviso.contatoId } },
+            onAbrirAviso = { lembrete ->
+                lembreteSelecionado = lembrete
+                contatoDetalheSelecionado = listaContatos.find { it.id == lembrete.contatoId }
+                showAvisosCompletosScreen = false
+                showLembreteDetalhesScreen = true
+            },
+            onDismiss = { showAvisosCompletosScreen = false }
+        )
+        return
+    }
     if (showLembreteDetalhesScreen && lembreteSelecionado != null) {
         LembreteDetalhesScreen(
             lembrete = lembreteSelecionado!!,
@@ -1080,7 +1345,7 @@ fun ManutencaoScreen(
                             else -> proximaData.plusDays(intervalo.toLong())
                         }
                     }
-                    val atualizado = selecionado.copy(
+                    val atualizado = registrarCicloRealizado(selecionado, hoje).copy(
                         dataLimite = proximaData.format(formatter),
                         horaAviso = selecionado.horaAviso.ifBlank { "09:00" },
                         estabelecimentoEndereco = if (isLembreteRealizado(selecionado)) "" else selecionado.estabelecimentoEndereco
@@ -1143,56 +1408,54 @@ fun ManutencaoScreen(
         return
     }
 
+    val termosCorporativos = if (isEnglishUi()) """
+        1. Acceptance: by using Zellu, you agree to these Terms and the Privacy Policy.
+        2. Scope: Zellu organizes vehicles, reminders, maintenance, costs, documents and history. Corporate accounts include reservations, QR Code trips, odometers, signatures, alerts and a web dashboard.
+        3. Organizations: companies can invite users, assign roles and control access to vehicles, reservations, trips, alerts, documents and reports.
+        4. QR Code and speed: pickup and return record date, time, user, signature and mileage. GPS distance and speed are operational estimates, not official fines or certified measurements.
+        5. Proper use: use the app lawfully, provide truthful data and do not use another reservation, QR Code or organization.
+        6. AI and responsibility: AI may be wrong and does not replace technical diagnosis, inspection, insurance or professional advice.
+        7. Plans, availability and contact: paid plans follow the payment platform rules; features may change or be suspended for security, evolution or legal reasons. Contact: guilhermedevsistemas@gmail.com
+    """.trimIndent() else """
+        1. Aceite: ao usar o Zellu, voce concorda com estes Termos e com a Politica de Privacidade.
+        2. Objeto: o Zellu organiza veiculos, lembretes, manutencao, custos, documentos e historico. O modulo corporativo oferece reservas, viagens por QR Code, odometro, assinaturas, alertas e dashboard web.
+        3. Organizacoes: empresas podem convidar usuarios, definir papeis e controlar o acesso a veiculos, reservas, viagens, avisos, documentos e relatorios.
+        4. QR Code e velocidade: retirada e devolucao registram data, hora, usuario, assinatura e quilometragem. Distancia e velocidade do GPS sao estimativas operacionais, nao multas oficiais ou medicoes certificadas.
+        5. Uso adequado: use o app de forma licita, informe dados verdadeiros e nao use reserva, QR Code ou organizacao de outra pessoa.
+        6. IA e responsabilidade: a IA pode errar e nao substitui diagnostico tecnico, vistoria, seguro, mecanico ou orientacao profissional.
+        7. Planos, disponibilidade e contato: planos pagos seguem as regras da plataforma de pagamento; funcionalidades podem mudar ou ser suspensas por seguranca, evolucao ou obrigacao legal. Contato: guilhermedevsistemas@gmail.com
+    """.trimIndent()
+
+    val privacidadeCorporativa = if (isEnglishUi()) """
+        1. Data: account, vehicles, reservations, trips, organization, drivers, schedules, destinations, maintenance, alerts, documents, costs, mileage, signatures, photos, PDFs, receipts, active-trip location, estimated speed, files, notifications, technical data and AI interactions.
+        2. Purposes: authentication, reservations, QR Code pickup and return, history, maintenance, security, notifications, AI, support and abuse/fraud prevention.
+        3. Location: when authorized, location is used only during an active trip to estimate distance and speed. The app should not track the user outside the trip.
+        4. Sharing: we do not sell personal data. Corporate administrators and authorized managers may access organization data according to their roles; technical providers may process what is necessary for the service.
+        5. Storage and retention: data may be stored on the device and in the cloud for service, organization history, audit and legal purposes. Corporate data may depend on the company administrator for deletion.
+        6. Rights and incidents: you may request access, correction, information about sharing, deletion and consent revocation. Relevant security incidents are assessed, contained and communicated when legally required.
+        7. Full pages and contact:
+        https://zellu-privacidade.vercel.app/privacy-policy.html
+        https://zellu-privacidade.vercel.app/terms-of-use.html
+        guilhermedevsistemas@gmail.com
+    """.trimIndent() else """
+        1. Dados: conta, veiculos, reservas, viagens, empresa, motoristas, horarios, destinos, manutencoes, avisos, documentos, custos, quilometragens, assinaturas, fotos, PDFs, comprovantes, localizacao durante viagem ativa, velocidade estimada, arquivos, notificacoes, dados tecnicos e IA.
+        2. Finalidades: autenticacao, reservas, QR Code, registros de retirada e devolucao, historico, manutencao, seguranca, notificacoes, IA, suporte e prevencao de abuso/fraude.
+        3. Localizacao: quando autorizada, e usada somente durante uma viagem ativa para estimar distancia e velocidade. O app nao deve rastrear o usuario fora da viagem.
+        4. Compartilhamento: nao vendemos dados pessoais. Administradores e gestores autorizados podem acessar dados corporativos conforme o papel; provedores tecnicos tratam apenas o necessario ao servico.
+        5. Armazenamento e retencao: dados podem ficar no dispositivo e na nuvem pelo tempo necessario ao servico, historico, auditoria e obrigacoes legais. Dados corporativos podem depender do administrador da empresa para exclusao.
+        6. Direitos e incidentes: voce pode solicitar acesso, correcao, informacoes sobre compartilhamento, exclusao e revogacao de consentimento. Incidentes relevantes serao avaliados, contidos e comunicados quando exigido pela legislacao.
+        7. Paginas completas e contato:
+        https://zellu-privacidade.vercel.app/privacy-policy.html
+        https://zellu-privacidade.vercel.app/terms-of-use.html
+        guilhermedevsistemas@gmail.com
+    """.trimIndent()
+
     BackHandler(enabled = showTermsScreen) { showTermsScreen = false }
     if (showTermsScreen) {
         LegalInfoScreen(
             title = tr("Termos de uso", "Terms of use"),
             icon = Icons.Default.Description,
-            content = if (isEnglishUi()) """
-                1. Acceptance: by using Zellu, you agree to these Terms and the Privacy Policy.
-
-                2. Service scope: the app includes vehicle management, reminders, maintenance, trips, fleet, stock, and artificial intelligence features.
-
-                3. AI features: Zellu AI is a support tool to interpret registered data, answer questions, and prepare requested actions. It may make mistakes and does not replace technical diagnosis, inspection, mechanics, insurance, or user decisions.
-
-                4. Proper use: you must use the app lawfully, without fraud, abuse, or rights violations.
-
-                5. Account security: you are responsible for account data and access credentials.
-
-                6. Plans and billing: paid plans (such as Lite/Fleet) follow store/payment platform rules for renewal, cancellation, and refunds.
-
-                7. Limitation: Zellu is a support tool and does not replace technical diagnosis, inspection, insurance, mechanical assistance, or professional advice.
-
-                8. Availability: features may be updated, fixed, suspended, or discontinued due to product evolution, security, or legal obligations.
-
-                9. Intellectual property: brand, software, layout, and content are legally protected.
-
-                10. Governing law and venue: Brazilian law applies, with venue in Sao Carlos/SP, except where mandatory law states otherwise.
-
-                11. Legal/support contact: guilhermedevsistemas@gmail.com
-            """.trimIndent() else """
-                1. Aceite: ao usar o Zellu, você concorda com estes Termos e com a Política de Privacidade.
-
-                2. Objeto: o app oferece gestão de veículos, lembretes, manutenções, viagens, frota, estoque e recursos de inteligência artificial.
-
-                3. Recursos de IA: a Zellu AI é ferramenta de apoio para interpretar dados cadastrados, responder perguntas e preparar ações solicitadas. Ela pode cometer erros e não substitui diagnóstico técnico, vistoria, mecânico, seguro ou decisão do usuário.
-
-                4. Uso adequado: você se compromete a usar o app de forma lícita, sem fraude, abuso técnico ou violação de direitos de terceiros.
-
-                5. Conta e segurança: você é responsável pelos dados da conta e pela guarda do acesso.
-
-                6. Planos e cobrança: planos pagos (como Lite/Frota) seguem regras da loja/plataforma de pagamento para renovação, cancelamento e reembolso.
-
-                7. Limitação: o Zellu é ferramenta de apoio e não substitui diagnóstico técnico, vistoria, seguro, assistência mecânica ou orientação profissional.
-
-                8. Disponibilidade: funcionalidades podem ser alteradas, corrigidas, suspensas ou descontinuadas por evolução do produto, segurança ou obrigação legal.
-
-                9. Propriedade intelectual: marca, software, layout e conteúdo do app são protegidos por lei.
-
-                10. Legislação e foro: aplica-se a legislação brasileira, com foro da comarca de São Carlos/SP, salvo competência legal específica.
-
-                11. Contato legal e suporte: guilhermedevsistemas@gmail.com
-            """.trimIndent(),
+            content = termosCorporativos,
             onDismiss = { showTermsScreen = false }
         )
         return
@@ -1202,59 +1465,7 @@ fun ManutencaoScreen(
         LegalInfoScreen(
             title = tr("Política de privacidade", "Privacy policy"),
             icon = Icons.Default.Lock,
-            content = if (isEnglishUi()) """
-                1. Data processed: account data (name, e-mail, identifiers), vehicle records, reminders, contacts, trips, stock items, location, camera, notifications, essential technical data, and interactions with AI features.
-
-                2. Purposes: authentication, feature execution, intelligent/AI features, security, abuse/fraud prevention, support, and continuous improvement.
-
-                3. Legal bases (LGPD): contract execution, consent where required, legitimate interest for security/stability, and legal/regulatory obligations.
-
-                4. Permissions: camera, location, and notifications are used only with your authorization and can be revoked in device settings.
-
-                5. AI and technical providers: Zellu AI may use registered data and chat messages to respond and prepare actions. When online features are enabled, required content may be processed by infrastructure and/or AI technical providers.
-
-                6. Sharing: we do not sell personal data. Data may be shared with technical operators/providers required for app operation and with authorities when legally required.
-
-                7. Storage and retention: data may be stored on device and cloud, for as long as necessary for service purposes and legal obligations.
-
-                8. Data subject rights: under LGPD, you can request confirmation, access, correction, anonymization, deletion, and consent revocation.
-
-                9. Account/data deletion: when requested, personal and linked records are removed, except mandatory legal retention.
-
-                10. International transfer: some providers may process data outside Brazil under appropriate safeguards.
-
-                11. Official privacy/support contact:
-                guilhermedevsistemas@gmail.com
-                Official pages:
-                https://zellu-privacidade.vercel.app/privacy-policy.html
-                https://zellu-privacidade.vercel.app/terms-of-use.html
-            """.trimIndent() else """
-                1. Dados tratados: o app pode tratar dados de conta (nome, e-mail e identificadores), cadastro de veículos, lembretes, contatos, viagens, itens de estoque, localização, câmera, notificações, dados técnicos essenciais e interações com recursos de IA.
-
-                2. Finalidades: autenticação, execução das funcionalidades, recursos inteligentes/IA, segurança, prevenção de abuso/fraude, suporte e melhoria contínua.
-
-                3. Bases legais (LGPD): execução de contrato, consentimento quando exigido, legítimo interesse para segurança/estabilidade e cumprimento de obrigação legal.
-
-                4. Permissões: câmera, localização e notificações são usadas somente com autorização e podem ser revogadas a qualquer momento no dispositivo.
-
-                5. IA e provedores técnicos: a Zellu AI pode usar dados cadastrados e mensagens do chat para responder e preparar ações. Quando recursos online estiverem habilitados, o conteúdo necessário pode ser processado por provedores técnicos de infraestrutura e/ou IA.
-
-                6. Compartilhamento: não vendemos dados pessoais. Podemos compartilhar com operadores/provedores técnicos necessários ao funcionamento do app e com autoridades quando houver obrigação legal.
-
-                7. Retenção e armazenamento: parte dos dados pode ficar no dispositivo e parte em nuvem, pelo tempo necessário às finalidades e obrigações legais.
-
-                8. Direitos do titular: você pode solicitar confirmação de tratamento, acesso, correção, anonimização, exclusão e revogação do consentimento, nos termos da LGPD.
-
-                9. Exclusão de conta e dados: ao solicitar exclusão, removemos dados pessoais e registros vinculados, ressalvadas retenções legais obrigatórias.
-
-                10. Transferência internacional: alguns provedores podem processar dados fora do Brasil, com salvaguardas adequadas.
-
-                11. Contato oficial de privacidade, remoção de dados, dúvidas e suporte:
-                guilhermedevsistemas@gmail.com
-                Páginas oficiais:
-                https://zellu-privacidade.vercel.app/privacy-policy.html
-                https://zellu-privacidade.vercel.app/terms-of-use.html
-            """.trimIndent(),
+            content = privacidadeCorporativa,
             onDismiss = { showPrivacyScreen = false }
         )
         return
@@ -1273,7 +1484,7 @@ fun ManutencaoScreen(
         AlertDialog(
             onDismissRequest = { showPremiumDialog = false },
             title = { Text("Recurso Premium", color = Color(0xFFF59E0B), fontWeight = FontWeight.Bold) },
-            text = { Text("Agora temos 2 planos: Lite (R$ 10,50) para Viagens e Frota (R$ 29,90) com tudo, incluindo o sistema de estoque.", color = Color(0xFFCBD5E1)) },
+            text = { Text("Escolha o Lite, Frota ou Enterprise conforme o nivel de gestao que voce precisa. O valor de cada plano aparece na tela de planos, direto do Google Play.", color = Color(0xFFCBD5E1)) },
             confirmButton = {
                 Button(
                     onClick = {
@@ -1322,32 +1533,45 @@ fun ManutencaoScreen(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
-                        "Escolha entre Lite para Viagens ou Frota para liberar todos os recursos do app.",
+                        "Escolha Lite para uso individual, Frota para gestao avancada ou Enterprise para criar sua empresa e gerenciar acessos.",
                         color = premiumText,
                         fontWeight = FontWeight.Medium
                     )
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = Color(0xFFF59E0B))
-                        Spacer(Modifier.width(8.dp))
-                        Column {
-                            Text("Lite - R$ 10,50/mês", color = premiumTitle, fontWeight = FontWeight.Bold)
-                            Text(
-                                "Inclui somente Viagens: registro de gastos e relatórios por trajeto.",
-                                color = premiumSubtitle,
-                                fontSize = 13.sp
+                    // O valor de cada linha vem do Play; se ele ainda nao respondeu,
+                    // mostramos so o nome do plano em vez de um preco possivelmente errado.
+                    listOf(
+                        Triple(
+                            SubscriptionPlan.LITE,
+                            "Lite",
+                            "Avisos, viagens, custos e historico para o uso individual."
+                        ),
+                        Triple(
+                            SubscriptionPlan.FROTA,
+                            "Frota",
+                            "Gestao avancada dos veiculos e acesso corporativo por convite."
+                        ),
+                        Triple(
+                            SubscriptionPlan.ENTERPRISE,
+                            "Enterprise",
+                            "Crie sua empresa, convide usuarios e opere tudo pelo painel."
+                        )
+                    ).forEach { (plano, nome, descricao) ->
+                        val preco = playPriceInlineLabel(playPlanPrices[plano.productId])
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                if (plano == SubscriptionPlan.LITE) Icons.Default.DirectionsCar else Icons.Default.Diamond,
+                                contentDescription = null,
+                                tint = Color(0xFFF59E0B)
                             )
-                        }
-                    }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Diamond, contentDescription = null, tint = Color(0xFFF59E0B))
-                        Spacer(Modifier.width(8.dp))
-                        Column {
-                            Text("Frota - R$ 29,90/mês", color = premiumTitle, fontWeight = FontWeight.Bold)
-                            Text(
-                                "Inclui tudo: Viagens + gestão completa de frota + sistema de estoque.",
-                                color = premiumSubtitle,
-                                fontSize = 13.sp
-                            )
+                            Spacer(Modifier.width(8.dp))
+                            Column {
+                                Text(
+                                    if (preco.isBlank()) nome else "$nome - $preco",
+                                    color = premiumTitle,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(descricao, color = premiumSubtitle, fontSize = 13.sp)
+                            }
                         }
                     }
                 }
@@ -1387,6 +1611,16 @@ fun ManutencaoScreen(
                 showGaragemScreen = false
             },
             onDismiss = { showGaragemScreen = false },
+            // EditarCarroScreen edita o veiculo ativo, entao editar um da lista passa por
+            // torna-lo ativo primeiro.
+            onEditar = { selecionado ->
+                val novoIndice = listaCarros.indexOfFirst { it.id == selecionado.id }
+                if (novoIndice >= 0) {
+                    indiceCarroAtual = novoIndice
+                    showGaragemScreen = false
+                    showEditCarScreen = true
+                }
+            },
             showVehicleHealthSection = false,
             onOpenReminderDetails = { lembrete ->
                 showGaragemScreen = false
@@ -1403,10 +1637,19 @@ fun ManutencaoScreen(
             carro = carroAtual,
             lembretes = lembretesDoCarroAtual,
             isPremium = planTier != PlanTier.FREE,
-            autoScrollToCompletedMaintenance = autoScrollReportToMaintenance,
+            onExportVehicle = {
+                val opened = exportVehicleToOtherDevice(
+                    context = context,
+                    vehicle = carroAtual,
+                    reminders = todosLembretes.filter { it.carroId == carroAtual.id },
+                    fuelRecords = abastecimentos.filter { it.carroId == carroAtual.id }
+                )
+                if (!opened) {
+                    Toast.makeText(context, "Nao consegui abrir o compartilhamento.", Toast.LENGTH_SHORT).show()
+                }
+            },
             onDismiss = { showCarInfoScreen = false }
         )
-        autoScrollReportToMaintenance = false
         return
     }
     BackHandler(enabled = showPerfilScreen) { showPerfilScreen = false }
@@ -1453,6 +1696,10 @@ fun ManutencaoScreen(
             lembretesAtivos = todosLembretes.filterNot(::isLembreteRealizado),
             abastecimentos = abastecimentos,
             onCreateReminders = { novosAvisos ->
+                if (!podeCriarAvisos(novosAvisos)) {
+                    avisarLimiteDeAvisos()
+                    return@VehicleAiChatScreen
+                }
                 todosLembretes = todosLembretes + novosAvisos
                 AdminUsageMetrics.markReminderCreated(novosAvisos.size)
                 // Mesmo padrão do cadastro manual: agenda a notificação de cada aviso
@@ -1601,8 +1848,13 @@ fun ManutencaoScreen(
                 showTipoAvisoDialog = true
             },
             onConfirm = { novo ->
+                val novoComCarro = novo.copy(carroId = carroAtual.id)
+                if (!podeCriarAvisos(listOf(novoComCarro))) {
+                    avisarLimiteDeAvisos()
+                    return@NovoAgendamentoDialog
+                }
                 val hadNoReminderBefore = todosLembretes.none { it.tipo != TipoManutencao.ABASTECIMENTO }
-                todosLembretes = todosLembretes + novo.copy(carroId = carroAtual.id)
+                todosLembretes = todosLembretes + novoComCarro
                 AdminUsageMetrics.markReminderCreated()
                 showAddLembreteDialog = false
                 iniciarCameraProduto = false
@@ -1622,8 +1874,12 @@ fun ManutencaoScreen(
                 Toast.makeText(context, mensagem, Toast.LENGTH_SHORT).show()
             },
             onMultiConfirm = { novosItens ->
-                val hadNoReminderBefore = todosLembretes.none { it.tipo != TipoManutencao.ABASTECIMENTO }
                 val novosLembretes = novosItens.map { it.copy(carroId = carroAtual.id) }
+                if (!podeCriarAvisos(novosLembretes)) {
+                    avisarLimiteDeAvisos()
+                    return@NovoAgendamentoDialog
+                }
+                val hadNoReminderBefore = todosLembretes.none { it.tipo != TipoManutencao.ABASTECIMENTO }
                 todosLembretes = todosLembretes + novosLembretes
                 AdminUsageMetrics.markReminderCreated(novosLembretes.size)
                 showAddLembreteDialog = false
@@ -1705,6 +1961,16 @@ fun ManutencaoScreen(
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold
                     )
+                    if (!corporateAgendaAccessLoading && !corporateAgendaCompanyId.isNullOrBlank()) {
+                        DrawerMenuItem(
+                            icon = Icons.Default.CalendarToday,
+                            label = "Agenda corporativa",
+                            highlighted = true
+                        ) {
+                            showCorporateAgendaScreen = true
+                            drawerScope.launch { drawerState.close() }
+                        }
+                    }
                     if (planTier != PlanTier.FREE) {
                         DrawerMenuItem(
                             icon = Icons.Default.WorkspacePremium,
@@ -1821,9 +2087,7 @@ fun ManutencaoScreen(
                                 Icon(Icons.Default.Menu, "Menu", tint = textLight)
                             }
                         },
-                        modifier = Modifier
-                            .statusBarsPadding()
-                            .offset(y = (-3).dp),
+                        modifier = Modifier.statusBarsPadding(),
                         actions = {
                             IconButton(
                                 onClick = {
@@ -1905,44 +2169,56 @@ fun ManutencaoScreen(
                     )
                     }
 
-                    Spacer(Modifier.height(0.dp))
+                    // Card do veiculo precisa de respiro: quando sangrava de ponta a
+                    // ponta, colar na barra era o efeito desejado.
+                    Spacer(Modifier.height(10.dp))
 
                     Box(
-                        modifier = Modifier
-                            .offset(y = (-4).dp)
-                            .onGloballyPositioned { carInfoRect = it.boundsInRoot() }
+                        modifier = Modifier.onGloballyPositioned { carInfoRect = it.boundsInRoot() }
                     ) {
-                        CarroInfoCard(
-                            carroAtual = carroAtual,
-                            onPrevCar = {
-                                if (indiceCarroAtual > 0) indiceCarroAtual-- else indiceCarroAtual = listaCarros.lastIndex
+                        HomeVehicleHeader(
+                            carro = carroAtual,
+                            fotoArquivo = fotoDoCarroAtual,
+                            avisosVencidos = resumoDoCarroAtual.first,
+                            avisosChegando = resumoDoCarroAtual.second,
+                            totalVeiculos = listaCarros.size,
+                            indiceVeiculo = indiceCarroAtual,
+                            onAbrirVeiculo = { showGaragemScreen = true },
+                            onEscolherFoto = { escolherFotoDoVeiculo.launch("image/*") },
+                            onEditarVeiculo = { showEditCarScreen = true },
+                            onVeiculoAnterior = {
+                                if (listaCarros.size > 1) {
+                                    indiceCarroAtual =
+                                        (indiceCarroAtual - 1 + listaCarros.size) % listaCarros.size
+                                }
                             },
-                            onNextCar = {
-                                if (indiceCarroAtual < listaCarros.lastIndex) indiceCarroAtual++ else indiceCarroAtual = 0
-                            },
-                            onOpenCarInfo = { showGaragemScreen = true },
-                            onEditCar = { showEditCarScreen = true },
-                            onOpenRelatorio = {
-                                autoScrollReportToMaintenance = false
-                                showCarInfoScreen = true
-                            },
-                            onOpenFuelHistory = { showHistoricoAbastecimentoScreen = true },
-                            showFuelHistoryAction = !isBikeCategory(carroAtual.tipoVeiculo),
-                            onNovoLembrete = {
-                                iniciarCameraProduto = false
-                                fluxoInicialRegistroServico = null
-                                showFluxoCadastroDialog = true
-                            },
-                            onEditButtonPositioned = { editCarButtonRect = it },
-                            onReportButtonPositioned = { reportButtonRect = it },
-                            onNewReminderButtonPositioned = { newReminderButtonRect = it },
-                            nomeMantedor = nomeExibido,
-                            textLight = textLight,
-                            accentBlue = accentBlue
+                            onProximoVeiculo = {
+                                if (listaCarros.size > 1) {
+                                    indiceCarroAtual = (indiceCarroAtual + 1) % listaCarros.size
+                                }
+                            }
                         )
                     }
 
-                    Spacer(Modifier.height((-4).dp))
+                    Spacer(Modifier.height(12.dp))
+
+                    HomeQuickActions(
+                        onNovoAviso = {
+                            iniciarCameraProduto = false
+                            fluxoInicialRegistroServico = null
+                            showFluxoCadastroDialog = true
+                        },
+                        onAbastecer = { showHistoricoAbastecimentoScreen = true },
+                        onRelatorio = {
+                            showCarInfoScreen = true
+                        },
+                        mostrarAbastecer = !isBikeCategory(carroAtual.tipoVeiculo),
+                        modifier = Modifier
+                            .padding(horizontal = 16.dp)
+                            .onGloballyPositioned { newReminderButtonRect = it.boundsInRoot() }
+                    )
+
+                    Spacer(Modifier.height(4.dp))
 
                     val categoriasDisponiveis = tiposAvisoPorVeiculo(carroAtual.tipoVeiculo)
                         .filterNot { it == TipoManutencao.ABASTECIMENTO }
@@ -1957,44 +2233,31 @@ fun ManutencaoScreen(
                         emptyMap()
                     }
                     Spacer(Modifier.height(14.dp))
-                    AvisosCategoriasCard(
-                        lembretesDoCarroAtual = lembretesAtivosDoCarroAtual,
-                        lembretesComBusca = lembretesComBusca,
-                        buscaTexto = buscaTexto,
-                        onBuscar = { buscaTexto = it },
-                        listaContatos = listaContatos,
-                        modeloCarro = carroAtual.nome,
-                        filtroTipo = filtroTipo,
-                        onFiltroTipoChange = { filtroTipo = it },
-                        categoriasDisponiveis = categoriasDisponiveis,
-                        iconOverrides = iconOverrides,
-                        labelOverrides = labelOverrides,
-                        onDelete = { lembrete ->
-                            NotificacaoHelper.cancelarNotificacao(context.applicationContext, lembrete.id)
-                            todosLembretes = todosLembretes.filter { it.id != lembrete.id }
-                        },
-                        onAddPrestador = { lembrete ->
-                            lembreteParaVincularContato = lembrete.id
-                            showSelecionarPrestadorScreen = true
-                        },
-                        onOpenDetalhes = { lembrete ->
+                    AvisosResumoCard(
+                        avisosOrdenados = avisosOrdenadosDoCarro,
+                        totalAvisos = avisosOrdenadosDoCarro.size,
+                        corDoStatus = { calcularCorStatusLocal(lembretesAtivosDoCarroAtual, it.tipo) },
+                        temPrestador = { aviso -> listaContatos.any { it.id == aviso.contatoId } },
+                        onAbrirAviso = { lembrete ->
                             lembreteSelecionado = lembrete
                             contatoDetalheSelecionado = listaContatos.find { it.id == lembrete.contatoId }
                             showLembreteDetalhesScreen = true
                         },
-                        statusLabel = { textoStatusPrazoLocal(it) },
-                        statusColor = { tipo -> calcularCorStatusLocal(lembretesAtivosDoCarroAtual, tipo) },
-                        textDim = textDim,
-                        accentColor = carroAtual.getCorUI(),
+                        onVerTodos = { showAvisosCompletosScreen = true },
                         modifier = Modifier
-                            .fillMaxWidth()
                             .padding(horizontal = 16.dp)
                             .onGloballyPositioned { remindersRect = it.boundsInRoot() }
                     )
 
-                    Spacer(Modifier.height(24.dp))
+                    Spacer(Modifier.height(18.dp))
 
-                    Spacer(Modifier.height(80.dp))
+                    GastosMensaisCard(
+                        gastos = gastosMensaisDoCarro,
+                        modifier = Modifier.padding(horizontal = 16.dp)
+                    )
+
+                    // Folga final para a lista nao encostar na barra de navegacao.
+                    Spacer(Modifier.height(96.dp))
 
                 }
             }
@@ -2075,7 +2338,7 @@ fun ManutencaoScreen(
             if (showReportMiniTutorial && !showHomeTutorial) {
                 HomeTutorialSpotlightOverlay(
                     targetRect = reportButtonRect,
-                    message = "Toque em Relatório para abrir a tela e ir direto em Registros cadastrados, onde fica o que você salvou.",
+                    message = "Toque em Relatório para abrir o resumo completo do veículo.",
                     step = 1,
                     total = 1,
                     targetCornerRadius = 14.dp,
@@ -2089,7 +2352,6 @@ fun ManutencaoScreen(
                     onNext = {
                         showReportMiniTutorial = false
                         markReportMiniTutorialSeen(context)
-                        autoScrollReportToMaintenance = true
                         showCarInfoScreen = true
                     }
                 )
@@ -2101,7 +2363,9 @@ fun ManutencaoScreen(
         var showConfirmarLimpezaNotificacoes by remember { mutableStateOf(false) }
         val nomeCarroPorId = remember(listaCarros) {
             listaCarros.associate { carro ->
-                val nome = carro.nome.ifBlank {
+                // Desempatado pela placa: aviso de dois veiculos homonimos ficava
+                // indistinguivel nesta lista.
+                val nome = nomeExibicaoVeiculo(carro, listaCarros).ifBlank {
                     listOf(carro.marca, carro.modelo).joinToString(" ").trim().ifBlank { "Veículo sem nome" }
                 }
                 carro.id to nome

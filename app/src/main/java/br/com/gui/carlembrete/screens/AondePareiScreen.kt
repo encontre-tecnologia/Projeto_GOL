@@ -288,11 +288,9 @@ fun AondePareiScreen(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                SuggestionIdeaEntryPoint(
-                    modifier = Modifier
-                        .size(42.dp)
-                        .padding(top = 6.dp)
-                )
+                // Contrapeso do botao de voltar, para o titulo seguir centrado no
+                // SpaceBetween. Com dois filhos, o titulo iria para a borda direita.
+                Spacer(Modifier.size(48.dp))
             }
 
             // 1. HEADER STATUS

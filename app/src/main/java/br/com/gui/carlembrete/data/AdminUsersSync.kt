@@ -271,7 +271,7 @@ object AdminUsersSync {
             .addOnFailureListener { Log.w(TAG_ADMIN_SYNC, "Falha ao ler adminEbookOverride", it) }
     }
 
-    fun syncCurrentUser(plan: String? = null, tierName: String? = null) {
+    fun syncCurrentUser() {
         val user = FirebaseAuth.getInstance().currentUser ?: return
         val userDoc = firestore.collection("admin_users").document(user.uid)
 
@@ -288,16 +288,6 @@ object AdminUsersSync {
 
                 if (!snapshot.exists()) {
                     payload["createdAt"] = FieldValue.serverTimestamp()
-                }
-
-                if (!plan.isNullOrBlank()) {
-                    val normalized = if (plan.equals("premium", ignoreCase = true)) "premium" else "free"
-                    payload["plan"] = normalized
-                    payload["tier"] = normalized
-                    payload["isPremium"] = normalized == "premium"
-                }
-                if (!tierName.isNullOrBlank()) {
-                    payload["planTierName"] = tierName
                 }
 
                 userDoc.set(payload, SetOptions.merge())

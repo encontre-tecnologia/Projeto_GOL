@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Diamond
 import androidx.compose.material.icons.filled.DirectionsCar
@@ -92,10 +93,15 @@ fun PremiumHubScreen(
     onOpenFleetStock: () -> Unit,
     onOpenSubscribe: (SubscriptionPlan) -> Unit,
     isAiBlocked: Boolean = false,
-    isWebBlocked: Boolean = false
+    isWebBlocked: Boolean = false,
+    hasCorporateInviteAccess: Boolean = false
 ) {
     val view = LocalView.current
     val context = LocalContext.current
+    // Trial só é prometido quando o Play confirma a oferta para este usuário.
+    LaunchedEffect(Unit) { PlayPlanPrices.ensureLoaded(context) }
+    val playPrices by PlayPlanPrices.pricesByProductId.collectAsState()
+    val diasTrialFrota = playPrices[SubscriptionPlan.FROTA.productId]?.freeTrialDays() ?: 0
     val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val screenBg = if (isDark) Color.Black else PHScreenBg
     val cardBg = if (isDark) Color(0xFF0B1220) else PHCardBg
@@ -112,6 +118,10 @@ fun PremiumHubScreen(
         ?: FirebaseAuth.getInstance().currentUser?.email
         ?: "cliente"
     val hasFleetOperationalModules = planTier == PlanTier.FROTA || planTier == PlanTier.ENTERPRISE
+    // A convite only grants access to the invited company's schedule. Creating and
+    // administering a new fleet is an Enterprise entitlement.
+    val canCreateOwnFleet = planTier == PlanTier.ENTERPRISE
+    val canOpenFleetDashboard = hasCorporateInviteAccess || canCreateOwnFleet
     var featureChannelVersion by remember { mutableStateOf(0) }
     LaunchedEffect(Unit) {
         AdminUsersSync.syncFeatureChannels(context) { featureChannelVersion++ }
@@ -127,6 +137,7 @@ fun PremiumHubScreen(
     var selectedCorporateModule by remember { mutableStateOf<CorporateFleetModule?>(null) }
     var showAiBlockedDialog by remember { mutableStateOf(false) }
     var showWebBlockedDialog by remember { mutableStateOf(false) }
+    var showFleetDashboardPlanDialog by remember { mutableStateOf(false) }
 
     DisposableEffect(view, isDark) {
         val activity = view.context as? Activity
@@ -147,10 +158,10 @@ fun PremiumHubScreen(
     }
 
     if (showAiBlockedDialog) {
-        val emailSubject = tr("Revisão de bloqueio - Zellu AI", "AI block review - Zellu")
+        val emailSubject = tr("Revisão de bloqueio - análise da garagem", "Garage analysis block review")
         val emailBody = tr(
-            "Olá, meu nome é $userName e gostaria de solicitar a revisão da suspensão do meu acesso à Zellu AI.",
-            "Hello, my name is $userName and I would like to request a review of my Zellu AI access suspension."
+            "Olá, meu nome é $userName e gostaria de solicitar a revisão da suspensão do meu acesso à análise da garagem.",
+            "Hello, my name is $userName and I would like to request a review of my garage analysis access suspension."
         )
         AlertDialog(
             onDismissRequest = { showAiBlockedDialog = false },
@@ -164,7 +175,7 @@ fun PremiumHubScreen(
             },
             title = {
                 Text(
-                    tr("Acesso à IA suspenso", "AI access suspended"),
+                    tr("Acesso à análise suspenso", "Analysis access suspended"),
                     fontWeight = FontWeight.Bold,
                     textAlign = TextAlign.Center
                 )
@@ -172,8 +183,8 @@ fun PremiumHubScreen(
             text = {
                 Text(
                     tr(
-                        "Seu acesso à Zellu AI foi suspenso por uso indevido ou violação dos termos de uso.\n\nCaso acredite que isso foi um engano, entre em contato pelo e-mail de suporte.",
-                        "Your access to Zellu AI has been suspended due to misuse or violation of terms of use.\n\nIf you believe this was a mistake, please contact us via support email."
+                        "Seu acesso à análise da garagem foi suspenso por uso indevido ou violação dos termos de uso.\n\nCaso acredite que isso foi um engano, entre em contato pelo e-mail de suporte.",
+                        "Your access to the garage analysis has been suspended due to misuse or violation of terms of use.\n\nIf you believe this was a mistake, please contact us via support email."
                     ),
                     textAlign = TextAlign.Center,
                     fontSize = 14.sp
@@ -253,6 +264,52 @@ fun PremiumHubScreen(
             dismissButton = {
                 TextButton(onClick = { showWebBlockedDialog = false }) {
                     Text(tr("Fechar", "Close"))
+                }
+            }
+        )
+    }
+
+    if (showFleetDashboardPlanDialog) {
+        AlertDialog(
+            onDismissRequest = { showFleetDashboardPlanDialog = false },
+            icon = {
+                Icon(
+                    Icons.Default.Dashboard,
+                    contentDescription = null,
+                    tint = Color(0xFF2563EB),
+                    modifier = Modifier.size(32.dp)
+                )
+            },
+            title = {
+                Text(
+                    tr("Dashboard da frota", "Fleet dashboard"),
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center
+                )
+            },
+            text = {
+                Text(
+                    tr(
+                        "Para criar sua propria frota e liberar acessos, ative o plano Enterprise. Se uma empresa te convidar, voce continua podendo acessar apenas a agenda dela.",
+                        "To create your own fleet and manage access, activate the Enterprise plan. If a company invites you, you can still access only its schedule."
+                    ),
+                    textAlign = TextAlign.Center,
+                    fontSize = 14.sp
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showFleetDashboardPlanDialog = false
+                        onOpenSubscribe(SubscriptionPlan.ENTERPRISE)
+                    }
+                ) {
+                    Text(tr("Ver plano Enterprise", "See Enterprise plan"))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showFleetDashboardPlanDialog = false }) {
+                    Text(tr("Agora nao", "Not now"))
                 }
             }
         )
@@ -435,7 +492,7 @@ fun PremiumHubScreen(
                             } else {
                                 if (isDark) Color(0xFF172554) else Color(0xFFEAF2FF)
                             },
-                            title = tr("Zellu AI", "Zellu AI"),
+                            title = garageAnalysisName(),
                             subtitle = if (isAiBlocked)
                                 tr("Acesso suspenso", "Access suspended")
                             else
@@ -454,6 +511,27 @@ fun PremiumHubScreen(
                             onClick = onOpenAiAssistant
                         ))
                     }
+                    add(HubFeatureCubeData(
+                        icon = Icons.Default.Dashboard,
+                        iconColor = Color(0xFF2563EB),
+                        iconBg = if (isDark) Color(0xFF172554) else Color(0xFFEAF2FF),
+                        title = tr("Dashboard da frota", "Fleet dashboard"),
+                        subtitle = if (hasCorporateInviteAccess) {
+                            tr("Abrir a agenda da empresa", "Open the company schedule")
+                        } else if (canCreateOwnFleet) {
+                            tr("Criar frota e liberar acessos", "Create fleet and manage access")
+                        } else {
+                            tr("Enterprise para criar sua frota", "Enterprise required to create a fleet")
+                        },
+                        onClick = {
+                            when {
+                                isWebBlocked -> showWebBlockedDialog = true
+                                canOpenFleetDashboard -> openFleetDashboardWeb(context)
+                                else -> showFleetDashboardPlanDialog = true
+                            }
+                        },
+                        blocked = isWebBlocked || !canOpenFleetDashboard
+                    ))
                     if (hasFleetOperationalModules) {
                         if (featureAllowed("frota")) add(HubFeatureCubeData(
                             icon = Icons.Default.DirectionsCar,
@@ -465,11 +543,27 @@ fun PremiumHubScreen(
                         ))
                         add(HubFeatureCubeData(
                             icon = Icons.Default.Route,
-                            iconColor = Color(0xFF0891B2),
-                            iconBg = if (isDark) Color(0xFF083344) else Color(0xFFE0F2FE),
-                            title = tr("Reservas", "Reservations"),
-                            subtitle = tr("Calendario, retirada e devolucao", "Calendar, pickup and return"),
-                            onClick = { selectedCorporateModule = CorporateFleetModule.RESERVATIONS }
+                            iconColor = Color(0xFFEA580C),
+                            iconBg = if (isDark) Color(0xFF431407) else Color(0xFFFDEEDB),
+                            title = tr("Viagem compensa?", "Trip profitability"),
+                            subtitle = tr("Veja custo, imposto e lucro da rota", "See cost, tax and route profit"),
+                            onClick = { selectedOperationalFeature = OperationalFeature.ROUTE_PROFITABILITY }
+                        ))
+                        add(HubFeatureCubeData(
+                            icon = Icons.Default.TireRepair,
+                            iconColor = Color(0xFF0F766E),
+                            iconBg = if (isDark) Color(0xFF134E4A) else Color(0xFFCCFBF1),
+                            title = tr("Controle de pneus", "Tire tracking"),
+                            subtitle = tr("KM, custo e retorno por pneu", "Mileage, cost and tire return"),
+                            onClick = { selectedOperationalFeature = OperationalFeature.TIRE_ROI }
+                        ))
+                        add(HubFeatureCubeData(
+                            icon = Icons.Default.Build,
+                            iconColor = Color(0xFF7C3AED),
+                            iconBg = if (isDark) Color(0xFF2E1065) else Color(0xFFF3E8FF),
+                            title = tr("Durabilidade de pecas", "Parts durability"),
+                            subtitle = tr("Compare KM real e custo por marca", "Compare real mileage and brand cost"),
+                            onClick = { selectedOperationalFeature = OperationalFeature.PARTS_DURABILITY }
                         ))
                         if (false && featureAllowed("frota_qrcode")) add(HubFeatureCubeData(
                             icon = Icons.Default.CheckCircle,
@@ -486,14 +580,6 @@ fun PremiumHubScreen(
                             title = tr("Viagens corporativas", "Corporate trips"),
                             subtitle = tr("Distancia, odometro e ocorrencias", "Distance, odometer and incidents"),
                             onClick = { selectedCorporateModule = CorporateFleetModule.TRIPS }
-                        ))
-                        add(HubFeatureCubeData(
-                            icon = Icons.Default.Build,
-                            iconColor = Color(0xFF7C3AED),
-                            iconBg = if (isDark) Color(0xFF2E1065) else Color(0xFFF3E8FF),
-                            title = tr("Manutencoes", "Maintenance"),
-                            subtitle = tr("Alertas, bloqueios e responsaveis", "Alerts, blocks and owners"),
-                            onClick = { selectedCorporateModule = CorporateFleetModule.MAINTENANCE }
                         ))
                         if (false && featureAllowed("frota_documentos")) add(HubFeatureCubeData(
                             icon = Icons.Default.Inventory2,
@@ -544,7 +630,11 @@ fun PremiumHubScreen(
                                 textAlign = TextAlign.Center
                             )
                             Text(
-                                tr("7 dias grátis • cancele quando quiser", "7 free days • cancel anytime"),
+                                if (diasTrialFrota > 0) {
+                                    tr("$diasTrialFrota dias grátis • cancele quando quiser", "$diasTrialFrota free days • cancel anytime")
+                                } else {
+                                    tr("Cancele quando quiser", "Cancel anytime")
+                                },
                                 color = freeCtaSub,
                                 fontSize = 12.sp,
                                 textAlign = TextAlign.Center
@@ -785,6 +875,16 @@ private fun HubFeatureCard(
         if (onClick != null) {
             Icon(Icons.Default.ArrowForwardIos, contentDescription = null, tint = chevronColor, modifier = Modifier.size(14.dp))
         }
+    }
+}
+
+private const val ZELLU_FLEET_DASHBOARD_URL = "https://zellu-frotas.vercel.app"
+
+private fun openFleetDashboardWeb(context: Context) {
+    runCatching {
+        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(ZELLU_FLEET_DASHBOARD_URL)))
+    }.onFailure {
+        Toast.makeText(context, "Nao foi possivel abrir a dashboard agora.", Toast.LENGTH_SHORT).show()
     }
 }
 // separa tudo isso antes de implementar coisa nova sem vergonha

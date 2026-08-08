@@ -73,11 +73,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.AddAPhoto
 import androidx.compose.material.icons.rounded.BatteryAlert
 import androidx.compose.material.icons.rounded.Build
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.DirectionsCar
-import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.Thermostat
@@ -100,6 +100,7 @@ import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
+import coil.compose.AsyncImage
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
@@ -256,6 +257,29 @@ fun NovoAgendamentoDialog(
     var tipoMenuItemId by remember { mutableStateOf<String?>(null) }
     var showCamera by remember { mutableStateOf(false) }
     var fotoCaminho by remember { mutableStateOf<String?>(null) }
+    // Registro fotografico do servico/peca — campo proprio, nao o fotoCaminho acima, que e
+    // exclusivo da nota fiscal escaneada. Sao coisas diferentes: um e comprovante de gasto,
+    // o outro e o estado do veiculo.
+    var fotoRegistroNome by remember { mutableStateOf<String?>(null) }
+    val escolherRegistroFotografico = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        // O Lembrete ainda nao existe nesta altura, entao o nome do arquivo usa um UUID
+        // proprio — o salvar() so precisa de unicidade, nao do id real.
+        val novoNome = LembretePhotoStore.salvar(context, uri, UUID.randomUUID().toString())
+        if (novoNome == null) {
+            Toast.makeText(
+                context,
+                trNow("Nao foi possivel usar essa imagem.", "Could not use that image."),
+                Toast.LENGTH_SHORT
+            ).show()
+            return@rememberLauncherForActivityResult
+        }
+        // Trocar a foto apaga a anterior do disco, senao cada troca deixa lixo.
+        LembretePhotoStore.apagar(context, fotoRegistroNome)
+        fotoRegistroNome = novoNome
+    }
     var horaNotificacao by remember { mutableStateOf("09:00") }
     var dataAviso by remember { mutableStateOf(LocalDate.now().format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))) }
     var frequenciaLembreteKey by remember { mutableStateOf("NONE") }
@@ -1041,6 +1065,7 @@ fun NovoAgendamentoDialog(
                         carroId = "",
                         contatoId = contatoSelecionado?.id,
                         fotoPath = fotoCaminho,
+                        fotoAvisoNome = fotoRegistroNome,
                         horaAviso = horaItem,
                         estabelecimentoNome = qrNomeEstabelecimento,
                         estabelecimentoEndereco = qrEnderecoEstabelecimento
@@ -1113,6 +1138,7 @@ fun NovoAgendamentoDialog(
                 carroId = "",
                 contatoId = contatoSelecionado?.id,
                 fotoPath = fotoCaminho,
+                fotoAvisoNome = fotoRegistroNome,
                 horaAviso = horaNotificacao,
                 estabelecimentoNome = qrNomeEstabelecimento,
                 estabelecimentoEndereco = qrEnderecoEstabelecimento,
@@ -1949,17 +1975,26 @@ fun NovoAgendamentoDialog(
     val kmPostoValido = kmPostoInformado != null &&
         kmPostoInformado > 0 &&
         kmPostoInformado != carroAtual.kmAtual
-    val podeAvancarEtapa1 = if (isModoLista && listaItensDetectados.isNotEmpty()) {
-        true
-    } else if (isFluxoPosto) {
-        tituloAviso.isNotBlank() &&
-            valorTotalValido
+    /**
+     * O que ainda falta na etapa 1, na ordem em que os campos aparecem na tela.
+     *
+     * O botao e a mensagem saem desta mesma lista de proposito: quando eram duas condicoes
+     * separadas, bastava mudar uma para a mensagem passar a mentir sobre o motivo do botao
+     * estar apagado, e nada quebraria em compilacao.
+     */
+    val camposFaltandoEtapa1: List<String> = if (isModoLista && listaItensDetectados.isNotEmpty()) {
+        emptyList()
     } else {
-        tituloAviso.isNotBlank() &&
-            descricao.isNotBlank() &&
-            valorTotalValido &&
-            (!permiteQuantidadeManual || quantidadeManualValida)
+        buildList {
+            if (tituloAviso.isBlank()) add(tr("título", "title"))
+            if (!isFluxoPosto && descricao.isBlank()) add(tr("descrição", "description"))
+            if (!valorTotalValido) add(tr("total", "total"))
+            if (!isFluxoPosto && permiteQuantidadeManual && !quantidadeManualValida) {
+                add(tr("quantidade", "quantity"))
+            }
+        }
     }
+    val podeAvancarEtapa1 = camposFaltandoEtapa1.isEmpty()
 
     if (showKmSugeridoDialog) {
         AlertDialog(
@@ -2100,6 +2135,21 @@ fun NovoAgendamentoDialog(
         1
     }
     val deveExibirEtapaModoCriacao = listaItensDetectados.size > 1
+
+    /**
+     * Etapas que a pessoa realmente vai ver, e em que posicao ela esta.
+     *
+     * `etapaAtual` nao serve como numero de etapa: a etapa 3 e condicional, entao sem
+     * varios itens detectados a sequencia e 1, 2, 4 — e mostrar "etapa 4 de 4" depois da 2
+     * pareceria que uma etapa foi pulada por erro.
+     */
+    val totalDeEtapas = if (deveExibirEtapaModoCriacao) 4 else 3
+    val posicaoDaEtapa = when (etapaAtual) {
+        1 -> 1
+        2 -> 2
+        3 -> 3
+        else -> totalDeEtapas
+    }
     fun dataItemValida(dataTexto: String): Boolean = runCatching {
         LocalDate.parse(dataTexto, dataFormatter)
     }.isSuccess
@@ -2182,7 +2232,41 @@ fun NovoAgendamentoDialog(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 when (etapaAtual) {
-                    1 -> Unit
+                    1 -> {
+                        // Antes este botao vivia no fim do conteudo rolavel, enquanto os das
+                        // outras etapas ficavam presos aqui embaixo. A acao principal mudava
+                        // de lugar de uma etapa para a outra, e na etapa 1 ela podia estar
+                        // fora da tela.
+                        //
+                        // Quando esta desabilitado, dizer o que falta: botao apagado sem
+                        // explicacao deixa a pessoa procurando o que fez de errado.
+                        if (camposFaltandoEtapa1.isNotEmpty()) {
+                            Text(
+                                text = tr(
+                                    "Falta preencher: ${camposFaltandoEtapa1.joinToString(", ")}",
+                                    "Still missing: ${camposFaltandoEtapa1.joinToString(", ")}"
+                                ),
+                                color = textSecondary,
+                                fontSize = 12.sp,
+                                modifier = Modifier.fillMaxWidth(),
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                        Button(
+                            onClick = { etapaAtual = 2 },
+                            enabled = podeAvancarEtapa1,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = nextActionBlue,
+                                contentColor = Color.White,
+                                disabledContainerColor = nextActionBlue.copy(alpha = 0.42f),
+                                disabledContentColor = Color.White.copy(alpha = 0.85f)
+                            ),
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.fillMaxWidth().height(52.dp).offset(y = (-10).dp)
+                        ) {
+                            Text(textoBotaoEtapa1, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
                     2 -> {
                         Button(
                             onClick = {
@@ -2268,7 +2352,15 @@ fun NovoAgendamentoDialog(
                     IconButton(onClick = voltarUmaEtapaOuFechar) {
                         Icon(Icons.Default.ArrowBackIosNew, contentDescription = tr("Voltar", "Back"), tint = iconColor)
                     }
-                    Spacer(Modifier.width(38.dp))
+                    // O cabecalho tinha um Spacer de 38dp aqui, e nada mais: o fluxo tem
+                    // tres ou quatro etapas e a pessoa atravessava todas sem saber onde
+                    // estava nem quanto faltava.
+                    IndicadorDeEtapa(
+                        posicao = posicaoDaEtapa,
+                        total = totalDeEtapas,
+                        corAtiva = nextActionBlue,
+                        corInativa = iconColor.copy(alpha = 0.28f)
+                    )
                 }
                 Column(
                     modifier = Modifier.padding(top = 0.dp, bottom = 6.dp),
@@ -2281,6 +2373,10 @@ fun NovoAgendamentoDialog(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
+                            // Cabecalho quieto de proposito. O carro visto de cima mora na
+                            // tela de escolha, onde a pessoa esta decidindo — aqui ela ja
+                            // escolheu a categoria e veio digitar, e animacao ao lado de
+                            // campo de texto disputa atencao com o que importa.
                             Box(
                                 modifier = Modifier
                                     .size(56.dp)
@@ -2293,7 +2389,11 @@ fun NovoAgendamentoDialog(
                                     ),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Icon(Icons.Rounded.Edit, contentDescription = null, tint = accentBlue, modifier = Modifier.size(30.dp))
+                                VehicleIcon(
+                                    tipoVeiculo = carroAtual.tipoVeiculo,
+                                    tint = accentBlue,
+                                    size = 30.dp
+                                )
                             }
                             Spacer(Modifier.height(2.dp))
                             Text(
@@ -2309,27 +2409,32 @@ fun NovoAgendamentoDialog(
                         }
                         Spacer(Modifier.height(14.dp))
                         if (categoriaPermiteEscanearNota(tipoSelecionado, carroAtual.tipoVeiculo)) {
-                            Button(
+                            // Contornado, nao preenchido. Escanear a nota e atalho opcional,
+                            // e em azul cheio ele era o elemento mais forte da tela — mais
+                            // forte que "Avançar", que e o caminho principal. Azul cheio
+                            // agora e so da acao principal.
+                            OutlinedButton(
                                 onClick = {
                                     usarCadastroManualPosScan = false
                                     tentarAbrirCamera()
                                 },
                                 modifier = Modifier.fillMaxWidth().height(48.dp),
                                 shape = RoundedCornerShape(12.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = accentBlue,
-                                    contentColor = Color.White
+                                border = BorderStroke(1.dp, accentBlue.copy(alpha = 0.55f)),
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    containerColor = Color.Transparent,
+                                    contentColor = accentBlue
                                 )
                             ) {
                                 Icon(
                                     if (fotoCaminho != null) Icons.Default.Check else Icons.Default.CameraAlt,
                                     null,
-                                    tint = Color.White
+                                    tint = accentBlue
                                 )
                                 Spacer(Modifier.width(8.dp))
                                 Text(
                                     if (fotoCaminho != null) "Escanear QR code da nota novamente" else "Escanear QR code da nota",
-                                    color = Color.White
+                                    color = accentBlue
                                 )
                             }
                             if (fotoCaminho != null) {
@@ -2672,28 +2777,6 @@ fun NovoAgendamentoDialog(
                                 }
                             }
                         }
-                        Button(
-                            onClick = {
-                                etapaAtual = when {
-                                    isFluxoPosto -> 2
-                                    isRegistroServico -> 2
-                                    else -> 2
-                                }
-                            },
-                            enabled = podeAvancarEtapa1,
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = nextActionBlue,
-                                contentColor = Color.White,
-                                disabledContainerColor = nextActionBlue.copy(alpha = 0.42f),
-                                disabledContentColor = Color.White.copy(alpha = 0.85f)
-                            ),
-                            shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(52.dp)
-                        ) {
-                            Text(textoBotaoEtapa1, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-                        }
                     }
                     2 -> {
                         val exigeEstadoUf = tipoSelecionado == TipoManutencao.IPVA || tipoSelecionado == TipoManutencao.LICENCIAMENTO
@@ -2904,6 +2987,48 @@ fun NovoAgendamentoDialog(
                             } else {
                                 tipoPermiteFrequencia(tipoSelecionado)
                             }
+                            // Registro fotografico do servico/peca. Entra aqui e nao na
+                            // etapa 1 porque quem registra servico ja fez o servico — a
+                            // foto existe nesta hora, junto do KM e da data.
+                            val arquivoRegistro = remember(fotoRegistroNome) {
+                                LembretePhotoStore.arquivoDe(context, fotoRegistroNome)
+                            }
+                            if (arquivoRegistro != null) {
+                                AsyncImage(
+                                    model = arquivoRegistro,
+                                    contentDescription = tr("Registro fotográfico", "Photo record"),
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(160.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                )
+                            }
+                            OutlinedButton(
+                                onClick = { escolherRegistroFotografico.launch("image/*") },
+                                modifier = Modifier.fillMaxWidth().height(46.dp),
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(1.dp, cardBorder),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = textPrimary)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.AddAPhoto,
+                                    contentDescription = null,
+                                    tint = textSecondary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    text = if (arquivoRegistro != null) {
+                                        tr("Trocar registro fotográfico", "Replace photo record")
+                                    } else {
+                                        tr("Adicionar registro fotográfico", "Add photo record")
+                                    },
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+
                             if (mostrarFrequencia) {
                                 Row(
                                     modifier = Modifier
@@ -3928,7 +4053,7 @@ data class ProfissionalCidadeEncontrado(
     val endereco: String
 )
 
-private data class LocalizacaoCidade(
+internal data class LocalizacaoCidade(
     val latitude: Double,
     val longitude: Double,
     val cidade: String?,
@@ -3963,7 +4088,13 @@ fun buscarProfissionaisDaCidadeAtual(
     )
 }
 
-private fun obterCidadePelaLocalizacao(context: Context): LocalizacaoCidade? {
+/** Resolve cidade/UF atuais por GPS+Geocoder para uso fora deste arquivo (ex: segmentacao de anuncios). */
+fun resolverCidadeEstadoAtual(context: Context): Pair<String?, String?>? {
+    val localizacao = obterCidadePelaLocalizacao(context) ?: return null
+    return localizacao.cidade to localizacao.estado
+}
+
+internal fun obterCidadePelaLocalizacao(context: Context): LocalizacaoCidade? {
     val permissaoFine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
     val permissaoCoarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
     if (!permissaoFine && !permissaoCoarse) {
@@ -4319,6 +4450,39 @@ private fun enderecoPorGeocoder(context: Context, latitude: Double, longitude: D
     }.onFailure { erro ->
         Log.w(PROF_CITY_TAG, "Falha no geocoder reverso para lat=$latitude lon=$longitude", erro)
     }.getOrNull().orEmpty()
+}
+
+/**
+ * Onde a pessoa esta no fluxo, em barras em vez de "3 de 4".
+ *
+ * Barra mostra progresso sem obrigar a ler numero, e o comprimento maior na etapa atual
+ * marca a posicao sem precisar de cor extra.
+ */
+@Composable
+private fun IndicadorDeEtapa(
+    posicao: Int,
+    total: Int,
+    corAtiva: Color,
+    corInativa: Color,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier.padding(end = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        repeat(total) { indice ->
+            val atual = indice + 1 == posicao
+            val concluida = indice + 1 < posicao
+            Box(
+                modifier = Modifier
+                    .width(if (atual) 18.dp else 8.dp)
+                    .height(4.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(if (atual || concluida) corAtiva else corInativa)
+            )
+        }
+    }
 }
 
 private val ESTADOS_UF = listOf(

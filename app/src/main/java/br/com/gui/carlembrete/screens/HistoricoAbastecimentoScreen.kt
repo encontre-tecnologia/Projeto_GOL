@@ -2,8 +2,10 @@ import android.app.DatePickerDialog
 import android.content.Context
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -21,8 +23,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
@@ -55,7 +58,6 @@ import androidx.core.view.WindowInsetsControllerCompat
 // --- PALETA ZELLU ---
 private val PrimaryDark = Color.Black
 private val GradientStart = Color(0xFF111827)
-private val GradientEnd = Color(0xFF1F2937)
 private val TextWhite = Color(0xFFF8FAFC)
 private val TextGray = Color(0xFF94A3B8)
 private val AccentBlue = Color(0xFF3B82F6)
@@ -80,7 +82,6 @@ fun HistoricoAbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
     var itemEdicao by remember { mutableStateOf<Abastecimento?>(null) }
     var itemExcluir by remember { mutableStateOf<Abastecimento?>(null) }
     var filtroCombustivel by remember { mutableStateOf<String?>(null) }
-    var filtroExpanded by remember { mutableStateOf(false) }
     val formatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
 
     BackHandler {
@@ -216,100 +217,18 @@ fun HistoricoAbastecimentoScreen(carroId: String, onDismiss: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(18.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color.Transparent),
-                    border = BorderStroke(1.dp, cardBorderColor)
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(
-                                Brush.verticalGradient(
-                                    colors = if (isDark) {
-                                        listOf(Color(0xFF0B1220), Color(0xFF111827))
-                                    } else {
-                                        listOf(Color(0xFFF8FAFC), Color(0xFFFFFFFF))
-                                    }
-                                )
-                            )
-                            .padding(horizontal = 14.dp, vertical = 14.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Text(
-                            text = tr("Resumo de consumo", "Consumption summary"),
-                            color = if (isDark) Color(0xFF93C5FD) else Color(0xFF1D4ED8),
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 12.sp
-                        )
-                        if (opcoesCombustivel.isNotEmpty()) {
-                            ExposedDropdownMenuBox(
-                                expanded = filtroExpanded,
-                                onExpandedChange = { filtroExpanded = !filtroExpanded }
-                            ) {
-                                OutlinedTextField(
-                                    value = filtroCombustivel ?: tr("Todos os combustiveis", "All fuel types"),
-                                    onValueChange = {},
-                                    readOnly = true,
-                                    label = { Text(tr("Filtro", "Filter")) },
-                                    modifier = Modifier
-                                        .menuAnchor()
-                                        .fillMaxWidth(),
-                                    shape = RoundedCornerShape(12.dp),
-                                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = filtroExpanded) },
-                                    colors = OutlinedTextFieldDefaults.colors(
-                                        focusedTextColor = titleColor,
-                                        unfocusedTextColor = titleColor,
-                                        focusedBorderColor = AccentBlue,
-                                        unfocusedBorderColor = cardBorderColor,
-                                        focusedLabelColor = AccentBlue,
-                                        unfocusedLabelColor = bodyColor
-                                    )
-                                )
-                                ExposedDropdownMenu(
-                                    expanded = filtroExpanded,
-                                    onDismissRequest = { filtroExpanded = false }
-                                ) {
-                                    DropdownMenuItem(
-                                        text = { Text(tr("Todos os combustiveis", "All fuel types")) },
-                                        onClick = {
-                                            filtroCombustivel = null
-                                            filtroExpanded = false
-                                        }
-                                    )
-                                    opcoesCombustivel.forEach { tipo ->
-                                        DropdownMenuItem(
-                                            text = { Text(tipo) },
-                                            onClick = {
-                                                filtroCombustivel = tipo
-                                                filtroExpanded = false
-                                            }
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            MiniResumoDestaque(
-                                label = tr("Total do mes", "Month total"),
-                                value = formatarMoedaLocal(resumoGastos.gastoMes),
-                                isDark = isDark,
-                                valueColor = if (isDark) Color(0xFF86EFAC) else Color(0xFF166534),
-                                modifier = Modifier.weight(1f)
-                            )
-                            MiniResumoDestaque(
-                                label = tr("Litros", "Liters"),
-                                value = String.format(Locale("pt", "BR"), "%.2f L", resumoConsumo.litrosTotais),
-                                isDark = isDark,
-                                valueColor = if (isDark) Color(0xFF93C5FD) else Color(0xFF1D4ED8),
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
-                    }
+                if (abastecimentos.isNotEmpty()) {
+                    ResumoRoscaCombustivel(
+                        abastecimentos = abastecimentos,
+                        filtroCombustivel = filtroCombustivel,
+                        onFiltroChange = { filtroCombustivel = it },
+                        gastoMes = resumoGastos.gastoMes,
+                        litrosFiltrados = resumoConsumo.litrosTotais,
+                        isDark = isDark,
+                        cardBorderColor = cardBorderColor,
+                        titleColor = titleColor,
+                        bodyColor = bodyColor
+                    )
                 }
             }
 
@@ -353,11 +272,6 @@ fun TimelineItem(
 ) {
     val context = LocalContext.current
     val descricao = remember(item.id) { carregarDescricaoAbastecimento(context, item) }
-    val cardGradient = if (isDark) {
-        Brush.verticalGradient(colors = listOf(GradientStart, GradientEnd))
-    } else {
-        Brush.verticalGradient(colors = listOf(Color.White, Color(0xFFF8FAFC)))
-    }
     val cardTitle = if (isDark) TextWhite else Color(0xFF0F172A)
     val cardBody = if (isDark) TextGray else Color(0xFF64748B)
     Row(
@@ -401,209 +315,291 @@ fun TimelineItem(
 
         Spacer(Modifier.width(12.dp))
 
-        // CARD DE CONTEÃšDO
-        Box(
+        // Card plano: fundo solido, borda fina, sem sombra nem gradiente. A versao
+        // anterior tinha quatro mini-superficies com borda propria DENTRO do card
+        // (chip de combustivel, faixa de KM, pilula do total, pilula dos litros) —
+        // valor e tipografia, nao moldura, e moldura repetida vira ruido.
+        Column(
             modifier = Modifier
-                .padding(bottom = 24.dp)
+                .padding(bottom = 20.dp)
                 .fillMaxWidth()
-                .shadow(8.dp, RoundedCornerShape(20.dp), spotColor = Color.Black)
+                .clip(RoundedCornerShape(16.dp))
+                .background(if (isDark) GradientStart else Color.White)
+                .border(
+                    1.dp,
+                    if (isDark) Color.White.copy(alpha = 0.08f) else Color(0xFFE2E8F0),
+                    RoundedCornerShape(16.dp)
+                )
+                .padding(14.dp)
         ) {
-            Card(
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.Transparent),
-                elevation = CardDefaults.cardElevation(0.dp)
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(
-                    modifier = Modifier
-                        .background(cardGradient)
-                        .padding(16.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Surface(
-                                color = AccentBlue.copy(alpha = 0.15f),
-                                shape = RoundedCornerShape(8.dp),
-                                border = BorderStroke(1.dp, AccentBlue.copy(alpha = 0.5f)),
-                                modifier = Modifier.size(32.dp)
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.CalendarMonth,
-                                        contentDescription = null,
-                                        tint = if (isDark) Color.White else AccentBlue,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                }
-                            }
-                            Spacer(Modifier.width(8.dp))
-                            Text(item.data, color = cardTitle, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                        }
-                        Row {
-                            IconButton(onClick = onEdit, modifier = Modifier.size(32.dp)) {
-                                Icon(Icons.Rounded.Edit, null, tint = cardBody, modifier = Modifier.size(18.dp))
-                            }
-                            IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
-                                Icon(Icons.Rounded.Delete, null, tint = AlertRed.copy(alpha = 0.8f), modifier = Modifier.size(18.dp))
-                            }
-                        }
-                    }
-
-                    Spacer(Modifier.height(16.dp))
-                    HorizontalDivider(color = if (isDark) Color.White.copy(alpha = 0.05f) else Color(0xFFCBD5E1))
-                    Spacer(Modifier.height(16.dp))
-
-                    if (descricao.isNotBlank()) {
-                        Text(
-                            text = descricao,
-                            color = cardBody,
-                            fontSize = 12.sp,
-                            maxLines = 2
-                        )
-                        Spacer(Modifier.height(12.dp))
-                    }
-
-
-                    // --- RODAPÃ‰ COM INFORMAÃ‡Ã•ES INVERTIDAS ---
+                Column {
+                    Text(item.data, color = cardTitle, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     val tipoCombustivelCard = tipoCombustivelHistorico(item)
                     if (tipoCombustivelCard != "Não informado") {
-                        Surface(
-                            color = AccentBlue.copy(alpha = 0.10f),
-                            shape = RoundedCornerShape(999.dp),
-                            border = BorderStroke(1.dp, AccentBlue.copy(alpha = 0.28f))
-                        ) {
-                            Text(
-                                text = tipoCombustivelCard,
-                                color = if (isDark) Color(0xFF93C5FD) else AccentBlue,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
-                            )
-                        }
-                        Spacer(Modifier.height(12.dp))
+                        Text(
+                            text = tipoCombustivelCard,
+                            color = cardBody,
+                            fontSize = 11.5.sp
+                        )
                     }
-
-                    item.km?.takeIf { it > 0 }?.let { kmRegistrado ->
-                        Surface(
-                            color = AccentBlue.copy(alpha = 0.10f),
-                            shape = RoundedCornerShape(10.dp),
-                            border = BorderStroke(1.dp, AccentBlue.copy(alpha = 0.28f)),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = "KM registrado",
-                                    color = cardBody,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    text = formatarKmHistorico(kmRegistrado),
-                                    color = if (isDark) Color(0xFF93C5FD) else AccentBlue,
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
-                        Spacer(Modifier.height(12.dp))
+                }
+                Row {
+                    IconButton(onClick = onEdit, modifier = Modifier.size(32.dp)) {
+                        Icon(Icons.Rounded.Edit, null, tint = cardBody, modifier = Modifier.size(17.dp))
                     }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.Bottom
-                    ) {
-                        Column(horizontalAlignment = Alignment.Start) {
-                            Text(
-                                text = "Total Pago",
-                                color = cardBody,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Spacer(Modifier.height(4.dp))
-                            Surface(
-                                color = AccentGreen.copy(alpha = 0.12f),
-                                shape = RoundedCornerShape(10.dp),
-                                border = BorderStroke(1.dp, AccentGreen.copy(alpha = 0.35f))
-                            ) {
-                                Text(
-                                    formatarMoedaLocal(item.valorPago),
-                                    color = AccentGreen,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 18.sp,
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                                )
-                            }
-                        }
-                        Column(horizontalAlignment = Alignment.End) {
-                            Text(
-                                text = "Litros",
-                                color = cardBody,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Spacer(Modifier.height(4.dp))
-                            Surface(
-                                color = AccentBlue.copy(alpha = 0.12f),
-                                shape = RoundedCornerShape(10.dp),
-                                border = BorderStroke(1.dp, AccentBlue.copy(alpha = 0.35f))
-                            ) {
-                                Text(
-                                    text = "${String.format(Locale("pt", "BR"), "%.2f", item.litros)} L",
-                                    color = if (isDark) Color(0xFF93C5FD) else AccentBlue,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 14.sp,
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                                )
-                            }
-                        }
+                    IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
+                        Icon(Icons.Rounded.Delete, null, tint = AlertRed.copy(alpha = 0.75f), modifier = Modifier.size(17.dp))
                     }
+                }
+            }
 
+            if (descricao.isNotBlank()) {
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = descricao,
+                    color = cardBody,
+                    fontSize = 12.sp,
+                    maxLines = 2
+                )
+            }
+
+            Spacer(Modifier.height(10.dp))
+            HorizontalDivider(color = if (isDark) Color.White.copy(alpha = 0.06f) else Color(0xFFE2E8F0))
+            Spacer(Modifier.height(10.dp))
+
+            // Estatisticas como texto puro, rotulo em cima e valor embaixo. So o total
+            // guarda cor propria (verde de dinheiro); o resto herda a hierarquia do texto.
+            Row(modifier = Modifier.fillMaxWidth()) {
+                EstatisticaDoRegistro(
+                    rotulo = tr("Total pago", "Total paid"),
+                    valor = formatarMoedaLocal(item.valorPago),
+                    corValor = AccentGreen,
+                    tamanhoValor = 16.sp,
+                    corRotulo = cardBody,
+                    modifier = Modifier.weight(1.2f)
+                )
+                EstatisticaDoRegistro(
+                    rotulo = tr("Litros", "Liters"),
+                    valor = String.format(Locale("pt", "BR"), "%.2f L", item.litros),
+                    corValor = cardTitle,
+                    corRotulo = cardBody,
+                    modifier = Modifier.weight(1f)
+                )
+                item.km?.takeIf { it > 0 }?.let { kmRegistrado ->
+                    EstatisticaDoRegistro(
+                        rotulo = "KM",
+                        valor = formatarKmHistorico(kmRegistrado),
+                        corValor = cardTitle,
+                        corRotulo = cardBody,
+                        modifier = Modifier.weight(1.1f)
+                    )
                 }
             }
         }
     }
 }
 
+/** Rotulo apagado em cima, valor forte embaixo. Sem borda nem fundo. */
 @Composable
-private fun MiniResumoDestaque(
-    label: String,
-    value: String,
-    isDark: Boolean,
-    valueColor: Color,
-    modifier: Modifier = Modifier
+private fun EstatisticaDoRegistro(
+    rotulo: String,
+    valor: String,
+    corValor: Color,
+    corRotulo: Color,
+    modifier: Modifier = Modifier,
+    tamanhoValor: androidx.compose.ui.unit.TextUnit = 14.sp
 ) {
-    val labelColor = if (isDark) TextGray else Color(0xFF64748B)
-    Column(
-        modifier = modifier
-            .clip(RoundedCornerShape(14.dp))
-            .background(if (isDark) Color(0xFF0F172A).copy(alpha = 0.62f) else Color.White)
-            .border(
-                width = 1.dp,
-                color = if (isDark) Color.White.copy(alpha = 0.08f) else Color(0xFFE2E8F0),
-                shape = RoundedCornerShape(14.dp)
-            )
-            .padding(horizontal = 12.dp, vertical = 10.dp)
-    ) {
-        Text(label, color = labelColor, fontSize = 11.sp, maxLines = 1)
-        Spacer(Modifier.height(4.dp))
+    Column(modifier = modifier) {
+        Text(text = rotulo, color = corRotulo, fontSize = 10.5.sp)
+        Spacer(Modifier.height(2.dp))
         Text(
-            value,
-            color = valueColor,
-            fontWeight = FontWeight.ExtraBold,
-            fontSize = 16.sp,
+            text = valor,
+            color = corValor,
+            fontWeight = FontWeight.Bold,
+            fontSize = tamanhoValor,
             maxLines = 1
         )
+    }
+}
+
+private class FatiaCombustivel(val nome: String, val valor: Double, val cor: Color)
+
+/**
+ * Cor fixa por combustivel, casada nos arcos e na legenda. Sai do nome, nao da posicao:
+ * com cor posicional, filtrar a lista mudaria a cor de cada combustivel entre visitas.
+ */
+private fun corDoCombustivel(nome: String): Color {
+    val n = nome.lowercase(Locale.getDefault())
+    return when {
+        "gasol" in n -> Color(0xFFF59E0B)
+        "etanol" in n || "alcool" in n || "ethanol" in n -> Color(0xFF22C55E)
+        "diesel" in n -> Color(0xFFF97316)
+        "gnv" in n || "cng" in n -> Color(0xFF14B8A6)
+        "flex" in n -> Color(0xFF8B5CF6)
+        else -> Color(0xFF64748B)
+    }
+}
+
+/**
+ * Rosca de gasto por combustivel, com a legenda fazendo o papel do antigo dropdown:
+ * tocar num combustivel filtra a linha do tempo, tocar de novo limpa. Menu para
+ * escolher entre tres opcoes era peso demais.
+ *
+ * Os arcos usam sempre todos os registros — o filtro apaga as fatias nao selecionadas
+ * em vez de redesenhar a rosca, senao filtrar viraria sempre um circulo cheio e o
+ * grafico nao diria nada.
+ */
+@Composable
+private fun ResumoRoscaCombustivel(
+    abastecimentos: List<Abastecimento>,
+    filtroCombustivel: String?,
+    onFiltroChange: (String?) -> Unit,
+    gastoMes: Double,
+    litrosFiltrados: Double,
+    isDark: Boolean,
+    cardBorderColor: Color,
+    titleColor: Color,
+    bodyColor: Color
+) {
+    val fatias = remember(abastecimentos) {
+        abastecimentos
+            .groupBy { tipoCombustivelHistorico(it) }
+            .map { (nome, itens) ->
+                FatiaCombustivel(nome, itens.sumOf { it.valorPago.coerceAtLeast(0.0) }, corDoCombustivel(nome))
+            }
+            .filter { it.valor > 0.0 }
+            .sortedByDescending { it.valor }
+    }
+    val totalGeral = fatias.sumOf { it.valor }
+    if (totalGeral <= 0.0) return
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(if (isDark) Color(0xFF0B1220) else Color.White)
+            .border(1.dp, cardBorderColor, RoundedCornerShape(18.dp))
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                text = tr("Resumo de consumo", "Consumption summary"),
+                color = if (isDark) Color(0xFF93C5FD) else Color(0xFF1D4ED8),
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 12.sp
+            )
+            if (fatias.size > 1) {
+                Text(
+                    text = tr("Toque num combustivel para filtrar", "Tap a fuel type to filter"),
+                    color = bodyColor,
+                    fontSize = 10.sp
+                )
+            }
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Canvas(modifier = Modifier.size(128.dp)) {
+                    val traco = 14.dp.toPx()
+                    val diametro = size.minDimension - traco
+                    val canto = Offset(traco / 2f, traco / 2f)
+                    val area = Size(diametro, diametro)
+                    // Vao so quando ha mais de uma fatia: rosca de fatia unica com vao
+                    // vira um circulo com uma mordida inexplicavel.
+                    val vao = if (fatias.size > 1) 2.5f else 0f
+                    var angulo = -90f
+                    fatias.forEach { fatia ->
+                        val varredura = (fatia.valor / totalGeral * 360.0).toFloat()
+                        val apagada = filtroCombustivel != null && fatia.nome != filtroCombustivel
+                        drawArc(
+                            color = if (apagada) fatia.cor.copy(alpha = 0.22f) else fatia.cor,
+                            startAngle = angulo + vao / 2f,
+                            sweepAngle = (varredura - vao).coerceAtLeast(0.5f),
+                            useCenter = false,
+                            topLeft = canto,
+                            size = area,
+                            style = Stroke(width = traco)
+                        )
+                        angulo += varredura
+                    }
+                }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = formatarMoedaLocal(gastoMes),
+                        color = AccentGreen,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 14.sp,
+                        maxLines = 1
+                    )
+                    Text(
+                        text = tr("este mes", "this month"),
+                        color = bodyColor,
+                        fontSize = 9.5.sp
+                    )
+                    Text(
+                        text = String.format(Locale("pt", "BR"), "%.2f L", litrosFiltrados),
+                        color = titleColor,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 11.sp
+                    )
+                }
+            }
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                fatias.forEach { fatia ->
+                    val selecionada = filtroCombustivel == fatia.nome
+                    val apagada = filtroCombustivel != null && !selecionada
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(
+                                if (selecionada) fatia.cor.copy(alpha = if (isDark) 0.14f else 0.10f)
+                                else Color.Transparent
+                            )
+                            .clickable {
+                                onFiltroChange(if (selecionada) null else fatia.nome)
+                            }
+                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(9.dp)
+                                .clip(CircleShape)
+                                .background(if (apagada) fatia.cor.copy(alpha = 0.35f) else fatia.cor)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = fatia.nome,
+                            color = if (apagada) bodyColor.copy(alpha = 0.6f) else titleColor,
+                            fontSize = 12.sp,
+                            fontWeight = if (selecionada) FontWeight.Bold else FontWeight.Medium,
+                            maxLines = 1,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(
+                            text = formatarMoedaLocal(fatia.valor),
+                            color = if (apagada) bodyColor.copy(alpha = 0.6f) else bodyColor,
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 

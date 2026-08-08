@@ -97,7 +97,13 @@ internal data class CorporateReservation(
     val tripEndedAtMillis: Long? = null,
     val pickupSignature: String = "",
     val returnSignature: String = "",
-    val origin: String = ""
+    val origin: String = "",
+    val trackingStatus: String = "",
+    val trackingBatteryPercent: Int? = null,
+    val trackingLastLocationAtMillis: Long? = null,
+    val trackingNeedsReview: Boolean = false,
+    val pickupOdometerKm: Long? = null,
+    val returnOdometerKm: Long? = null
 )
 
 internal data class CorporateFleetVehicle(

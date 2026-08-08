@@ -55,7 +55,8 @@ fun EbookStoreScreen(onDismiss: () -> Unit) {
     val bundleBilling = remember { EbookBundleBillingManager(context.applicationContext) }
     val isBundlePurchased by bundleBilling.isBundleUnlocked.collectAsState(initial = false)
     var ebookOverrideVersion by remember { mutableStateOf(0) }
-    var ebookPrice by remember { mutableStateOf(RemotePlanPricing.defaultPrices.ebook) }
+    // Preço do Play; vazio enquanto ele não responde.
+    val ebookPrice by bundleBilling.formattedPrice.collectAsState(initial = "")
     val isBundleUnlocked = remember(isBundlePurchased, ebookOverrideVersion) {
         isBundlePurchased || SubscriptionManager.isAdminEbookOverrideEnabled(context)
     }
@@ -68,12 +69,8 @@ fun EbookStoreScreen(onDismiss: () -> Unit) {
             SubscriptionManager.setAdminEbookOverride(context, cachedEbook)
             ebookOverrideVersion++
         }
-        val pricingListener = RemotePlanPricing.listen { prices ->
-            ebookPrice = prices.ebook
-        }
         onDispose {
             bundleBilling.disconnect()
-            pricingListener.remove()
         }
     }
 
@@ -192,7 +189,14 @@ fun EbookStoreScreen(onDismiss: () -> Unit) {
                     ) {
                         Icon(Icons.Default.Bolt, modifier = Modifier.size(18.dp), contentDescription = null)
                         Spacer(Modifier.width(8.dp))
-                        Text(if (isBundleUnlocked) "CONTEÚDO LIBERADO" else "LIBERAR TUDO POR R$ $ebookPrice", fontWeight = FontWeight.Black)
+                        Text(
+                            when {
+                                isBundleUnlocked -> "CONTEÚDO LIBERADO"
+                                ebookPrice.isBlank() -> "LIBERAR TUDO"
+                                else -> "LIBERAR TUDO POR $ebookPrice"
+                            },
+                            fontWeight = FontWeight.Black
+                        )
                     }
                 }
             }
@@ -283,6 +287,10 @@ private class EbookBundleBillingManager(private val appContext: Context) : Purch
     private val _isBundleUnlocked = MutableStateFlow(false)
     val isBundleUnlocked: StateFlow<Boolean> = _isBundleUnlocked
 
+    /** Preço formatado pelo Play (já com moeda). Vazio até o Play responder. */
+    private val _formattedPrice = MutableStateFlow("")
+    val formattedPrice: StateFlow<String> = _formattedPrice
+
     fun connect() {
         if (billingClient.isReady) return
         billingClient.startConnection(object : BillingClientStateListener {
@@ -330,7 +338,10 @@ private class EbookBundleBillingManager(private val appContext: Context) : Purch
             QueryProductDetailsParams.Product.newBuilder().setProductId(EBOOK_BUNDLE_PRODUCT_ID).setProductType(BillingClient.ProductType.INAPP).build()
         )).build()
         billingClient.queryProductDetailsAsync(query) { _, result ->
-            bundleProductDetails = result.firstOrNull()
+            val details = result.productDetailsList.firstOrNull()
+            bundleProductDetails = details
+            // Preço exibido vem do Play, que é quem cobra.
+            _formattedPrice.value = details?.oneTimePurchaseOfferDetails?.formattedPrice.orEmpty()
         }
     }
 }
