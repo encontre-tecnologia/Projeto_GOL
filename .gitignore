@@ -44,3 +44,9 @@ web/vite.config.d.ts
 web/vite.config.js
 outputs/
 .codex-remote-attachments/
+
+# Testes de rules e Cloud Functions
+security-tests/node_modules/
+security-tests/firestore-debug.log
+functions/node_modules/
+functions/.env

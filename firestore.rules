@@ -6,8 +6,74 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    // O painel interno do Zellu Admin usa estas contas como bootstrap. Depois do
+    // primeiro acesso, outros administradores tambem podem ser liberados pelo
+    // documento admin_settings/access, que so um administrador ja validado altera.
+    function isPlatformAdmin() {
+      return signedIn()
+        && (
+          request.auth.token.email in [
+            'guilhermedevsistemas@gmail.com',
+            'hiasminlorrane8@gmail.com'
+          ]
+          || (
+            exists(/databases/$(database)/documents/admin_settings/access)
+            && request.auth.token.email in get(/databases/$(database)/documents/admin_settings/access).data.allowedEmails
+          )
+        );
+    }
+
+    // Campos informativos que o proprio app pode manter no seu perfil. Plano,
+    // bloqueios e overrides ficam fora desta lista e so a gestao do Zellu pode
+    // altera-los pelo painel administrativo.
+    function hasOnlyPublicAdminUserFields() {
+      return request.resource.data.keys().hasOnly([
+        'uid', 'name', 'displayName', 'email', 'providerIds',
+        'createdAt', 'updatedAt', 'lastAccess',
+        'vehiclesTotal', 'veiculosTotal', 'veiculosCadastrados', 'vehicleNames',
+        'remindersTotal', 'avisosTotal', 'avisosCriados', 'activeRemindersTotal',
+        'recordsTotal', 'registrosTotal', 'registrosCriados', 'completedRemindersTotal',
+        'aiRequestsTotal'
+      ]);
+    }
+
+    function changesOnlyPublicAdminUserFields() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+        'uid', 'name', 'displayName', 'email', 'providerIds',
+        'createdAt', 'updatedAt', 'lastAccess',
+        'vehiclesTotal', 'veiculosTotal', 'veiculosCadastrados', 'vehicleNames',
+        'remindersTotal', 'avisosTotal', 'avisosCriados', 'activeRemindersTotal',
+        'recordsTotal', 'registrosTotal', 'registrosCriados', 'completedRemindersTotal',
+        'aiRequestsTotal'
+      ]);
+    }
+
     function isPersonalCompany(companyId) {
       return signedIn() && companyId == ('personal_' + request.auth.uid);
+    }
+
+    // A criacao de uma organizacao propria e exclusiva dos planos Frota e Enterprise.
+    // O campo de plano fica em admin_users e so a gestao do Zellu pode altera-lo.
+    // Frota e Enterprise podem criar frota propria. Os quatro campos sao escritos e limpos em
+    // conjunto por gravarPlano/revogarPlano, entao aceitar qualquer um deles e proposital.
+    //
+    // A comparacao e por lista de variantes, e nao por .lower(): o backend grava minusculo, mas
+    // existe dado manual antigo em maiuscula, e chamar .lower() num campo que nao seja string faz
+    // a regra ERRAR — o que nega o acesso de quem tem direito. Com 'in', valor de outro tipo
+    // simplesmente nao casa.
+    function fleetPlanData() {
+      return get(/databases/$(database)/documents/admin_users/$(request.auth.uid)).data;
+    }
+
+    function hasFleetCreationPlan() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/admin_users/$(request.auth.uid))
+        && (
+          fleetPlanData().get('adminPremiumPlan', '') in ['enterprise', 'ENTERPRISE', 'Enterprise', 'frota', 'FROTA', 'Frota']
+          || fleetPlanData().get('planTierName', '') in ['enterprise', 'ENTERPRISE', 'Enterprise', 'frota', 'FROTA', 'Frota']
+          || fleetPlanData().get('tierName', '') in ['enterprise', 'ENTERPRISE', 'Enterprise', 'frota', 'FROTA', 'Frota']
+          || fleetPlanData().get('planTier', '') in ['enterprise', 'ENTERPRISE', 'Enterprise', 'frota', 'FROTA', 'Frota']
+        );
     }
 
     function isCompanyMember(companyId) {
@@ -15,63 +81,253 @@ service cloud.firestore {
         && exists(/databases/$(database)/documents/companies/$(companyId)/members/$(request.auth.uid));
     }
 
+    function canAccess(companyId) {
+      return isPersonalCompany(companyId) || isCompanyMember(companyId);
+    }
+
+    function memberRole(companyId) {
+      return isPersonalCompany(companyId)
+        ? 'administrador'
+        : get(/databases/$(database)/documents/companies/$(companyId)/members/$(request.auth.uid)).data.role;
+    }
+
+    function isCompanyManager(companyId) {
+      return isPersonalCompany(companyId)
+        || (isCompanyMember(companyId)
+          && memberRole(companyId) in ['administrador', 'admin', 'gestor']);
+    }
+
+    function isMaintenanceRole(companyId) {
+      return isCompanyManager(companyId)
+        || (isCompanyMember(companyId)
+          && memberRole(companyId) in ['manutencao', 'manutenção']);
+    }
+
+    /**
+     * Auto-adesao a uma empresa so vale com convite real criado pela gestao daquela
+     * empresa, e o papel vem do convite — nunca do cliente.
+     *
+     * Antes a regra de create aceitava `request.auth.uid == uid` sozinho: qualquer
+     * usuario logado criava o proprio documento de membro em qualquer empresa, com
+     * role 'administrador', e ganhava acesso total a veiculos, motoristas, GPS,
+     * assinaturas e abastecimentos. A guarda de auto-promocao no update era inutil,
+     * porque o atacante nao precisava promover: ja criava com o papel que queria.
+     *
+     * O cliente informa em `inviteKey` qual convite esta usando. Ele pode mentir o
+     * caminho, mas nao o conteudo: o convite precisa ter o e-mail dele, e convite so
+     * a gestao da empresa consegue criar.
+     */
+    function selfJoinMatchesInvite(companyId, uid) {
+      let inviteKey = request.resource.data.get('inviteKey', '');
+      let invitePath = /databases/$(database)/documents/userInvites/$(inviteKey)/companies/$(companyId);
+      let tokenEmail = request.auth.token.get('email', '').lower();
+      return request.auth.uid == uid
+        && inviteKey != ''
+        && tokenEmail != ''
+        && exists(invitePath)
+        && get(invitePath).data.get('email', '').lower() == tokenEmail
+        && request.resource.data.get('role', '') == get(invitePath).data.get('role', 'motorista');
+    }
+
+    // Campos que o app do motorista pode tocar no veiculo durante retirada e devolucao.
+    function changesOnlyTripFields() {
+      return request.resource.data.diff(resource.data).affectedKeys()
+        .hasOnly(['status', 'odometerKm', 'kmAtual', 'lastTripDistanceKm', 'updatedAt']);
+    }
+
     match /users/{uid} {
       allow read, write: if signedIn() && request.auth.uid == uid;
     }
 
     match /companies/{companyId} {
-      allow create, read, update: if isPersonalCompany(companyId) || isCompanyMember(companyId);
+      allow read: if canAccess(companyId);
+      allow create: if isPlatformAdmin()
+        || (isPersonalCompany(companyId) && hasFleetCreationPlan());
+      // Nome, plano, token do calendario e limites de velocidade sao configuracao da gestao.
+      allow update: if isCompanyManager(companyId);
       allow delete: if false;
 
       match /members/{uid} {
         allow read: if isPersonalCompany(companyId) || isCompanyMember(companyId);
-        allow create: if (signedIn() && request.auth.uid == uid)
-          || isPersonalCompany(companyId)
+        allow create: if isPersonalCompany(companyId)
+          || (signedIn() && selfJoinMatchesInvite(companyId, uid))
           || (isCompanyMember(companyId)
-            && get(/databases/$(database)/documents/companies/$(companyId)/members/$(request.auth.uid)).data.role in ['administrador', 'gestor']);
-        allow update: if isPersonalCompany(companyId)
+            && get(/databases/$(database)/documents/companies/$(companyId)/members/$(request.auth.uid)).data.role in ['administrador', 'admin', 'gestor']);
+        // O proprio membro pode atualizar apenas a identificacao; papel e ativacao ficam com a gestao.
+        // 'role' e 'active' entram na lista permitida porque versoes antigas do app reenviam esses
+        // campos em toda reserva - mas apenas se o valor nao mudar, o que barra auto-promocao.
+        allow update: if isCompanyManager(companyId)
+          || (signedIn() && request.auth.uid == uid
+            && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['uid', 'name', 'email', 'updatedAt', 'acceptedAt', 'role', 'active'])
+            && request.resource.data.get('role', resource.data.get('role', '')) == resource.data.get('role', '')
+            && request.resource.data.get('active', resource.data.get('active', true)) == resource.data.get('active', true));
+        allow delete: if isPersonalCompany(companyId)
           || (isCompanyMember(companyId)
-            && get(/databases/$(database)/documents/companies/$(companyId)/members/$(request.auth.uid)).data.role in ['administrador', 'gestor']);
-        allow delete: if false;
+            && get(/databases/$(database)/documents/companies/$(companyId)/members/$(request.auth.uid)).data.role in ['administrador', 'admin', 'gestor']);
       }
 
       match /vehicles/{vehicleId} {
-        allow read, write: if isPersonalCompany(companyId) || isCompanyMember(companyId);
+        allow read: if canAccess(companyId);
+        // Cadastro e frota so pela gestao/manutencao; o motorista muda apenas KM e status da viagem.
+        allow create, delete: if isMaintenanceRole(companyId);
+        allow update: if isMaintenanceRole(companyId)
+          || (canAccess(companyId) && changesOnlyTripFields());
       }
 
       match /reservations/{reservationId} {
-        allow read, write: if isPersonalCompany(companyId) || isCompanyMember(companyId);
+        allow read: if canAccess(companyId);
+        allow create: if canAccess(companyId);
+        allow update: if canAccess(companyId);
+        // Apagar reserva: dono da reserva ou gestao. Viagem finalizada fica como registro.
+        allow delete: if isCompanyManager(companyId)
+          || (canAccess(companyId) && resource == null)
+          || (canAccess(companyId)
+            && resource.data.status in ['reservada', 'expirada', 'cancelada']
+            && (resource.data.get('driverUid', '') == request.auth.uid
+              || resource.data.get('createdBy', '') == request.auth.uid
+              || resource.data.get('createdByUid', '') == request.auth.uid));
       }
 
       match /trips/{tripId} {
-        allow read, write: if isPersonalCompany(companyId) || isCompanyMember(companyId);
+        allow read: if canAccess(companyId);
+        allow create, update: if canAccess(companyId);
+        // resource == null cobre o caso da reserva apagada antes de virar viagem.
+        allow delete: if isCompanyManager(companyId)
+          || (canAccess(companyId)
+            && (resource == null || resource.data.get('driverUid', '') == request.auth.uid));
+      }
+
+      // Indice de ocupacao por veiculo: e o documento que serializa as reservas concorrentes.
+      match /vehicleBookings/{vehicleId} {
+        allow read, write: if canAccess(companyId);
       }
 
       match /maintenanceEvents/{eventId} {
-        allow read, write: if isPersonalCompany(companyId) || isCompanyMember(companyId);
+        allow read: if canAccess(companyId);
+        allow write: if isMaintenanceRole(companyId);
+      }
+
+      match /alerts/{alertId} {
+        allow read: if canAccess(companyId);
+        allow write: if isMaintenanceRole(companyId);
+      }
+
+      match /vehicleHistory/{historyId} {
+        allow read: if canAccess(companyId);
+        allow write: if isMaintenanceRole(companyId);
+      }
+
+      // Abastecimento: quem abastece e o motorista, entao ele pode registrar e corrigir
+      // o proprio lancamento. Apagar e mexer no lancamento de outro fica com a gestao,
+      // porque esse dado alimenta o custo por km e o consumo do mes.
+      match /fuelRecords/{recordId} {
+        allow read: if canAccess(companyId);
+        allow create: if canAccess(companyId);
+        allow update: if isCompanyManager(companyId)
+          || (canAccess(companyId)
+            && resource.data.get('createdByUid', '') == request.auth.uid);
+        allow delete: if isCompanyManager(companyId);
+      }
+
+      match /speedEvents/{eventId} {
+        allow read: if canAccess(companyId);
+        // Eventos de velocidade sao gravados pelo app durante a viagem e nunca reescritos.
+        allow create: if canAccess(companyId);
+        allow update, delete: if isCompanyManager(companyId);
+      }
+
+      match /trackingEvents/{eventId} {
+        allow read: if canAccess(companyId);
+        // A trilha e append-only para o motorista: ele registra fatos do proprio
+        // aparelho, mas nao pode alterar nem apagar eventos anteriores.
+        allow create: if canAccess(companyId);
+        allow update, delete: if isCompanyManager(companyId);
+      }
+
+      match /memberInvites/{inviteId} {
+        allow read: if canAccess(companyId);
+        allow write: if isCompanyManager(companyId);
       }
 
       match /documents/{documentId} {
-        allow read, write: if isPersonalCompany(companyId) || isCompanyMember(companyId);
+        allow read: if canAccess(companyId);
+        allow write: if isMaintenanceRole(companyId);
       }
 
+      // Qualquer colecao nao prevista fica somente leitura para membros; escrita exige gestao.
       match /{document=**} {
-        allow read, write: if isPersonalCompany(companyId) || isCompanyMember(companyId);
+        allow read: if canAccess(companyId);
+        allow write: if isCompanyManager(companyId);
       }
     }
 
+    /**
+     * Indice global de convites por e-mail, usado pelo app e pela dashboard para
+     * descobrir a que empresa a pessoa pertence antes de existir documento de membro.
+     *
+     * Antes era `read, write: if signedIn()`, o que significava: qualquer usuario lia
+     * os convites de todas as empresas (vazamento de quem convidou quem) e, pior,
+     * escrevia um convite para o proprio e-mail em qualquer empresa — o que anulava
+     * qualquer validacao de convite feita em outro lugar.
+     *
+     * Agora: cada um le so os proprios convites, e criar convite e da gestao da
+     * empresa convidante.
+     */
     match /userInvites/{emailKey}/companies/{companyId} {
-      allow read, write: if signedIn();
+      allow read: if signedIn()
+        && request.auth.token.get('email', '').lower() != ''
+        && resource.data.get('email', '').lower() == request.auth.token.get('email', '').lower();
+      allow write: if isCompanyManager(companyId);
     }
 
     match /admin_users/{uid} {
-      allow read: if signedIn() && request.auth.uid == uid;
-      allow write: if false;
+      // O dono consulta apenas o proprio perfil. A lista completa e exclusiva do
+      // painel administrativo, inclusive os controles de plano e bloqueio.
+      allow read: if isPlatformAdmin() || (signedIn() && request.auth.uid == uid);
+      allow create: if isPlatformAdmin()
+        || (signedIn() && request.auth.uid == uid && hasOnlyPublicAdminUserFields());
+      allow update: if isPlatformAdmin()
+        || (signedIn() && request.auth.uid == uid && changesOnlyPublicAdminUserFields());
+      allow delete: if isPlatformAdmin() || (signedIn() && request.auth.uid == uid);
+
+      match /controls/{documentId} {
+        allow read, write: if isPlatformAdmin();
+      }
     }
 
     match /admin_app_config/{documentId} {
       allow read: if signedIn();
-      allow write: if false;
+      allow write: if isPlatformAdmin();
+    }
+
+    match /admin_settings/{documentId} {
+      allow read, write: if isPlatformAdmin();
+    }
+
+    match /admin_announcements/{documentId} {
+      // O aplicativo so le comunicados ativos; a publicacao continua restrita.
+      allow read: if signedIn();
+      allow write: if isPlatformAdmin();
+    }
+
+    match /prestadores_patrocinados/{documentId} {
+      // Anuncios pagos de prestadores: qualquer usuario logado pode ler (para
+      // aparecer na tela de selecao de prestador), so a administracao da
+      // plataforma cadastra, edita ou remove.
+      allow read: if signedIn();
+      allow write: if isPlatformAdmin();
+    }
+
+    match /admin_release_notes/{documentId} {
+      allow read: if signedIn();
+      allow write: if isPlatformAdmin();
+    }
+
+    match /device_tokens/{documentId} {
+      // Tokens de notificacao identificam dispositivos e nunca devem ser
+      // expostos para usuarios comuns.
+      allow read, write: if isPlatformAdmin();
     }
   }
 }
