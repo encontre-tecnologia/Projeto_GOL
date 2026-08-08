@@ -1,19 +1,23 @@
-import type { SpeedEvent, Trip } from "../types";
+import type { Trip } from "../types";
 import { shortDate } from "../lib/dates";
 import { number } from "../lib/format";
 import { IconClock, IconRoute } from "./NavIcons";
+import { downloadTripHistoryPdf } from "../lib/tripHistoryPdf";
 
-type Props = { trips: Trip[]; speedEvents?: SpeedEvent[] };
+type Props = { trips: Trip[]; companyName?: string; canExport?: boolean };
 
 function kmLabel(value?: number): string {
   return typeof value === "number" ? number(value, " km") : "Sem registro";
 }
 
+// Percurso e sempre a diferenca de odometro informada pelo motorista na retirada e
+// na devolucao. A estimativa por GPS deixou de existir no app — mostrar o campo
+// antigo como fallback seria exibir um numero que nenhuma viagem nova produz.
 function distanceLabel(trip: Trip): string {
   if (typeof trip.odometerStartKm === "number" && typeof trip.odometerEndKm === "number") {
     return number(Math.max(0, trip.odometerEndKm - trip.odometerStartKm), " km");
   }
-  return typeof trip.gpsDistanceKm === "number" ? number(trip.gpsDistanceKm, " km estimados") : "-";
+  return "Sem registro";
 }
 
 type SignaturePoint = { x: number; y: number };
@@ -46,17 +50,9 @@ function TripSignature({ signature, date }: { signature?: string; date?: Date | 
   );
 }
 
-export function TripHistoryScreen({ trips, speedEvents = [] }: Props) {
+export function TripHistoryScreen({ trips, companyName = "Frota corporativa", canExport = false }: Props) {
   const completedTrips = trips.filter((trip) => trip.startedAt);
   const returnedTrips = completedTrips.filter((trip) => trip.endedAt);
-  const eventsByTrip = new Map<string, SpeedEvent[]>();
-  speedEvents.forEach((event) => {
-    const key = event.tripId || event.reservationId;
-    if (!key) return;
-    const list = eventsByTrip.get(key) || [];
-    list.push(event);
-    eventsByTrip.set(key, list);
-  });
 
   return (
     <section className="trip-history-page">
@@ -75,7 +71,10 @@ export function TripHistoryScreen({ trips, speedEvents = [] }: Props) {
       <div className="trip-history-panel">
         <div className="trip-history-panel-head">
           <div><IconClock /><h3>Registros da organizacao</h3></div>
-          <span>{completedTrips.length} viagem(ns)</span>
+          <div className="trip-history-panel-actions">
+            <span>{completedTrips.length} viagem(ns)</span>
+            {canExport && <button type="button" className="secondary action-button" disabled={!completedTrips.length} onClick={() => downloadTripHistoryPdf({ trips: completedTrips, companyName })}>Gerar PDF</button>}
+          </div>
         </div>
 
         {completedTrips.length === 0 ? (
@@ -89,22 +88,21 @@ export function TripHistoryScreen({ trips, speedEvents = [] }: Props) {
               <span>Assinatura devolucao</span>
               <span>KM devolucao</span>
               <span>Percurso</span>
-              <span>Velocidade</span>
             </div>
             {completedTrips.map((trip) => {
-              const tripSpeedEvents = getSpeedEventsForTrip(trip, speedEvents, eventsByTrip);
               return (
                 <article className="trip-history-record" role="row" key={trip.id}>
                   <div className="trip-history-person" role="cell">
                     <strong>{trip.driverName || "Motorista nao informado"}</strong>
                     <span>{trip.vehicleName || "Veiculo nao informado"}</span>
+                    <small className="trip-route-line"><b>Saida:</b> {trip.origin || "Nao informada"}</small>
+                    <small className="trip-route-line"><b>Destino:</b> {trip.destination || "Nao informado"}</small>
                   </div>
                   <div role="cell"><span className="trip-history-cell-label">Assinatura retirada</span><TripSignature signature={trip.pickupSignature} date={trip.startedAt} /></div>
                   <div className="trip-history-km-cell" role="cell"><span className="trip-history-cell-label">KM retirada</span><strong>{kmLabel(trip.odometerStartKm)}</strong></div>
                   <div role="cell"><span className="trip-history-cell-label">Assinatura devolucao</span><TripSignature signature={trip.returnSignature} date={trip.endedAt} /></div>
                   <div className="trip-history-km-cell" role="cell"><span className="trip-history-cell-label">KM devolucao</span><strong>{trip.endedAt ? kmLabel(trip.odometerEndKm) : "Aguardando"}</strong></div>
                   <div className="trip-history-distance" role="cell"><span className="trip-history-cell-label">Percurso</span><strong>{distanceLabel(trip)}</strong></div>
-                  <SpeedEventsCell events={tripSpeedEvents} />
                 </article>
               );
             })}
@@ -112,54 +110,5 @@ export function TripHistoryScreen({ trips, speedEvents = [] }: Props) {
         )}
       </div>
     </section>
-  );
-}
-
-function getSpeedEventsForTrip(trip: Trip, speedEvents: SpeedEvent[], eventsByTrip: Map<string, SpeedEvent[]>): SpeedEvent[] {
-  const matched = new Map<string, SpeedEvent>();
-  const directKeys = [trip.reservationId, trip.id].filter(Boolean) as string[];
-
-  directKeys.forEach((key) => {
-    (eventsByTrip.get(key) || []).forEach((event) => matched.set(event.id, event));
-  });
-
-  const startTime = trip.startedAt?.getTime();
-  const endTime = (trip.endedAt || new Date()).getTime();
-  if (startTime && trip.vehicleId) {
-    speedEvents.forEach((event) => {
-      const occurredAt = event.occurredAt?.getTime();
-      if (!occurredAt) return;
-      if (event.vehicleId !== trip.vehicleId) return;
-      if (occurredAt < startTime || occurredAt > endTime) return;
-      matched.set(event.id, event);
-    });
-  }
-
-  return Array.from(matched.values()).sort((a, b) => (b.occurredAt?.getTime() || 0) - (a.occurredAt?.getTime() || 0));
-}
-
-function SpeedEventsCell({ events }: { events: SpeedEvent[] }) {
-  const maxSpeed = events.reduce((max, event) => Math.max(max, event.speedKmh || 0), 0);
-  const maxLimit = events.reduce((max, event) => Math.max(max, event.speedLimitKmh + (event.toleranceKmh || 0)), 0);
-  const lastEvent = events[0];
-  const mapsUrl = lastEvent?.latitude && lastEvent?.longitude
-    ? `https://www.google.com/maps?q=${lastEvent.latitude},${lastEvent.longitude}`
-    : "";
-
-  return (
-    <div className={events.length ? "trip-speed-cell has-events" : "trip-speed-cell"} role="cell">
-      <span className="trip-history-cell-label">Velocidade</span>
-      {events.length ? (
-        <>
-          <strong>Excesso registrado</strong>
-          <span>{events.length} evento(s) - {Math.round(maxSpeed)} km/h max.</span>
-          {maxLimit > 0 && <small>Limite considerado: {Math.round(maxLimit)} km/h</small>}
-          {lastEvent?.occurredAt && <small>{shortDate(lastEvent.occurredAt)}</small>}
-          {mapsUrl && <a href={mapsUrl} target="_blank" rel="noreferrer">Ver local</a>}
-        </>
-      ) : (
-        <strong>Sem excessos</strong>
-      )}
-    </div>
   );
 }

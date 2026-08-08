@@ -1,11 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { User } from "firebase/auth";
 import { signOut } from "firebase/auth";
-import { deleteDoc, doc } from "firebase/firestore";
+import { collection, deleteDoc, deleteField, doc, getDocs, serverTimestamp, setDoc } from "firebase/firestore";
 import { getFirebaseAuth, getFirebaseDb } from "../firebase";
 import { useFleetSnapshot, statusLabel } from "../hooks/useFleetSnapshot";
 import { shortDate, timeOnly } from "../lib/dates";
 import { number } from "../lib/format";
+import { tripDistanceKm } from "../lib/consumption";
+import { routeToUrl, urlToRoute, type DashboardView } from "../lib/routes";
 import { MetricCard } from "./MetricCard";
 import { OrganizationPanel } from "./OrganizationPanel";
 import { ReservationCalendar } from "./ReservationCalendar";
@@ -13,11 +15,12 @@ import { TripBoard } from "./TripBoard";
 import { TripHistoryScreen } from "./TripHistoryScreen";
 import { VehicleQrScreen } from "./VehicleQrScreen";
 import { VehicleManagementScreen } from "./VehicleManagementScreen";
+import { VehicleHistoryScreen } from "./VehicleHistoryScreen";
 import { CorporateAlertsScreen } from "./CorporateAlertsScreen";
 import { SettingsPanel } from "./SettingsPanel";
 import { Panel } from "./Panel";
 import { Row } from "./Row";
-import { IconBell, IconCalendar, IconCar, IconClock, IconGrid, IconLogout, IconMenu, IconQr, IconRoute, IconSettings, IconUsers } from "./NavIcons";
+import { IconBell, IconCalendar, IconCar, IconClock, IconGauge, IconGrid, IconLogout, IconMenu, IconQr, IconRoute, IconSettings, IconUsers } from "./NavIcons";
 import type { Reservation, Trip, Vehicle } from "../types";
 
 const reservationKanbanColumns = [
@@ -83,8 +86,6 @@ function TodayReservationsBoard({ reservations, trips }: { reservations: Reserva
   );
 }
 
-type DashboardView = "overview" | "reservations" | "qr" | "trips" | "trip-history" | "alerts" | "vehicles" | "organization" | "settings";
-
 const navItems = [
   { key: "overview" as const, label: "Visao geral", icon: IconGrid },
   { key: "vehicles" as const, label: "Veiculos", icon: IconCar },
@@ -97,13 +98,82 @@ const navItems = [
   { key: "settings" as const, label: "Configuracoes", icon: IconSettings },
 ];
 
+/**
+ * Telas de detalhe nao tem item proprio no menu, entao nenhum ficava aceso enquanto elas estavam
+ * abertas — a sidebar dizia que voce nao estava em lugar nenhum. O historico de um veiculo pertence
+ * a secao Veiculos, e a URL diz o mesmo: /veiculos/{id}/historico.
+ */
+function navSectionOf(view: DashboardView): DashboardView {
+  return view === "vehicle-history" ? "vehicles" : view;
+}
+
 const adminRoles = ["administrador", "admin", "gestor", "manutencao", "manutenção"];
 const userAllowedViews: DashboardView[] = ["reservations", "trip-history"];
+const activeReservationStatuses = new Set(["reservada", "confirmada", "em_uso", "atrasada"]);
+
+type BookingSlot = { startsAt?: number; endsAt?: number };
+
+/**
+ * Mantem o indice de ocupacao (companies/{id}/vehicleBookings/{vehicleId}) alinhado com as reservas:
+ * cadastra o que ficou de fora (reservas criadas antes do indice existir) e limpa vagas de reservas
+ * ja encerradas ou com periodo vencido. E o indice que serializa reservas concorrentes.
+ */
+async function reconcileVehicleBookings(companyId: string, reservations: Reservation[]) {
+  const database = getFirebaseDb();
+  const now = Date.now();
+  const reservationById = new Map(reservations.map((item) => [item.id, item]));
+  const activeByVehicle = new Map<string, Reservation[]>();
+  reservations.forEach((item) => {
+    if (!item.vehicleId || !item.startsAt || !item.endsAt) return;
+    if (!activeReservationStatuses.has(item.status || "reservada")) return;
+    const list = activeByVehicle.get(item.vehicleId) || [];
+    list.push(item);
+    activeByVehicle.set(item.vehicleId, list);
+  });
+
+  const existing = await getDocs(collection(database, "companies", companyId, "vehicleBookings"));
+  const slotsByVehicle = new Map(
+    existing.docs.map((item) => [item.id, (item.data()?.slots || {}) as Record<string, BookingSlot>]),
+  );
+  const vehicleIds = new Set<string>([...activeByVehicle.keys(), ...slotsByVehicle.keys()]);
+
+  await Promise.all([...vehicleIds].map(async (vehicleId) => {
+    const slots = slotsByVehicle.get(vehicleId) || {};
+    const updates: Record<string, unknown> = {};
+
+    (activeByVehicle.get(vehicleId) || []).forEach((item) => {
+      if (slots[item.id]) return;
+      updates[item.id] = {
+        startsAt: item.startsAt!.getTime(),
+        endsAt: item.endsAt!.getTime(),
+        driverUid: item.createdByUid || "",
+      };
+    });
+
+    Object.entries(slots).forEach(([slotId, slot]) => {
+      const reservation = reservationById.get(slotId);
+      // Vaga vencida nunca conflita com um periodo futuro, e reserva encerrada nao ocupa nada.
+      const expired = typeof slot?.endsAt === "number" && slot.endsAt < now;
+      const finished = reservation ? !activeReservationStatuses.has(reservation.status || "reservada") : false;
+      if (expired || finished) updates[slotId] = deleteField();
+    });
+
+    if (!Object.keys(updates).length) return;
+    await setDoc(
+      doc(database, "companies", companyId, "vehicleBookings", vehicleId),
+      { vehicleId, slots: updates, updatedAt: serverTimestamp() },
+      { merge: true },
+    );
+  }));
+}
 
 export function Dashboard({ user }: { user: User }) {
   const { snapshot, loading, error } = useFleetSnapshot(user);
-  const [activeView, setActiveView] = useState<DashboardView>("overview");
-  const [alertVehicleId, setAlertVehicleId] = useState("");
+  // A tela inicial vem do endereco, para que link direto e recarregar caiam onde deveriam.
+  const [initialRoute] = useState(() => urlToRoute(window.location.pathname, window.location.search));
+  const [activeView, setActiveView] = useState<DashboardView>(initialRoute.view);
+  const [alertVehicleId, setAlertVehicleId] = useState(initialRoute.alertVehicleId);
+  const [historyVehicleId, setHistoryVehicleId] = useState(initialRoute.historyVehicleId);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const fleetTrips = useMemo(() => buildTripsFromReservations(snapshot.trips, snapshot.reservations, snapshot.vehicles), [snapshot.trips, snapshot.reservations, snapshot.vehicles]);
   const isAdmin = adminRoles.includes((snapshot.currentMemberRole || "").toLowerCase());
@@ -112,13 +182,50 @@ export function Dashboard({ user }: { user: User }) {
     [isAdmin],
   );
 
+  // Uma vez por sessao da dashboard: alinha o indice de ocupacao com as reservas reais.
+  const bookingsReconciled = useRef(false);
+  useEffect(() => {
+    if (loading || !isAdmin || bookingsReconciled.current) return;
+    const company = snapshot.company;
+    if (!company) return;
+    bookingsReconciled.current = true;
+    reconcileVehicleBookings(company.id, snapshot.reservations).catch(() => undefined);
+  }, [loading, isAdmin, snapshot.company, snapshot.reservations]);
+
   useEffect(() => {
     if (loading) return;
     if (!isAdmin && !userAllowedViews.includes(activeView)) {
       setActiveView("reservations");
       setAlertVehicleId("");
+      setHistoryVehicleId("");
     }
   }, [activeView, isAdmin, loading]);
+
+  /*
+   * A URL acompanha a tela ativa. O primeiro alinhamento troca a entrada atual do historico —
+   * chegar em "/" ou num endereco desconhecido nao deve render um passo de "voltar" para lugar
+   * nenhum; dai em diante cada troca de tela empilha, e o botao voltar do navegador funciona.
+   */
+  const urlAligned = useRef(false);
+  useEffect(() => {
+    const target = routeToUrl({ view: activeView, alertVehicleId, historyVehicleId });
+    const current = `${window.location.pathname}${window.location.search}`;
+    if (current !== target) {
+      window.history[urlAligned.current ? "pushState" : "replaceState"]({}, "", target);
+    }
+    urlAligned.current = true;
+  }, [activeView, alertVehicleId, historyVehicleId]);
+
+  useEffect(() => {
+    function applyUrl() {
+      const next = urlToRoute(window.location.pathname, window.location.search);
+      setActiveView(next.view);
+      setAlertVehicleId(next.alertVehicleId);
+      setHistoryVehicleId(next.historyVehicleId);
+    }
+    window.addEventListener("popstate", applyUrl);
+    return () => window.removeEventListener("popstate", applyUrl);
+  }, []);
 
   async function deleteTrip(trip: Trip) {
     const company = snapshot.company;
@@ -136,6 +243,12 @@ export function Dashboard({ user }: { user: User }) {
       await Promise.all([
         ...tripIds.map((tripId) => deleteDoc(doc(database, "companies", company.id, "trips", tripId))),
         deleteDoc(doc(database, "companies", company.id, "reservations", reservationId)),
+        // A vaga volta para o indice de ocupacao do veiculo.
+        ...(trip.vehicleId
+          ? [setDoc(doc(database, "companies", company.id, "vehicleBookings", trip.vehicleId), {
+              slots: Object.fromEntries(tripIds.concat(reservationId).map((id) => [id, deleteField()])),
+            }, { merge: true })]
+          : []),
       ]);
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : "Nao foi possivel apagar a viagem.";
@@ -146,6 +259,11 @@ export function Dashboard({ user }: { user: User }) {
   function openVehicleAlert(vehicleId: string) {
     setAlertVehicleId(vehicleId);
     setActiveView("alerts");
+  }
+
+  function openVehicleHistory(vehicleId: string) {
+    setHistoryVehicleId(vehicleId);
+    setActiveView("vehicle-history");
   }
   const todayReservations = useMemo(() => {
     const now = new Date();
@@ -188,7 +306,7 @@ export function Dashboard({ user }: { user: User }) {
             <div className="sidebar-nav-loading">Carregando acesso...</div>
           ) : (
             visibleNavItems.map(({ key, label, icon: Icon }) => (
-              <button key={key} className={activeView === key ? "active" : ""} onClick={() => { setAlertVehicleId(""); setActiveView(key); setSidebarOpen(false); }}>
+              <button key={key} className={key === navSectionOf(activeView) ? "active" : ""} onClick={() => { setAlertVehicleId(""); setHistoryVehicleId(""); setActiveView(key); setSidebarOpen(false); }}>
                 <Icon className="nav-icon" />
                 {label}
               </button>
@@ -242,7 +360,7 @@ export function Dashboard({ user }: { user: User }) {
               <MetricCard label="Pendencias" value={metrics.dueMaintenance} tone="red" />
             </section>
 
-            <ReservationCalendar vehicles={snapshot.vehicles} reservations={snapshot.reservations} company={snapshot.company} allowBooking defaultDriverName={user.displayName || user.email || ""} />
+            <ReservationCalendar vehicles={snapshot.vehicles} reservations={snapshot.reservations} company={snapshot.company} allowBooking defaultDriverName={user.displayName || user.email || ""} currentUserId={user.uid} currentUserEmail={user.email || ""} />
 
             <TodayReservationsBoard reservations={todayReservations} trips={fleetTrips} />
 
@@ -271,11 +389,12 @@ export function Dashboard({ user }: { user: User }) {
           </>
         )}
 
-        {activeView === "reservations" && <ReservationCalendar vehicles={snapshot.vehicles} reservations={snapshot.reservations} company={snapshot.company} allowBooking defaultDriverName={user.displayName || user.email || ""} />}
+        {activeView === "reservations" && <ReservationCalendar vehicles={snapshot.vehicles} reservations={snapshot.reservations} company={snapshot.company} allowBooking defaultDriverName={user.displayName || user.email || ""} currentUserId={user.uid} currentUserEmail={user.email || ""} />}
         {activeView === "qr" && <VehicleQrScreen company={snapshot.company} vehicles={snapshot.vehicles} />}
-        {activeView === "vehicles" && <VehicleManagementScreen company={snapshot.company} vehicles={snapshot.vehicles} alerts={snapshot.alerts} onCreateAlert={openVehicleAlert} onViewAlerts={openVehicleAlert} />}
+        {activeView === "vehicles" && <VehicleManagementScreen company={snapshot.company} vehicles={snapshot.vehicles} alerts={snapshot.alerts} onCreateAlert={openVehicleAlert} onViewAlerts={openVehicleAlert} onViewHistory={openVehicleHistory} />}
+        {activeView === "vehicle-history" && <VehicleHistoryScreen company={snapshot.company} vehicle={snapshot.vehicles.find((item) => item.id === historyVehicleId) || null} alerts={snapshot.alerts} onBack={() => { setHistoryVehicleId(""); setActiveView("vehicles"); }} />}
         {activeView === "trips" && <TripBoard trips={fleetTrips} onDeleteTrip={deleteTrip} />}
-        {activeView === "trip-history" && <TripHistoryScreen trips={fleetTrips} speedEvents={snapshot.speedEvents} />}
+        {activeView === "trip-history" && <TripHistoryScreen trips={fleetTrips} companyName={snapshot.company?.name || "Frota corporativa"} canExport={isAdmin} />}
         {activeView === "alerts" && <CorporateAlertsScreen company={snapshot.company} vehicles={snapshot.vehicles} alerts={snapshot.alerts} memberRole={snapshot.currentMemberRole} initialVehicleId={alertVehicleId} />}
         {activeView === "organization" && <OrganizationPanel user={user} company={snapshot.company} />}
         {activeView === "settings" && <SettingsPanel company={snapshot.company} />}
@@ -339,12 +458,4 @@ function reservationDistanceLabel(reservation: Reservation, trip?: Trip): string
 function tripDistanceLabel(trip: Trip): string {
   const distance = tripDistanceKm(trip);
   return typeof distance === "number" ? number(distance, " km rodados") : "KM nao informado";
-}
-
-function tripDistanceKm(trip?: Trip): number | undefined {
-  if (!trip) return undefined;
-  if (typeof trip.odometerStartKm === "number" && typeof trip.odometerEndKm === "number") {
-    return Math.max(0, trip.odometerEndKm - trip.odometerStartKm);
-  }
-  return typeof trip.gpsDistanceKm === "number" ? trip.gpsDistanceKm : undefined;
 }

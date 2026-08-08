@@ -1,5 +1,15 @@
 import { useEffect, useState } from "react";
-import { collection, doc, onSnapshot, serverTimestamp, setDoc } from "firebase/firestore";
+import {
+  collection,
+  deleteDoc,
+  doc,
+  getDocs,
+  onSnapshot,
+  query,
+  serverTimestamp,
+  setDoc,
+  where,
+} from "firebase/firestore";
 import type { User } from "firebase/auth";
 import { getFirebaseDb } from "../firebase";
 import { emailKey } from "../lib/company";
@@ -20,6 +30,7 @@ export function OrganizationPanel({ user, company }: { user: User; company: Comp
   const [role, setRole] = useState("usuario");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [removingId, setRemovingId] = useState<string | null>(null);
   const [invites, setInvites] = useState<MemberInvite[]>([]);
 
   useEffect(() => {
@@ -72,6 +83,34 @@ export function OrganizationPanel({ user, company }: { user: User; company: Comp
       setMessage(reason instanceof Error ? reason.message : "Nao foi possivel adicionar o acesso.");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function removeEmployeeAccess(invite: MemberInvite) {
+    if (!company) return;
+    const normalizedEmail = invite.email.trim().toLowerCase();
+    const key = emailKey(normalizedEmail);
+    const confirmed = window.confirm(`Remover o acesso de ${normalizedEmail}?`);
+    if (!confirmed) return;
+
+    setRemovingId(invite.id);
+    setMessage("");
+    try {
+      const db = getFirebaseDb();
+      await Promise.all([
+        deleteDoc(doc(db, "companies", company.id, "memberInvites", key)),
+        deleteDoc(doc(db, "userInvites", key, "companies", company.id)),
+      ]);
+
+      const memberSnap = await getDocs(
+        query(collection(db, "companies", company.id, "members"), where("email", "==", normalizedEmail)),
+      );
+      await Promise.all(memberSnap.docs.map((member) => deleteDoc(member.ref)));
+      setMessage("Acesso removido. No proximo carregamento do app, a agenda corporativa deixa de aparecer para esse e-mail.");
+    } catch (reason) {
+      setMessage(reason instanceof Error ? reason.message : "Nao foi possivel remover o acesso.");
+    } finally {
+      setRemovingId(null);
     }
   }
 
@@ -144,6 +183,13 @@ export function OrganizationPanel({ user, company }: { user: User; company: Comp
                     <span>{company?.name || invite.companyName}</span>
                   </div>
                   <em>{roleLabel[invite.role] || invite.role}</em>
+                  <button
+                    className="invite-remove-btn"
+                    disabled={removingId === invite.id}
+                    onClick={() => removeEmployeeAccess(invite)}
+                  >
+                    {removingId === invite.id ? "Removendo..." : "Remover acesso"}
+                  </button>
                 </div>
               ))}
             </div>

@@ -2,13 +2,14 @@ import { useEffect, useMemo, useState } from "react";
 import { collection, doc, limit, onSnapshot, query, serverTimestamp, setDoc } from "firebase/firestore";
 import { getFirebaseDb } from "../firebase";
 import { fipeFetch, fipeVehicleType, type FipeBrand, type FipeModel, type FipeYear } from "../lib/fipe";
-import { money, parseMoneyText, saleFactor } from "../lib/format";
+import { money, parseMoneyText } from "../lib/format";
 import { fullDateLabel, shortDate } from "../lib/dates";
-import { compressImageForFirestore } from "../lib/firestoreImages";
+import { prepareRecordAttachmentForFirestore } from "../lib/firestoreImages";
 import { downloadVehicleHistoryPdf } from "../lib/vehicleHistoryPdf";
-import { getLocalVehicleFileUrl, openLocalVehicleFile } from "../lib/localVehicleFiles";
-import { openStoredAttachment } from "../lib/openStoredAttachment";
-import { runMaintenanceCheck } from "../lib/maintenance";
+import { getLocalVehicleFileUrl } from "../lib/localVehicleFiles";
+import { useAttachmentViewer } from "./AttachmentViewer";
+import { overdueAlertsForVehicle } from "../lib/alerts";
+import { reportMaintenanceCheck } from "../lib/maintenance";
 import { statusLabel } from "../hooks/useFleetSnapshot";
 import { IconBell, IconClock, IconEdit, IconEye, IconFile, IconGauge, IconLayers, IconStatus, IconTag, IconVehicle } from "./NavIcons";
 import type { Company, CorporateAlert, Vehicle, VehicleHistoryItem, VehicleStatus } from "../types";
@@ -23,7 +24,8 @@ const statusTone: Record<VehicleStatus, string> = {
   inativo: "status-tone-gray",
 };
 
-export function VehicleManagementScreen({ company, vehicles, alerts, onCreateAlert, onViewAlerts }: { company: Company | null; vehicles: Vehicle[]; alerts: CorporateAlert[]; onCreateAlert: (vehicleId: string) => void; onViewAlerts: (vehicleId: string) => void }) {
+export function VehicleManagementScreen({ company, vehicles, alerts, onCreateAlert, onViewAlerts, onViewHistory }: { company: Company | null; vehicles: Vehicle[]; alerts: CorporateAlert[]; onCreateAlert: (vehicleId: string) => void; onViewAlerts: (vehicleId: string) => void; onViewHistory: (vehicleId: string) => void }) {
+  const { openAttachment, attachmentViewer } = useAttachmentViewer();
   const [type, setType] = useState("carros");
   const [brands, setBrands] = useState<FipeBrand[]>([]);
   const [models, setModels] = useState<FipeModel[]>([]);
@@ -34,11 +36,7 @@ export function VehicleManagementScreen({ company, vehicles, alerts, onCreateAle
   const [plate, setPlate] = useState("");
   const [color, setColor] = useState("");
   const [odometerKm, setOdometerKm] = useState("");
-  const [maxConcurrentReservations, setMaxConcurrentReservations] = useState("1");
   const [fuel, setFuel] = useState("");
-  const [health, setHealth] = useState("Boa");
-  const [accidents, setAccidents] = useState("0");
-  const [ownershipTime, setOwnershipTime] = useState("1_2_anos");
   const [status, setStatus] = useState<VehicleStatus>("disponivel");
   const [fipeValue, setFipeValue] = useState<number | undefined>();
   const [fipeLabel, setFipeLabel] = useState("");
@@ -62,7 +60,6 @@ export function VehicleManagementScreen({ company, vehicles, alerts, onCreateAle
   const selectedBrand = brands.find((item) => item.codigo === brandCode);
   const selectedModel = models.find((item) => String(item.codigo) === modelCode);
   const selectedYear = years.find((item) => item.codigo === yearCode);
-  const saleSuggestion = fipeValue ? Math.round(fipeValue * saleFactor(health, Number(accidents) || 0, ownershipTime)) : undefined;
 
   useEffect(() => {
     if (!company) {
@@ -116,6 +113,12 @@ export function VehicleManagementScreen({ company, vehicles, alerts, onCreateAle
     [allHistoryItems, docVehicle],
   );
 
+  // Avisos vencidos do veiculo que esta com o dialogo de disponibilidade aberto.
+  const statusBlockingAlerts = useMemo(
+    () => overdueAlertsForVehicle(alerts, editingStatusVehicle),
+    [alerts, editingStatusVehicle],
+  );
+
   const pendingVehicleAlerts = useMemo(
     () => alerts.filter((alert) => alert.vehicleId === historyVehicle?.id && alert.status !== "resolvido"),
     [alerts, historyVehicle],
@@ -141,7 +144,7 @@ export function VehicleManagementScreen({ company, vehicles, alerts, onCreateAle
   }
 
   function openHistoryDialog(vehicle: Vehicle) {
-    setHistoryVehicle(vehicle);
+    onViewHistory(vehicle.id);
   }
 
   function openDocDialog(vehicle: Vehicle, mode: "view" | "add") {
@@ -223,16 +226,13 @@ export function VehicleManagementScreen({ company, vehicles, alerts, onCreateAle
         plate: plate.trim().toUpperCase(),
         color: color.trim(),
         fuel: fuel.trim(),
-        health,
-        accidents: Number(accidents) || 0,
-        ownershipTime,
         type,
         status,
         odometerKm: Number(odometerKm.replace(/\D/g, "")) || 0,
-        maxConcurrentReservations: Math.max(1, Number(maxConcurrentReservations) || 1),
+        // Um por vez cobre praticamente todo veiculo; a excecao se ajusta no card depois.
+        maxConcurrentReservations: 1,
         fipeValue: fipeValue || 0,
         fipeLabel,
-        saleSuggestion: saleSuggestion || 0,
         source: "dashboard",
         scope: "company",
         createdAt: serverTimestamp(),
@@ -241,7 +241,6 @@ export function VehicleManagementScreen({ company, vehicles, alerts, onCreateAle
       setPlate("");
       setColor("");
       setOdometerKm("");
-      setMaxConcurrentReservations("1");
       setFuel("");
       setMessage("Veiculo corporativo cadastrado. Ele aparece na reserva do app, separado da garagem pessoal.");
       setShowRegisterDialog(false);
@@ -269,12 +268,14 @@ export function VehicleManagementScreen({ company, vehicles, alerts, onCreateAle
         },
         { merge: true },
       );
-      const maintenance = await runMaintenanceCheck(company.id);
       setEditingKmVehicle(null);
       setEditingKm("");
-      setMessage(maintenance?.blockedVehicles
-        ? "KM atualizado. O limite de manutencao foi atingido e o veiculo foi bloqueado para reservas."
-        : "KM atualizado. As proximas viagens vao incrementar a partir desse valor.");
+      setMessage("KM atualizado. As proximas viagens vao incrementar a partir desse valor.");
+      reportMaintenanceCheck(company.id, (result) => {
+        if (result.blockedVehicles) {
+          setMessage("KM atualizado. O limite de manutencao foi atingido e o veiculo foi bloqueado para reservas.");
+        }
+      });
     } catch (reason) {
       setMessage(reason instanceof Error ? reason.message : "Nao foi possivel atualizar o KM.");
     } finally {
@@ -309,6 +310,15 @@ export function VehicleManagementScreen({ company, vehicles, alerts, onCreateAle
 
   async function saveVehicleStatus(vehicle: Vehicle) {
     if (!company) return;
+    /*
+     * Trava de verdade, nao so o botao desabilitado: enquanto houver aviso vencido em aberto a
+     * disponibilidade nao muda. Sem isso, liberar o veiculo aqui desfazia na mao o bloqueio que a
+     * verificacao de manutencao aplicou — e ninguem ficava sabendo do servico que continua pendente.
+     */
+    if (overdueAlertsForVehicle(alerts, vehicle).length > 0) {
+      setMessage("Conclua ou apague o aviso vencido antes de alterar a disponibilidade deste veiculo.");
+      return;
+    }
     setBusy(true);
     setMessage("");
     try {
@@ -341,7 +351,7 @@ export function VehicleManagementScreen({ company, vehicles, alerts, onCreateAle
     try {
       const db = getFirebaseDb();
       const historyId = crypto.randomUUID();
-      const cloudImage = await compressImageForFirestore(docFile);
+      const attachment = await prepareRecordAttachmentForFirestore(docFile);
       await setDoc(doc(db, "companies", company.id, "vehicleHistory", historyId), {
         id: historyId,
         vehicleId: docVehicle.id,
@@ -349,16 +359,16 @@ export function VehicleManagementScreen({ company, vehicles, alerts, onCreateAle
         kind: "cloud_image",
         title: docTitle.trim() || docFile.name,
         fileName: docFile.name,
-        fileSize: cloudImage.size,
-        fileType: cloudImage.type,
-        cloudImageData: cloudImage.dataUrl,
+        fileSize: attachment.size,
+        fileType: attachment.type,
+        ...(attachment.type.startsWith("image/") ? { cloudImageData: attachment.dataUrl } : { cloudFileData: attachment.dataUrl }),
         source: "dashboard",
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
       setDocTitle("");
       setDocFile(null);
-      setMessage("Imagem anexada e sincronizada com a organizacao.");
+      setMessage("Comprovante anexado e sincronizado com a organizacao.");
     } catch (reason) {
       setMessage(reason instanceof Error ? reason.message : "Nao foi possivel anexar o documento.");
     } finally {
@@ -406,18 +416,12 @@ export function VehicleManagementScreen({ company, vehicles, alerts, onCreateAle
                   <label>Cor<input value={color} onChange={(event) => setColor(event.target.value)} placeholder="Prata" /></label>
                   <label>Combustivel<input value={fuel} onChange={(event) => setFuel(event.target.value)} placeholder="Flex" /></label>
                   <label>KM atual<input value={odometerKm} onChange={(event) => setOdometerKm(formatKmInput(event.target.value))} placeholder="45.000" inputMode="numeric" /></label>
-                  <label>
-                    Reservas simultaneas
-                    <input
-                      value={maxConcurrentReservations}
-                      onChange={(event) => setMaxConcurrentReservations(event.target.value.replace(/\D/g, "").slice(0, 2))}
-                      placeholder="1"
-                      inputMode="numeric"
-                    />
-                  </label>
-                  <label>Saude<select value={health} onChange={(event) => setHealth(event.target.value)}><option>Excelente</option><option>Boa</option><option>Em atencao</option><option>Critica</option></select></label>
-                  <label>Batidas<input value={accidents} onChange={(event) => setAccidents(event.target.value)} placeholder="0" /></label>
-                  <label>Tempo com veiculo<select value={ownershipTime} onChange={(event) => setOwnershipTime(event.target.value)}><option value="menos_6_meses">Menos de 6 meses</option><option value="6_12_meses">6 meses a 1 ano</option><option value="1_2_anos">1 a 2 anos</option><option value="2_3_anos">2 a 3 anos</option><option value="3_5_anos">3 a 5 anos</option><option value="mais_5_anos">Mais de 5 anos</option></select></label>
+                  {/*
+                    * O cadastro pergunta o que identifica o veiculo e em que estado ele entra na
+                    * frota. Saude, Batidas e Tempo com veiculo sairam: eram gravados e nunca lidos,
+                    * servindo apenas para estimar um valor de venda no dia do cadastro. Reservas
+                    * simultaneas tambem saiu — nasce 1 e se ajusta no card de quem precisar.
+                    */}
                   <label>Status<select value={status} onChange={(event) => setStatus(event.target.value as VehicleStatus)}><option value="disponivel">Disponivel</option><option value="bloqueado">Bloqueado</option><option value="em_manutencao">Em manutencao</option><option value="inativo">Inativo</option></select></label>
                 </div>
                 <div className="vehicle-actions">
@@ -434,6 +438,7 @@ export function VehicleManagementScreen({ company, vehicles, alerts, onCreateAle
         {vehicles.map((vehicle) => {
           const counts = historyCounts(vehicle.id);
           const openAlertCount = alerts.filter((alert) => alert.vehicleId === vehicle.id && alert.status !== "resolvido").length;
+          const overdueCount = overdueAlertsForVehicle(alerts, vehicle).length;
           return (
             <article key={vehicle.id}>
               <div className="vehicle-card-main">
@@ -443,10 +448,39 @@ export function VehicleManagementScreen({ company, vehicles, alerts, onCreateAle
                   </div>
                   <div>
                     <strong>{vehicle.name}</strong>
-                    <span>{vehicle.plate || "Sem placa"} - {vehicle.year || vehicle.model || "Sem ano"} {vehicle.fuel ? `- ${vehicle.fuel}` : ""}</span>
+                    <span className="vehicle-card-meta">
+                      <em className={`vehicle-plate-chip${vehicle.plate ? "" : " is-empty"}`}>{vehicle.plate || "Sem placa"}</em>
+                      {(vehicle.year || vehicle.model) && <i>{vehicle.year || vehicle.model}</i>}
+                      {vehicle.fuel && <i>{vehicle.fuel}</i>}
+                    </span>
                   </div>
                 </div>
+                {/*
+                 * Disponibilidade e um estado do veiculo, nao uma metrica: sobe para o cabecalho
+                 * ao lado do nome e carrega o proprio lapis. Como tile na fileira ela competia
+                 * com KM e valores, e o "Editar disponibilidade" era o sexto botao identico do rodape.
+                 */}
+                {/*
+                  * O chip continua clicavel mesmo travado: e por ele que se descobre o motivo da
+                  * trava. Quem bloqueia e o dialogo, que mostra qual aviso venceu e leva ate ele.
+                  */}
+                <button
+                  type="button"
+                  className={`vehicle-status-chip ${statusTone[vehicle.status] || "status-tone-gray"}${overdueCount > 0 ? " is-locked" : ""}`}
+                  aria-label={`Editar disponibilidade de ${vehicle.name}`}
+                  title={overdueCount > 0 ? "Disponibilidade travada por aviso vencido" : "Editar disponibilidade"}
+                  onClick={() => {
+                    setEditingStatusVehicle(vehicle);
+                    setEditingStatus(vehicle.status);
+                  }}
+                >
+                  <span className="vehicle-status-chip-dot" aria-hidden="true" />
+                  {statusLabel[vehicle.status] || vehicle.status}
+                  {overdueCount > 0 ? <IconStatus className="vehicle-status-chip-icon" /> : <IconEdit className="vehicle-status-chip-icon" />}
+                </button>
               </div>
+
+              {/* Fileira 1: os numeros que a operacao mexe no dia a dia, cada um com sua acao. */}
               <div className="vehicle-card-stats">
                 <div className="vehicle-stat vehicle-km-cell">
                   <span><IconGauge className="vehicle-stat-icon" />KM atual</span>
@@ -461,7 +495,7 @@ export function VehicleManagementScreen({ company, vehicles, alerts, onCreateAle
                     }}
                   >
                     <IconEdit className="km-icon-button-icon" />
-                    Editar KM
+                    Editar
                   </button>
                 </div>
                 <div className="vehicle-stat vehicle-km-cell">
@@ -480,43 +514,42 @@ export function VehicleManagementScreen({ company, vehicles, alerts, onCreateAle
                     Editar
                   </button>
                 </div>
-                <div className="vehicle-stat">
-                  <span><IconTag className="vehicle-stat-icon" />FIPE</span>
-                  <strong>{vehicle.fipeLabel || money(vehicle.fipeValue)}</strong>
-                </div>
-                <div className="vehicle-stat">
-                  <span><IconTag className="vehicle-stat-icon" />Venda</span>
-                  <strong>{money(vehicle.saleSuggestion)}</strong>
-                </div>
-                <div className="vehicle-stat vehicle-doc-cell">
-                  <span><IconFile className="vehicle-stat-icon" />Documentos</span>
-                  <strong>{counts.documents} anexado(s)</strong>
-                </div>
-                <div className="vehicle-stat">
-                  <span><IconTag className="vehicle-stat-icon" />Gasto registrado</span>
-                  <strong>{money(counts.maintenanceCost)}</strong>
-                </div>
                 <div className={`vehicle-stat vehicle-alert-cell${openAlertCount === 0 ? " is-clear" : ""}`}>
-                  <span><IconStatus className="vehicle-stat-icon" />Avisos da manutencao</span>
-                  <strong>{openAlertCount} em aberto</strong>
-                </div>
-                <div className="vehicle-stat vehicle-status-cell">
-                  <span><IconStatus className="vehicle-stat-icon" />Disponibilidade</span>
-                  <em className={`status-pill ${statusTone[vehicle.status] || "status-tone-gray"}`}>{statusLabel[vehicle.status] || vehicle.status}</em>
+                  <span><IconStatus className="vehicle-stat-icon" />Avisos de manutencao</span>
+                  <strong>{openAlertCount === 0 ? "Nenhum em aberto" : `${openAlertCount} em aberto`}</strong>
+                  <button type="button" className="km-icon-button" onClick={() => onViewAlerts(vehicle.id)}>
+                    <IconEye className="km-icon-button-icon" />
+                    Ver
+                  </button>
                 </div>
               </div>
+
+              {/*
+               * Fileira 2: dinheiro. Sem moldura de tile porque nada aqui e acionavel — sao
+               * leituras de referencia, e como tiles iguais aos de cima roubavam a atencao
+               * do KM, que e o campo que a frota realmente atualiza.
+               */}
+              <div className="vehicle-value-row">
+                <div>
+                  <span><IconTag className="vehicle-value-icon" />FIPE</span>
+                  <strong>{vehicle.fipeLabel || money(vehicle.fipeValue)}</strong>
+                </div>
+                <div>
+                  <span><IconTag className="vehicle-value-icon" />Gasto em manutencao</span>
+                  <strong>{money(counts.maintenanceCost)}</strong>
+                </div>
+              </div>
+
+              {/*
+               * Rodape enxuto: "Adicionar documento" saiu porque o proprio dialogo de documentos
+               * ja oferece o anexo, e "Editar disponibilidade" virou o chip do cabecalho. Sobrou
+               * um destaque unico — criar aviso — no lugar de seis botoes de mesmo peso.
+               */}
               <div className="vehicle-card-footer-actions">
                 <button type="button" className="vehicle-doc-button" onClick={() => openDocDialog(vehicle, "view")}>
-                  <IconEye className="vehicle-action-icon" />
-                  Ver documentos{counts.documents > 0 ? ` (${counts.documents})` : ""}
-                </button>
-                <button type="button" className="vehicle-doc-button" onClick={() => openDocDialog(vehicle, "add")}>
                   <IconFile className="vehicle-action-icon" />
-                  Adicionar documento
-                </button>
-                <button type="button" className="vehicle-view-alerts-button" onClick={() => onViewAlerts(vehicle.id)}>
-                  <IconEye className="vehicle-action-icon" />
-                  Ver avisos
+                  Documentos
+                  <small>{counts.documents}</small>
                 </button>
                 <button type="button" className="vehicle-doc-button" onClick={() => openHistoryDialog(vehicle)}>
                   <IconClock className="vehicle-action-icon" />
@@ -525,18 +558,6 @@ export function VehicleManagementScreen({ company, vehicles, alerts, onCreateAle
                 <button type="button" className="vehicle-alert-button" onClick={() => onCreateAlert(vehicle.id)}>
                   <IconBell className="vehicle-action-icon" />
                   Criar aviso
-                </button>
-                <button
-                  type="button"
-                  className="status-edit-button"
-                  aria-label={`Editar disponibilidade de ${vehicle.name}`}
-                  onClick={() => {
-                    setEditingStatusVehicle(vehicle);
-                    setEditingStatus(vehicle.status);
-                  }}
-                >
-                  <IconEdit className="vehicle-action-icon" />
-                  Editar disponibilidade
                 </button>
               </div>
             </article>
@@ -626,9 +647,22 @@ export function VehicleManagementScreen({ company, vehicles, alerts, onCreateAle
                 <strong>{editingStatusVehicle.name}</strong>
                 <span>{editingStatusVehicle.plate || editingStatusVehicle.year || "Veiculo corporativo"}</span>
               </div>
+              {statusBlockingAlerts.length > 0 && (
+                <div className="status-lock-notice">
+                  <strong>
+                    {statusBlockingAlerts.length === 1 ? "Aviso vencido em aberto" : `${statusBlockingAlerts.length} avisos vencidos em aberto`}
+                  </strong>
+                  <span>Encerre o servico na tela Avisos para liberar a disponibilidade deste veiculo.</span>
+                </div>
+              )}
               <label>
                 Status do veiculo
-                <select value={editingStatus} onChange={(event) => setEditingStatus(event.target.value as VehicleStatus)} autoFocus>
+                <select
+                  value={editingStatus}
+                  onChange={(event) => setEditingStatus(event.target.value as VehicleStatus)}
+                  disabled={statusBlockingAlerts.length > 0}
+                  autoFocus
+                >
                   <option value="disponivel">Disponivel</option>
                   <option value="bloqueado">Bloqueado</option>
                   <option value="em_manutencao">Em manutencao</option>
@@ -638,7 +672,11 @@ export function VehicleManagementScreen({ company, vehicles, alerts, onCreateAle
               <p className="org-message">Reservado, em uso e atrasado sao definidos automaticamente pelas reservas e viagens do veiculo.</p>
               <div className="km-dialog-actions">
                 <button className="secondary action-button" disabled={busy} onClick={() => setEditingStatusVehicle(null)}>Cancelar</button>
-                <button className="primary action-button" disabled={busy} onClick={() => saveVehicleStatus(editingStatusVehicle)}>
+                <button
+                  className="primary action-button"
+                  disabled={busy || statusBlockingAlerts.length > 0}
+                  onClick={() => saveVehicleStatus(editingStatusVehicle)}
+                >
                   {busy ? "Salvando..." : "Salvar"}
                 </button>
               </div>
@@ -673,7 +711,7 @@ export function VehicleManagementScreen({ company, vehicles, alerts, onCreateAle
                       <span>{historyKmLabel(item.odometerKm)}</span>
                       {item.cost !== undefined && <span>{money(item.cost)}</span>}
                     </div>
-                    {(item.cloudFileData || item.cloudImageData) ? <button type="button" className="history-proof-link" onClick={() => void openStoredAttachment(item.cloudFileData || item.cloudImageData, item.fileName || "comprovante")}><IconFile className="vehicle-action-icon" />Abrir comprovante</button> : <span className="history-proof-missing">Comprovante nao anexado</span>}
+                    {(item.cloudFileData || item.cloudImageData) ? <button type="button" className="history-proof-link" onClick={() => openAttachment(item.cloudFileData || item.cloudImageData, item.fileName || "comprovante")}><IconFile className="vehicle-action-icon" />Abrir comprovante</button> : <span className="history-proof-missing">Comprovante nao anexado</span>}
                   </article>
                 ))}
                 {historyItems.length === 0 && (
@@ -758,6 +796,7 @@ export function VehicleManagementScreen({ company, vehicles, alerts, onCreateAle
           </div>
         </div>
       )}
+      {attachmentViewer}
     </section>
   );
 }
@@ -780,6 +819,7 @@ function DocFilePreview({ file, url }: { file: File; url: string }) {
 
 function DocListItem({ item }: { item: VehicleHistoryItem }) {
   const [preview, setPreview] = useState<{ url: string; type: string } | null>(null);
+  const { openAttachment, attachmentViewer } = useAttachmentViewer();
 
   useEffect(() => {
     let objectUrl: string | null = null;
@@ -813,17 +853,17 @@ function DocListItem({ item }: { item: VehicleHistoryItem }) {
       <button
         type="button"
         className="secondary action-button"
-        onClick={async () => {
-          if (item.cloudImageData) {
-            window.open(item.cloudImageData, "_blank", "noopener,noreferrer");
+        onClick={() => {
+          if (preview) {
+            openAttachment(preview.url, item.title, preview.type);
             return;
           }
-          const opened = item.localFileKey ? await openLocalVehicleFile(item.localFileKey) : false;
-          if (!opened) window.alert("Este documento local nao esta salvo neste navegador.");
+          window.alert("Este documento local nao esta salvo neste navegador.");
         }}
       >
         Abrir
       </button>
+      {attachmentViewer}
     </article>
   );
 }
@@ -839,7 +879,9 @@ function formatKmInput(value: string): string {
 }
 
 function formatKmDisplay(value?: number): string {
-  if (!value) return "Editar KM";
+  // O slot e de valor, nao de acao: sem odometro cadastrado ele lia "Editar KM", que agora
+  // esta no botao ao lado do numero.
+  if (!value) return "Nao informado";
   return `${new Intl.NumberFormat("pt-BR").format(value)} km`;
 }
 

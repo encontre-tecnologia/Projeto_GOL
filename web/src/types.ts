@@ -14,9 +14,6 @@ export type Company = {
   ownerUid?: string;
   publicCalendarToken?: string;
   publicCalendarEnabled?: boolean;
-  speedLimitKmh?: number;
-  speedToleranceKmh?: number;
-  speedMinimumSeconds?: number;
 };
 
 export type MemberInvite = {
@@ -40,7 +37,6 @@ export type Vehicle = {
   status: VehicleStatus;
   odometerKm?: number;
   fipeValue?: number;
-  saleSuggestion?: number;
   fipeLabel?: string;
   maxConcurrentReservations?: number;
 };
@@ -56,7 +52,12 @@ export type Reservation = {
   tripEndedAt?: Date | null;
   pickupOdometerKm?: number;
   returnOdometerKm?: number;
+  pickupSignature?: string;
+  returnSignature?: string;
+  createdByUid?: string;
+  createdByEmail?: string;
   status?: string;
+  origin?: string;
   destination?: string;
 };
 
@@ -71,10 +72,17 @@ export type Trip = {
   odometerEndKm?: number;
   startedAt?: Date | null;
   endedAt?: Date | null;
+  origin?: string;
   destination?: string;
   reservationId?: string;
   pickupSignature?: string;
   returnSignature?: string;
+  trackingStatus?: string;
+  trackingNeedsReview?: boolean;
+  trackingBatteryPercent?: number;
+  lastLatitude?: number;
+  lastLongitude?: number;
+  trackingLastLocationAt?: Date | null;
 };
 
 export type SpeedEvent = {
@@ -91,6 +99,20 @@ export type SpeedEvent = {
   latitude?: number;
   longitude?: number;
   accuracyMeters?: number;
+  occurredAt?: Date | null;
+};
+
+export type TrackingEvent = {
+  id: string;
+  tripId?: string;
+  reservationId?: string;
+  vehicleId?: string;
+  vehicleName?: string;
+  driverName?: string;
+  status?: string;
+  previousStatus?: string;
+  batteryPercent?: number;
+  lastLocationAt?: Date | null;
   occurredAt?: Date | null;
 };
 
@@ -123,6 +145,7 @@ export type CorporateAlert = {
   triggerReason?: string;
 };
 
+
 export type VehicleHistoryItem = {
   id: string;
   vehicleId: string;
@@ -150,6 +173,7 @@ export type FleetSnapshot = {
   reservations: Reservation[];
   trips: Trip[];
   speedEvents: SpeedEvent[];
+  trackingEvents: TrackingEvent[];
   maintenanceEvents: MaintenanceEvent[];
   alerts: CorporateAlert[];
 };

@@ -1,6 +1,7 @@
 import type { Trip } from "../types";
 import { shortDate } from "../lib/dates";
 import { number } from "../lib/format";
+import { tripDistanceKm } from "../lib/consumption";
 import { IconClock, IconGauge, IconRoute, IconUsers } from "./NavIcons";
 
 type TripBoardProps = {
@@ -33,6 +34,11 @@ function elapsedLabel(startedAt?: Date | null, endedAt?: Date | null): string {
 
 function displayStatus(status?: string): string {
   return tripStatusLabel[status || ""] || status || "Em andamento";
+}
+
+function distanceLabel(trip: Trip): string {
+  const distance = tripDistanceKm(trip);
+  return typeof distance === "number" ? number(distance, " km") : "No fim da viagem";
 }
 
 function shortVehicleName(name?: string, max = 40): string {
@@ -95,9 +101,14 @@ export function TripBoard({ trips, onDeleteTrip }: TripBoardProps) {
                         <dt><IconRoute />Destino</dt>
                         <dd>{trip.destination || "Nao informado"}</dd>
                       </div>
+                      {/*
+                        * Sem GPS, a distancia nasce da diferenca de odometro, e ela so existe depois
+                        * da devolucao. Antes isso vinha de gpsDistanceKm e toda viagem aberta exibia
+                        * "0 km" — um numero que parecia medido e nao era.
+                        */}
                       <div className="trip-detail-distance">
                         <dt><IconGauge />Distancia</dt>
-                        <dd>{number(trip.gpsDistanceKm, " km")}</dd>
+                        <dd>{distanceLabel(trip)}</dd>
                       </div>
                     </dl>
                   </article>

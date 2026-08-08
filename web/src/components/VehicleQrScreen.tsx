@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import QRCode from "qrcode";
-import { IconQr } from "./NavIcons";
+import { IconPrint, IconQr } from "./NavIcons";
 import type { Company, Vehicle } from "../types";
 
 function vehicleQrValue(company: Company | null, vehicle: Vehicle): string {
@@ -18,6 +18,7 @@ export function VehicleQrScreen({ company, vehicles }: { company: Company | null
   const [selectedVehicleId, setSelectedVehicleId] = useState("");
   const [qrImages, setQrImages] = useState<Record<string, string>>({});
   const selectedVehicle = vehicles.find((vehicle) => vehicle.id === selectedVehicleId) || vehicles[0];
+  const printDate = new Intl.DateTimeFormat("pt-BR", { dateStyle: "long" }).format(new Date());
 
   useEffect(() => {
     if (!vehicles.length) return;
@@ -88,7 +89,11 @@ export function VehicleQrScreen({ company, vehicles }: { company: Company | null
           <p className="eyebrow">QR Code</p>
           <h2>QR dos veiculos</h2>
         </div>
-        <button className="secondary action-button" onClick={printQr}>Imprimir todos</button>
+        <button className="qr-bulk-print-button" type="button" onClick={printQr} title="Imprimir uma folha com todos os QR Codes">
+          <IconPrint />
+          <span>Imprimir QR Codes</span>
+          <small>{vehicles.length}</small>
+        </button>
       </div>
 
       <div className="qr-layout">
@@ -123,6 +128,16 @@ export function VehicleQrScreen({ company, vehicles }: { company: Company | null
         )}
       </div>
 
+      <div className="qr-print-sheet-header" aria-hidden="true">
+        <div>
+          <strong>Zellu Frotas</strong>
+          <span>{company?.name || "Frota corporativa"}</span>
+        </div>
+        <div>
+          <strong>QR Codes dos veículos</strong>
+          <span>Gerado em {printDate}</span>
+        </div>
+      </div>
       <div className="qr-grid">
         {vehicles.map((vehicle) => (
           <article className="qr-print-card" key={vehicle.id}>

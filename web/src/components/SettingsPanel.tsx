@@ -5,18 +5,12 @@ import type { Company } from "../types";
 
 export function SettingsPanel({ company }: { company: Company | null }) {
   const [fleetName, setFleetName] = useState(company?.name || "");
-  const [speedLimitKmh, setSpeedLimitKmh] = useState(String(company?.speedLimitKmh || 100));
-  const [speedToleranceKmh, setSpeedToleranceKmh] = useState(String(company?.speedToleranceKmh || 10));
-  const [speedMinimumSeconds, setSpeedMinimumSeconds] = useState(String(company?.speedMinimumSeconds || 15));
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
 
   useEffect(() => {
     setFleetName(company?.name || "");
-    setSpeedLimitKmh(String(company?.speedLimitKmh || 100));
-    setSpeedToleranceKmh(String(company?.speedToleranceKmh || 10));
-    setSpeedMinimumSeconds(String(company?.speedMinimumSeconds || 15));
-  }, [company?.name, company?.speedLimitKmh, company?.speedToleranceKmh, company?.speedMinimumSeconds]);
+  }, [company?.name]);
 
   async function saveSettings() {
     if (!company) return;
@@ -31,9 +25,6 @@ export function SettingsPanel({ company }: { company: Company | null }) {
     try {
       await setDoc(doc(getFirebaseDb(), "companies", company.id), {
         name: nextName,
-        speedLimitKmh: clampNumber(speedLimitKmh, 40, 160, 100),
-        speedToleranceKmh: clampNumber(speedToleranceKmh, 0, 40, 10),
-        speedMinimumSeconds: clampNumber(speedMinimumSeconds, 5, 120, 15),
         updatedAt: serverTimestamp(),
       }, { merge: true });
       setMessage("Configuracoes da frota atualizadas.");
@@ -70,31 +61,6 @@ export function SettingsPanel({ company }: { company: Company | null }) {
         </div>
       </article>
 
-      <article className="organization-card settings-card">
-        <div className="organization-card-head">
-          <div>
-            <p className="eyebrow">Infracoes</p>
-            <h3>Limite de velocidade</h3>
-          </div>
-        </div>
-
-        <div className="settings-form settings-form-speed">
-          <label>
-            Limite padrao
-            <input inputMode="numeric" value={speedLimitKmh} onChange={(event) => setSpeedLimitKmh(event.target.value.replace(/\D/g, ""))} placeholder="100" />
-          </label>
-          <label>
-            Tolerancia
-            <input inputMode="numeric" value={speedToleranceKmh} onChange={(event) => setSpeedToleranceKmh(event.target.value.replace(/\D/g, ""))} placeholder="10" />
-          </label>
-          <label>
-            Tempo minimo
-            <input inputMode="numeric" value={speedMinimumSeconds} onChange={(event) => setSpeedMinimumSeconds(event.target.value.replace(/\D/g, ""))} placeholder="15" />
-          </label>
-        </div>
-        <p className="settings-help">O excesso so e registrado quando a velocidade passa do limite + tolerancia pelo tempo minimo. Ex.: 100 km/h + 10 por 15s.</p>
-      </article>
-
       <div className="settings-actions">
         <span>Somente administradores podem alterar estas preferencias.</span>
         <button className="primary action-button" disabled={busy || !company} onClick={saveSettings}>
@@ -105,10 +71,4 @@ export function SettingsPanel({ company }: { company: Company | null }) {
       {message && <p className="org-message">{message}</p>}
     </section>
   );
-}
-
-function clampNumber(value: string, min: number, max: number, fallback: number) {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return fallback;
-  return Math.min(max, Math.max(min, Math.round(parsed)));
 }

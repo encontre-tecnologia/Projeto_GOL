@@ -8,7 +8,11 @@ import {
 } from "firebase/auth";
 import { getFirebaseAuth, googleProvider, isFirebaseConfigured } from "../firebase";
 
-export function AuthPanel() {
+type AuthPanelProps = {
+  accessError?: string;
+};
+
+export function AuthPanel({ accessError = "" }: AuthPanelProps) {
   const [mode, setMode] = useState<"entrar" | "criar">("entrar");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -64,7 +68,7 @@ export function AuthPanel() {
     <section className="auth-card">
       <p className="eyebrow">Dashboard corporativo</p>
       <h1>Zellu Frotas</h1>
-      <p>Entre com a mesma identidade Firebase usada no ecossistema Zellu.</p>
+      <p>Entre com a mesma identidade Firebase usada no ecossistema Zellu. Para criar frota propria, a conta precisa ter plano Frota ou Enterprise; convidados entram pela empresa que liberou o acesso.</p>
       <div className="segmented">
         <button className={mode === "entrar" ? "active" : ""} onClick={() => setMode("entrar")}>
           Entrar
@@ -86,7 +90,7 @@ export function AuthPanel() {
           onChange={(event) => setPassword(event.target.value)}
         />
       </label>
-      {error && <p className="error">{error}</p>}
+      {(error || accessError) && <p className="error">{error || accessError}</p>}
       <button className="primary" disabled={busy || !email || password.length < 6} onClick={submit}>
         {busy ? "Aguarde..." : mode === "entrar" ? "Entrar" : "Criar acesso"}
       </button>

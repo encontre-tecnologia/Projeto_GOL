@@ -1,10 +1,11 @@
-import { addDoc, collection, deleteDoc, doc, limit, onSnapshot, query, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
+import { addDoc, collection, deleteDoc, deleteField, doc, limit, onSnapshot, query, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
 import { useEffect, useMemo, useState } from "react";
 import { getFirebaseDb } from "../firebase";
-import { runMaintenanceCheck } from "../lib/maintenance";
+import { isAlertOverdue } from "../lib/alerts";
+import { reportMaintenanceCheck } from "../lib/maintenance";
 import { money } from "../lib/format";
 import { prepareRecordAttachmentForFirestore } from "../lib/firestoreImages";
-import { openStoredAttachment } from "../lib/openStoredAttachment";
+import { useAttachmentViewer } from "./AttachmentViewer";
 import type { Company, CorporateAlert, Vehicle, VehicleHistoryItem } from "../types";
 import { IconBell, IconCar, IconClock, IconEdit, IconFile, IconGauge, IconTag, IconTrash } from "./NavIcons";
 
@@ -129,8 +130,10 @@ export function CorporateAlertsScreen({ company, vehicles, alerts, memberRole, i
           estimatedCost: Number.isFinite(cost) ? cost : 0,
           createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
         });
-        const maintenance = await runMaintenanceCheck(company.id);
-        if (maintenance?.blockedVehicles) setNotice("Aviso criado e o veiculo foi bloqueado porque um limite ja foi atingido.");
+        setNotice("Aviso criado.");
+        reportMaintenanceCheck(company.id, (result) => {
+          if (result.blockedVehicles) setNotice("Aviso criado e o veiculo foi bloqueado porque um limite ja foi atingido.");
+        });
       }
       setTitle(""); setDescription(""); setVehicleId(""); setMaintenanceType("Revisao"); setPriority("media"); setDueDate(""); setDueTime("09:00"); setDueOdometerKm(""); setEstimatedCost(""); setRecordFile(null);
     } catch (reason) {
@@ -163,12 +166,29 @@ export function CorporateAlertsScreen({ company, vehicles, alerts, memberRole, i
     try {
       if (editingAlert) {
         if (!editDate) throw new Error("Informe a data limite do aviso.");
+        const editado: CorporateAlert = {
+          ...editingAlert,
+          dueDate: new Date(`${editDate}T12:00:00`),
+          dueTime: editTime,
+          dueOdometerKm: Number(editKm.replace(/\D/g, "")) || 0,
+        };
+        /*
+         * `triggerReason` e a foto do motivo que bloqueou as reservas ("Prazo atingido"). Adiar o
+         * prazo nao limpava esse campo, entao o aviso seguia mostrando "Reservas bloqueadas: Prazo
+         * atingido" com uma data futura no lado — o card se contradizia.
+         */
+        const aindaVencido = isAlertOverdue(editado, vehicles.find((item) => item.id === editingAlert.vehicleId));
         await updateDoc(doc(getFirebaseDb(), "companies", company.id, "alerts", editingAlert.id), {
-          title: editTitle.trim(), description: editNotes.trim(), dueDate: new Date(`${editDate}T12:00:00`), dueTime: editTime,
-          dueOdometerKm: Number(editKm.replace(/\D/g, "")) || 0, estimatedCost: Number(editCost.replace(/\D/g, "")) / 100 || 0, updatedAt: serverTimestamp(),
+          title: editTitle.trim(), description: editNotes.trim(), dueDate: editado.dueDate, dueTime: editTime,
+          dueOdometerKm: editado.dueOdometerKm, estimatedCost: Number(editCost.replace(/\D/g, "")) / 100 || 0, updatedAt: serverTimestamp(),
+          ...(aindaVencido ? {} : { triggeredAt: deleteField(), triggerReason: deleteField() }),
         });
-        await runMaintenanceCheck(company.id);
         setEditingAlert(null); setNotice("Aviso atualizado.");
+        reportMaintenanceCheck(company.id, (result) => {
+          if (result.blockedVehicles || result.reopenedVehicles) {
+            setNotice("Aviso atualizado. A disponibilidade dos veiculos foi revista com o novo prazo.");
+          }
+        });
       } else if (editingRecord) {
         const attachment = editFile ? await prepareRecordAttachmentForFirestore(editFile) : null;
         await updateDoc(doc(getFirebaseDb(), "companies", company.id, "vehicleHistory", editingRecord.id), {
@@ -204,9 +224,13 @@ export function CorporateAlertsScreen({ company, vehicles, alerts, memberRole, i
       await updateDoc(doc(getFirebaseDb(), "companies", company.id, "alerts", closingAlert.id), {
         status: "resolvido", resolvedAt: serverTimestamp(), resolutionRecordId: recordRef.id, updatedAt: serverTimestamp(),
       });
-      const maintenance = await runMaintenanceCheck(company.id);
       setClosingAlert(null);
-      setNotice(maintenance?.reopenedVehicles ? "Aviso concluido, registrado no historico e veiculo liberado." : "Aviso concluido e transformado em registro do veiculo.");
+      setNotice("Aviso concluido e transformado em registro do veiculo.");
+      reportMaintenanceCheck(company.id, (result) => {
+        if (result.reopenedVehicles) {
+          setNotice("Aviso concluido, registrado no historico e veiculo liberado.");
+        }
+      });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Nao foi possivel concluir o aviso.");
     } finally {
@@ -220,12 +244,12 @@ export function CorporateAlertsScreen({ company, vehicles, alerts, memberRole, i
     setNotice("");
     try {
       await deleteDoc(doc(getFirebaseDb(), "companies", company.id, "alerts", alert.id));
-      const maintenance = await runMaintenanceCheck(company.id);
-      if (maintenance?.reopenedVehicles) {
-        setNotice("Aviso apagado e veiculo liberado. As reservas suspensas foram reativadas.");
-      } else {
-        setNotice("Aviso apagado. O veiculo continua bloqueado apenas se houver outro aviso vencido ou limite de KM atingido.");
-      }
+      setNotice("Aviso apagado. O veiculo continua bloqueado apenas se houver outro aviso vencido ou limite de KM atingido.");
+      reportMaintenanceCheck(company.id, (result) => {
+        if (result.reopenedVehicles) {
+          setNotice("Aviso apagado e veiculo liberado. As reservas suspensas foram reativadas.");
+        }
+      });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Nao foi possivel apagar o aviso.");
     }
@@ -250,7 +274,7 @@ export function CorporateAlertsScreen({ company, vehicles, alerts, memberRole, i
         <div className="section-heading"><h3 className="alert-list-heading">{listMode === "alert" ? <IconClock /> : <IconFile />}{listMode === "alert" ? "Em aberto" : "Registros realizados"}</h3><span>{listMode === "alert" ? openAlerts.length : visibleRecords.length} {listMode === "alert" ? "aviso(s)" : "registro(s)"}</span></div>
         <div className="alert-entry-mode alert-list-mode" role="group" aria-label="Itens exibidos"><button type="button" className={listMode === "alert" ? "is-active" : ""} onClick={() => setListMode("alert")}>Avisos</button><button type="button" className={listMode === "record" ? "is-active" : ""} onClick={() => setListMode("record")}>Registros</button></div>
         <div className="alert-filter-grid"><label className="alert-filter-control">Veiculo exibido<select value={filterVehicleId} onChange={(event) => setFilterVehicleId(event.target.value)}><option value="">Todos os veiculos</option>{vehicles.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicle.name}</option>)}</select></label>{listMode === "alert" && <label className="alert-filter-control">Prioridade<select value={filterPriority} onChange={(event) => setFilterPriority(event.target.value)}><option value="">Todas as prioridades</option><option value="baixa">Baixa</option><option value="media">Media</option><option value="alta">Alta</option><option value="critica">Critica</option></select></label>}<label className="alert-filter-control">Categoria<select value={filterMaintenanceType} onChange={(event) => setFilterMaintenanceType(event.target.value)}><option value="">Todas as categorias</option>{maintenanceTypes.map((type) => <option key={type} value={type}>{type}</option>)}</select></label></div>
-        {listMode === "alert" ? (openAlerts.length === 0 ? <p className="empty">Nenhum aviso corporativo em aberto para estes filtros.</p> : openAlerts.map((alert) => <AlertRow key={alert.id} alert={alert} onEdit={canManage ? openAlertEditor : undefined} onResolve={canManage ? openResolveAlert : undefined} onRemove={canManage ? removeAlert : undefined} />)) : (visibleRecords.length === 0 ? <p className="empty">Nenhum registro encontrado para estes filtros.</p> : visibleRecords.map((record) => <RecordRow key={record.id} record={record} onEdit={canManage ? openRecordEditor : undefined} />))}
+        {listMode === "alert" ? (openAlerts.length === 0 ? <p className="empty">Nenhum aviso corporativo em aberto para estes filtros.</p> : openAlerts.map((alert) => <AlertRow key={alert.id} alert={alert} isOverdue={isAlertOverdue(alert, vehicles.find((item) => item.id === alert.vehicleId))} onEdit={canManage ? openAlertEditor : undefined} onResolve={canManage ? openResolveAlert : undefined} onRemove={canManage ? removeAlert : undefined} />)) : (visibleRecords.length === 0 ? <p className="empty">Nenhum registro encontrado para estes filtros.</p> : visibleRecords.map((record) => <RecordRow key={record.id} record={record} onEdit={canManage ? openRecordEditor : undefined} />))}
       </div>
     </div>
     {resolvedAlerts.length > 0 && <div className="alert-resolved-panel"><div className="section-heading"><h3>Resolvidos</h3><span>{resolvedAlerts.length} aviso(s)</span></div>{resolvedAlerts.map((alert) => <AlertRow key={alert.id} alert={alert} onRemove={canManage ? removeAlert : undefined} />)}</div>}
@@ -259,7 +283,7 @@ export function CorporateAlertsScreen({ company, vehicles, alerts, memberRole, i
   </section>;
 }
 
-function AlertRow({ alert, onEdit, onResolve, onRemove }: { alert: CorporateAlert; onEdit?: (alert: CorporateAlert) => void; onResolve?: (alert: CorporateAlert) => void; onRemove?: (alert: CorporateAlert) => void }) {
+function AlertRow({ alert, isOverdue = false, onEdit, onResolve, onRemove }: { alert: CorporateAlert; isOverdue?: boolean; onEdit?: (alert: CorporateAlert) => void; onResolve?: (alert: CorporateAlert) => void; onRemove?: (alert: CorporateAlert) => void }) {
   const dueLabel = alert.dueDate ? `${alert.dueDate.toLocaleDateString("pt-BR")} - ${alert.dueTime || "09:00"}` : "Sem data definida";
   const kmLabel = alert.dueOdometerKm ? `${alert.dueOdometerKm.toLocaleString("pt-BR")} km` : "Sem KM limite";
 
@@ -282,7 +306,11 @@ function AlertRow({ alert, onEdit, onResolve, onRemove }: { alert: CorporateAler
           <span><b><IconGauge className="alert-meta-icon" />KM limite</b>{kmLabel}</span>
           {alert.estimatedCost ? <span><b><IconTag className="alert-meta-icon" />Valor previsto</b>{money(alert.estimatedCost)}</span> : null}
         </div>
-        {alert.triggerReason && <p className="alert-trigger-reason">Reservas bloqueadas: {alert.triggerReason}</p>}
+        {/*
+          * Exige que o aviso esteja vencido de verdade, e nao so que o campo exista: avisos gravados
+          * antes desta correcao carregam um `triggerReason` de um prazo que ja foi adiado.
+          */}
+        {isOverdue && alert.triggerReason && <p className="alert-trigger-reason">Reservas bloqueadas: {alert.triggerReason}</p>}
       </div>
       {(onEdit || onResolve || onRemove) && (
         <div className="corporate-alert-actions">
@@ -296,6 +324,7 @@ function AlertRow({ alert, onEdit, onResolve, onRemove }: { alert: CorporateAler
 }
 
 function RecordRow({ record, onEdit }: { record: VehicleHistoryItem; onEdit?: (record: VehicleHistoryItem) => void }) {
+  const { openAttachment, attachmentViewer } = useAttachmentViewer();
   const dateLabel = record.serviceDate ? record.serviceDate.toLocaleDateString("pt-BR") : "Sem data";
   return (
     <article className="corporate-alert-row corporate-record-row">
@@ -314,9 +343,10 @@ function RecordRow({ record, onEdit }: { record: VehicleHistoryItem; onEdit?: (r
         </div>
       </div>
       <div className="corporate-alert-actions">
-        {record.cloudFileData && <button type="button" className="alert-action-btn alert-action-proof" onClick={() => void openStoredAttachment(record.cloudFileData, record.fileName || "comprovante")}><IconFile className="alert-action-icon" />Comprovante</button>}
+        {record.cloudFileData && <button type="button" className="alert-action-btn alert-action-proof" onClick={() => openAttachment(record.cloudFileData, record.fileName || "comprovante")}><IconFile className="alert-action-icon" />Comprovante</button>}
         {onEdit && <button type="button" className="alert-action-btn alert-action-edit" onClick={() => onEdit(record)}><IconEdit className="alert-action-icon" />Editar</button>}
       </div>
+      {attachmentViewer}
     </article>
   );
 }

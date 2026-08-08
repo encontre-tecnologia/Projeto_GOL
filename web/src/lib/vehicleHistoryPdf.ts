@@ -11,6 +11,9 @@ type Input = {
 const currency = (value: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
 const dateLabel = (value?: Date | null) => value ? value.toLocaleDateString("pt-BR") : "Sem data";
 const kmLabel = (value?: number) => value ? `${new Intl.NumberFormat("pt-BR").format(value)} km` : "Nao informado";
+const attachmentData = (item: VehicleHistoryItem) => item.cloudFileData || item.cloudImageData || "";
+const isImageAttachment = (item: VehicleHistoryItem, data: string) => Boolean(data && (item.fileType?.startsWith("image/") || data.startsWith("data:image/")));
+const imageFormat = (type?: string) => type?.includes("png") ? "PNG" : type?.includes("webp") ? "WEBP" : "JPEG";
 
 export function downloadVehicleHistoryPdf({ vehicle, companyName, history, upcomingAlerts }: Input) {
   const pdf = new jsPDF({ unit: "mm", format: "a4" });
@@ -101,9 +104,14 @@ export function downloadVehicleHistoryPdf({ vehicle, companyName, history, upcom
     history.forEach((item) => {
       const description = item.notes || "Servico registrado sem observacoes adicionais.";
       const lines = pdf.splitTextToSize(description, pageWidth - margin * 2);
-      nextPage(22 + lines.length * 4);
+      const attachment = attachmentData(item);
+      const imageAttachment = isImageAttachment(item, attachment);
+      // Reserve the full image area plus the label and bottom breathing room.
+      const attachmentHeight = imageAttachment ? 72 : attachment ? 18 : 0;
+      const cardHeight = 19 + lines.length * 4 + attachmentHeight;
+      nextPage(22 + lines.length * 4 + attachmentHeight);
       pdf.setDrawColor(203, 213, 225);
-      pdf.roundedRect(margin, y - 4, pageWidth - margin * 2, 19 + lines.length * 4, 2, 2, "S");
+      pdf.roundedRect(margin, y - 4, pageWidth - margin * 2, cardHeight, 2, 2, "S");
       pdf.setFont("helvetica", "bold");
       pdf.setTextColor(15, 23, 42);
       pdf.setFontSize(11);
@@ -115,7 +123,39 @@ export function downloadVehicleHistoryPdf({ vehicle, companyName, history, upcom
       pdf.text(`Data: ${dateLabel(item.serviceDate || item.createdAt)}  |  KM: ${kmLabel(item.odometerKm)}  |  Valor: ${currency(item.cost || 0)}`, margin + 4, y);
       y += 6;
       pdf.text(lines, margin + 4, y);
-      y += lines.length * 4 + 9;
+      y += lines.length * 4 + 7;
+
+      if (imageAttachment) {
+        pdf.setFont("helvetica", "bold");
+        pdf.setFontSize(8);
+        pdf.setTextColor(71, 85, 105);
+        pdf.text("COMPROVANTE ANEXADO", margin + 4, y);
+        y += 4;
+        try {
+          const image = pdf.getImageProperties(attachment);
+          const maxWidth = pageWidth - margin * 2 - 8;
+          const maxHeight = 48;
+          const scale = Math.min(maxWidth / image.width, maxHeight / image.height, 1);
+          const width = image.width * scale;
+          const height = image.height * scale;
+          pdf.addImage(attachment, imageFormat(item.fileType), margin + 4, y, width, height, undefined, "FAST");
+          y += height + 5;
+        } catch {
+          pdf.setFont("helvetica", "normal");
+          pdf.setFontSize(8);
+          pdf.text("Nao foi possivel visualizar a imagem no PDF.", margin + 4, y + 4);
+          y += 9;
+        }
+      } else if (attachment) {
+        pdf.setFont("helvetica", "normal");
+        pdf.setFontSize(8);
+        pdf.setTextColor(71, 85, 105);
+        pdf.text(`COMPROVANTE ANEXADO: ${item.fileName || "arquivo PDF"} (${item.fileType || "application/pdf"})`, margin + 4, y + 4);
+        y += 11;
+      } else {
+        y += 2;
+      }
+      y += 5;
     });
   }
 
